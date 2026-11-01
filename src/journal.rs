@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -142,6 +142,82 @@ pub struct ReplayState {
     pub tool_calls: Vec<ToolCall>,
     pub observations: Vec<ToolObservation>,
     pub checkpoint: Option<RuntimeCheckpoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RunHistoryEntry {
+    pub run_id: Option<Uuid>,
+    pub path: PathBuf,
+    pub size_bytes: u64,
+    pub modified_unix_ms: u128,
+    pub stop_reason: Option<StopReason>,
+}
+
+pub fn scan_history(
+    journal_dir: impl AsRef<Path>,
+    limit: usize,
+) -> Result<Vec<RunHistoryEntry>, std::io::Error> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(journal_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        if !metadata.is_file() {
+            continue;
+        }
+        let (run_id, stop_reason) = read_history_tail(&path)?;
+        let modified_unix_ms = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .unwrap_or_default()
+            .as_millis();
+        entries.push(RunHistoryEntry {
+            run_id,
+            path,
+            size_bytes: metadata.len(),
+            modified_unix_ms,
+            stop_reason,
+        });
+    }
+    entries.sort_by(|left, right| {
+        right
+            .modified_unix_ms
+            .cmp(&left.modified_unix_ms)
+            .then_with(|| right.path.cmp(&left.path))
+    });
+    entries.truncate(limit.min(200));
+    Ok(entries)
+}
+
+fn read_history_tail(path: &Path) -> Result<(Option<Uuid>, Option<StopReason>), std::io::Error> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    let window = length.min(65_536);
+    file.seek(SeekFrom::Start(length - window))?;
+    let mut bytes = Vec::with_capacity(window as usize);
+    file.take(window).read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut run_id = None;
+    let mut stop_reason = None;
+    for line in text.lines().rev() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(event) = serde_json::from_str::<JournalEvent>(line) else {
+            continue;
+        };
+        run_id = Some(event.run_id);
+        if let JournalEventKind::RunStopped { reason } = event.event {
+            stop_reason = Some(reason);
+        }
+        break;
+    }
+    Ok((run_id, stop_reason))
 }
 
 pub fn read_events(path: impl AsRef<Path>) -> Result<Vec<JournalEvent>, JournalReadError> {
@@ -613,5 +689,29 @@ mod tests {
                 .iter()
                 .any(|issue| issue.contains("unknown claim id 'missing'"))
         );
+    }
+
+    #[test]
+    fn history_scans_tail_without_loading_full_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_id = Uuid::new_v4();
+        let path = dir.path().join("completed.jsonl");
+        let mut journal = Journal::create(&path, run_id).unwrap();
+        journal
+            .append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("answer", PathBuf::from(".")),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(JournalEventKind::RunStopped {
+                reason: StopReason::BudgetExhausted,
+            })
+            .unwrap();
+        drop(journal);
+        let history = scan_history(dir.path(), 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].run_id, Some(run_id));
+        assert_eq!(history[0].stop_reason, Some(StopReason::BudgetExhausted));
     }
 }

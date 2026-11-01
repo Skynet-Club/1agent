@@ -13,6 +13,7 @@
 - Added structured cancellation responses and real slow-provider tests.
 - Added secret-safe `providers` configuration inspection.
 - Added host `status` queries with bounded recent lifecycle history.
+- Added bounded journal-tail history discovery without loading observation bodies.
 
 ## 0.7.0 - 2026-11-01
 

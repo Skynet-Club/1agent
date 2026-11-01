@@ -9,7 +9,7 @@ use first_principles_agent::{
     HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
     ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
     default_registry, load_suite, local_manifest, read_events, remote_manifest, replay_events,
-    run_suite_with_providers,
+    run_suite_with_providers, scan_history,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -112,6 +112,14 @@ enum Command {
     Providers {
         #[arg(long)]
         config: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    History {
+        #[arg(long, default_value = ".journal")]
+        journal_dir: PathBuf,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
         #[arg(long)]
         json: bool,
     },
@@ -514,6 +522,34 @@ async fn main() -> Result<()> {
             } else {
                 println!("Provider configuration (secret values are never loaded):");
                 println!("{}", serde_json::to_string_pretty(&value)?);
+            }
+        }
+        Command::History {
+            journal_dir,
+            limit,
+            json,
+        } => {
+            if limit == 0 || limit > 200 {
+                bail!("--limit must be between 1 and 200");
+            }
+            let history = scan_history(&journal_dir, limit)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&history)?);
+            } else if history.is_empty() {
+                println!("no runs found in {}", journal_dir.display());
+            } else {
+                for entry in history {
+                    println!(
+                        "{} | {:?} | {} bytes | {}",
+                        entry
+                            .run_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "<unknown>".into()),
+                        entry.stop_reason,
+                        entry.size_bytes,
+                        entry.path.display()
+                    );
+                }
             }
         }
         Command::Resume {

@@ -19,6 +19,7 @@ Status: stable stdio host protocol
 - Immediate `duplicate_request` response for an active request id.
 - `providers` command for secret-safe configuration inspection.
 - `status` control message for global counters and per-request lifecycle state.
+- `history` CLI command for recent run discovery from journal tails.
 - Ctrl+C cancellation propagates into the active run.
 - Example request at `examples/host_request.json`.
 
@@ -67,13 +68,14 @@ Status responses include active/completed/cancelled/failed totals and an optiona
 
 | Check | Result |
 |---|---|
-| Unit tests | 43 passed |
+| Unit tests | 44 passed |
 | Real subprocess host request | passed |
 | Invalid JSON followed by a valid request | passed; host survives and continues |
 | Two concurrent requests plus invalid input | passed; all 3 responses correlated correctly |
 | Queue full plus cancel by request id | passed; target cancelled, peer unaffected |
 | Provider inspection with secret environment | passed; env name shown, value absent |
 | Host registry active/terminal state | passed |
+| Journal-tail history discovery | passed |
 | Host result semantic audit | passed |
 | Existing CLI/config/experience/resume/eval suites | passed |
 | Clippy `-D warnings` | passed |
@@ -81,10 +83,10 @@ Status responses include active/completed/cancelled/failed totals and an optiona
 Release artifacts:
 
 ```text
-Linux binary:   fb45d56a4e234d5993696df8cbee6a263b083dc7f08e0dcb935d91562736bf35
-Windows binary: f2b7728e5c22a7c54923a85ac274b46a3418fdb26ead9fa53baf996f7d1b6151
-Linux tar.gz:   a1fab6ec557dba73bd0971cabb30df19eb4eab7d06249c79cd38c470b219c67d
-Windows zip:    133d8f408a56c05c3c57c1fa0a5b3273b385e5603c63aa718e7812df3932f531
+Linux binary:   8138a5bb516abb2bc16789096ef32fef3b848f6a4519f9516737bcea65f5a4da
+Windows binary: 45c8879ebe6c5591dd3d35649c60fce56d3843f6a9e7fbe59b5e352dd66419e6
+Linux tar.gz:   729ace0310b8e3d9d4f0dc1ffc3f4045856c52679f3c164b8932628bb1cce984
+Windows zip:    329f58040e363fb8012e832e42794a0593755967d14ec35325400a46985df84b
 ```
 
 ## Requirement comparison
@@ -100,6 +102,7 @@ Windows zip:    133d8f408a56c05c3c57c1fa0a5b3273b385e5603c63aa718e7812df3932f531
 | Per-request cancellation | implemented |
 | Queue admission errors | implemented |
 | Host status/lifecycle query | implemented with bounded 256-entry recent history |
+| Run-history discovery | implemented with bounded tail reads and 200-entry output cap |
 | Desktop/terminal adapter | pending |
 | Real-provider quality | unverified, no credentials |
 
@@ -110,10 +113,10 @@ Windows zip:    133d8f408a56c05c3c57c1fa0a5b3273b385e5603c63aa718e7812df3932f531
 
 ## Next requirement
 
-Add run-history discovery backed by authoritative journals:
+Persist external request ids into authoritative run journals:
 
-1. List recent completed runs with run id and stop reason.
-2. Resolve request ids from host status to journal paths.
-3. Keep in-memory status disposable and rebuildable from journals.
-4. Bound history scans and avoid loading observation bodies.
-5. Test restart recovery of discoverable terminal history.
+1. Record host request id in the run-start event.
+2. Return journal path from host status for terminal requests.
+3. Preserve compatibility for non-host CLI runs.
+4. Rebuild request-id history from journals after host restart.
+5. Test duplicate request-id reuse after a terminal run.
