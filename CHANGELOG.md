@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.0 - 2026-11-02
+
+- Added frozen gold-set manifest creation and verification.
+- Added suite SHA binding, reviewer cohort, owner, redaction policy and batch assignments.
+- Added manifest self-digest and drift detection.
+- Required gold-set validation for calibration CLI runs.
+- Added prediction rejection outside the frozen case set.
+- Added gold-set manifest digest tests.
+
 ## 0.12.0 - 2026-11-02
 
 - Added `annotate calibrate` for opt-in reliability-gated calibration analysis.

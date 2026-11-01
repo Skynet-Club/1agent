@@ -7,11 +7,12 @@ use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
     CalibrationPrediction, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    ExperienceVerificationInput, HostCommand, HostError, HostRegistry, HostRequestState,
-    HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError,
-    TaskRequest, ToolRegistry, audit_events, default_registry, evaluate_experience_suite,
-    load_suite, local_manifest, read_events, remote_manifest, replay_events,
-    run_suite_with_providers, scan_history,
+    ExperienceVerificationInput, GoldSetManifest, HostCommand, HostError, HostRegistry,
+    HostRequestState, HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget,
+    RuntimeError, TaskRequest, ToolRegistry, audit_events, create_goldset_manifest,
+    default_registry, evaluate_experience_suite, load_suite, local_manifest, read_events,
+    remote_manifest, replay_events, run_suite_with_providers, scan_history,
+    verify_goldset_manifest,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -277,12 +278,38 @@ enum AnnotateCommand {
         store: PathBuf,
         #[arg(long)]
         predictions: PathBuf,
+        #[arg(long)]
+        goldset: PathBuf,
+        #[arg(long)]
+        suite: PathBuf,
         #[arg(long, default_value_t = 600)]
         min_kappa_millis: i32,
         #[arg(long, default_value_t = 20)]
         min_samples: usize,
         #[arg(long)]
         json: bool,
+    },
+    CreateGoldset {
+        #[arg(long)]
+        suite: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        reviewer: Vec<String>,
+        #[arg(long)]
+        redaction_policy: String,
+        #[arg(long, default_value_t = 25)]
+        batch_size: usize,
+    },
+    VerifyGoldset {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        suite: PathBuf,
     },
 }
 
@@ -845,10 +872,18 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
         AnnotateCommand::Calibrate {
             store,
             predictions,
+            goldset,
+            suite,
             min_kappa_millis,
             min_samples,
             json,
         } => {
+            let manifest: GoldSetManifest = serde_json::from_str(
+                &std::fs::read_to_string(&goldset)
+                    .with_context(|| format!("cannot read {}", goldset.display()))?,
+            )
+            .with_context(|| format!("invalid gold-set manifest {}", goldset.display()))?;
+            verify_goldset_manifest(&manifest, suite)?;
             let content = std::fs::read_to_string(&predictions)
                 .with_context(|| format!("cannot read {}", predictions.display()))?;
             let predictions = content
@@ -856,6 +891,13 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
                 .filter(|line| !line.trim().is_empty())
                 .map(serde_json::from_str::<CalibrationPrediction>)
                 .collect::<std::result::Result<Vec<_>, _>>()?;
+            let allowed_cases: std::collections::BTreeSet<_> = manifest.case_ids.iter().collect();
+            if predictions
+                .iter()
+                .any(|prediction| !allowed_cases.contains(&prediction.case_id))
+            {
+                bail!("prediction references a case outside the frozen gold set");
+            }
             let report = AnnotationStore::open(store)?.calibrate(
                 predictions,
                 min_kappa_millis,
@@ -872,6 +914,37 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
                     report.brier_micros
                 );
             }
+        }
+        AnnotateCommand::CreateGoldset {
+            suite,
+            output,
+            version,
+            owner,
+            reviewer,
+            redaction_policy,
+            batch_size,
+        } => {
+            let manifest = create_goldset_manifest(
+                suite,
+                version,
+                owner,
+                reviewer,
+                redaction_policy,
+                batch_size,
+            )?;
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output, serde_json::to_vec_pretty(&manifest)?)?;
+            println!("{}", output.display());
+        }
+        AnnotateCommand::VerifyGoldset { manifest, suite } => {
+            let manifest: GoldSetManifest = serde_json::from_str(
+                &std::fs::read_to_string(&manifest)
+                    .with_context(|| format!("cannot read {}", manifest.display()))?,
+            )?;
+            verify_goldset_manifest(&manifest, suite)?;
+            println!("gold-set manifest verified");
         }
     }
     Ok(())

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::safety::contains_disallowed_control;
 
@@ -78,8 +79,184 @@ pub struct CalibrationReport {
     pub calibration_allowed: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GoldSetBatch {
+    pub batch_id: String,
+    pub case_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GoldSetManifest {
+    pub goldset_version: String,
+    pub suite_id: String,
+    pub suite_sha256: String,
+    pub case_ids: Vec<String>,
+    pub owner: String,
+    pub reviewer_cohort: Vec<String>,
+    pub redaction_policy: String,
+    pub frozen_unix_ms: u128,
+    pub batches: Vec<GoldSetBatch>,
+    pub manifest_sha256: String,
+}
+
 pub struct AnnotationStore {
     path: PathBuf,
+}
+
+pub fn create_goldset_manifest(
+    suite_path: impl AsRef<Path>,
+    goldset_version: String,
+    owner: String,
+    reviewer_cohort: Vec<String>,
+    redaction_policy: String,
+    batch_size: usize,
+) -> Result<GoldSetManifest, AnnotationError> {
+    validate_text(&goldset_version)?;
+    validate_text(&owner)?;
+    validate_text(&redaction_policy)?;
+    if reviewer_cohort.is_empty() || batch_size == 0 {
+        return Err(AnnotationError::InvalidGoldSet(
+            "reviewers and batch size are required".into(),
+        ));
+    }
+    for reviewer in &reviewer_cohort {
+        validate_text(reviewer)?;
+    }
+    let bytes = std::fs::read(suite_path)?;
+    let suite: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let suite_id = suite
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| AnnotationError::InvalidGoldSet("suite name is missing".into()))?
+        .to_string();
+    let cases = suite
+        .get("cases")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| AnnotationError::InvalidGoldSet("suite cases are missing".into()))?;
+    let mut case_ids = Vec::new();
+    for case in cases {
+        let id = case
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| AnnotationError::InvalidGoldSet("case id is missing".into()))?
+            .to_string();
+        validate_text(&id)?;
+        case_ids.push(id);
+    }
+    let unique: BTreeSet<_> = case_ids.iter().collect();
+    if case_ids.is_empty() || unique.len() != case_ids.len() {
+        return Err(AnnotationError::InvalidGoldSet(
+            "case ids must be non-empty and unique".into(),
+        ));
+    }
+    let batches: Vec<GoldSetBatch> = case_ids
+        .chunks(batch_size)
+        .enumerate()
+        .map(|(index, chunk)| GoldSetBatch {
+            batch_id: format!("batch-{}", index + 1),
+            case_ids: chunk.to_vec(),
+        })
+        .collect();
+    let suite_sha256 = hex::encode(Sha256::digest(&bytes));
+    let frozen_unix_ms = now_unix_ms();
+    let digest_material = serde_json::json!({
+        "goldset_version": goldset_version,
+        "suite_id": suite_id,
+        "suite_sha256": suite_sha256,
+        "case_ids": case_ids,
+        "owner": owner,
+        "reviewer_cohort": reviewer_cohort,
+        "redaction_policy": redaction_policy,
+        "frozen_unix_ms": frozen_unix_ms,
+        "batches": batches,
+    });
+    let manifest_sha256 = hex::encode(Sha256::digest(serde_json::to_vec(&digest_material)?));
+    let manifest = GoldSetManifest {
+        goldset_version: digest_material["goldset_version"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        suite_id: digest_material["suite_id"].as_str().unwrap().to_string(),
+        suite_sha256: digest_material["suite_sha256"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        case_ids: digest_material["case_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_string())
+            .collect(),
+        owner: digest_material["owner"].as_str().unwrap().to_string(),
+        reviewer_cohort: digest_material["reviewer_cohort"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_string())
+            .collect(),
+        redaction_policy: digest_material["redaction_policy"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        frozen_unix_ms,
+        batches: digest_material["batches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|batch| GoldSetBatch {
+                batch_id: batch["batch_id"].as_str().unwrap().to_string(),
+                case_ids: batch["case_ids"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_string())
+                    .collect(),
+            })
+            .collect(),
+        manifest_sha256,
+    };
+    Ok(manifest)
+}
+
+pub fn verify_goldset_manifest(
+    manifest: &GoldSetManifest,
+    suite_path: impl AsRef<Path>,
+) -> Result<(), AnnotationError> {
+    let digest_material = serde_json::json!({
+        "goldset_version": manifest.goldset_version,
+        "suite_id": manifest.suite_id,
+        "suite_sha256": manifest.suite_sha256,
+        "case_ids": manifest.case_ids,
+        "owner": manifest.owner,
+        "reviewer_cohort": manifest.reviewer_cohort,
+        "redaction_policy": manifest.redaction_policy,
+        "frozen_unix_ms": manifest.frozen_unix_ms,
+        "batches": manifest.batches,
+    });
+    let actual_manifest_sha = hex::encode(Sha256::digest(serde_json::to_vec(&digest_material)?));
+    if actual_manifest_sha != manifest.manifest_sha256 {
+        return Err(AnnotationError::GoldSetDrift);
+    }
+    let bytes = std::fs::read(suite_path)?;
+    let actual_suite_sha = hex::encode(Sha256::digest(&bytes));
+    if actual_suite_sha != manifest.suite_sha256 {
+        return Err(AnnotationError::GoldSetDrift);
+    }
+    let batch_cases: Vec<_> = manifest
+        .batches
+        .iter()
+        .flat_map(|batch| batch.case_ids.iter().cloned())
+        .collect();
+    let declared: BTreeSet<_> = manifest.case_ids.iter().collect();
+    let batched: BTreeSet<_> = batch_cases.iter().collect();
+    if declared != batched || batch_cases.len() != manifest.case_ids.len() {
+        return Err(AnnotationError::InvalidGoldSet(
+            "batches must cover each case exactly once".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl AnnotationStore {
@@ -375,6 +552,10 @@ pub enum AnnotationError {
     InvalidConfidence,
     #[error("duplicate calibration prediction")]
     DuplicatePrediction,
+    #[error("suite bytes no longer match the frozen gold-set manifest")]
+    GoldSetDrift,
+    #[error("invalid gold-set manifest: {0}")]
+    InvalidGoldSet(String),
 }
 
 #[cfg(test)]
@@ -489,6 +670,37 @@ mod tests {
                 1
             ),
             Err(AnnotationError::InsufficientCalibrationEvidence { .. })
+        ));
+    }
+
+    #[test]
+    fn goldset_manifest_binds_suite_and_batches() {
+        let dir = tempfile::tempdir().unwrap();
+        let suite = dir.path().join("suite.json");
+        std::fs::write(
+            &suite,
+            serde_json::to_vec(&serde_json::json!({
+                "name": "suite-v1",
+                "cases": [{"id":"c1"},{"id":"c2"},{"id":"c3"}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let manifest = create_goldset_manifest(
+            &suite,
+            "1".into(),
+            "owner".into(),
+            vec!["reviewer-a".into(), "reviewer-b".into()],
+            "redact secrets and personal data".into(),
+            2,
+        )
+        .unwrap();
+        assert_eq!(manifest.batches.len(), 2);
+        verify_goldset_manifest(&manifest, &suite).unwrap();
+        std::fs::write(&suite, "{\"name\":\"changed\",\"cases\":[]}").unwrap();
+        assert!(matches!(
+            verify_goldset_manifest(&manifest, &suite),
+            Err(AnnotationError::GoldSetDrift)
         ));
     }
 }
