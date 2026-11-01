@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.22.0` is an executable V0 vertical slice:
+Version `0.23.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -40,10 +40,11 @@ Version `0.22.0` is an executable V0 vertical slice:
 - fresh-target rebuild comparison with a fail-closed reproducibility gate;
 - byte-identical reproducible builds under the documented remapping profile;
 - byte-identical Linux tar.gz and Windows zip archives during consecutive packages;
+- fail-closed external release manifests binding source, toolchain and seven artifacts;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.22.md`](docs/status-v0.22.md).
+[`docs/status-v0.23.md`](docs/status-v0.23.md).
 
 Current V0 assumptions:
 
@@ -96,10 +97,13 @@ cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline
 ./scripts/verify.sh
 ./scripts/verify-reproducible-package.sh
+cargo run --offline -- release verify --manifest dist/1agent-0.23.0-release.json
 ```
 
 The package reproducibility gate performs four complete builds and compares both archives
-byte-for-byte. It validates local repeatability; cross-machine hermeticity is not yet claimed.
+and the manifest byte-for-byte. It also extracts both archives, verifies their checksums and
+compares their contents. It validates local repeatability; cross-machine hermeticity is not yet
+claimed.
 
 The OpenAI-compatible loopback test requires a managed-sandbox exception:
 

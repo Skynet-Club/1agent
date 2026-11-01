@@ -11,10 +11,11 @@ use first_principles_agent::{
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
     OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, RunBudget, RuntimeError,
     TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events, collect_provenance,
-    create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    load_suite, local_manifest, read_events, rebuild_and_compare, remote_manifest, replay_events,
-    run_suite_with_providers, scan_history, verify_goldset_manifest, verify_provenance,
-    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    collect_release_manifest, create_goldset_manifest, create_trust_anchor, default_registry,
+    evaluate_experience_suite, load_suite, local_manifest, read_events, rebuild_and_compare,
+    remote_manifest, replay_events, run_suite_with_providers, scan_history,
+    verify_goldset_manifest, verify_provenance, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -139,6 +140,10 @@ enum Command {
     Provenance {
         #[command(subcommand)]
         command: ProvenanceCommand,
+    },
+    Release {
+        #[command(subcommand)]
+        command: ReleaseCommand,
     },
     Resume {
         #[arg(long)]
@@ -466,6 +471,26 @@ enum ProvenanceCommand {
         target: String,
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReleaseCommand {
+    Manifest {
+        #[arg(long)]
+        package_root: PathBuf,
+        #[arg(long)]
+        linux_archive: PathBuf,
+        #[arg(long)]
+        windows_archive: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        allow_dirty: bool,
+    },
+    Verify {
+        #[arg(long)]
+        manifest: PathBuf,
     },
 }
 
@@ -842,6 +867,9 @@ async fn main() -> Result<()> {
         }
         Command::Provenance { command } => {
             handle_provenance(command)?;
+        }
+        Command::Release { command } => {
+            handle_release(command)?;
         }
         Command::Resume {
             journal,
@@ -1402,6 +1430,44 @@ fn handle_provenance(command: ProvenanceCommand) -> Result<()> {
             if !report.hashes_equal || !report.sizes_equal {
                 bail!("rebuild is not byte-for-byte reproducible");
             }
+        }
+    }
+    Ok(())
+}
+
+fn handle_release(command: ReleaseCommand) -> Result<()> {
+    match command {
+        ReleaseCommand::Manifest {
+            package_root,
+            linux_archive,
+            windows_archive,
+            output,
+            allow_dirty,
+        } => {
+            let parent = output
+                .parent()
+                .context("release manifest output must have a parent directory")?;
+            std::fs::create_dir_all(parent)?;
+            let manifest = collect_release_manifest(
+                package_root,
+                linux_archive,
+                windows_archive,
+                parent,
+                allow_dirty,
+            )?;
+            std::fs::write(&output, serde_json::to_vec_pretty(&manifest)?)?;
+            println!("{}", output.display());
+        }
+        ReleaseCommand::Verify { manifest } => {
+            let content = std::fs::read_to_string(&manifest)
+                .with_context(|| format!("cannot read {}", manifest.display()))?;
+            let manifest_value = serde_json::from_str(&content)
+                .with_context(|| format!("invalid release manifest {}", manifest.display()))?;
+            let parent = manifest
+                .parent()
+                .context("release manifest must have a parent directory")?;
+            verify_release_manifest(&manifest_value, parent)?;
+            println!("release manifest verified");
         }
     }
     Ok(())

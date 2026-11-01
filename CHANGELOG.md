@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.23.0 - 2026-11-02
+
+- Added strict, versioned external release manifests.
+- Bound package version, clean Git revision, Rust toolchain and seven release artifacts.
+- Required complete `SHA256SUMS` coverage for every packaged file.
+- Rejected dirty releases, missing or duplicate roles, path traversal and digest drift.
+- Added `release manifest` and `release verify` CLI commands.
+- Integrated manifest generation into packaging and manifest equality into the release gate.
+- Added archive extraction, checksum, provenance and cross-format content verification.
+
 ## 0.22.0 - 2026-11-02
 
 - Added deterministic provenance timestamps through `SOURCE_DATE_EPOCH`.

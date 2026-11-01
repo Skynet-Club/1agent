@@ -13,6 +13,7 @@ fi
 package_root="$project_dir/dist/1agent-$version"
 linux_archive="$project_dir/dist/1agent-$version-linux-x86_64.tar.gz"
 windows_archive="$project_dir/dist/1agent-$version-windows-x86_64.zip"
+release_manifest="$project_dir/dist/1agent-$version-release.json"
 case "$package_root" in
   "$project_dir"/dist/1agent-*) ;;
   *)
@@ -21,7 +22,7 @@ case "$package_root" in
     ;;
 esac
 rm -rf -- "$package_root"
-rm -f -- "$linux_archive" "$windows_archive"
+rm -f -- "$linux_archive" "$windows_archive" "$release_manifest"
 linux_dir="$package_root/linux-x86_64"
 windows_dir="$package_root/windows-x86_64"
 mkdir -p "$linux_dir" "$windows_dir"
@@ -65,5 +66,12 @@ TZ=UTC find "$package_root" -exec touch -h -t 198001010000 {} +
     | LC_ALL=C sort \
     | TZ=UTC zip -X -D -q "$windows_archive" -@
 )
+
+"$linux_dir/1agent" release manifest \
+  --package-root "$package_root" \
+  --linux-archive "$linux_archive" \
+  --windows-archive "$windows_archive" \
+  --output "$release_manifest" \
+  >/dev/null
 
 echo "$package_root"
