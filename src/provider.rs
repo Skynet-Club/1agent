@@ -785,34 +785,17 @@ impl ModelProvider for OpenAiCompatibleProvider {
             .unwrap_or_default();
 
         let turn = if let Some(calls) = choice.message.tool_calls {
-            let calls = calls
-                .into_iter()
-                .map(|call| {
-                    let arguments =
-                        serde_json::from_str(&call.function.arguments).map_err(|error| {
-                            ProviderError::new(
-                                ProviderErrorCode::InvalidResponse,
-                                format!("tool call arguments are invalid JSON: {error}"),
-                                false,
-                            )
-                        })?;
-                    Ok(ToolCall {
-                        id: call.id,
-                        name: call.function.name,
-                        arguments,
-                    })
-                })
-                .collect::<Result<Vec<_>, ProviderError>>()?;
+            let calls = normalize_tool_calls(calls)?;
             if calls.is_empty() {
                 ModelTurn::Final {
-                    answer: Self::parse_answer(choice.message.content.as_deref().unwrap_or(""))?,
+                    answer: Self::parse_answer(&normalize_content(choice.message.content)?)?,
                 }
             } else {
                 ModelTurn::ToolCalls { calls }
             }
         } else {
             ModelTurn::Final {
-                answer: Self::parse_answer(choice.message.content.as_deref().unwrap_or(""))?,
+                answer: Self::parse_answer(&normalize_content(choice.message.content)?)?,
             }
         };
 
@@ -823,6 +806,78 @@ impl ModelProvider for OpenAiCompatibleProvider {
             usage,
         })
     }
+}
+
+fn normalize_content(content: Option<WireContent>) -> Result<String, ProviderError> {
+    match content {
+        None => Ok(String::new()),
+        Some(WireContent::Text(text)) => Ok(text),
+        Some(WireContent::Parts(parts)) => {
+            let mut normalized = String::new();
+            for part in parts {
+                if part.kind != "text" {
+                    return Err(ProviderError::new(
+                        ProviderErrorCode::InvalidResponse,
+                        format!("unsupported assistant content part '{}'", part.kind),
+                        false,
+                    ));
+                }
+                normalized.push_str(part.text.as_deref().ok_or_else(|| {
+                    ProviderError::new(
+                        ProviderErrorCode::InvalidResponse,
+                        "assistant text content part has no text",
+                        false,
+                    )
+                })?);
+            }
+            Ok(normalized)
+        }
+    }
+}
+
+fn normalize_tool_calls(calls: Vec<WireResponseToolCall>) -> Result<Vec<ToolCall>, ProviderError> {
+    let mut normalized = Vec::with_capacity(calls.len());
+    let mut ids = std::collections::BTreeSet::new();
+    for (index, call) in calls.into_iter().enumerate() {
+        let name = call.function.name.trim();
+        if name.is_empty()
+            || name.len() > 128
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider returned an invalid tool name",
+                false,
+            ));
+        }
+        let id = if call.id.trim().is_empty() {
+            format!("provider-call-{index}")
+        } else {
+            call.id
+        };
+        if !ids.insert(id.clone()) {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider returned duplicate tool call ids",
+                false,
+            ));
+        }
+        let arguments = serde_json::from_str(&call.function.arguments).map_err(|error| {
+            ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                format!("tool call arguments are invalid JSON: {error}"),
+                false,
+            )
+        })?;
+        normalized.push(ToolCall {
+            id,
+            name: name.into(),
+            arguments,
+        });
+    }
+    Ok(normalized)
 }
 
 fn strip_json_fence(content: &str) -> &str {
@@ -901,8 +956,22 @@ struct WireChoice {
 
 #[derive(Deserialize)]
 struct WireAssistantMessage {
-    content: Option<String>,
+    content: Option<WireContent>,
     tool_calls: Option<Vec<WireResponseToolCall>>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WireContent {
+    Text(String),
+    Parts(Vec<WireContentPart>),
+}
+
+#[derive(Deserialize)]
+struct WireContentPart {
+    #[serde(rename = "type")]
+    kind: String,
+    text: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1008,6 +1077,51 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(error.code, ProviderErrorCode::InvalidConfiguration);
+    }
+
+    #[test]
+    fn normalizes_string_and_text_part_content() {
+        let string_message: WireAssistantMessage =
+            serde_json::from_value(serde_json::json!({"content": "answer", "tool_calls": null}))
+                .unwrap();
+        assert_eq!(normalize_content(string_message.content).unwrap(), "answer");
+
+        let part_message: WireAssistantMessage = serde_json::from_value(serde_json::json!({
+            "content": [
+                {"type": "text", "text": "part one"},
+                {"type": "text", "text": " part two"}
+            ],
+            "tool_calls": null
+        }))
+        .unwrap();
+        assert_eq!(
+            normalize_content(part_message.content).unwrap(),
+            "part one part two"
+        );
+    }
+
+    #[test]
+    fn normalizes_missing_tool_ids_and_rejects_invalid_names() {
+        let calls: Vec<WireResponseToolCall> = serde_json::from_value(serde_json::json!([
+            {"id": "", "function": {"name": " echo ", "arguments": "{\"text\":\"ok\"}"}},
+            {"id": "call-2", "function": {"name": "other", "arguments": "{}"}}
+        ]))
+        .unwrap();
+        let normalized = normalize_tool_calls(calls).unwrap();
+        assert_eq!(normalized[0].id, "provider-call-0");
+        assert_eq!(normalized[0].name, "echo");
+
+        let invalid: Vec<WireResponseToolCall> = serde_json::from_value(serde_json::json!([
+            {"id": "call-1", "function": {"name": "bad name", "arguments": "{}"}}
+        ]))
+        .unwrap();
+        assert!(matches!(
+            normalize_tool_calls(invalid),
+            Err(ProviderError {
+                code: ProviderErrorCode::InvalidResponse,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

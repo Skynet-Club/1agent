@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.38.0 - 2026-11-02
+
+- Added OpenAI-compatible assistant content normalization for strings and text-part arrays.
+- Rejected unsupported or malformed content parts.
+- Assigned deterministic IDs to missing tool-call IDs.
+- Rejected duplicate, empty or malformed tool names and duplicate call IDs.
+- Kept provider wire types isolated from the domain/tool contracts.
+- Added adapter normalization tests.
+
 ## 0.37.0 - 2026-11-02
 
 - Bounded human-readable route reasons to 240 characters.
