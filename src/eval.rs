@@ -142,6 +142,7 @@ pub struct EvalCaseResult {
     pub unresolved_conflict_count: usize,
     pub stale_evidence_count: usize,
     pub flip_condition_count: usize,
+    pub decision_completeness: DecisionCompletenessRollup,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
     pub provider_id: Option<String>,
@@ -150,6 +151,18 @@ pub struct EvalCaseResult {
     pub usage: Usage,
     pub audit_ok: bool,
     pub issues: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionCompletenessRollup {
+    pub conditional_answers: usize,
+    pub conditional_with_bound_flip: usize,
+    pub bound_flip_conditions: usize,
+    pub unbound_flip_conditions: usize,
+    pub high_impact_unknowns_without_reduction: usize,
+    pub completed_with_high_impact_assumptions: usize,
+    pub ok: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -535,7 +548,11 @@ async fn run_case(
     let (rubric_passed, rubric_checks, rubric_issues) =
         score_rubric(case.rubric.as_ref(), &result.answer);
     issues.extend(rubric_issues);
-    let hard_gate_failed = !audit.ok && case.expect.audit_ok;
+    let decision_completeness = summarize_decision_completeness(&result.answer);
+    if !decision_completeness.ok {
+        issues.push("decision completeness failed".into());
+    }
+    let hard_gate_failed = (!audit.ok || !decision_completeness.ok) && case.expect.audit_ok;
     EvalCaseResult {
         id: case.id,
         passed: issues.is_empty(),
@@ -588,6 +605,7 @@ async fn run_case(
             })
             .count(),
         flip_condition_count: result.answer.flip_conditions.len(),
+        decision_completeness,
         rubric_checks,
         rubric_passed,
         provider_id,
@@ -640,6 +658,7 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         unresolved_conflict_count: 0,
         stale_evidence_count: 0,
         flip_condition_count: 0,
+        decision_completeness: DecisionCompletenessRollup::default(),
         rubric_checks: 0,
         rubric_passed: 0,
         provider_id: None,
@@ -648,6 +667,53 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         usage: Usage::default(),
         audit_ok: false,
         issues: vec![issue],
+    }
+}
+
+fn summarize_decision_completeness(
+    answer: &crate::domain::AgentAnswer,
+) -> DecisionCompletenessRollup {
+    let conditional_answers = usize::from(answer.status == AnswerStatus::Conditional);
+    let bound_flip_conditions = answer
+        .flip_conditions
+        .iter()
+        .filter(|flip| !flip.target_ids.is_empty())
+        .count();
+    let unbound_flip_conditions = answer.flip_conditions.len() - bound_flip_conditions;
+    let high_impact_unknowns_without_reduction = answer
+        .unknowns
+        .iter()
+        .filter(|unknown| {
+            unknown.impact == crate::domain::ImpactLevel::High
+                && unknown
+                    .reduction_method
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default()
+                    .is_empty()
+        })
+        .count();
+    let completed_with_high_impact_assumptions = usize::from(
+        answer.status == AnswerStatus::Completed
+            && answer
+                .assumptions
+                .iter()
+                .any(|assumption| assumption.impact == crate::domain::ImpactLevel::High),
+    );
+    let conditional_with_bound_flip =
+        usize::from(conditional_answers == 1 && bound_flip_conditions > 0);
+    let ok = (conditional_answers == 0 || conditional_with_bound_flip == 1)
+        && unbound_flip_conditions == 0
+        && high_impact_unknowns_without_reduction == 0
+        && completed_with_high_impact_assumptions == 0;
+    DecisionCompletenessRollup {
+        conditional_answers,
+        conditional_with_bound_flip,
+        bound_flip_conditions,
+        unbound_flip_conditions,
+        high_impact_unknowns_without_reduction,
+        completed_with_high_impact_assumptions,
+        ok,
     }
 }
 
@@ -1100,6 +1166,55 @@ mod tests {
             .unwrap();
         assert_eq!(report.passed, 3, "{:?}", report.cases);
         assert_eq!(report.hard_gate_failures, 0);
+    }
+
+    #[test]
+    fn decision_completeness_rollup_tracks_each_failure_mode() {
+        let mut answer = AgentAnswer {
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Conditional,
+            conclusion: "conditional".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: vec![crate::domain::UnknownItem {
+                id: "risk".into(),
+                description: "critical unknown".into(),
+                impact: crate::domain::ImpactLevel::High,
+                why_it_matters: None,
+                reduction_method: None,
+            }],
+            conflicts: Vec::new(),
+            flip_conditions: vec![crate::domain::FlipCondition {
+                if_observed: "new evidence".into(),
+                then: "change decision".into(),
+                target_ids: Vec::new(),
+            }],
+            action_receipts: Vec::new(),
+        };
+        let summary = summarize_decision_completeness(&answer);
+        assert!(!summary.ok);
+        assert_eq!(summary.conditional_answers, 1);
+        assert_eq!(summary.conditional_with_bound_flip, 0);
+        assert_eq!(summary.unbound_flip_conditions, 1);
+        assert_eq!(summary.high_impact_unknowns_without_reduction, 1);
+
+        answer.unknowns[0].reduction_method = Some("inspect the source".into());
+        answer.flip_conditions[0].target_ids = vec!["risk".into()];
+        let summary = summarize_decision_completeness(&answer);
+        assert!(summary.ok);
+        assert_eq!(summary.bound_flip_conditions, 1);
+
+        answer.status = AnswerStatus::Completed;
+        answer.assumptions = vec![crate::domain::AssumptionItem {
+            description: "cost remains stable".into(),
+            impact: crate::domain::ImpactLevel::High,
+            verification_method: Some("refresh the quote".into()),
+        }];
+        let summary = summarize_decision_completeness(&answer);
+        assert!(!summary.ok);
+        assert_eq!(summary.completed_with_high_impact_assumptions, 1);
     }
 
     #[test]

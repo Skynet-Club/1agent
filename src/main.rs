@@ -757,6 +757,21 @@ async fn main() -> Result<()> {
                         case.id,
                         if case.passed { "PASS" } else { "FAIL" }
                     );
+                    println!(
+                        "  decision_completeness={} conditional={} bound_flips={} unbound_flips={} high_unknown_without_reduction={} completed_with_high_assumption={}",
+                        if case.decision_completeness.ok {
+                            "ok"
+                        } else {
+                            "failed"
+                        },
+                        case.decision_completeness.conditional_answers,
+                        case.decision_completeness.bound_flip_conditions,
+                        case.decision_completeness.unbound_flip_conditions,
+                        case.decision_completeness
+                            .high_impact_unknowns_without_reduction,
+                        case.decision_completeness
+                            .completed_with_high_impact_assumptions
+                    );
                     for issue in &case.issues {
                         println!("  - {issue}");
                     }

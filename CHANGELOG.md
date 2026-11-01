@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.73.0 - 2026-11-02
+
+- Added per-case decision-completeness rollups.
+- Count conditional answers with bound flip conditions.
+- Count bound and unbound flip conditions separately.
+- Count high-impact unknowns without reduction methods.
+- Detect completed answers depending on high-impact assumptions.
+- Treat decision-completeness failures as hard-gate failures.
+- Display decision metrics in human-readable evaluation output.
+- Added direct rollup coverage for each failure mode.
+
 ## 0.72.0 - 2026-11-02
 
 - Added a concise human-readable experience audit summary.
