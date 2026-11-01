@@ -115,6 +115,7 @@ Real-model reasoning quality and full cross-platform support are not yet verifie
 The evidence plan required before expanding autonomy is in
 [`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
 The latest cross-requirement audit is in [`docs/audit-v0.90.md`](docs/audit-v0.90.md).
+Current release state and resume instructions are in [`docs/handoff-v0.90.md`](docs/handoff-v0.90.md).
 The documentation index is [`docs/documentation-map.md`](docs/documentation-map.md).
 Supported behavior, explicit non-goals and claim boundaries are in
 [`docs/product-boundary.md`](docs/product-boundary.md).

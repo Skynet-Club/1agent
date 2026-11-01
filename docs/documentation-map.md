@@ -11,6 +11,7 @@ Date: 2026-11-02
 - [`self-evolution.md`](self-evolution.md): L2 lifecycle, evidence and promotion rules.
 - [`product-boundary.md`](product-boundary.md): supported outcomes, non-goals and claim limits.
 - [`next-phase-evidence.md`](next-phase-evidence.md): real-provider and target-host evidence plan.
+- [`handoff-v0.90.md`](handoff-v0.90.md): current release state and resume instructions.
 - [`research-foundations.md`](research-foundations.md): papers, engineering sources and adoption.
 - [`development-flywheel.md`](development-flywheel.md): required iteration sequence.
 
