@@ -217,6 +217,23 @@ impl DecisionCompletenessFloorSource {
     }
 }
 
+impl DecisionCompletenessPolicy {
+    pub fn validate(&self) -> Result<(), EvalError> {
+        match (self.version, self.floor_source) {
+            (0, DecisionCompletenessFloorSource::Legacy)
+            | (
+                1,
+                DecisionCompletenessFloorSource::Default
+                | DecisionCompletenessFloorSource::Explicit,
+            ) => Ok(()),
+            (0 | 1, _) => Err(EvalError::InvalidDecisionCompletenessPolicyCombination),
+            (version, _) => Err(EvalError::UnsupportedDecisionCompletenessPolicyVersion(
+                version,
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EvalReport {
@@ -353,6 +370,13 @@ pub fn load_suite(path: impl AsRef<Path>) -> Result<EvalSuite, EvalError> {
         return Err(EvalError::EmptySuite);
     }
     Ok(suite)
+}
+
+pub fn load_eval_report(path: impl AsRef<Path>) -> Result<EvalReport, EvalError> {
+    let content = std::fs::read_to_string(path.as_ref())?;
+    let report: EvalReport = serde_json::from_str(&content)?;
+    report.decision_completeness_policy.validate()?;
+    Ok(report)
 }
 
 pub async fn run_suite(suite: EvalSuite) -> Result<EvalReport, EvalError> {
@@ -905,6 +929,10 @@ pub enum EvalError {
     ModelQualityMetadataMissing,
     #[error("decision-completeness floor must be between 0 and 10000 basis points")]
     InvalidDecisionCompletenessFloor,
+    #[error("decision-completeness policy version and floor source are inconsistent")]
+    InvalidDecisionCompletenessPolicyCombination,
+    #[error("unsupported decision-completeness policy version: {0}")]
+    UnsupportedDecisionCompletenessPolicyVersion(u8),
 }
 
 fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
@@ -1455,6 +1483,50 @@ mod tests {
             "floor_source": "environment"
         });
         assert!(serde_json::from_value::<DecisionCompletenessPolicy>(invalid).is_err());
+    }
+
+    #[test]
+    fn report_policy_validation_accepts_known_versions_and_fails_closed() {
+        for policy in [
+            DecisionCompletenessPolicy {
+                version: 0,
+                floor_source: DecisionCompletenessFloorSource::Legacy,
+            },
+            DecisionCompletenessPolicy {
+                version: 1,
+                floor_source: DecisionCompletenessFloorSource::Default,
+            },
+            DecisionCompletenessPolicy {
+                version: 1,
+                floor_source: DecisionCompletenessFloorSource::Explicit,
+            },
+        ] {
+            policy.validate().unwrap();
+        }
+
+        for policy in [
+            DecisionCompletenessPolicy {
+                version: 0,
+                floor_source: DecisionCompletenessFloorSource::Default,
+            },
+            DecisionCompletenessPolicy {
+                version: 1,
+                floor_source: DecisionCompletenessFloorSource::Legacy,
+            },
+        ] {
+            assert!(matches!(
+                policy.validate(),
+                Err(EvalError::InvalidDecisionCompletenessPolicyCombination)
+            ));
+        }
+        assert!(matches!(
+            DecisionCompletenessPolicy {
+                version: 2,
+                floor_source: DecisionCompletenessFloorSource::Default,
+            }
+            .validate(),
+            Err(EvalError::UnsupportedDecisionCompletenessPolicyVersion(2))
+        ));
     }
 
     #[tokio::test]

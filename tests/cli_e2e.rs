@@ -100,4 +100,53 @@ fn cli_eval_reports_versioned_completeness_policy() {
         report.decision_completeness_policy.floor_source,
         DecisionCompletenessFloorSource::Default
     );
+
+    let report_path = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(report_path.path(), &output.stdout).unwrap();
+    let inspect_output = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.path().display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        inspect_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&inspect_output.stderr)
+    );
+    let inspected: EvalReport = serde_json::from_slice(&inspect_output.stdout).unwrap();
+    assert_eq!(inspected, report);
+}
+
+#[test]
+fn cli_eval_inspect_rejects_unsupported_policy_version() {
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let suite = format!("{}/evals/core.json", env!("CARGO_MANIFEST_DIR"));
+    let output = Command::new(binary)
+        .args(["eval", "--suite", &suite, "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let mut report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    report["decision_completeness_policy"]["version"] = serde_json::json!(2);
+    let report_path = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(report_path.path(), serde_json::to_vec(&report).unwrap()).unwrap();
+
+    let inspect_output = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.path().display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!inspect_output.status.success());
+    assert!(
+        String::from_utf8_lossy(&inspect_output.stderr)
+            .contains("unsupported decision-completeness policy version: 2")
+    );
 }

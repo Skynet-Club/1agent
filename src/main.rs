@@ -15,9 +15,9 @@ use first_principles_agent::{
     RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
     build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    find_resumable_prefix, infer_mode, load_suite, local_manifest, probe_provider,
-    probe_provider_tools, read_events, rebuild_and_compare, remote_manifest, replay_events,
-    risk_for_mode, run_suite_with_providers, scan_history, summarize_route_trace,
+    find_resumable_prefix, infer_mode, load_eval_report, load_suite, local_manifest,
+    probe_provider, probe_provider_tools, read_events, rebuild_and_compare, remote_manifest,
+    replay_events, risk_for_mode, run_suite_with_providers, scan_history, summarize_route_trace,
     verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
     verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
@@ -108,6 +108,12 @@ enum Command {
         allow_network: bool,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    EvalInspect {
+        #[arg(long)]
+        report: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -794,6 +800,23 @@ async fn main() -> Result<()> {
                     "evaluation decision-completeness floor failed: {} < {} bps",
                     report.decision_completeness.completion_rate_bps,
                     report.min_decision_completeness_bps
+                );
+            }
+        }
+        Command::EvalInspect { report, json } => {
+            let report = load_eval_report(&report)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "评测报告：{}（{:?}），通过 {}/{}，硬门禁失败 {}，policy=v{} {}",
+                    report.suite,
+                    report.kind,
+                    report.passed,
+                    report.total,
+                    report.hard_gate_failures,
+                    report.decision_completeness_policy.version,
+                    report.decision_completeness_policy.floor_source.as_str()
                 );
             }
         }

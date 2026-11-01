@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.77.0 - 2026-11-02
+
+- Added `eval-inspect` for external evaluation reports.
+- Validated supported decision-completeness policy versions and source combinations.
+- Preserved legacy version `0` reports while normalizing JSON output.
+- Rejected inconsistent metadata and unsupported versions before inspection.
+- Added unit and CLI end-to-end coverage for valid and invalid inspection.
+
 ## 0.76.0 - 2026-11-02
 
 - Added decision-completeness policy version `1` to evaluation reports.
