@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.29.0 - 2026-11-02
+
+- Added an inert echo tool for provider tool-calling conformance.
+- Added `providers --probe-tools --allow-network`.
+- Validated exactly one tool call, non-empty call ID, allowed tool name and JSON arguments.
+- Executed the echo observation without read, write, process or network authority.
+- Required a second model call to produce a valid final answer after the observation.
+- Added sanitized tool-call/observation/final-answer capability results and usage accounting.
+
 ## 0.28.0 - 2026-11-02
 
 - Added explicit opt-in live conformance probing for OpenAI-compatible providers.

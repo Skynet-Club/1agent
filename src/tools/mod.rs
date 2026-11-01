@@ -185,6 +185,76 @@ fn failure_observation(
     }
 }
 
+pub struct EchoTool;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EchoArgs {
+    text: String,
+}
+
+#[async_trait]
+impl AgentTool for EchoTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "echo".into(),
+            description: "Return the supplied text. Has no filesystem, process or network access."
+                .into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["text"],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    }
+                }
+            }),
+        }
+    }
+
+    fn risk(&self) -> RiskLevel {
+        RiskLevel::Low
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        _permissions: &PermissionSet,
+        cancellation: &CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        if cancellation.is_cancelled() {
+            return Err(ToolError::Cancelled);
+        }
+        let args: EchoArgs = serde_json::from_value(arguments)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        if args.text.is_empty() || args.text.chars().count() > 256 {
+            return Err(ToolError::InvalidArguments(
+                "text must contain between 1 and 256 characters".into(),
+            ));
+        }
+        if contains_disallowed_control(&args.text) {
+            return Err(ToolError::UnsafeContent(
+                "text contains hidden or bidirectional control characters".into(),
+            ));
+        }
+        Ok(ToolOutcome {
+            summary: "echo conformance observation".into(),
+            content: args.text.clone(),
+            metadata: BTreeMap::from([(
+                "echo_chars".into(),
+                args.text.chars().count().to_string(),
+            )]),
+        })
+    }
+}
+
 pub struct ReadFileTool;
 
 #[derive(Debug, Deserialize)]
@@ -667,6 +737,41 @@ mod tests {
             name: "read_file".into(),
             arguments: serde_json::json!({"path": path, "max_bytes": 32}),
         }
+    }
+
+    #[tokio::test]
+    async fn echo_tool_has_no_external_authority_and_validates_arguments() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        let permissions = PermissionSet::default();
+        let observation = registry
+            .execute(
+                &ToolCall {
+                    id: "echo-1".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "conformance-ok"}),
+                },
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok);
+        assert_eq!(observation.content, "conformance-ok");
+        assert_eq!(observation.metadata["echo_chars"], "14");
+
+        let invalid = registry
+            .execute(
+                &ToolCall {
+                    id: "echo-2".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "bad\u{202E}text"}),
+                },
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(invalid.status, ToolStatus::Failed);
+        assert_eq!(invalid.error_code.as_deref(), Some("unsafe_content"));
     }
 
     #[tokio::test]

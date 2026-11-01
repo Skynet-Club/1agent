@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -7,10 +8,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, Evidence, FlipCondition, ModelMessage, ModelRequest,
-    ModelResponse, ModelTurn, TaskRequest, ToolCall, ToolObservation, ToolStatus, UnknownItem,
-    Usage,
+    ModelResponse, ModelTurn, PermissionSet, TaskRequest, ToolCall, ToolObservation, ToolStatus,
+    UnknownItem, Usage,
 };
 use crate::router::ProviderManifest;
+use crate::tools::{EchoTool, ToolRegistry};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -83,6 +85,30 @@ pub struct ProviderProbeReport {
     pub checked: usize,
     pub failed: usize,
     pub results: Vec<ProviderProbeResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderToolProbeResult {
+    pub provider_id: String,
+    pub model: String,
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub tool_call_ok: bool,
+    pub observation_ok: bool,
+    pub final_answer_ok: bool,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub error_code: Option<ProviderErrorCode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderToolProbeReport {
+    pub schema_version: u32,
+    pub checked: usize,
+    pub failed: usize,
+    pub results: Vec<ProviderToolProbeResult>,
 }
 
 pub fn agent_system_prompt() -> &'static str {
@@ -183,6 +209,143 @@ pub async fn probe_provider(
             answer_status: None,
             error_code: Some(error.code),
         },
+    }
+}
+
+pub async fn probe_provider_tools(
+    provider: &dyn ModelProvider,
+    manifest: &ProviderManifest,
+    cancellation: &CancellationToken,
+) -> ProviderToolProbeResult {
+    let started = Instant::now();
+    let run_id = uuid::Uuid::new_v4();
+    let task =
+        TaskRequest::from_objective("provider tool conformance probe", std::path::PathBuf::new());
+    let mut registry = ToolRegistry::default();
+    registry.register(Arc::new(EchoTool));
+    let tools = registry.specs();
+    let mut messages = vec![
+        ModelMessage::system(agent_system_prompt()),
+        ModelMessage::user(
+            "Tool conformance check. Call the echo tool exactly once with text \"conformance-ok\". After receiving the observation, return a valid final AgentAnswer JSON.",
+        ),
+    ];
+    let mut tool_call_ok = false;
+    let mut observation_ok = false;
+    let mut final_answer_ok = false;
+    let mut usage = Usage::default();
+    let result = async {
+        let first = provider
+            .complete(
+                ModelRequest {
+                    run_id,
+                    mode: CognitiveMode::DirectAnswer,
+                    messages: messages.clone(),
+                    tools: tools.clone(),
+                },
+                cancellation,
+            )
+            .await?;
+        if first.provider_id != manifest.provider_id || first.model != manifest.model {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider identity did not match its manifest",
+                false,
+            ));
+        }
+        usage.input_tokens = usage.input_tokens.saturating_add(first.usage.input_tokens);
+        usage.output_tokens = usage
+            .output_tokens
+            .saturating_add(first.usage.output_tokens);
+        let calls = match first.turn {
+            ModelTurn::ToolCalls { calls } if calls.len() == 1 => calls,
+            _ => {
+                return Err(ProviderError::new(
+                    ProviderErrorCode::InvalidResponse,
+                    "provider did not return exactly one tool call",
+                    false,
+                ));
+            }
+        };
+        let call = &calls[0];
+        if call.name != "echo" || call.id.trim().is_empty() {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider returned an invalid conformance tool call",
+                false,
+            ));
+        }
+        tool_call_ok = true;
+        let observation = registry
+            .execute(call, &PermissionSet::default(), cancellation)
+            .await;
+        if observation.status != ToolStatus::Ok {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "conformance tool observation failed validation",
+                false,
+            ));
+        }
+        observation_ok = true;
+        messages.push(ModelMessage::assistant(String::new(), calls.clone()));
+        messages.push(ModelMessage::tool(
+            call.id.clone(),
+            observation.model_content(),
+        ));
+        let second = provider
+            .complete(
+                ModelRequest {
+                    run_id,
+                    mode: CognitiveMode::DirectAnswer,
+                    messages,
+                    tools,
+                },
+                cancellation,
+            )
+            .await?;
+        if second.provider_id != manifest.provider_id || second.model != manifest.model {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider identity did not match its manifest",
+                false,
+            ));
+        }
+        usage.input_tokens = usage.input_tokens.saturating_add(second.usage.input_tokens);
+        usage.output_tokens = usage
+            .output_tokens
+            .saturating_add(second.usage.output_tokens);
+        match second.turn {
+            ModelTurn::Final { answer } => {
+                answer.validate(&task).map_err(|_| {
+                    ProviderError::new(
+                        ProviderErrorCode::InvalidResponse,
+                        "final answer failed contract validation",
+                        false,
+                    )
+                })?;
+                final_answer_ok = true;
+                Ok(())
+            }
+            ModelTurn::ToolCalls { .. } => Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider requested another tool call",
+                false,
+            )),
+        }
+    }
+    .await;
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    ProviderToolProbeResult {
+        provider_id: manifest.provider_id.clone(),
+        model: manifest.model.clone(),
+        ok: result.is_ok(),
+        latency_ms,
+        tool_call_ok,
+        observation_ok,
+        final_answer_ok,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        error_code: result.err().map(|error| error.code),
     }
 }
 
@@ -767,6 +930,63 @@ mod tests {
     use super::*;
     use crate::domain::RiskLevel;
     use crate::router::PrivacyClass;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ToolProbeProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ToolProbeProvider {
+        fn id(&self) -> &str {
+            "tool-probe"
+        }
+
+        fn model(&self) -> &str {
+            "tool-probe-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let turn = if call == 0 {
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-1".into(),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "conformance-ok"}),
+                    }],
+                }
+            } else {
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        status: AnswerStatus::Completed,
+                        conclusion: "tool conformance complete".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    cost_micros: 0,
+                },
+            })
+        }
+    }
 
     #[test]
     fn strips_json_markdown_fence() {
@@ -809,6 +1029,34 @@ mod tests {
         let result = probe_provider(&provider, &manifest, &CancellationToken::new()).await;
         assert!(result.ok);
         assert_eq!(result.answer_status, Some(AnswerStatus::NeedsEvidence));
+        assert_eq!(result.error_code, None);
+    }
+
+    #[tokio::test]
+    async fn provider_tool_probe_validates_call_observation_and_final_answer() {
+        let provider = ToolProbeProvider {
+            calls: AtomicUsize::new(0),
+        };
+        let manifest = ProviderManifest {
+            provider_id: provider.id().into(),
+            model: provider.model().into(),
+            privacy: PrivacyClass::Local,
+            supported_modes: vec![CognitiveMode::DirectAnswer],
+            supports_tools: true,
+            supports_structured_output: true,
+            max_risk: RiskLevel::Low,
+            quality_score: 1,
+            input_cost_micros_per_k: 0,
+            output_cost_micros_per_k: 0,
+            p95_latency_ms: 0,
+        };
+        let result = probe_provider_tools(&provider, &manifest, &CancellationToken::new()).await;
+        assert!(result.ok);
+        assert!(result.tool_call_ok);
+        assert!(result.observation_ok);
+        assert!(result.final_answer_ok);
+        assert_eq!(result.input_tokens, 20);
+        assert_eq!(result.output_tokens, 10);
         assert_eq!(result.error_code, None);
     }
 }

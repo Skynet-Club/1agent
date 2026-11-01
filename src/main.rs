@@ -10,13 +10,14 @@ use first_principles_agent::{
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
     OpenAiCompatibleProvider, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RunBudget, RuntimeError, TaskRequest,
-    ToolRegistry, TrustAnchorManifest, audit_events, build_release_verification_report,
-    collect_provenance, collect_release_manifest, create_goldset_manifest, create_trust_anchor,
-    default_registry, evaluate_experience_suite, load_suite, local_manifest, probe_provider,
-    read_events, rebuild_and_compare, remote_manifest, replay_events, run_suite_with_providers,
-    scan_history, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RunBudget,
+    RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
+    build_release_verification_report, collect_provenance, collect_release_manifest,
+    create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
+    load_suite, local_manifest, probe_provider, probe_provider_tools, read_events,
+    rebuild_and_compare, remote_manifest, replay_events, run_suite_with_providers, scan_history,
+    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
+    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -123,6 +124,8 @@ enum Command {
         check: bool,
         #[arg(long)]
         probe: bool,
+        #[arg(long, conflicts_with = "probe")]
+        probe_tools: bool,
         #[arg(long)]
         allow_network: bool,
         #[arg(long, default_value_t = 30)]
@@ -841,11 +844,12 @@ async fn main() -> Result<()> {
             config,
             check,
             probe,
+            probe_tools,
             allow_network,
             probe_timeout_seconds,
             json,
         } => {
-            if probe {
+            if probe || probe_tools {
                 if !allow_network {
                     bail!("provider probe requires --allow-network");
                 }
@@ -854,47 +858,102 @@ async fn main() -> Result<()> {
                 let candidates =
                     config.build_providers(Duration::from_secs(probe_timeout_seconds.max(1)))?;
                 let cancellation = CancellationToken::new();
-                let mut results = Vec::new();
-                for (provider_config, candidate) in config.providers.iter().zip(candidates.iter()) {
-                    if provider_config.adapter != ProviderAdapter::OpenAiCompatible {
-                        continue;
-                    }
-                    results.push(
-                        probe_provider(
-                            candidate.provider.as_ref(),
-                            &candidate.manifest,
-                            &cancellation,
-                        )
-                        .await,
-                    );
-                }
-                if results.is_empty() {
-                    bail!("provider probe found no OpenAI-compatible providers");
-                }
-                let report = ProviderProbeReport {
-                    schema_version: 1,
-                    checked: results.len(),
-                    failed: results.iter().filter(|result| !result.ok).count(),
-                    results,
-                };
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                } else {
-                    for result in &report.results {
-                        println!(
-                            "{} | {} | ok={} | latency={}ms | tokens={}/{} | error={:?}",
-                            result.provider_id,
-                            result.model,
-                            result.ok,
-                            result.latency_ms,
-                            result.input_tokens,
-                            result.output_tokens,
-                            result.error_code
+                if probe_tools {
+                    let mut results = Vec::new();
+                    for (provider_config, candidate) in
+                        config.providers.iter().zip(candidates.iter())
+                    {
+                        if provider_config.adapter != ProviderAdapter::OpenAiCompatible {
+                            continue;
+                        }
+                        results.push(
+                            probe_provider_tools(
+                                candidate.provider.as_ref(),
+                                &candidate.manifest,
+                                &cancellation,
+                            )
+                            .await,
                         );
                     }
-                }
-                if report.failed > 0 {
-                    bail!("{} provider conformance probe(s) failed", report.failed);
+                    if results.is_empty() {
+                        bail!("provider tool probe found no OpenAI-compatible providers");
+                    }
+                    let report = ProviderToolProbeReport {
+                        schema_version: 1,
+                        checked: results.len(),
+                        failed: results.iter().filter(|result| !result.ok).count(),
+                        results,
+                    };
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        for result in &report.results {
+                            println!(
+                                "{} | {} | ok={} | call={} observation={} final={} | latency={}ms | tokens={}/{} | error={:?}",
+                                result.provider_id,
+                                result.model,
+                                result.ok,
+                                result.tool_call_ok,
+                                result.observation_ok,
+                                result.final_answer_ok,
+                                result.latency_ms,
+                                result.input_tokens,
+                                result.output_tokens,
+                                result.error_code
+                            );
+                        }
+                    }
+                    if report.failed > 0 {
+                        bail!(
+                            "{} provider tool conformance probe(s) failed",
+                            report.failed
+                        );
+                    }
+                } else {
+                    let mut results = Vec::new();
+                    for (provider_config, candidate) in
+                        config.providers.iter().zip(candidates.iter())
+                    {
+                        if provider_config.adapter != ProviderAdapter::OpenAiCompatible {
+                            continue;
+                        }
+                        results.push(
+                            probe_provider(
+                                candidate.provider.as_ref(),
+                                &candidate.manifest,
+                                &cancellation,
+                            )
+                            .await,
+                        );
+                    }
+                    if results.is_empty() {
+                        bail!("provider probe found no OpenAI-compatible providers");
+                    }
+                    let report = ProviderProbeReport {
+                        schema_version: 1,
+                        checked: results.len(),
+                        failed: results.iter().filter(|result| !result.ok).count(),
+                        results,
+                    };
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        for result in &report.results {
+                            println!(
+                                "{} | {} | ok={} | latency={}ms | tokens={}/{} | error={:?}",
+                                result.provider_id,
+                                result.model,
+                                result.ok,
+                                result.latency_ms,
+                                result.input_tokens,
+                                result.output_tokens,
+                                result.error_code
+                            );
+                        }
+                    }
+                    if report.failed > 0 {
+                        bail!("{} provider conformance probe(s) failed", report.failed);
+                    }
                 }
             } else {
                 let value = if let Some(config_path) = config {

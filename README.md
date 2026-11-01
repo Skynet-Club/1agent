@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.28.0` is an executable V0 vertical slice:
+Version `0.29.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -46,10 +46,11 @@ Version `0.28.0` is an executable V0 vertical slice:
 - versioned release-policy files with configured signer allowlists and JSON reports;
 - fail-fast provider credential readiness without printing secret values;
 - opt-in live provider conformance with sanitized structured-output and usage reports;
+- inert echo-tool conformance without filesystem, process or network authority;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.28.md`](docs/status-v0.28.md).
+[`docs/status-v0.29.md`](docs/status-v0.29.md).
 
 Current V0 assumptions:
 
@@ -90,6 +91,9 @@ cargo run --offline -- providers --config configs/example.json --check --json
 cargo run --offline -- providers \
   --config configs/example.json \
   --probe --allow-network --probe-timeout-seconds 30 --json
+cargo run --offline -- providers \
+  --config configs/example.json \
+  --probe-tools --allow-network --probe-timeout-seconds 30 --json
 ```
 
 `configs/example.json` references credentials through environment variable names. Provider
@@ -98,6 +102,8 @@ declared credentials, endpoint construction and adapter setup before a run. An o
 `api_key_env` means no Authorization header, which supports local Ollama endpoints.
 The probe is an explicit network action. It reports only status, latency, token usage and a
 normalized error code; complete remote responses are not persisted or printed.
+The tool probe uses only an inert echo tool and validates the complete call/observation/final
+answer round trip.
 
 The default provider is deterministic and must not be treated as a reasoning model.
 For an offline read-only smoke test, use `@read-file:"<path>"` in the task objective.
