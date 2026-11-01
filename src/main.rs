@@ -8,8 +8,9 @@ use first_principles_agent::{
     AgentConfig, AgentRuntime, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
     ExperienceVerificationInput, HostCommand, HostError, HostRegistry, HostRequestState,
     HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError,
-    TaskRequest, ToolRegistry, audit_events, default_registry, load_suite, local_manifest,
-    read_events, remote_manifest, replay_events, run_suite_with_providers, scan_history,
+    TaskRequest, ToolRegistry, audit_events, default_registry, evaluate_experience_suite,
+    load_suite, local_manifest, read_events, remote_manifest, replay_events,
+    run_suite_with_providers, scan_history,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -179,6 +180,20 @@ enum ExperienceCommand {
         id: Uuid,
         #[arg(long)]
         input: PathBuf,
+    },
+    Evaluate {
+        #[arg(long, default_value = ".experience")]
+        store: PathBuf,
+        #[arg(long)]
+        id: Uuid,
+        #[arg(long)]
+        suite: PathBuf,
+        #[arg(long)]
+        training_group: String,
+        #[arg(long)]
+        evaluation_group: String,
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     Approve {
         #[arg(long, default_value = ".experience")]
@@ -622,13 +637,13 @@ async fn main() -> Result<()> {
             }
         }
         Command::Experience { command } => {
-            handle_experience(command)?;
+            handle_experience(command).await?;
         }
     }
     Ok(())
 }
 
-fn handle_experience(command: ExperienceCommand) -> Result<()> {
+async fn handle_experience(command: ExperienceCommand) -> Result<()> {
     match command {
         ExperienceCommand::Propose {
             store,
@@ -656,6 +671,47 @@ fn handle_experience(command: ExperienceCommand) -> Result<()> {
                 .with_context(|| format!("invalid verification JSON in {}", input.display()))?;
             ExperienceStore::open(store)?.verify(id, verification)?;
             println!("candidate {id}: verified");
+        }
+        ExperienceCommand::Evaluate {
+            store,
+            id,
+            suite,
+            training_group,
+            evaluation_group,
+            output,
+        } => {
+            let mut experience = ExperienceStore::open(&store)?;
+            let candidate = experience.validate_for_shadow(id)?;
+            let providers = vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }];
+            let report = evaluate_experience_suite(
+                &suite,
+                candidate,
+                providers,
+                false,
+                training_group,
+                evaluation_group,
+            )
+            .await?;
+            let json = serde_json::to_string_pretty(&report)?;
+            if let Some(output) = output {
+                if let Some(parent) = output.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&output, format!("{json}\n"))?;
+            }
+            experience.verify(id, report.verification.clone())?;
+            println!(
+                "candidate {id}: verified automatically\nbaseline {}/{}; learned {}/{}; hard gates {} -> {}",
+                report.baseline.passed,
+                report.baseline.total,
+                report.learned.passed,
+                report.learned.total,
+                report.baseline.hard_gate_failures,
+                report.learned.hard_gate_failures
+            );
         }
         ExperienceCommand::Approve { store, id, actor } => {
             ExperienceStore::open(store)?.approve(id, &actor)?;

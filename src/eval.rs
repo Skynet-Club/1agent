@@ -1,9 +1,12 @@
+use sha2::{Digest, Sha256};
+
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::domain::{AnswerStatus, StopReason, TaskRequest, ToolStatus, Usage};
+use crate::experience::{ExperienceCandidate, ExperienceVerificationInput};
 use crate::journal::{audit_events, read_events};
 use crate::provider::DeterministicProvider;
 use crate::runtime::{AgentRuntime, ProviderCandidate, local_manifest};
@@ -13,7 +16,13 @@ use crate::tools::default_registry;
 #[serde(deny_unknown_fields)]
 pub struct EvalSuite {
     pub name: String,
+    #[serde(default = "default_suite_version")]
+    pub suite_version: String,
     pub cases: Vec<EvalCase>,
+}
+
+fn default_suite_version() -> String {
+    "1".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -23,6 +32,8 @@ pub struct EvalCase {
     pub objective: String,
     #[serde(default)]
     pub setup_files: Vec<SetupFile>,
+    #[serde(default)]
+    pub experience_scope: Option<String>,
     pub expect: EvalExpectation,
 }
 
@@ -85,6 +96,111 @@ pub struct EvalReport {
     pub cases: Vec<EvalCaseResult>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceEvaluationReport {
+    pub verification: ExperienceVerificationInput,
+    pub baseline: EvalReport,
+    pub learned: EvalReport,
+}
+
+pub async fn evaluate_experience_suite(
+    suite_path: impl AsRef<Path>,
+    candidate: ExperienceCandidate,
+    providers: Vec<ProviderCandidate>,
+    allow_network: bool,
+    training_group: String,
+    evaluation_group: String,
+) -> Result<ExperienceEvaluationReport, EvalError> {
+    if training_group == evaluation_group {
+        return Err(EvalError::InvalidGrouping);
+    }
+    let bytes = std::fs::read(suite_path.as_ref())?;
+    let suite: EvalSuite = serde_json::from_slice(&bytes)?;
+    if suite.cases.is_empty() {
+        return Err(EvalError::EmptySuite);
+    }
+    if suite.cases.iter().any(|case| {
+        case.experience_scope
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+    }) {
+        return Err(EvalError::MissingExperienceScope);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let suite_sha256 = hex::encode(hasher.finalize());
+    let case_ids = suite
+        .cases
+        .iter()
+        .map(|case| case.id.clone())
+        .collect::<Vec<_>>();
+    let baseline =
+        run_suite_with_learning(suite.clone(), providers.clone(), allow_network, Vec::new())
+            .await?;
+    let learned = run_suite_with_learning(
+        suite.clone(),
+        providers,
+        allow_network,
+        vec![candidate.clone()],
+    )
+    .await?;
+    let baseline_success_bps = success_bps(&baseline);
+    let learned_success_bps = success_bps(&learned);
+    let baseline_unsupported_bps = unsupported_certainty_bps(&baseline);
+    let learned_unsupported_bps = unsupported_certainty_bps(&learned);
+    let baseline_duration: u64 = baseline.cases.iter().map(|case| case.duration_ms).sum();
+    let learned_duration: u64 = learned.cases.iter().map(|case| case.duration_ms).sum();
+    let cost_delta_bps = if baseline_duration == 0 {
+        if learned_duration == 0 { 0 } else { 10_000 }
+    } else {
+        (((learned_duration as i128 - baseline_duration as i128) * 10_000)
+            / baseline_duration as i128)
+            .clamp(i32::MIN as i128, i32::MAX as i128) as i32
+    };
+    let verification = ExperienceVerificationInput {
+        suite_id: suite.name,
+        suite_version: suite.suite_version,
+        case_ids,
+        suite_sha256,
+        training_group,
+        evaluation_group,
+        baseline_success_bps,
+        learned_success_bps,
+        baseline_unsupported_bps,
+        learned_unsupported_bps,
+        cost_delta_bps,
+        evidence: format!(
+            "baseline {}/{} passed; learned {}/{} passed; hard gates {} -> {}",
+            baseline.passed,
+            baseline.total,
+            learned.passed,
+            learned.total,
+            baseline.hard_gate_failures,
+            learned.hard_gate_failures
+        ),
+    };
+    Ok(ExperienceEvaluationReport {
+        verification,
+        baseline,
+        learned,
+    })
+}
+
+fn success_bps(report: &EvalReport) -> u16 {
+    ((report.passed * 10_000) / report.total) as u16
+}
+
+fn unsupported_certainty_bps(report: &EvalReport) -> u16 {
+    let count = report
+        .cases
+        .iter()
+        .filter(|case| case.answer_status == Some(AnswerStatus::Completed) && case.claim_count == 0)
+        .count();
+    ((count * 10_000) / report.total) as u16
+}
+
 pub fn load_suite(path: impl AsRef<Path>) -> Result<EvalSuite, EvalError> {
     let content = std::fs::read_to_string(path.as_ref())?;
     let suite: EvalSuite = serde_json::from_str(&content)?;
@@ -111,12 +227,29 @@ pub async fn run_suite_with_providers(
     providers: Vec<ProviderCandidate>,
     allow_network: bool,
 ) -> Result<EvalReport, EvalError> {
+    run_suite_with_learning(suite, providers, allow_network, Vec::new()).await
+}
+
+pub async fn run_suite_with_learning(
+    suite: EvalSuite,
+    providers: Vec<ProviderCandidate>,
+    allow_network: bool,
+    shadow_experience: Vec<ExperienceCandidate>,
+) -> Result<EvalReport, EvalError> {
     if providers.is_empty() {
         return Err(EvalError::NoProviders);
     }
     let mut results = Vec::new();
     for case in suite.cases {
-        results.push(run_case(case, providers.clone(), allow_network).await);
+        results.push(
+            run_case(
+                case,
+                providers.clone(),
+                allow_network,
+                shadow_experience.clone(),
+            )
+            .await,
+        );
     }
     let passed = results.iter().filter(|result| result.passed).count();
     let hard_gate_failures = results
@@ -137,6 +270,7 @@ async fn run_case(
     case: EvalCase,
     providers: Vec<ProviderCandidate>,
     allow_network: bool,
+    shadow_experience: Vec<ExperienceCandidate>,
 ) -> EvalCaseResult {
     let workspace = match tempfile::tempdir() {
         Ok(workspace) => workspace,
@@ -152,11 +286,15 @@ async fn run_case(
         .replace("${workspace}", &workspace.path().to_string_lossy());
     let mut request = TaskRequest::from_objective(objective, workspace.path().to_path_buf());
     request.permissions.allow_network = allow_network;
-    let runtime = AgentRuntime::new(
+    request.experience_scope = case.experience_scope.clone();
+    let mut runtime = AgentRuntime::new(
         providers,
         default_registry(),
         workspace.path().join(".journal"),
     );
+    if !shadow_experience.is_empty() {
+        runtime = runtime.with_shadow_experience_candidates(shadow_experience);
+    }
     let started = std::time::Instant::now();
     let result = match runtime.run(request, CancellationToken::new()).await {
         Ok(result) => result,
@@ -322,16 +460,28 @@ pub enum EvalError {
     EmptySuite,
     #[error("evaluation requires at least one provider")]
     NoProviders,
+    #[error("training and evaluation groups must differ")]
+    InvalidGrouping,
+    #[error("every experience evaluation case requires a non-empty experience_scope")]
+    MissingExperienceScope,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+
+    use crate::domain::{AgentAnswer, Claim, ClaimStatus, MessageRole, ModelResponse, ModelTurn};
+    use crate::experience::{ExperienceStatus, ExperienceVerificationInput};
+    use crate::provider::{ModelProvider, ProviderError};
+    use crate::router::PrivacyClass;
+    use crate::runtime::ProviderCandidate;
 
     #[tokio::test]
     async fn deterministic_suite_reports_success_and_hard_gates() {
         let report = run_suite(EvalSuite {
             name: "test".into(),
+            suite_version: "1".into(),
             cases: vec![EvalCase {
                 id: "read".into(),
                 objective: "Research @read-file:\"${workspace}/evidence.txt\"".into(),
@@ -339,6 +489,7 @@ mod tests {
                     path: "evidence.txt".into(),
                     content: "verified evidence".into(),
                 }],
+                experience_scope: None,
                 expect: EvalExpectation {
                     stop_reason: StopReason::Completed,
                     answer_status: AnswerStatus::Completed,
@@ -369,5 +520,147 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("unsafe setup path"));
+    }
+
+    struct GuidanceAwareProvider;
+
+    #[async_trait]
+    impl ModelProvider for GuidanceAwareProvider {
+        fn id(&self) -> &str {
+            "guidance-aware"
+        }
+
+        fn model(&self) -> &str {
+            "fixture-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: crate::domain::ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let guided = request.messages.iter().any(|message| {
+                message.role == MessageRole::System
+                    && message.content.contains("Repository guidance test")
+            });
+            let answer = if guided {
+                AgentAnswer {
+                    status: AnswerStatus::Completed,
+                    conclusion: "guided answer".into(),
+                    claims: vec![Claim {
+                        id: "claim-1".into(),
+                        text: "guided claim".into(),
+                        status: ClaimStatus::ModelPrior,
+                        sources: Vec::new(),
+                        scope: Some("test".into()),
+                    }],
+                    evidence: Vec::new(),
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                }
+            } else {
+                AgentAnswer {
+                    status: AnswerStatus::NeedsEvidence,
+                    conclusion: "baseline answer".into(),
+                    claims: Vec::new(),
+                    evidence: Vec::new(),
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final { answer },
+                usage: crate::domain::Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn experience_evaluation_generates_measured_heldout_verification() {
+        let workspace = tempfile::tempdir().unwrap();
+        let suite_path = workspace.path().join("heldout.json");
+        std::fs::write(
+            &suite_path,
+            serde_json::to_vec_pretty(&EvalSuite {
+                name: "heldout-test".into(),
+                suite_version: "1".into(),
+                cases: vec![EvalCase {
+                    id: "heldout-1".into(),
+                    objective: "Choose the repository option".into(),
+                    setup_files: Vec::new(),
+                    experience_scope: Some("repository decisions".into()),
+                    expect: EvalExpectation {
+                        stop_reason: StopReason::Completed,
+                        answer_status: AnswerStatus::Completed,
+                        min_evidence: 0,
+                        min_claims: 1,
+                        expect_checkpoint: false,
+                        tool_status: None,
+                        tool_error_code: None,
+                        audit_ok: true,
+                    },
+                }],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let candidate = ExperienceCandidate {
+            id: uuid::Uuid::new_v4(),
+            version: 1,
+            kind: crate::experience::ExperienceKind::Skill,
+            title: "Repository guidance test".into(),
+            content: "Use the guided repository workflow.".into(),
+            scope: "repository decisions".into(),
+            source_run_id: uuid::Uuid::new_v4(),
+            evidence_event_seqs: vec![1],
+            sensitive: false,
+            applicable_modes: vec![crate::domain::CognitiveMode::DecisionAnalysis],
+            expires_at_unix_ms: None,
+            supersedes: None,
+            status: ExperienceStatus::Reviewed,
+            verification: None,
+            created_unix_ms: 0,
+            updated_unix_ms: 0,
+        };
+        let provider = ProviderCandidate {
+            provider: std::sync::Arc::new(GuidanceAwareProvider),
+            manifest: crate::router::ProviderManifest {
+                provider_id: "guidance-aware".into(),
+                model: "fixture-v1".into(),
+                privacy: PrivacyClass::Local,
+                supported_modes: vec![crate::domain::CognitiveMode::DecisionAnalysis],
+                supports_tools: true,
+                supports_structured_output: true,
+                max_risk: crate::domain::RiskLevel::High,
+                quality_score: 1,
+                input_cost_micros_per_k: 0,
+                output_cost_micros_per_k: 0,
+                p95_latency_ms: 0,
+            },
+        };
+        let report = evaluate_experience_suite(
+            &suite_path,
+            candidate,
+            vec![provider],
+            false,
+            "A".into(),
+            "B".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.baseline.passed, 0);
+        assert_eq!(report.learned.passed, 1);
+        assert_eq!(report.verification.learned_success_bps, 10_000);
+        assert_eq!(report.verification.case_ids, vec!["heldout-1"]);
+        assert_eq!(report.verification.suite_sha256.len(), 64);
+        let ExperienceVerificationInput { .. } = report.verification;
     }
 }

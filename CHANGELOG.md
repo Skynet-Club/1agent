@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0 - 2026-11-02
+
+- Added `experience evaluate` for automated baseline-vs-shadow held-out evaluation.
+- Added EvalSuite version metadata and per-case experience scopes.
+- Added measured success, unsupported-certainty and duration-delta metrics.
+- Added SHA-256 and case-id binding generation from the actual suite file.
+- Added shadow candidate injection without activating unverified experience.
+- Added positive learned-transfer and negative false-certainty tests.
+
 ## 0.9.0 - 2026-11-01
 
 - Added `verified` experience state between review and approval.

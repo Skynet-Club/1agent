@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.9.0` is an executable V0 vertical slice:
+Version `0.10.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -27,10 +27,11 @@ Version `0.9.0` is an executable V0 vertical slice:
 - versioned offline evaluation suites with JSON and human-readable scorecards;
 - versioned JSONL host protocol v3 with request IDs, cancellation, status and bounded concurrency;
 - held-out experience verification with leakage and negative-transfer gates;
+- automated baseline-vs-shadow experience evaluation that generates verification reports;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.9.md`](docs/status-v0.9.md).
+[`docs/status-v0.10.md`](docs/status-v0.10.md).
 
 Current V0 assumptions:
 

@@ -463,37 +463,40 @@ impl ExperienceStore {
         scope: &str,
         max_chars: usize,
     ) -> Result<Vec<ExperienceCandidate>, ExperienceError> {
-        let now = now_unix_ms();
-        let mut candidates: Vec<_> = self
-            .candidates()?
-            .into_values()
-            .filter(|candidate| {
-                candidate.status == ExperienceStatus::Active
-                    && candidate.applicable_modes.contains(&mode)
-                    && (candidate.scope == "*" || candidate.scope == scope)
-                    && candidate
-                        .expires_at_unix_ms
-                        .is_none_or(|expires_at| expires_at > now)
-            })
-            .collect();
-        candidates.sort_by(|left, right| {
-            right
-                .updated_unix_ms
-                .cmp(&left.updated_unix_ms)
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        Ok(select_applicable(
+            self.candidates()?.into_values().collect(),
+            mode,
+            scope,
+            max_chars,
+            false,
+        ))
+    }
 
-        let mut selected = Vec::new();
-        let mut used_chars = 0usize;
-        for candidate in candidates {
-            let cost = candidate.title.chars().count() + candidate.content.chars().count();
-            if used_chars + cost > max_chars {
-                continue;
-            }
-            used_chars += cost;
-            selected.push(candidate);
+    pub fn get(&self, id: Uuid) -> Result<ExperienceCandidate, ExperienceError> {
+        self.candidates()?
+            .remove(&id)
+            .ok_or(ExperienceError::CandidateNotFound(id))
+    }
+
+    pub fn validate_for_shadow(&self, id: Uuid) -> Result<ExperienceCandidate, ExperienceError> {
+        let candidate = self.get(id)?;
+        if candidate.status != ExperienceStatus::Reviewed {
+            return Err(ExperienceError::InvalidTransition {
+                from: candidate.status,
+                allowed_from: vec![ExperienceStatus::Reviewed],
+            });
         }
-        Ok(selected)
+        Ok(candidate)
+    }
+
+    pub fn retrieve_shadow(
+        &self,
+        candidates: Vec<ExperienceCandidate>,
+        mode: CognitiveMode,
+        scope: &str,
+        max_chars: usize,
+    ) -> Vec<ExperienceCandidate> {
+        select_applicable(candidates, mode, scope, max_chars, true)
     }
 
     fn transition<F>(
@@ -564,6 +567,43 @@ impl ExperienceStore {
         }
         Ok(events)
     }
+}
+
+fn select_applicable(
+    mut candidates: Vec<ExperienceCandidate>,
+    mode: CognitiveMode,
+    scope: &str,
+    max_chars: usize,
+    allow_reviewed: bool,
+) -> Vec<ExperienceCandidate> {
+    let now = now_unix_ms();
+    candidates.retain(|candidate| {
+        let status_allowed = candidate.status == ExperienceStatus::Active
+            || (allow_reviewed && candidate.status == ExperienceStatus::Reviewed);
+        status_allowed
+            && candidate.applicable_modes.contains(&mode)
+            && (candidate.scope == "*" || candidate.scope == scope)
+            && candidate
+                .expires_at_unix_ms
+                .is_none_or(|expires_at| expires_at > now)
+    });
+    candidates.sort_by(|left, right| {
+        right
+            .updated_unix_ms
+            .cmp(&left.updated_unix_ms)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut selected = Vec::new();
+    let mut used_chars = 0usize;
+    for candidate in candidates {
+        let cost = candidate.title.chars().count() + candidate.content.chars().count();
+        if used_chars + cost > max_chars {
+            continue;
+        }
+        used_chars += cost;
+        selected.push(candidate);
+    }
+    selected
 }
 
 fn all_modes() -> Vec<CognitiveMode> {

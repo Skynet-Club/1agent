@@ -33,6 +33,7 @@ pub struct AgentRuntime {
     tools: ToolRegistry,
     journal_dir: PathBuf,
     experience_dir: Option<PathBuf>,
+    shadow_experience: Vec<crate::experience::ExperienceCandidate>,
 }
 
 impl AgentRuntime {
@@ -53,11 +54,20 @@ impl AgentRuntime {
             tools,
             journal_dir: journal_dir.into(),
             experience_dir: None,
+            shadow_experience: Vec::new(),
         }
     }
 
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.experience_dir = Some(dir.into());
+        self
+    }
+
+    pub fn with_shadow_experience_candidates(
+        mut self,
+        candidates: Vec<crate::experience::ExperienceCandidate>,
+    ) -> Self {
+        self.shadow_experience = candidates;
         self
     }
 
@@ -226,14 +236,48 @@ impl AgentRuntime {
                             .unwrap_or_else(|_| request.objective.clone())
                     )),
                 ];
-                if let (Some(experience_dir), Some(scope)) =
-                    (&self.experience_dir, &request.experience_scope)
-                {
-                    let store = ExperienceStore::open(experience_dir)
-                        .map_err(|error| RuntimeError::Experience(error.to_string()))?;
-                    let selected = store
-                        .retrieve_active(mode, scope, request.budget.max_context_chars.min(4_000))
-                        .map_err(|error| RuntimeError::Experience(error.to_string()))?;
+                if let Some(scope) = &request.experience_scope {
+                    let mut selected = if let Some(experience_dir) = &self.experience_dir {
+                        let store = ExperienceStore::open(experience_dir)
+                            .map_err(|error| RuntimeError::Experience(error.to_string()))?;
+                        store
+                            .retrieve_active(
+                                mode,
+                                scope,
+                                request.budget.max_context_chars.min(4_000),
+                            )
+                            .map_err(|error| RuntimeError::Experience(error.to_string()))?
+                    } else {
+                        Vec::new()
+                    };
+                    selected.extend(
+                        self.shadow_experience
+                            .iter()
+                            .filter(|candidate| {
+                                candidate.status == crate::experience::ExperienceStatus::Reviewed
+                                    && candidate.applicable_modes.contains(&mode)
+                                    && (candidate.scope == "*" || candidate.scope == scope.as_str())
+                            })
+                            .cloned(),
+                    );
+                    selected.sort_by(|left, right| {
+                        right
+                            .updated_unix_ms
+                            .cmp(&left.updated_unix_ms)
+                            .then_with(|| left.id.cmp(&right.id))
+                    });
+                    let mut bounded = Vec::new();
+                    let mut used_chars = 0usize;
+                    for candidate in selected {
+                        let cost =
+                            candidate.title.chars().count() + candidate.content.chars().count();
+                        if used_chars + cost > request.budget.max_context_chars.min(4_000) {
+                            continue;
+                        }
+                        used_chars += cost;
+                        bounded.push(candidate);
+                    }
+                    let selected = bounded;
                     if !selected.is_empty() {
                         let guidance = selected
                             .iter()
@@ -259,7 +303,15 @@ impl AgentRuntime {
                                         id: candidate.id,
                                         version: candidate.version,
                                         reason: format!(
-                                            "active; mode={mode:?}; scope={}",
+                                            "{}{}; mode={mode:?}; scope={}",
+                                            if candidate.status
+                                                == crate::experience::ExperienceStatus::Active
+                                            {
+                                                "active"
+                                            } else {
+                                                "shadow-reviewed"
+                                            },
+                                            "",
                                             candidate.scope
                                         ),
                                     })
