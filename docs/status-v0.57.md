@@ -33,8 +33,8 @@ flowing into provider errors or journals.
 | Server-error classification | passed |
 | Bad-request classification | passed |
 | Error text excludes body markers | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -42,6 +42,28 @@ flowing into provider errors or journals.
 - Transport errors may still include endpoint details supplied by the HTTP client.
 - Retry remains provider-level; no global retry budget exists yet.
 - Remote live behavior cannot be exercised through loopback in the managed sandbox.
+
+## Verified clean release
+
+```text
+source commit: 43fef0cd0ef50c3a1c60818839e328fec1ffa6ca
+git dirty: false
+
+Linux binary:
+e09ae63703d570cd7f7725037162ae0d3baae00d3015af326a2f94273a2cd791
+
+Windows binary:
+cd01d441f614d0f24dba136bb3f6eac28a8d922f23f4892778a8255d81ce5303
+
+Linux tar.gz:
+c033e8de6b9d4fa265a359be2808da2a8ef649068e151d78838f39ef97a0e368
+
+Windows zip:
+6393edb7b89bec383c9650ef216a8b26737b5c56a512dd294a9b1c0a4475dcb0
+
+Release manifest:
+6d664b2d43f087e128b58984edc718ae9e6dca556e271386283471a9312bd3ce
+```
 
 ## Next requirement
 
