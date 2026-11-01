@@ -25,8 +25,8 @@ Status: bounded provider responses implemented
 | Exact limit | accepted |
 | `response_too_large` serialization | passed |
 | Response content excluded from size error | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -36,6 +36,28 @@ Status: bounded provider responses implemented
   is implemented but has not been exercised in this environment.
 - HTTP-error bodies are still represented by a short text excerpt, which may contain remote
   content.
+
+## Verified clean release
+
+```text
+source commit: 00e479851b97a07446eb1fea7281fa9d3137c72c
+git dirty: false
+
+Linux binary:
+f1d2ba278ce8084fe629c1c0c9c33bfcc5bd17c71d67505fd3bade1239c0f055
+
+Windows binary:
+b964373d6dfc8a4f3bbb53b147e335557a2361cbc2d13118840871349d4eb3cc
+
+Linux tar.gz:
+dca044271f49108507539b91c90a0156aaa6625fe961447185c79b46ecfbf65f
+
+Windows zip:
+e704e90674ee12c894e576864012989cddf70b901a9b89b8877f2b215ad293bb
+
+Release manifest:
+3cbb69f78076712fb3bb753519bbf1a9d8b90878ef8922d793e88399d03c7be8
+```
 
 ## Next requirement
 
