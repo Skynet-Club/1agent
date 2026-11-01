@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.70.0 - 2026-11-02
+
+- Added machine-readable experience-store audit reports.
+- Added stable finding codes for I/O, JSON, sequence, size, timestamp, candidate,
+  transition, evidence, metadata and supersession failures.
+- Added `experience audit`.
+- Added JSON output and CLI end-to-end coverage.
+- Kept candidate listing unchanged for valid stores.
+
 ## 0.69.0 - 2026-11-02
 
 - Capped experience actor text at 128 characters.

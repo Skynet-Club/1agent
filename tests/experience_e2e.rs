@@ -201,4 +201,24 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
         listed[&candidate.id.to_string()]["status"],
         serde_json::Value::String("active".into())
     );
+
+    let audit_output = Command::new(binary)
+        .args([
+            "experience",
+            "audit",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        audit_output.status.success(),
+        "audit: {}",
+        String::from_utf8_lossy(&audit_output.stderr)
+    );
+    let audit: serde_json::Value = serde_json::from_slice(&audit_output.stdout).unwrap();
+    assert_eq!(audit["ok"], serde_json::Value::Bool(true));
+    assert_eq!(audit["candidate_count"], serde_json::json!(1));
+    assert_eq!(audit["findings"], serde_json::json!([]));
 }

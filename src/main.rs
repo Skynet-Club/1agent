@@ -322,6 +322,12 @@ enum ExperienceCommand {
         #[arg(long, default_value = ".experience")]
         store: PathBuf,
     },
+    Audit {
+        #[arg(long, default_value = ".experience")]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1453,6 +1459,25 @@ async fn handle_experience(command: ExperienceCommand) -> Result<()> {
         ExperienceCommand::List { store } => {
             let candidates = ExperienceStore::open(store)?.candidates()?;
             println!("{}", serde_json::to_string_pretty(&candidates)?);
+        }
+        ExperienceCommand::Audit { store, json } => {
+            let report = ExperienceStore::open(store)?.audit();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if report.ok {
+                println!(
+                    "experience audit passed: {} events, {} candidates",
+                    report.event_count, report.candidate_count
+                );
+            } else {
+                println!("experience audit failed:");
+                for finding in report.findings {
+                    println!("- {:?}: {}", finding.code, finding.message);
+                }
+            }
+            if !report.ok {
+                bail!("experience audit failed");
+            }
         }
     }
     Ok(())

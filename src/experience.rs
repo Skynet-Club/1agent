@@ -20,6 +20,42 @@ const MAX_EVIDENCE_REFERENCES: usize = 32;
 const MAX_EXPERIENCE_ACTOR_CHARS: usize = 128;
 const MAX_EXPERIENCE_REASON_CHARS: usize = 1_000;
 const MAX_EXPERIENCE_EVENT_BYTES: usize = 64 * 1024;
+pub const EXPERIENCE_AUDIT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExperienceAuditFindingCode {
+    Io,
+    InvalidJson,
+    UnsupportedSchema,
+    InvalidSequence,
+    EventTooLarge,
+    NonMonotonicTimestamp,
+    InvalidCandidate,
+    InvalidTransition,
+    InvalidVerification,
+    InvalidEvidence,
+    InvalidMetadata,
+    InvalidSupersession,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceAuditFinding {
+    pub code: ExperienceAuditFindingCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceAuditReport {
+    pub schema_version: u32,
+    pub ok: bool,
+    pub event_count: usize,
+    pub candidate_count: usize,
+    pub findings: Vec<ExperienceAuditFinding>,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -643,6 +679,43 @@ impl ExperienceStore {
             .ok_or(ExperienceError::CandidateNotFound(id))
     }
 
+    pub fn audit(&self) -> ExperienceAuditReport {
+        let events = match self.read_events() {
+            Ok(events) => events,
+            Err(error) => {
+                return ExperienceAuditReport {
+                    schema_version: EXPERIENCE_AUDIT_SCHEMA_VERSION,
+                    ok: false,
+                    event_count: 0,
+                    candidate_count: 0,
+                    findings: vec![ExperienceAuditFinding {
+                        code: experience_audit_code(&error),
+                        message: error.to_string(),
+                    }],
+                };
+            }
+        };
+        match self.candidates() {
+            Ok(candidates) => ExperienceAuditReport {
+                schema_version: EXPERIENCE_AUDIT_SCHEMA_VERSION,
+                ok: true,
+                event_count: events.len(),
+                candidate_count: candidates.len(),
+                findings: Vec::new(),
+            },
+            Err(error) => ExperienceAuditReport {
+                schema_version: EXPERIENCE_AUDIT_SCHEMA_VERSION,
+                ok: false,
+                event_count: events.len(),
+                candidate_count: 0,
+                findings: vec![ExperienceAuditFinding {
+                    code: experience_audit_code(&error),
+                    message: error.to_string(),
+                }],
+            },
+        }
+    }
+
     pub fn validate_for_shadow(&self, id: Uuid) -> Result<ExperienceCandidate, ExperienceError> {
         let candidate = self.get(id)?;
         if candidate.status != ExperienceStatus::Reviewed {
@@ -1032,6 +1105,53 @@ fn now_unix_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+fn experience_audit_code(error: &ExperienceError) -> ExperienceAuditFindingCode {
+    match error {
+        ExperienceError::Io(_) => ExperienceAuditFindingCode::Io,
+        ExperienceError::Json(_) => ExperienceAuditFindingCode::InvalidJson,
+        ExperienceError::UnsupportedSchema(_) => ExperienceAuditFindingCode::UnsupportedSchema,
+        ExperienceError::InvalidSequence { .. } => ExperienceAuditFindingCode::InvalidSequence,
+        ExperienceError::EventTooLarge(_) => ExperienceAuditFindingCode::EventTooLarge,
+        ExperienceError::NonMonotonicTimestamp { .. } => {
+            ExperienceAuditFindingCode::NonMonotonicTimestamp
+        }
+        ExperienceError::DuplicateCandidate
+        | ExperienceError::CandidateNotFound(_)
+        | ExperienceError::InvalidProposedStatus
+        | ExperienceError::InvalidCandidateVersion
+        | ExperienceError::InvalidSourceRunId
+        | ExperienceError::EmptyApplicableModes
+        | ExperienceError::DuplicateApplicableMode => ExperienceAuditFindingCode::InvalidCandidate,
+        ExperienceError::InvalidTransition { .. } => ExperienceAuditFindingCode::InvalidTransition,
+        ExperienceError::InvalidVerification(_) | ExperienceError::VerificationFailed => {
+            ExperienceAuditFindingCode::InvalidVerification
+        }
+        ExperienceError::NoEvidence
+        | ExperienceError::DuplicateEvidenceSeq
+        | ExperienceError::UnknownEvidenceSeq(_)
+        | ExperienceError::MissingSourceEvidence
+        | ExperienceError::SourceRunMismatch
+        | ExperienceError::EvidenceDigestMismatch
+        | ExperienceError::InvalidEvidenceDigest
+        | ExperienceError::InvalidEvidenceKind(_) => ExperienceAuditFindingCode::InvalidEvidence,
+        ExperienceError::InvalidText(_)
+        | ExperienceError::TextTooLong(_)
+        | ExperienceError::TooManyEvidenceReferences => ExperienceAuditFindingCode::InvalidMetadata,
+        ExperienceError::ExpiredSpecification
+        | ExperienceError::ExpiredCandidate(_)
+        | ExperienceError::SupersededExperienceNotFound(_)
+        | ExperienceError::SupersessionKindMismatch(_)
+        | ExperienceError::SupersessionScopeMismatch(_)
+        | ExperienceError::SupersededExperienceNotActive(_)
+        | ExperienceError::SupersessionMismatch(_)
+        | ExperienceError::SupersessionVersionMismatch { .. }
+        | ExperienceError::ActiveExperienceConflict => {
+            ExperienceAuditFindingCode::InvalidSupersession
+        }
+        ExperienceError::UnauditedSource(_) => ExperienceAuditFindingCode::InvalidEvidence,
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1627,6 +1747,37 @@ mod tests {
             store.propose(no_modes, &events),
             Err(ExperienceError::EmptyApplicableModes)
         ));
+    }
+
+    #[test]
+    fn audit_reports_clean_and_corrupt_experience_stores() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        store.propose(spec(), &events).unwrap();
+        let report = store.audit();
+        assert!(report.ok);
+        assert_eq!(report.event_count, 1);
+        assert_eq!(report.candidate_count, 1);
+        assert!(report.findings.is_empty());
+
+        let corrupt_dir = tempfile::tempdir().unwrap();
+        let corrupt = ExperienceStore::open(corrupt_dir.path()).unwrap();
+        std::fs::write(
+            corrupt.path(),
+            format!("{}\n", "x".repeat(MAX_EXPERIENCE_EVENT_BYTES + 1)),
+        )
+        .unwrap();
+        let report = corrupt.audit();
+        assert!(!report.ok);
+        assert_eq!(
+            report.findings[0].code,
+            ExperienceAuditFindingCode::EventTooLarge
+        );
+        assert_eq!(
+            serde_json::to_value(report.findings[0].code).unwrap(),
+            serde_json::json!("event_too_large")
+        );
     }
 
     #[test]
