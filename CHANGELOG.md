@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.81.0 - 2026-11-02
+
+- Added canonical SHA-256 digests to evaluation reports.
+- Bound compact summaries to the normalized report content digest.
+- Advanced the summary schema to version `2` while accepting versions `0` and `1`.
+- Rejected changed case payloads whose retained digest no longer matches.
+- Preserved decoding for reports and summaries that predate content digests.
+
 ## 0.80.0 - 2026-11-02
 
 - Added schema version `1` to evaluation report summaries.

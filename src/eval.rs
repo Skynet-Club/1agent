@@ -251,6 +251,8 @@ pub struct EvalReport {
     pub decision_completeness_floor_passed: bool,
     #[serde(default)]
     pub decision_completeness_policy: DecisionCompletenessPolicy,
+    #[serde(default)]
+    pub content_sha256: Option<String>,
     pub cases: Vec<EvalCaseResult>,
 }
 
@@ -309,6 +311,13 @@ impl EvalReport {
                 "decision-completeness floor status is inconsistent",
             ));
         }
+        if let Some(expected) = &self.content_sha256
+            && report_content_sha256(self)? != *expected
+        {
+            return Err(EvalError::InvalidReportIntegrity(
+                "report content digest does not match payload",
+            ));
+        }
         Ok(())
     }
 }
@@ -330,9 +339,11 @@ pub struct EvalReportSummary {
     pub min_decision_completeness_bps: u16,
     pub decision_completeness_floor_passed: bool,
     pub decision_completeness_policy: DecisionCompletenessPolicy,
+    #[serde(default)]
+    pub report_content_sha256: Option<String>,
 }
 
-pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 1;
+pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 2;
 
 impl From<&EvalReport> for EvalReportSummary {
     fn from(report: &EvalReport) -> Self {
@@ -350,6 +361,7 @@ impl From<&EvalReport> for EvalReportSummary {
             min_decision_completeness_bps: report.min_decision_completeness_bps,
             decision_completeness_floor_passed: report.decision_completeness_floor_passed,
             decision_completeness_policy: report.decision_completeness_policy.clone(),
+            report_content_sha256: report.content_sha256.clone(),
         }
     }
 }
@@ -357,7 +369,7 @@ impl From<&EvalReport> for EvalReportSummary {
 impl EvalReportSummary {
     pub fn validate(&self) -> Result<(), EvalError> {
         match self.schema_version {
-            0 | REPORT_SUMMARY_SCHEMA_VERSION => {}
+            0..=REPORT_SUMMARY_SCHEMA_VERSION => {}
             version => return Err(EvalError::UnsupportedReportSummaryVersion(version)),
         }
         self.decision_completeness_policy.validate()?;
@@ -407,8 +419,31 @@ impl EvalReportSummary {
                 "decision-completeness floor status is inconsistent",
             ));
         }
+        if self
+            .report_content_sha256
+            .as_deref()
+            .is_some_and(|digest| !is_sha256_hex(digest))
+        {
+            return Err(EvalError::InvalidReportSummary(
+                "report content digest must be a lowercase SHA-256",
+            ));
+        }
         Ok(())
     }
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn report_content_sha256(report: &EvalReport) -> Result<String, EvalError> {
+    let mut unhashed = report.clone();
+    unhashed.content_sha256 = None;
+    let bytes = serde_json::to_vec(&unhashed)?;
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -598,7 +633,7 @@ pub async fn run_suite_with_learning(
     let decision_completeness = aggregate_decision_completeness(&results);
     let decision_completeness_floor_passed =
         decision_completeness.completion_rate_bps >= min_decision_completeness_bps;
-    Ok(EvalReport {
+    let mut report = EvalReport {
         suite: suite.name,
         kind: suite.kind,
         execution_status: suite.execution_status,
@@ -612,8 +647,11 @@ pub async fn run_suite_with_learning(
         min_decision_completeness_bps,
         decision_completeness_floor_passed,
         decision_completeness_policy,
+        content_sha256: None,
         cases: results,
-    })
+    };
+    report.content_sha256 = Some(report_content_sha256(&report)?);
+    Ok(report)
 }
 
 async fn run_case(
@@ -1402,11 +1440,17 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("decision_completeness_policy");
+        let _ = legacy_report
+            .as_object_mut()
+            .unwrap()
+            .remove("content_sha256");
         let decoded: EvalReport = serde_json::from_value(legacy_report).unwrap();
         assert_eq!(
             decoded.decision_completeness_policy,
             DecisionCompletenessPolicy::default()
         );
+        assert!(decoded.content_sha256.is_none());
+        decoded.validate_integrity().unwrap();
     }
 
     #[test]
@@ -1433,6 +1477,7 @@ mod tests {
                 version: DECISION_COMPLETENESS_POLICY_VERSION,
                 floor_source: DecisionCompletenessFloorSource::Default,
             },
+            content_sha256: None,
             cases: vec![EvalCaseResult {
                 id: "passed".into(),
                 passed: true,
@@ -1493,6 +1538,9 @@ mod tests {
             ))
         ));
 
+        let mut report = report;
+        report.content_sha256 = Some(report_content_sha256(&report).unwrap());
+        report.validate_integrity().unwrap();
         let summary = EvalReportSummary::from(&report);
         summary.validate().unwrap();
         let json = serde_json::to_value(&summary).unwrap();
@@ -1503,14 +1551,19 @@ mod tests {
 
         let mut legacy = json.clone();
         legacy.as_object_mut().unwrap().remove("schema_version");
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("report_content_sha256");
         let legacy: EvalReportSummary = serde_json::from_value(legacy).unwrap();
         legacy.validate().unwrap();
+        assert!(legacy.report_content_sha256.is_none());
 
         let mut invalid = summary.clone();
         invalid.schema_version = REPORT_SUMMARY_SCHEMA_VERSION + 1;
         assert!(matches!(
             invalid.validate(),
-            Err(EvalError::UnsupportedReportSummaryVersion(2))
+            Err(EvalError::UnsupportedReportSummaryVersion(3))
         ));
 
         let mut invalid = summary.clone();
@@ -1528,6 +1581,15 @@ mod tests {
             invalid.validate(),
             Err(EvalError::InvalidReportSummary(
                 "passed and failed counts do not sum to total"
+            ))
+        ));
+
+        let mut invalid = report;
+        invalid.cases[0].duration_ms = 1;
+        assert!(matches!(
+            invalid.validate_integrity(),
+            Err(EvalError::InvalidReportIntegrity(
+                "report content digest does not match payload"
             ))
         ));
     }
