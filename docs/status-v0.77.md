@@ -38,7 +38,21 @@ Unknown fields and unknown source values also fail decoding.
 | unsupported version | rejected |
 | CLI JSON normalization | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `d89dcb4ab50a4094fb0b498712a6985b64be209b`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `367c5181f8a6120cf910b209b8e6bbbd31f21f49009920e00eef70b249e0fe19` |
+| Windows `zip` | `70c13d359307410bd161e4ca99e9ff8868415d5ddd90fc130e532fa72e9f62ac` |
+| Release manifest | `ac71eb06f70bd9e24c7d4c8d637ae25198eb05caf727e07cd19b8c561d4d5053` |
+| Linux binary | `bc32dd5de9dbb25677631ae5cdc1bd645c865b1a4175e755822e05ec20e2fbe7` |
+| Windows binary | `a982e9f68322c145c9d6ad24e65023d29473cdcd603c18489925d7df94e5265a` |
 
 ## Known limitations
 
