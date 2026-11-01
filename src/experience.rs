@@ -37,6 +37,9 @@ pub enum ExperienceAuditFindingCode {
     InvalidEvidence,
     InvalidMetadata,
     InvalidSupersession,
+    OrphanedSupersession,
+    SupersessionCycle,
+    ExpiredActive,
     Unknown,
 }
 
@@ -54,7 +57,29 @@ pub struct ExperienceAuditReport {
     pub ok: bool,
     pub event_count: usize,
     pub candidate_count: usize,
+    #[serde(default)]
+    pub status_counts: ExperienceStatusCounts,
+    #[serde(default)]
+    pub supersession_chains: usize,
+    #[serde(default)]
+    pub max_supersession_depth: usize,
+    #[serde(default)]
+    pub expired_active: usize,
     pub findings: Vec<ExperienceAuditFinding>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceStatusCounts {
+    pub draft: usize,
+    pub reviewed: usize,
+    pub verified: usize,
+    pub approved: usize,
+    pub rejected: usize,
+    pub active: usize,
+    pub superseded: usize,
+    pub degraded: usize,
+    pub rolled_back: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -688,6 +713,10 @@ impl ExperienceStore {
                     ok: false,
                     event_count: 0,
                     candidate_count: 0,
+                    status_counts: ExperienceStatusCounts::default(),
+                    supersession_chains: 0,
+                    max_supersession_depth: 0,
+                    expired_active: 0,
                     findings: vec![ExperienceAuditFinding {
                         code: experience_audit_code(&error),
                         message: error.to_string(),
@@ -696,18 +725,29 @@ impl ExperienceStore {
             }
         };
         match self.candidates() {
-            Ok(candidates) => ExperienceAuditReport {
-                schema_version: EXPERIENCE_AUDIT_SCHEMA_VERSION,
-                ok: true,
-                event_count: events.len(),
-                candidate_count: candidates.len(),
-                findings: Vec::new(),
-            },
+            Ok(candidates) => {
+                let (summary, findings) = audit_lifecycle(&candidates);
+                ExperienceAuditReport {
+                    schema_version: EXPERIENCE_AUDIT_SCHEMA_VERSION,
+                    ok: findings.is_empty(),
+                    event_count: events.len(),
+                    candidate_count: candidates.len(),
+                    status_counts: summary.status_counts,
+                    supersession_chains: summary.supersession_chains,
+                    max_supersession_depth: summary.max_supersession_depth,
+                    expired_active: summary.expired_active,
+                    findings,
+                }
+            }
             Err(error) => ExperienceAuditReport {
                 schema_version: EXPERIENCE_AUDIT_SCHEMA_VERSION,
                 ok: false,
                 event_count: events.len(),
                 candidate_count: 0,
+                status_counts: ExperienceStatusCounts::default(),
+                supersession_chains: 0,
+                max_supersession_depth: 0,
+                expired_active: 0,
                 findings: vec![ExperienceAuditFinding {
                     code: experience_audit_code(&error),
                     message: error.to_string(),
@@ -1152,6 +1192,91 @@ fn experience_audit_code(error: &ExperienceError) -> ExperienceAuditFindingCode 
         }
         ExperienceError::UnauditedSource(_) => ExperienceAuditFindingCode::InvalidEvidence,
     }
+}
+
+struct LifecycleAuditSummary {
+    status_counts: ExperienceStatusCounts,
+    supersession_chains: usize,
+    max_supersession_depth: usize,
+    expired_active: usize,
+}
+
+fn audit_lifecycle(
+    candidates: &BTreeMap<Uuid, ExperienceCandidate>,
+) -> (LifecycleAuditSummary, Vec<ExperienceAuditFinding>) {
+    let now = now_unix_ms();
+    let mut summary = LifecycleAuditSummary {
+        status_counts: ExperienceStatusCounts::default(),
+        supersession_chains: 0,
+        max_supersession_depth: 0,
+        expired_active: 0,
+    };
+    let mut findings = Vec::new();
+    for candidate in candidates.values() {
+        let count = match candidate.status {
+            ExperienceStatus::Draft => &mut summary.status_counts.draft,
+            ExperienceStatus::Reviewed => &mut summary.status_counts.reviewed,
+            ExperienceStatus::Verified => &mut summary.status_counts.verified,
+            ExperienceStatus::Approved => &mut summary.status_counts.approved,
+            ExperienceStatus::Rejected => &mut summary.status_counts.rejected,
+            ExperienceStatus::Active => &mut summary.status_counts.active,
+            ExperienceStatus::Superseded => &mut summary.status_counts.superseded,
+            ExperienceStatus::Degraded => &mut summary.status_counts.degraded,
+            ExperienceStatus::RolledBack => &mut summary.status_counts.rolled_back,
+        };
+        *count += 1;
+        if candidate.status == ExperienceStatus::Active
+            && candidate
+                .expires_at_unix_ms
+                .is_some_and(|expires_at| expires_at <= now)
+        {
+            summary.expired_active += 1;
+            findings.push(ExperienceAuditFinding {
+                code: ExperienceAuditFindingCode::ExpiredActive,
+                message: format!("active experience {} is expired", candidate.id),
+            });
+        }
+    }
+
+    for candidate in candidates
+        .values()
+        .filter(|candidate| candidate.supersedes.is_some())
+    {
+        summary.supersession_chains += 1;
+        let mut visited = std::collections::BTreeSet::new();
+        let mut current_id = Some(candidate.id);
+        let mut depth = 0usize;
+        while let Some(id) = current_id {
+            if !visited.insert(id) {
+                findings.push(ExperienceAuditFinding {
+                    code: ExperienceAuditFindingCode::SupersessionCycle,
+                    message: format!("supersession cycle includes experience {id}"),
+                });
+                break;
+            }
+            let Some(current) = candidates.get(&id) else {
+                findings.push(ExperienceAuditFinding {
+                    code: ExperienceAuditFindingCode::OrphanedSupersession,
+                    message: format!("supersession references missing experience {id}"),
+                });
+                break;
+            };
+            let Some(previous_id) = current.supersedes else {
+                break;
+            };
+            depth += 1;
+            if depth > candidates.len() {
+                findings.push(ExperienceAuditFinding {
+                    code: ExperienceAuditFindingCode::SupersessionCycle,
+                    message: format!("supersession chain from {} is cyclic", candidate.id),
+                });
+                break;
+            }
+            current_id = Some(previous_id);
+        }
+        summary.max_supersession_depth = summary.max_supersession_depth.max(depth);
+    }
+    (summary, findings)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1611,6 +1736,12 @@ mod tests {
         let candidates = store.candidates().unwrap();
         assert_eq!(candidates[&first.id].status, ExperienceStatus::Superseded);
         assert_eq!(candidates[&replacement.id].status, ExperienceStatus::Active);
+        let audit = store.audit();
+        assert!(audit.ok, "{:?}", audit.findings);
+        assert_eq!(audit.status_counts.active, 1);
+        assert_eq!(audit.status_counts.superseded, 1);
+        assert_eq!(audit.supersession_chains, 1);
+        assert_eq!(audit.max_supersession_depth, 1);
         let active = store
             .retrieve_active(
                 CognitiveMode::EvidenceResearch,
@@ -1629,6 +1760,60 @@ mod tests {
         assert_eq!(
             candidates[&replacement.id].status,
             ExperienceStatus::RolledBack
+        );
+    }
+
+    #[test]
+    fn lifecycle_audit_detects_orphaned_and_cyclic_supersession() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let base = store.propose(spec(), &events).unwrap();
+
+        let mut first = base.clone();
+        first.id = Uuid::new_v4();
+        first.supersedes = Some(Uuid::new_v4());
+        let candidates = BTreeMap::from([(first.id, first)]);
+        let (_, findings) = audit_lifecycle(&candidates);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.code == ExperienceAuditFindingCode::OrphanedSupersession)
+        );
+
+        let mut first = base.clone();
+        first.id = Uuid::new_v4();
+        let mut second = base;
+        second.id = Uuid::new_v4();
+        first.supersedes = Some(second.id);
+        second.supersedes = Some(first.id);
+        let candidates = BTreeMap::from([(first.id, first), (second.id, second)]);
+        let (_, findings) = audit_lifecycle(&candidates);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.code == ExperienceAuditFindingCode::SupersessionCycle)
+        );
+    }
+
+    #[test]
+    fn lifecycle_audit_reports_expired_active_experience() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let mut short_lived = spec();
+        short_lived.expires_at_unix_ms = Some(now_unix_ms().saturating_add(200));
+        let candidate = store.propose(short_lived, &events).unwrap();
+        approve_and_activate(&mut store, candidate.id, &events);
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let audit = store.audit();
+        assert!(!audit.ok);
+        assert_eq!(audit.expired_active, 1);
+        assert!(
+            audit
+                .findings
+                .iter()
+                .any(|finding| finding.code == ExperienceAuditFindingCode::ExpiredActive)
         );
     }
 

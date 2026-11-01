@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.71.0 - 2026-11-02
+
+- Added experience status counts to audit reports.
+- Added supersession chain count and maximum depth.
+- Detected orphaned supersession references.
+- Detected supersession cycles.
+- Reported expired Active experiences as audit failures.
+- Added lifecycle, cycle and expiration coverage.
+
 ## 0.70.0 - 2026-11-02
 
 - Added machine-readable experience-store audit reports.
