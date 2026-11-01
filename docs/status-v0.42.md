@@ -28,6 +28,29 @@ Status: tool capability snapshots bound to runs and checkpoints
 | Legacy checkpoint decode | passed |
 | Unit tests | 80 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: f9b14873a3a85ef055a750ed8894622edb8c2788
+git dirty: false
+
+Linux binary:
+acdc073bfc0e7d573f22fb05720363ad84a3a6bacdb01b71a3f45aa068e042fd
+
+Windows binary:
+b0be928d2a6f5713b8f64f9a482565e10e18254e055d9fb1b52aa69362398135
+
+Linux tar.gz:
+5e445dae42d7122d0ec380f0dae0de5a05009c4eac3e8a4f14e98e6f4f0d0deb
+
+Windows zip:
+04cad0d443a08f0ff8b948b946c86ebe45ff16d202081ebebc48c6d24061b111
+
+Release manifest:
+53d5371c631f525d1fc108b4acfe3c82e6704f4087611ef62cdcbe3f45ebebef
+```
 
 ## Known limitations
 
