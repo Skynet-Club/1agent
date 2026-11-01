@@ -120,6 +120,17 @@ impl ToolRegistry {
             );
         }
 
+        let spec = tool.spec();
+        if let Err(message) = validate_arguments(&spec.parameters, &call.arguments) {
+            return failure_observation(
+                call,
+                ToolStatus::InvalidArguments,
+                "invalid_arguments",
+                message,
+                started,
+            );
+        }
+
         let future = tool.execute(call.arguments.clone(), permissions, cancellation);
         let result = tokio::select! {
             _ = cancellation.cancelled() => Err(ToolError::Cancelled),
@@ -150,6 +161,113 @@ impl ToolRegistry {
             ),
         }
     }
+}
+
+fn validate_arguments(schema: &Value, value: &Value) -> Result<(), String> {
+    validate_schema_value(schema, value, "$")
+}
+
+fn validate_schema_value(schema: &Value, value: &Value, path: &str) -> Result<(), String> {
+    let schema = schema
+        .as_object()
+        .ok_or_else(|| format!("{path}: schema must be an object"))?;
+    if let Some(allowed) = schema.get("enum").and_then(Value::as_array)
+        && !allowed.contains(value)
+    {
+        return Err(format!("{path}: value is not in enum"));
+    }
+    let value_type = schema
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{path}: schema type is required"))?;
+    match value_type {
+        "object" => validate_object(schema, value, path),
+        "string" => {
+            let text = value
+                .as_str()
+                .ok_or_else(|| format!("{path}: expected string"))?;
+            let length = text.chars().count();
+            if let Some(minimum) = schema.get("minLength").and_then(Value::as_u64)
+                && length < minimum as usize
+            {
+                return Err(format!("{path}: string is shorter than {minimum}"));
+            }
+            if let Some(maximum) = schema.get("maxLength").and_then(Value::as_u64)
+                && length > maximum as usize
+            {
+                return Err(format!("{path}: string is longer than {maximum}"));
+            }
+            Ok(())
+        }
+        "integer" => {
+            let number = value
+                .as_i64()
+                .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
+                .ok_or_else(|| format!("{path}: expected integer"))?;
+            if let Some(minimum) = schema.get("minimum").and_then(Value::as_i64)
+                && number < minimum
+            {
+                return Err(format!("{path}: integer is below {minimum}"));
+            }
+            if let Some(maximum) = schema.get("maximum").and_then(Value::as_i64)
+                && number > maximum
+            {
+                return Err(format!("{path}: integer is above {maximum}"));
+            }
+            Ok(())
+        }
+        "boolean" => value
+            .as_bool()
+            .map(|_| ())
+            .ok_or_else(|| format!("{path}: expected boolean")),
+        "array" => {
+            let array = value
+                .as_array()
+                .ok_or_else(|| format!("{path}: expected array"))?;
+            if let Some(item_schema) = schema.get("items") {
+                for (index, item) in array.iter().enumerate() {
+                    validate_schema_value(item_schema, item, &format!("{path}[{index}]"))?;
+                }
+            }
+            Ok(())
+        }
+        other => Err(format!("{path}: unsupported schema type '{other}'")),
+    }
+}
+
+fn validate_object(
+    schema: &serde_json::Map<String, Value>,
+    value: &Value,
+    path: &str,
+) -> Result<(), String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("{path}: expected object"))?;
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        for key in required.iter().filter_map(Value::as_str) {
+            if !object.contains_key(key) {
+                return Err(format!("{path}: missing required field '{key}'"));
+            }
+        }
+    }
+    if schema.get("additionalProperties").and_then(Value::as_bool) == Some(false) {
+        for key in object.keys() {
+            if !properties.contains_key(key) {
+                return Err(format!("{path}: unexpected field '{key}'"));
+            }
+        }
+    }
+    for (key, value) in object {
+        if let Some(property_schema) = properties.get(key) {
+            validate_schema_value(property_schema, value, &format!("{path}.{key}"))?;
+        }
+    }
+    Ok(())
 }
 
 fn with_duration(
@@ -772,6 +890,70 @@ mod tests {
             .await;
         assert_eq!(invalid.status, ToolStatus::Failed);
         assert_eq!(invalid.error_code.as_deref(), Some("unsafe_content"));
+
+        let extra = registry
+            .execute(
+                &ToolCall {
+                    id: "echo-3".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "ok", "extra": true}),
+                },
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(extra.status, ToolStatus::InvalidArguments);
+        assert_eq!(extra.error_code.as_deref(), Some("invalid_arguments"));
+    }
+
+    #[test]
+    fn validates_bounded_json_schema_subset() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "count", "mode", "items"],
+            "properties": {
+                "name": {"type": "string", "minLength": 2, "maxLength": 4},
+                "count": {"type": "integer", "minimum": 1, "maximum": 3},
+                "mode": {"type": "string", "enum": ["fast", "safe"]},
+                "items": {
+                    "type": "array",
+                    "items": {"type": "boolean"}
+                }
+            }
+        });
+        let valid = serde_json::json!({
+            "name": "test",
+            "count": 2,
+            "mode": "safe",
+            "items": [true, false]
+        });
+        validate_arguments(&schema, &valid).unwrap();
+        assert!(
+            validate_arguments(
+                &schema,
+                &serde_json::json!({
+                    "name": "x",
+                    "count": 2,
+                    "mode": "safe",
+                    "items": [true]
+                })
+            )
+            .is_err()
+        );
+        assert!(
+            validate_arguments(
+                &schema,
+                &serde_json::json!({
+                    "name": "test",
+                    "count": 4,
+                    "mode": "unsafe",
+                    "items": [true],
+                    "extra": 1
+                })
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]

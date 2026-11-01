@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.39.0 - 2026-11-02
+
+- Added a bounded JSON Schema subset validator at the central tool boundary.
+- Validates object shape, required fields, additional properties, base types, string/integer
+  bounds, array items and enums.
+- Rejects invalid arguments before tool-specific execution.
+- Kept path containment, side effects, permissions and concurrency checks inside each tool.
+- Added nested-schema and unexpected-field coverage.
+
 ## 0.38.0 - 2026-11-02
 
 - Added OpenAI-compatible assistant content normalization for strings and text-part arrays.
