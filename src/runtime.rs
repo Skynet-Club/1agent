@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 use crate::context::compact_messages;
 use crate::domain::{
-    AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience, ModelMessage,
-    ModelRequest, ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason,
-    TaskRequest, UnknownItem,
+    AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
+    MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelTurn, ProviderRouteKey,
+    RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest, UnknownItem,
 };
 use crate::experience::ExperienceStore;
 use crate::journal::{
@@ -23,8 +23,6 @@ use crate::router::{
     RouteRequest, Router,
 };
 use crate::tools::ToolRegistry;
-
-const MAX_PROVIDER_RETRY_BACKOFF_MS: u64 = 1_000;
 
 #[derive(Clone)]
 pub struct ProviderCandidate {

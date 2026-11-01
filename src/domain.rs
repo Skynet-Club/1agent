@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const LEGACY_ANSWER_SCHEMA_VERSION: u32 = 1;
 pub const ANSWER_SCHEMA_VERSION: u32 = 2;
+pub const MAX_PROVIDER_RETRY_BACKOFF_MS: u64 = 1_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

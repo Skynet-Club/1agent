@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.62.0 - 2026-11-02
+
+- Shared the 1-second provider retry backoff cap through the domain contract.
+- Audited retry targets against the active route plan.
+- Audited the next selected route against the scheduled target.
+- Detected delay values above the hard cap.
+- Detected duplicate and stalled retry schedules.
+- Preserved cancellation and budget exhaustion as legitimate reasons to abandon a schedule.
+- Added stable finding codes for retry contradictions.
+
 ## 0.61.0 - 2026-11-02
 
 - Added deterministic exponential backoff between retryable provider failures.

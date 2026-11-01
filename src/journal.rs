@@ -209,6 +209,11 @@ pub enum AuditFindingCode {
     MissingAnswerForStop,
     ProviderFailureOutsideSelectedRoute,
     ProviderSucceededAndFailed,
+    ProviderRetryOutsideRoutePlan,
+    ProviderRetryTargetMismatch,
+    ProviderRetryWithoutNextRoute,
+    ProviderRetryDelayAboveCap,
+    DuplicateProviderRetrySchedule,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -499,6 +504,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
     let mut current_route_plan: Option<RoutePlan> = None;
     let mut selected_route: Option<(String, String)> = None;
     let mut responded_route: Option<(String, String)> = None;
+    let mut pending_retry: Option<(String, String, usize)> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
@@ -575,6 +581,19 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
             JournalEventKind::RouteSelected {
                 provider_id, model, ..
             } => {
+                if let Some((expected_provider, expected_model, schedule_index)) =
+                    pending_retry.take()
+                    && (expected_provider != *provider_id || expected_model != *model)
+                {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderRetryTargetMismatch,
+                        Some(schedule_index),
+                        format!(
+                            "event {schedule_index}: scheduled retry {expected_provider}/{expected_model} was followed by {provider_id}/{model}"
+                        ),
+                    );
+                }
                 selected_route = Some((provider_id.clone(), model.clone()));
                 responded_route = None;
                 if let Some(plan) = &current_route_plan
@@ -595,6 +614,50 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
             }
             JournalEventKind::ModelResponded { .. } => {
                 responded_route = selected_route.clone();
+            }
+            JournalEventKind::ProviderRetryScheduled {
+                delay_ms,
+                next_provider_id,
+                next_model,
+            } => {
+                if *delay_ms > crate::domain::MAX_PROVIDER_RETRY_BACKOFF_MS {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderRetryDelayAboveCap,
+                        Some(index),
+                        format!(
+                            "event {index}: retry delay {delay_ms} exceeds {} ms",
+                            crate::domain::MAX_PROVIDER_RETRY_BACKOFF_MS
+                        ),
+                    );
+                }
+                let target_in_plan = current_route_plan.as_ref().is_some_and(|plan| {
+                    plan.ranked.iter().any(|candidate| {
+                        candidate.manifest.provider_id == *next_provider_id
+                            && candidate.manifest.model == *next_model
+                    })
+                });
+                if !target_in_plan {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderRetryOutsideRoutePlan,
+                        Some(index),
+                        format!(
+                            "event {index}: retry target {next_provider_id}/{next_model} is not in the route plan"
+                        ),
+                    );
+                }
+                if pending_retry
+                    .replace((next_provider_id.clone(), next_model.clone(), index))
+                    .is_some()
+                {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::DuplicateProviderRetrySchedule,
+                        Some(index),
+                        format!("event {index}: duplicate provider retry schedule"),
+                    );
+                }
             }
             JournalEventKind::ProviderFailed { failure } => {
                 let failure_route = (failure.provider_id.clone(), failure.model.clone());
@@ -727,6 +790,22 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
             );
         }
         _ => {}
+    }
+
+    if let Some((provider_id, model, schedule_index)) = pending_retry
+        && !matches!(
+            terminal_reason,
+            Some(StopReason::Cancelled | StopReason::BudgetExhausted)
+        )
+    {
+        push_audit_finding(
+            &mut findings,
+            AuditFindingCode::ProviderRetryWithoutNextRoute,
+            Some(schedule_index),
+            format!(
+                "event {schedule_index}: scheduled retry to {provider_id}/{model} has no following route selection"
+            ),
+        );
     }
 
     let issues = findings
@@ -1521,6 +1600,96 @@ mod tests {
         }));
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.provider_failures.len(), 2);
+    }
+
+    #[test]
+    fn audit_detects_invalid_or_stalled_retry_schedules() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderRetryScheduled {
+                    delay_ms: 2_000,
+                    next_provider_id: "provider-a".into(),
+                    next_model: "model-a".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RouteSelected {
+                    provider_id: "provider-b".into(),
+                    model: "model-b".into(),
+                    reason: "unexpected".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 3,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderRetryScheduled {
+                    delay_ms: 50,
+                    next_provider_id: "provider-c".into(),
+                    next_model: "model-c".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 4,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderRetryScheduled {
+                    delay_ms: 50,
+                    next_provider_id: "provider-d".into(),
+                    next_model: "model-d".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 5,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::ProviderError,
+                },
+            },
+        ];
+
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        for expected in [
+            AuditFindingCode::ProviderRetryDelayAboveCap,
+            AuditFindingCode::ProviderRetryOutsideRoutePlan,
+            AuditFindingCode::ProviderRetryTargetMismatch,
+            AuditFindingCode::DuplicateProviderRetrySchedule,
+            AuditFindingCode::ProviderRetryWithoutNextRoute,
+        ] {
+            assert!(
+                audit
+                    .findings
+                    .iter()
+                    .any(|finding| finding.code == expected),
+                "missing {expected:?}: {:?}",
+                audit.findings
+            );
+        }
     }
 
     #[test]
