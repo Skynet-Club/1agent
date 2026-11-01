@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.75.0 - 2026-11-02
+
+- Added optional `min_decision_completeness_bps` to evaluation suites.
+- Default the floor to 10,000 bps for model-quality suites.
+- Default other suites to zero.
+- Reject configured values above 10,000 bps.
+- Add floor boundary and kind-aware default coverage.
+
 ## 0.74.0 - 2026-11-02
 
 - Added suite-level decision-completeness aggregation.

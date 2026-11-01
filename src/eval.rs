@@ -28,6 +28,8 @@ pub struct EvalSuite {
     pub reviewer: Option<String>,
     #[serde(default)]
     pub calibration_required: bool,
+    #[serde(default)]
+    pub min_decision_completeness_bps: Option<u16>,
     pub cases: Vec<EvalCase>,
 }
 
@@ -344,6 +346,7 @@ pub async fn run_suite_with_learning(
     if providers.is_empty() {
         return Err(EvalError::NoProviders);
     }
+    validate_decision_completeness_floor(&suite)?;
     if suite.execution_status == EvalExecutionStatus::Template
         || suite.execution_status == EvalExecutionStatus::Draft
     {
@@ -352,6 +355,7 @@ pub async fn run_suite_with_learning(
     if suite.kind == EvalSuiteKind::ModelQuality {
         ensure_runnable_model_quality(&suite)?;
     }
+    let min_decision_completeness_bps = effective_decision_completeness_floor(&suite);
     let mut results = Vec::new();
     for case in suite.cases {
         results.push(
@@ -372,11 +376,6 @@ pub async fn run_suite_with_learning(
     let rubric_checks = results.iter().map(|result| result.rubric_checks).sum();
     let rubric_passed = results.iter().map(|result| result.rubric_passed).sum();
     let decision_completeness = aggregate_decision_completeness(&results);
-    let min_decision_completeness_bps = if suite.kind == EvalSuiteKind::ModelQuality {
-        10_000
-    } else {
-        0
-    };
     let decision_completeness_floor_passed =
         decision_completeness.completion_rate_bps >= min_decision_completeness_bps;
     Ok(EvalReport {
@@ -864,6 +863,28 @@ pub enum EvalError {
     SuiteNotRunnable,
     #[error("model-quality suite is missing requirements, reviewer or ready status")]
     ModelQualityMetadataMissing,
+    #[error("decision-completeness floor must be between 0 and 10000 basis points")]
+    InvalidDecisionCompletenessFloor,
+}
+
+fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
+    suite
+        .min_decision_completeness_bps
+        .unwrap_or(if suite.kind == EvalSuiteKind::ModelQuality {
+            10_000
+        } else {
+            0
+        })
+}
+
+fn validate_decision_completeness_floor(suite: &EvalSuite) -> Result<(), EvalError> {
+    if suite
+        .min_decision_completeness_bps
+        .is_some_and(|floor| floor > 10_000)
+    {
+        return Err(EvalError::InvalidDecisionCompletenessFloor);
+    }
+    Ok(())
 }
 
 fn ensure_runnable_model_quality(suite: &EvalSuite) -> Result<(), EvalError> {
@@ -1094,6 +1115,7 @@ mod tests {
             provider_requirements: Vec::new(),
             reviewer: None,
             calibration_required: false,
+            min_decision_completeness_bps: None,
             cases: vec![EvalCase {
                 id: "read".into(),
                 objective: "Research @read-file:\"${workspace}/evidence.txt\"".into(),
@@ -1136,6 +1158,7 @@ mod tests {
             provider_requirements: Vec::new(),
             reviewer: None,
             calibration_required: false,
+            min_decision_completeness_bps: None,
             cases: vec![
                 EvalCase {
                     id: "source-conflict".into(),
@@ -1319,6 +1342,32 @@ mod tests {
         assert!(error.contains("unsafe setup path"));
     }
 
+    #[test]
+    fn decision_completeness_floor_is_bounded_and_kind_aware() {
+        let mut suite = EvalSuite {
+            name: "floor".into(),
+            suite_version: "1".into(),
+            kind: EvalSuiteKind::ContractFixture,
+            execution_status: EvalExecutionStatus::Unspecified,
+            provider_requirements: Vec::new(),
+            reviewer: None,
+            calibration_required: false,
+            min_decision_completeness_bps: None,
+            cases: Vec::new(),
+        };
+        assert_eq!(effective_decision_completeness_floor(&suite), 0);
+        suite.kind = EvalSuiteKind::ModelQuality;
+        assert_eq!(effective_decision_completeness_floor(&suite), 10_000);
+        suite.min_decision_completeness_bps = Some(9_000);
+        assert_eq!(effective_decision_completeness_floor(&suite), 9_000);
+        validate_decision_completeness_floor(&suite).unwrap();
+        suite.min_decision_completeness_bps = Some(10_001);
+        assert!(matches!(
+            validate_decision_completeness_floor(&suite),
+            Err(EvalError::InvalidDecisionCompletenessFloor)
+        ));
+    }
+
     #[tokio::test]
     async fn model_quality_template_loads_but_cannot_run() {
         let workspace = tempfile::tempdir().unwrap();
@@ -1412,6 +1461,7 @@ mod tests {
                 provider_requirements: Vec::new(),
                 reviewer: None,
                 calibration_required: false,
+                min_decision_completeness_bps: None,
                 cases: vec![EvalCase {
                     id: "heldout-1".into(),
                     objective: "Choose the repository option".into(),
