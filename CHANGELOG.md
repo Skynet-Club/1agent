@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.51.0 - 2026-11-02
+
+- Bound conflict resolution sources to declared claim provenance.
+- Added optional resolution claim IDs distinct from conflict sides.
+- Rejected resolution sources absent from side or resolution claims.
+- Preserved unresolved conflicts with no resolution claim metadata.
+- Updated provider contract and resolution provenance tests.
+
 ## 0.50.0 - 2026-11-02
 
 - Added explicit conflict records with two claim sides.

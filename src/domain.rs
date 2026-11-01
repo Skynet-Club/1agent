@@ -221,6 +221,8 @@ pub struct ConflictRecord {
     pub resolution: Option<String>,
     #[serde(default)]
     pub resolution_sources: Vec<String>,
+    #[serde(default)]
+    pub resolution_claim_ids: Vec<String>,
 }
 
 impl<'de> Deserialize<'de> for AssumptionItem {
@@ -451,6 +453,36 @@ impl AgentAnswer {
                             conflict.id.clone(),
                         ));
                     }
+                    let mut resolution_claim_ids = conflict
+                        .claim_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<std::collections::BTreeSet<_>>();
+                    for claim_id in &conflict.resolution_claim_ids {
+                        if !claim_ids.contains(claim_id.as_str())
+                            || resolution_claim_ids.contains(claim_id.as_str())
+                        {
+                            return Err(AnswerValidationError::InvalidConflictClaimReference(
+                                conflict.id.clone(),
+                            ));
+                        }
+                        resolution_claim_ids.insert(claim_id);
+                    }
+                    let declared_sources = self
+                        .claims
+                        .iter()
+                        .filter(|claim| resolution_claim_ids.contains(claim.id.as_str()))
+                        .flat_map(|claim| claim.sources.iter())
+                        .collect::<std::collections::BTreeSet<_>>();
+                    if conflict
+                        .resolution_sources
+                        .iter()
+                        .any(|source| !declared_sources.contains(source))
+                    {
+                        return Err(AnswerValidationError::ResolutionSourceNotDeclared(
+                            conflict.id.clone(),
+                        ));
+                    }
                 }
             }
         }
@@ -558,6 +590,8 @@ pub enum AnswerValidationError {
     ResolvedConflictStillMarked(String),
     #[error("conflicting claim '{0}' has no open conflict record")]
     ConflictingClaimWithoutOpenConflict(String),
+    #[error("conflict '{0}' uses an undeclared resolution source")]
+    ResolutionSourceNotDeclared(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1086,6 +1120,7 @@ mod tests {
                 status: ConflictStatus::Unresolved,
                 resolution: None,
                 resolution_sources: Vec::new(),
+                resolution_claim_ids: Vec::new(),
             }],
             flip_conditions: Vec::new(),
             action_receipts: Vec::new(),
@@ -1099,6 +1134,11 @@ mod tests {
 
         answer.conflicts[0].resolution = Some("source-c resolves the conflict".into());
         answer.conflicts[0].resolution_sources = vec!["source-c".into()];
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ResolutionSourceNotDeclared(_))
+        ));
+        answer.conflicts[0].resolution_sources = vec!["source-a".into()];
         answer.claims[0].status = ClaimStatus::Conflicting;
         answer.claims[0].sources = vec!["source-a".into(), "source-b".into()];
         assert!(matches!(

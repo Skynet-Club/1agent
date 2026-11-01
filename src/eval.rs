@@ -873,6 +873,7 @@ mod tests {
                         status: crate::domain::ConflictStatus::Unresolved,
                         resolution: None,
                         resolution_sources: Vec::new(),
+                        resolution_claim_ids: Vec::new(),
                     }],
                     flip_conditions: vec![crate::domain::FlipCondition {
                         if_observed: "source B is newer".into(),

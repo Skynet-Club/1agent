@@ -132,7 +132,7 @@ Return only one JSON object matching this shape:
   "assumptions": [{"description":"string","impact":"low|medium|high","verification_method":"string|null"}],
   "constraints": ["string"],
   "unknowns": [{"description":"string","why_it_matters":"string|null","reduction_method":"string|null"}],
-  "conflicts": [{"id":"string","claim_ids":["string","string"],"status":"unresolved|resolved","resolution":"string|null","resolution_sources":["string"]}],
+  "conflicts": [{"id":"string","claim_ids":["string","string"],"status":"unresolved|resolved","resolution":"string|null","resolution_sources":["string"],"resolution_claim_ids":["string"]}],
   "flip_conditions": [{"if_observed":"string","then":"string"}],
   "action_receipts": ["string"]
 }
