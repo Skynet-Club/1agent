@@ -826,6 +826,19 @@ async fn main() -> Result<()> {
             json,
         } => {
             let report_path = report;
+            let proof_parts = [
+                approval.is_some(),
+                approval_key_env.is_some(),
+                approval_registry.is_some(),
+            ]
+            .into_iter()
+            .filter(|present| *present)
+            .count();
+            if proof_parts != 0 && proof_parts != 3 {
+                bail!(
+                    "approval, approval key environment and approval registry must be supplied together"
+                );
+            }
             let report = load_eval_report(&report_path)?;
             let authenticity_verified = match (approval, approval_key_env, approval_registry) {
                 (None, None, None) => false,
@@ -845,9 +858,7 @@ async fn main() -> Result<()> {
                     )?;
                     true
                 }
-                _ => bail!(
-                    "approval, approval key environment and approval registry must be supplied together"
-                ),
+                _ => unreachable!("partial approval proof was rejected before report inspection"),
             };
             EvalReportTrustRequirements {
                 require_content_binding,

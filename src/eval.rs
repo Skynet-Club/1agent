@@ -274,7 +274,7 @@ impl EvalReport {
             ));
         }
         let failed = self.cases.iter().filter(|case| !case.passed).count();
-        if self.failed != failed || self.passed + self.failed != self.total {
+        if self.failed != failed || self.passed.checked_add(self.failed) != Some(self.total) {
             return Err(EvalError::InvalidReportIntegrity(
                 "failed count does not match cases",
             ));
@@ -419,7 +419,7 @@ impl EvalReportSummary {
             version => return Err(EvalError::UnsupportedReportSummaryVersion(version)),
         }
         self.decision_completeness_policy.validate()?;
-        if self.passed + self.failed != self.total {
+        if self.passed.checked_add(self.failed) != Some(self.total) {
             return Err(EvalError::InvalidReportSummary(
                 "passed and failed counts do not sum to total",
             ));
@@ -1753,6 +1753,17 @@ mod tests {
 
         let mut invalid = summary;
         invalid.passed = 0;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "passed and failed counts do not sum to total"
+            ))
+        ));
+
+        let mut invalid = EvalReportSummary::from(&report);
+        invalid.passed = usize::MAX;
+        invalid.failed = 1;
+        invalid.total = 0;
         assert!(matches!(
             invalid.validate(),
             Err(EvalError::InvalidReportSummary(

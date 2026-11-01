@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.86.0 - 2026-11-02
+
+- Rejected partial approval proof arguments before reading or validating a report.
+- Replaced unchecked summary/report count additions with checked arithmetic.
+- Added a CLI E2E that proves proof-argument validation precedes file access.
+- Added an overflow-boundary summary test.
+
 ## 0.85.0 - 2026-11-02
 
 - Added CLI end-to-end rejection of a report approval with the wrong artifact kind.

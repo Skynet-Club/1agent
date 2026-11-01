@@ -335,7 +335,11 @@ fn cli_eval_inspect_verifies_signed_report() {
         .args([
             "eval-inspect",
             "--report",
-            &report_path.display().to_string(),
+            &workspace
+                .path()
+                .join("missing-report.json")
+                .display()
+                .to_string(),
             "--require-authenticity",
             "--approval",
             &approval_path.display().to_string(),
