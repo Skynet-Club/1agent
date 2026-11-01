@@ -23,6 +23,29 @@ Status: scripted reasoning fixture coverage implemented
 | External observation correction | passed |
 | Unit tests | 81 passed |
 | Core evaluation rubric | 6/6 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 7f0e85c8a6b2664921571eecca21b551d2a3d283
+git dirty: false
+
+Linux binary:
+39d4bb7b246eca72aa4cf582b8fff276150f0c64bcb549ac4314173c2fdb7374
+
+Windows binary:
+09e877842f8949109c9d4fa564c1f545fbb72a510ed1255b0247112ce5d4848f
+
+Linux tar.gz:
+ee0368aad6eb46e247ac95c8d558197a5db7c66baaff9aff05321c8228cb66c0
+
+Windows zip:
+718d2f7f1d9b106ee9d2cbaa706c0c1ea1f44183e1c02f4de8662c8ef96796ad
+
+Release manifest:
+45beb54b754d320afdc36565232dfec765b14d7c3234ccc6609403c144e2b0d6
+```
 
 ## Evidence boundary
 
