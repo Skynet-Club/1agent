@@ -21,6 +21,29 @@ Status: impact-ranked unknowns implemented
 | Impact counts | passed |
 | Core evaluation | 6/6 passed |
 | Unit tests | 85 passed |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 6300e4dcb517354fcfe4d9ce66903f853c3bd2fc
+git dirty: false
+
+Linux binary:
+98dfd829c2384388eab5113b01dce05370d4654b8052562084bde4d83355ac80
+
+Windows binary:
+32a99943d8a20e1e66a6396acc54a3184aa0908d0804f1363fa5ef5df19c8825
+
+Linux tar.gz:
+1eba09372050f6e51f129378e42d6043b0983f6225616a4ca53b6f10243b9138
+
+Windows zip:
+98849ab5bf1754d5dc1b662b101215b57d5c989a9c66995b3e775ffc467e4223
+
+Release manifest:
+ae31cd67291b5797294f1a6484541e3a47b41359d4716923b93dbaa7cb78be9d
+```
 
 ## Known limitations
 
