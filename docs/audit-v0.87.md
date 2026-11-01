@@ -17,6 +17,7 @@ Date: 2026-11-02
 | Formatting | passed |
 | Clippy with `-D warnings` | passed |
 | Unit tests | 123 passed |
+| Release-profile tests | 123 unit + all E2E passed |
 | Offline integration / CLI E2E | passed |
 | Core contract evaluation | 6/6 passed |
 | Core hard-gate failures | 0 |
