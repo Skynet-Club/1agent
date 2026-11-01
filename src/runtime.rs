@@ -388,6 +388,16 @@ impl AgentRuntime {
                         unavailable_routes.insert(route_key);
                         last_retryable_error = Some(source);
                     }
+                    Ok(Err(source))
+                        if source.code == crate::provider::ProviderErrorCode::Cancelled =>
+                    {
+                        let _ = journal.append(JournalEventKind::RunStopped {
+                            reason: StopReason::Cancelled,
+                        });
+                        return Err(RuntimeError::Cancelled {
+                            path: journal_path.clone(),
+                        });
+                    }
                     Ok(Err(source)) => {
                         let _ = journal.append(JournalEventKind::RunStopped {
                             reason: StopReason::ProviderError,

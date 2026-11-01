@@ -25,7 +25,7 @@ Version `0.8.0` is an executable V0 vertical slice:
 - active-experience retrieval by mode, scope and expiry with explicit unverified labeling;
 - bounded, read-root-confined workspace text search;
 - versioned offline evaluation suites with JSON and human-readable scorecards;
-- versioned JSONL host protocol with stable request IDs and structured responses;
+- versioned JSONL host protocol v2 with request IDs, cancellation and bounded concurrency;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See

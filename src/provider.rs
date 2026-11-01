@@ -97,6 +97,16 @@ impl DeterministicProvider {
         Some((path, max_bytes))
     }
 
+    fn extract_sleep_ms(text: &str) -> Option<u64> {
+        let marker = "@sleep-ms:";
+        let start = text.find(marker)? + marker.len();
+        let digits: String = text[start..]
+            .chars()
+            .take_while(|character| character.is_ascii_digit())
+            .collect();
+        digits.parse().ok()
+    }
+
     fn latest_observation(messages: &[crate::domain::ModelMessage]) -> Option<ToolObservation> {
         messages.iter().rev().find_map(|message| {
             if message.role == crate::domain::MessageRole::Tool {
@@ -219,6 +229,19 @@ impl ModelProvider for DeterministicProvider {
             .find(|message| message.role == crate::domain::MessageRole::User)
             .map(|message| message.content.as_str())
             .unwrap_or_default();
+
+        if let Some(sleep_ms) = Self::extract_sleep_ms(user_text) {
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    return Err(ProviderError::new(
+                        ProviderErrorCode::Cancelled,
+                        "provider call cancelled",
+                        false,
+                    ));
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)) => {}
+            }
+        }
 
         if let Some((path, max_bytes)) = Self::extract_read_target(user_text) {
             return Ok(ModelResponse {

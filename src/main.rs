@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,9 +7,9 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    HostError, HostRequest, HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget,
-    TaskRequest, ToolRegistry, audit_events, default_registry, load_suite, local_manifest,
-    read_events, remote_manifest, replay_events, run_suite_with_providers,
+    HostCommand, HostError, HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget,
+    RuntimeError, TaskRequest, ToolRegistry, audit_events, default_registry, load_suite,
+    local_manifest, read_events, remote_manifest, replay_events, run_suite_with_providers,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -372,43 +373,103 @@ async fn main() -> Result<()> {
             let mut lines = BufReader::new(tokio::io::stdin()).lines();
             let stdout = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
+            let active_tokens = Arc::new(tokio::sync::Mutex::new(HashMap::<
+                String,
+                CancellationToken,
+            >::new()));
             let mut tasks = tokio::task::JoinSet::new();
             while let Some(line) = lines.next_line().await? {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let runtime = runtime.clone();
-                let stdout = stdout.clone();
-                let semaphore = semaphore.clone();
-                let request_cancellation = cancellation.child_token();
-                tasks.spawn(async move {
-                    let _permit = semaphore
-                        .acquire_owned()
-                        .await
-                        .expect("host semaphore cannot be closed");
-                    let response = match HostRequest::parse(&line) {
-                        Ok(request) => {
-                            match runtime.run(request.task, request_cancellation).await {
-                                Ok(result) => HostResponse::success(request.request_id, result),
-                                Err(error) => HostResponse::failure(
-                                    request.request_id,
-                                    HostError {
-                                        code: "run_failed".into(),
-                                        message: error.to_string(),
-                                    },
-                                ),
+                match HostCommand::parse(&line) {
+                    Ok(HostCommand::Cancel(cancel)) => {
+                        let token = active_tokens.lock().await.get(&cancel.request_id).cloned();
+                        let response = if let Some(token) = token {
+                            token.cancel();
+                            HostResponse::cancelled(cancel.request_id)
+                        } else {
+                            HostResponse::control_failure(
+                                cancel.request_id,
+                                HostError {
+                                    code: "request_not_found".into(),
+                                    message: "no queued or active request has that id".into(),
+                                },
+                            )
+                        };
+                        write_host_response(&stdout, &response).await?;
+                    }
+                    Ok(HostCommand::Run(request)) => {
+                        let request = *request;
+                        let permit = match semaphore.clone().try_acquire_owned() {
+                            Ok(permit) => permit,
+                            Err(_) => {
+                                write_host_response(
+                                    &stdout,
+                                    &HostResponse::failure(
+                                        request.request_id,
+                                        HostError {
+                                            code: "queue_full".into(),
+                                            message: "maximum concurrent runs reached".into(),
+                                        },
+                                    ),
+                                )
+                                .await?;
+                                continue;
                             }
+                        };
+                        let request_cancellation = cancellation.child_token();
+                        {
+                            let mut tokens = active_tokens.lock().await;
+                            if tokens.contains_key(&request.request_id) {
+                                write_host_response(
+                                    &stdout,
+                                    &HostResponse::failure(
+                                        request.request_id,
+                                        HostError {
+                                            code: "duplicate_request".into(),
+                                            message: "request id is already active".into(),
+                                        },
+                                    ),
+                                )
+                                .await?;
+                                continue;
+                            }
+                            tokens.insert(request.request_id.clone(), request_cancellation.clone());
                         }
-                        Err(error) => HostResponse::failure("<unknown>", error),
-                    };
-                    let mut stdout = stdout.lock().await;
-                    stdout
-                        .write_all(serde_json::to_string(&response).unwrap().as_bytes())
-                        .await
-                        .unwrap();
-                    stdout.write_all(b"\n").await.unwrap();
-                    stdout.flush().await.unwrap();
-                });
+                        let runtime = runtime.clone();
+                        let stdout = stdout.clone();
+                        let active_tokens = active_tokens.clone();
+                        tasks.spawn(async move {
+                            let _permit = permit;
+                            let request_id = request.request_id.clone();
+                            let response =
+                                match runtime.run(request.task, request_cancellation).await {
+                                    Ok(result) => HostResponse::success(request_id.clone(), result),
+                                    Err(RuntimeError::Cancelled { .. }) => HostResponse::failure(
+                                        request_id.clone(),
+                                        HostError {
+                                            code: "cancelled".into(),
+                                            message: "request was cancelled".into(),
+                                        },
+                                    ),
+                                    Err(error) => HostResponse::failure(
+                                        request_id.clone(),
+                                        HostError {
+                                            code: "run_failed".into(),
+                                            message: error.to_string(),
+                                        },
+                                    ),
+                                };
+                            active_tokens.lock().await.remove(&request_id);
+                            let _ = write_host_response(&stdout, &response).await;
+                        });
+                    }
+                    Err(error) => {
+                        write_host_response(&stdout, &HostResponse::failure("<unknown>", error))
+                            .await?;
+                    }
+                }
                 if cancellation.is_cancelled() {
                     break;
                 }
@@ -563,6 +624,19 @@ fn build_runtime_parts(
 
 fn canonical_or_original(path: &PathBuf) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.clone())
+}
+
+async fn write_host_response(
+    stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
+    response: &HostResponse,
+) -> Result<()> {
+    let mut stdout = stdout.lock().await;
+    stdout
+        .write_all(serde_json::to_string(response)?.as_bytes())
+        .await?;
+    stdout.write_all(b"\n").await?;
+    stdout.flush().await?;
+    Ok(())
 }
 
 fn render_answer(result: &first_principles_agent::RunResult) -> String {
