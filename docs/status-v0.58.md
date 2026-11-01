@@ -27,8 +27,8 @@ Status: transport errors sanitized and fallback semantics verified
 | Network classification | passed |
 | Authentication no-fallback | passed |
 | Retryable fallback | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -36,6 +36,28 @@ Status: transport errors sanitized and fallback semantics verified
 - Journal records selected routes but provider failures are not yet persisted as events.
 - No global retry budget or backoff policy exists.
 - Live remote HTTP behavior remains unverified in the managed sandbox.
+
+## Verified clean release
+
+```text
+source commit: b6e7cdfa99093ef62f827b85599b7b96a64f2747
+git dirty: false
+
+Linux binary:
+4ce83962f914a4489db49e5fb8d7ab08456aa1d3d49021103ed2cb06b807deaa
+
+Windows binary:
+da1ea9805aede2299207d5da239b4d618e750b841717587e69478917264e5ec0
+
+Linux tar.gz:
+ba4abcd0a831e9600b5fa14b9e86528616c5f48f72e553562d3c301762971d26
+
+Windows zip:
+847eb663fea8cfbfa7866c506af34be64bfcba8dba2b08df3854d2b165716577
+
+Release manifest:
+11dbafa0556b659efa2fd75ed730f70ede0f62cc81e06c9ab9b94b76abbef151
+```
 
 ## Next requirement
 
