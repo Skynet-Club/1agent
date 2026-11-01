@@ -9,14 +9,14 @@ use first_principles_agent::{
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
-    OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, ReleasePolicy,
-    ReleasePolicyMode, RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest,
-    audit_events, build_release_verification_report, collect_provenance, collect_release_manifest,
-    create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    load_suite, local_manifest, read_events, rebuild_and_compare, remote_manifest, replay_events,
-    run_suite_with_providers, scan_history, verify_goldset_manifest, verify_provenance,
-    verify_release_approval, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor,
+    OpenAiCompatibleProvider, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
+    RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RunBudget, RuntimeError, TaskRequest,
+    ToolRegistry, TrustAnchorManifest, audit_events, build_release_verification_report,
+    collect_provenance, collect_release_manifest, create_goldset_manifest, create_trust_anchor,
+    default_registry, evaluate_experience_suite, load_suite, local_manifest, probe_provider,
+    read_events, rebuild_and_compare, remote_manifest, replay_events, run_suite_with_providers,
+    scan_history, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -121,6 +121,12 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(long)]
         check: bool,
+        #[arg(long)]
+        probe: bool,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long, default_value_t = 30)]
+        probe_timeout_seconds: u64,
         #[arg(long)]
         json: bool,
     },
@@ -834,44 +840,100 @@ async fn main() -> Result<()> {
         Command::Providers {
             config,
             check,
+            probe,
+            allow_network,
+            probe_timeout_seconds,
             json,
         } => {
-            let value = if let Some(config_path) = config {
+            if probe {
+                if !allow_network {
+                    bail!("provider probe requires --allow-network");
+                }
+                let config_path = config.context("provider probe requires --config")?;
                 let config = AgentConfig::load(config_path)?;
-                if check {
-                    let candidates = config.build_providers(Duration::from_secs(1))?;
+                let candidates =
+                    config.build_providers(Duration::from_secs(probe_timeout_seconds.max(1)))?;
+                let cancellation = CancellationToken::new();
+                let mut results = Vec::new();
+                for (provider_config, candidate) in config.providers.iter().zip(candidates.iter()) {
+                    if provider_config.adapter != ProviderAdapter::OpenAiCompatible {
+                        continue;
+                    }
+                    results.push(
+                        probe_provider(
+                            candidate.provider.as_ref(),
+                            &candidate.manifest,
+                            &cancellation,
+                        )
+                        .await,
+                    );
+                }
+                if results.is_empty() {
+                    bail!("provider probe found no OpenAI-compatible providers");
+                }
+                let report = ProviderProbeReport {
+                    schema_version: 1,
+                    checked: results.len(),
+                    failed: results.iter().filter(|result| !result.ok).count(),
+                    results,
+                };
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    for result in &report.results {
+                        println!(
+                            "{} | {} | ok={} | latency={}ms | tokens={}/{} | error={:?}",
+                            result.provider_id,
+                            result.model,
+                            result.ok,
+                            result.latency_ms,
+                            result.input_tokens,
+                            result.output_tokens,
+                            result.error_code
+                        );
+                    }
+                }
+                if report.failed > 0 {
+                    bail!("{} provider conformance probe(s) failed", report.failed);
+                }
+            } else {
+                let value = if let Some(config_path) = config {
+                    let config = AgentConfig::load(config_path)?;
+                    if check {
+                        let candidates = config.build_providers(Duration::from_secs(1))?;
+                        serde_json::json!({
+                            "ready": true,
+                            "providers": candidates
+                                .iter()
+                                .map(|candidate| &candidate.manifest)
+                                .collect::<Vec<_>>()
+                        })
+                    } else {
+                        serde_json::to_value(config)?
+                    }
+                } else if check {
                     serde_json::json!({
                         "ready": true,
-                        "providers": candidates
-                            .iter()
-                            .map(|candidate| &candidate.manifest)
-                            .collect::<Vec<_>>()
+                        "providers": [local_manifest()]
                     })
                 } else {
-                    serde_json::to_value(config)?
+                    serde_json::json!({
+                        "providers": [{
+                            "provider_id": local_manifest().provider_id,
+                            "model": local_manifest().model,
+                            "privacy": "local",
+                            "quality_score": 1,
+                            "supports_tools": true,
+                            "supports_structured_output": true
+                        }]
+                    })
+                };
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&value)?);
+                } else {
+                    println!("Provider configuration (secret values are never loaded):");
+                    println!("{}", serde_json::to_string_pretty(&value)?);
                 }
-            } else if check {
-                serde_json::json!({
-                    "ready": true,
-                    "providers": [local_manifest()]
-                })
-            } else {
-                serde_json::json!({
-                    "providers": [{
-                        "provider_id": local_manifest().provider_id,
-                        "model": local_manifest().model,
-                        "privacy": "local",
-                        "quality_score": 1,
-                        "supports_tools": true,
-                        "supports_structured_output": true
-                    }]
-                })
-            };
-            if json {
-                println!("{}", serde_json::to_string_pretty(&value)?);
-            } else {
-                println!("Provider configuration (secret values are never loaded):");
-                println!("{}", serde_json::to_string_pretty(&value)?);
             }
         }
         Command::History {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.28.0 - 2026-11-02
+
+- Added explicit opt-in live conformance probing for OpenAI-compatible providers.
+- Probes validate authentication/network handling, final structured output and usage extraction.
+- Reports are sanitized to status, latency, token counts and normalized error codes.
+- Network probing requires `--allow-network`.
+- Added deterministic contract-validation coverage and retained offline readiness as a separate
+  state.
+
 ## 0.27.0 - 2026-11-02
 
 - Added `providers --check` readiness validation.

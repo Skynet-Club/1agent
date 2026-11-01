@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.27.0` is an executable V0 vertical slice:
+Version `0.28.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -45,10 +45,11 @@ Version `0.27.0` is an executable V0 vertical slice:
 - explicit development and production release policies with anchored registry history;
 - versioned release-policy files with configured signer allowlists and JSON reports;
 - fail-fast provider credential readiness without printing secret values;
+- opt-in live provider conformance with sanitized structured-output and usage reports;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.27.md`](docs/status-v0.27.md).
+[`docs/status-v0.28.md`](docs/status-v0.28.md).
 
 Current V0 assumptions:
 
@@ -86,12 +87,17 @@ cargo run --offline -- run \
   --config configs/example.json \
   --task "Compare A and B"
 cargo run --offline -- providers --config configs/example.json --check --json
+cargo run --offline -- providers \
+  --config configs/example.json \
+  --probe --allow-network --probe-timeout-seconds 30 --json
 ```
 
 `configs/example.json` references credentials through environment variable names. Provider
 values are never written into the configuration by the runtime. `providers --check` validates
 declared credentials, endpoint construction and adapter setup before a run. An omitted
 `api_key_env` means no Authorization header, which supports local Ollama endpoints.
+The probe is an explicit network action. It reports only status, latency, token usage and a
+normalized error code; complete remote responses are not persisted or printed.
 
 The default provider is deterministic and must not be treated as a reasoning model.
 For an offline read-only smoke test, use `@read-file:"<path>"` in the task objective.
