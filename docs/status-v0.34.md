@@ -29,6 +29,29 @@ Status: checkpoint-bound route policy equivalence implemented
 | Legacy checkpoint decode | implemented through serde defaults |
 | Unit tests | 76 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 84e8bd08f59915152fe9cb2f8aa479f68601c47b
+git dirty: false
+
+Linux binary:
+e048c3e0de8d02192074c2fb922b0e142b22a2e0378c092100f37650bcf90971
+
+Windows binary:
+9c85b63a68d9df16d0892387d8bd0c43ef2605f161d46d499a5781d509789c45
+
+Linux tar.gz:
+c2e421cfc5ccf1c8d470501b9e66c2f025a52a1f00edbc477884875acec16416
+
+Windows zip:
+a7403cfa94258a401a27234abe7a36b851777922128825be8865e5b1d3a1b7d2
+
+Release manifest:
+5eabb58fd94ec50a935cde45547c3afaa595346ad1a06e3218d9c8593ccad3c7
+```
 
 ## Known limitations
 
