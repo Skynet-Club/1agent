@@ -120,6 +120,8 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
+        check: bool,
+        #[arg(long)]
         json: bool,
     },
     History {
@@ -829,10 +831,30 @@ async fn main() -> Result<()> {
             }
             while tasks.join_next().await.is_some() {}
         }
-        Command::Providers { config, json } => {
+        Command::Providers {
+            config,
+            check,
+            json,
+        } => {
             let value = if let Some(config_path) = config {
                 let config = AgentConfig::load(config_path)?;
-                serde_json::to_value(config)?
+                if check {
+                    let candidates = config.build_providers(Duration::from_secs(1))?;
+                    serde_json::json!({
+                        "ready": true,
+                        "providers": candidates
+                            .iter()
+                            .map(|candidate| &candidate.manifest)
+                            .collect::<Vec<_>>()
+                    })
+                } else {
+                    serde_json::to_value(config)?
+                }
+            } else if check {
+                serde_json::json!({
+                    "ready": true,
+                    "providers": [local_manifest()]
+                })
             } else {
                 serde_json::json!({
                     "providers": [{

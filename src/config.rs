@@ -116,6 +116,23 @@ impl AgentConfig {
                     provider.id
                 )));
             }
+            if provider
+                .api_key_env
+                .as_deref()
+                .is_some_and(|name| name.trim().is_empty())
+            {
+                return Err(ConfigError::InvalidProvider(format!(
+                    "provider '{}' has an empty api_key_env",
+                    provider.id
+                )));
+            }
+            if provider.adapter == ProviderAdapter::Deterministic && provider.api_key_env.is_some()
+            {
+                return Err(ConfigError::InvalidProvider(format!(
+                    "deterministic provider '{}' cannot declare api_key_env",
+                    provider.id
+                )));
+            }
         }
         Ok(())
     }
@@ -153,7 +170,13 @@ impl AgentConfig {
                         let api_key = provider
                             .api_key_env
                             .as_deref()
-                            .and_then(|name| std::env::var(name).ok());
+                            .map(|name| {
+                                std::env::var(name).map_err(|_| ConfigError::MissingCredential {
+                                    provider_id: provider.id.clone(),
+                                    variable: name.into(),
+                                })
+                            })
+                            .transpose()?;
                         let model_provider = OpenAiCompatibleProvider::new(
                             provider.id.clone(),
                             provider.model.clone(),
@@ -187,6 +210,11 @@ pub enum ConfigError {
     DuplicateProvider { id: String, model: String },
     #[error("provider construction failed: {0}")]
     Provider(String),
+    #[error("provider '{provider_id}' requires a value in environment variable {variable}")]
+    MissingCredential {
+        provider_id: String,
+        variable: String,
+    },
 }
 
 #[cfg(test)]
@@ -239,6 +267,30 @@ mod tests {
         assert!(matches!(
             config.validate(),
             Err(ConfigError::InvalidProvider(_))
+        ));
+    }
+
+    #[test]
+    fn openai_adapter_without_declared_key_allows_local_endpoint() {
+        let mut config = config();
+        config.providers[0].adapter = ProviderAdapter::OpenAiCompatible;
+        config.providers[0].id = "ollama".into();
+        config.providers[0].base_url = Some("http://127.0.0.1:11434/v1".into());
+        let candidates = config.build_providers(Duration::from_secs(1)).unwrap();
+        assert_eq!(candidates[0].manifest.provider_id, "ollama");
+    }
+
+    #[test]
+    fn missing_declared_credential_fails_before_runtime() {
+        let mut config = config();
+        config.providers[0].adapter = ProviderAdapter::OpenAiCompatible;
+        config.providers[0].id = "remote".into();
+        config.providers[0].base_url = Some("https://example.invalid/v1".into());
+        config.providers[0].api_key_env =
+            Some("FIRST_PRINCIPLES_AGENT_TEST_MISSING_KEY_8B7E".into());
+        assert!(matches!(
+            config.build_providers(Duration::from_secs(1)),
+            Err(ConfigError::MissingCredential { .. })
         ));
     }
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0 - 2026-11-02
+
+- Added `providers --check` readiness validation.
+- Declared `api_key_env` values now fail at provider construction when missing.
+- Omitted `api_key_env` remains valid for unauthenticated local endpoints such as Ollama.
+- Rejected empty credential variable names and credentials on deterministic providers.
+- Added child-process coverage proving readiness succeeds with a credential and never prints its
+  value.
+
 ## 0.26.0 - 2026-11-02
 
 - Added versioned release-policy files.
