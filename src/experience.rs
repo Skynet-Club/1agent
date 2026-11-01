@@ -17,6 +17,9 @@ const MAX_EXPERIENCE_TITLE_CHARS: usize = 200;
 const MAX_EXPERIENCE_CONTENT_CHARS: usize = 4_000;
 const MAX_EXPERIENCE_SCOPE_CHARS: usize = 200;
 const MAX_EVIDENCE_REFERENCES: usize = 32;
+const MAX_EXPERIENCE_ACTOR_CHARS: usize = 128;
+const MAX_EXPERIENCE_REASON_CHARS: usize = 1_000;
+const MAX_EXPERIENCE_EVENT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -454,7 +457,11 @@ impl ExperienceStore {
         validate_text(&input.suite_version)?;
         validate_text(&input.training_group)?;
         validate_text(&input.evaluation_group)?;
-        validate_text(&input.evidence)?;
+        validate_bounded_text(
+            &input.evidence,
+            "verification evidence",
+            MAX_EXPERIENCE_REASON_CHARS,
+        )?;
         if input.case_ids.is_empty() {
             return Err(ExperienceError::InvalidVerification(
                 "case_ids must not be empty".into(),
@@ -517,7 +524,7 @@ impl ExperienceStore {
     }
 
     pub fn reject(&mut self, id: Uuid, actor: &str, reason: &str) -> Result<(), ExperienceError> {
-        validate_text(reason)?;
+        validate_bounded_text(reason, "reason", MAX_EXPERIENCE_REASON_CHARS)?;
         self.transition(
             id,
             &[ExperienceStatus::Draft, ExperienceStatus::Reviewed],
@@ -588,7 +595,7 @@ impl ExperienceStore {
     }
 
     pub fn degrade(&mut self, id: Uuid, reason: &str) -> Result<(), ExperienceError> {
-        validate_text(reason)?;
+        validate_bounded_text(reason, "reason", MAX_EXPERIENCE_REASON_CHARS)?;
         self.transition(id, &[ExperienceStatus::Active], |_| {
             Ok(ExperienceEventKind::Degraded {
                 id,
@@ -598,7 +605,7 @@ impl ExperienceStore {
     }
 
     pub fn rollback(&mut self, id: Uuid, reason: &str) -> Result<(), ExperienceError> {
-        validate_text(reason)?;
+        validate_bounded_text(reason, "reason", MAX_EXPERIENCE_REASON_CHARS)?;
         self.transition(
             id,
             &[
@@ -694,7 +701,11 @@ impl ExperienceStore {
             .append(true)
             .open(&self.path)?;
         let mut writer = BufWriter::new(file);
-        serde_json::to_writer(&mut writer, &envelope)?;
+        let bytes = serde_json::to_vec(&envelope)?;
+        if bytes.len() > MAX_EXPERIENCE_EVENT_BYTES {
+            return Err(ExperienceError::EventTooLarge(bytes.len()));
+        }
+        writer.write_all(&bytes)?;
         writer.write_all(b"\n")?;
         writer.flush()?;
         Ok(())
@@ -706,8 +717,12 @@ impl ExperienceStore {
         }
         let file: File = File::open(&self.path)?;
         let mut events = Vec::new();
-        for line in BufReader::new(file).lines() {
+        let mut previous_timestamp = None;
+        for (index, line) in BufReader::new(file).lines().enumerate() {
             let line = line?;
+            if line.len() > MAX_EXPERIENCE_EVENT_BYTES {
+                return Err(ExperienceError::EventTooLarge(line.len()));
+            }
             if line.trim().is_empty() {
                 continue;
             }
@@ -721,6 +736,17 @@ impl ExperienceStore {
                     actual: event.seq,
                 });
             }
+            if let Some(previous) = previous_timestamp
+                && event.timestamp_unix_ms < previous
+            {
+                return Err(ExperienceError::NonMonotonicTimestamp {
+                    line: index + 1,
+                    previous,
+                    actual: event.timestamp_unix_ms,
+                });
+            }
+            previous_timestamp = Some(event.timestamp_unix_ms);
+            validate_transition_metadata(&event.event)?;
             events.push(event);
         }
         Ok(events)
@@ -947,9 +973,7 @@ where
 
 fn validate_actor(actor: &str) -> Result<&str, ExperienceError> {
     let trimmed = actor.trim();
-    if trimmed.is_empty() {
-        return Err(ExperienceError::InvalidText("actor"));
-    }
+    validate_bounded_text(trimmed, "actor", MAX_EXPERIENCE_ACTOR_CHARS)?;
     Ok(trimmed)
 }
 
@@ -961,6 +985,44 @@ fn validate_text(text: &str) -> Result<(), ExperienceError> {
         return Err(ExperienceError::InvalidText(
             "invisible or bidirectional control character",
         ));
+    }
+    Ok(())
+}
+
+fn validate_bounded_text(
+    text: &str,
+    label: &'static str,
+    max_chars: usize,
+) -> Result<(), ExperienceError> {
+    validate_text(text)?;
+    if text.chars().count() > max_chars {
+        return Err(ExperienceError::TextTooLong(label));
+    }
+    Ok(())
+}
+
+fn validate_transition_metadata(event: &ExperienceEventKind) -> Result<(), ExperienceError> {
+    match event {
+        ExperienceEventKind::Reviewed { actor, .. }
+        | ExperienceEventKind::Approved { actor, .. } => {
+            validate_actor(actor)?;
+        }
+        ExperienceEventKind::Rejected { actor, reason, .. } => {
+            validate_actor(actor)?;
+            validate_bounded_text(reason, "reason", MAX_EXPERIENCE_REASON_CHARS)?;
+        }
+        ExperienceEventKind::Degraded { reason, .. }
+        | ExperienceEventKind::RolledBack { reason, .. } => {
+            validate_bounded_text(reason, "reason", MAX_EXPERIENCE_REASON_CHARS)?;
+        }
+        ExperienceEventKind::Verified { verification, .. } => {
+            validate_bounded_text(
+                &verification.evidence,
+                "verification evidence",
+                MAX_EXPERIENCE_REASON_CHARS,
+            )?;
+        }
+        ExperienceEventKind::Proposed { .. } | ExperienceEventKind::Activated { .. } => {}
     }
     Ok(())
 }
@@ -1047,6 +1109,14 @@ pub enum ExperienceError {
     UnsupportedSchema(u32),
     #[error("invalid event sequence: expected {expected}, got {actual}")]
     InvalidSequence { expected: u64, actual: u64 },
+    #[error("experience event is too large: {0} bytes")]
+    EventTooLarge(usize),
+    #[error("non-monotonic timestamp at line {line}: previous {previous}, actual {actual}")]
+    NonMonotonicTimestamp {
+        line: usize,
+        previous: u128,
+        actual: u128,
+    },
 }
 
 #[cfg(test)]
@@ -1112,6 +1182,15 @@ mod tests {
             .unwrap();
         drop(journal);
         crate::journal::read_events(path).unwrap()
+    }
+
+    fn write_experience_events(store: &ExperienceStore, events: &[ExperienceEvent]) {
+        let mut content = String::new();
+        for event in events {
+            content.push_str(&serde_json::to_string(event).unwrap());
+            content.push('\n');
+        }
+        std::fs::write(store.path(), content).unwrap();
     }
 
     fn spec() -> ExperienceCandidateSpec {
@@ -1298,6 +1377,50 @@ mod tests {
         assert!(matches!(
             store.candidates(),
             Err(ExperienceError::InvalidCandidateVersion)
+        ));
+    }
+
+    #[test]
+    fn replay_rejects_oversized_or_non_monotonic_transition_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let candidate = store.propose(spec(), &events).unwrap();
+        store
+            .review_with_source(candidate.id, "reviewer", Some(&events))
+            .unwrap();
+        let original = store.read_events().unwrap();
+
+        let mut oversized_actor = original.clone();
+        let ExperienceEventKind::Reviewed { actor, .. } = &mut oversized_actor[1].event else {
+            panic!("expected reviewed event");
+        };
+        *actor = "x".repeat(MAX_EXPERIENCE_ACTOR_CHARS + 1);
+        write_experience_events(&store, &oversized_actor);
+        assert!(matches!(
+            store.candidates(),
+            Err(ExperienceError::TextTooLong("actor"))
+        ));
+
+        let mut regressed_time = original;
+        regressed_time[1].timestamp_unix_ms = 0;
+        write_experience_events(&store, &regressed_time);
+        assert!(matches!(
+            store.candidates(),
+            Err(ExperienceError::NonMonotonicTimestamp { line: 2, .. })
+        ));
+
+        let large_dir = tempfile::tempdir().unwrap();
+        let large_store = ExperienceStore::open(large_dir.path()).unwrap();
+        std::fs::write(
+            large_store.path(),
+            format!("{}\n", "x".repeat(MAX_EXPERIENCE_EVENT_BYTES + 1)),
+        )
+        .unwrap();
+        assert!(matches!(
+            large_store.candidates(),
+            Err(ExperienceError::EventTooLarge(bytes))
+                if bytes > MAX_EXPERIENCE_EVENT_BYTES
         ));
     }
 

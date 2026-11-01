@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.69.0 - 2026-11-02
+
+- Capped experience actor text at 128 characters.
+- Capped transition reasons and verification evidence at 1,000 characters.
+- Capped each experience JSONL event at 64 KiB.
+- Rejected non-monotonic experience event timestamps.
+- Validated transition controls and bounds during creation and replay.
+- Added oversized-line, oversized-actor and timestamp-regression coverage.
+
 ## 0.68.0 - 2026-11-02
 
 - Capped experience title at 200 characters.
