@@ -44,6 +44,45 @@ fn cli_resumes_interrupted_journal_from_last_checkpoint() {
     }
     drop(interrupted);
 
+    let status_output = Command::new(binary)
+        .args([
+            "resume-status",
+            "--journal",
+            &interrupted_path.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        status_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status_output.stderr)
+    );
+    let status: serde_json::Value = serde_json::from_slice(&status_output.stdout).unwrap();
+    assert_eq!(status["route_aware"], true);
+    assert_eq!(status["legacy"], false);
+    assert_eq!(status["route_objective"], "quality");
+    assert!(status["route_plan_sha256"].is_string());
+
+    let conflicting_output = Command::new(binary)
+        .args([
+            "resume",
+            "--journal",
+            &interrupted_path.display().to_string(),
+            "--journal-dir",
+            &workspace.path().join("conflict").display().to_string(),
+            "--route-objective",
+            "cost",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!conflicting_output.status.success());
+    assert!(
+        String::from_utf8_lossy(&conflicting_output.stderr)
+            .contains("route objective changed since checkpoint")
+    );
+
     let resumed_output = Command::new(binary)
         .args([
             "resume",

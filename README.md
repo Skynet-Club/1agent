@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.34.0` is an executable V0 vertical slice:
+Version `0.35.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -52,10 +52,11 @@ Version `0.34.0` is an executable V0 vertical slice:
 - provider p95-latency and unit-cost limits as hard route constraints;
 - journaled route plans with effective value sources, rejection reasons and replay;
 - checkpoint-bound route-plan digests with hard rejection of changed resume policy;
+- route-aware resume status and automatic recovery of the checkpoint objective;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.34.md`](docs/status-v0.34.md).
+[`docs/status-v0.35.md`](docs/status-v0.35.md).
 
 Current V0 assumptions:
 
@@ -79,6 +80,7 @@ cargo run --offline -- audit --journal .journal/run.jsonl
 cargo run --offline -- replay --journal .journal/run.jsonl
 cargo run --offline -- eval --suite evals/core.json
 cargo run --offline -- experience list --store .experience
+cargo run --offline -- resume-status --journal .journal/run.jsonl --json
 ```
 
 Remote OpenAI-compatible provider:

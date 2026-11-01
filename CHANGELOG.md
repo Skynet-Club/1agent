@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.35.0 - 2026-11-02
+
+- Added `resume-status` for inspecting checkpoint route metadata without resuming.
+- Added explicit route-aware versus legacy checkpoint status.
+- Resume now reuses the checkpoint objective when no CLI override is provided.
+- Explicit conflicting objective overrides fail before provider execution.
+- Preserved stored policy-source attribution during resume.
+- Added CLI coverage for status, automatic objective recovery and conflicting override rejection.
+
 ## 0.34.0 - 2026-11-02
 
 - Bound checkpoints to the canonical route plan and policy-source digest.

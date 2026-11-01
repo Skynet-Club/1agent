@@ -38,7 +38,7 @@ pub struct AgentRuntime {
     journal_dir: PathBuf,
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
-    route_objective: RouteObjective,
+    route_objective: Option<RouteObjective>,
     route_policy_sources: RoutePolicySources,
 }
 
@@ -61,7 +61,7 @@ impl AgentRuntime {
             journal_dir: journal_dir.into(),
             experience_dir: None,
             shadow_experience: Vec::new(),
-            route_objective: RouteObjective::Quality,
+            route_objective: None,
             route_policy_sources: RoutePolicySources {
                 objective: PolicyValueSource::RuntimeDefault,
                 latency_budget: PolicyValueSource::Unset,
@@ -71,7 +71,7 @@ impl AgentRuntime {
     }
 
     pub fn with_route_objective(mut self, objective: RouteObjective) -> Self {
-        self.route_objective = objective;
+        self.route_objective = Some(objective);
         self
     }
 
@@ -219,21 +219,42 @@ impl AgentRuntime {
         }
 
         let tool_specs = self.tools.specs();
+        let stored_objective = resume
+            .as_ref()
+            .and_then(|prefix| prefix.checkpoint.route_objective);
+        if let (Some(requested), Some(stored)) = (self.route_objective, stored_objective)
+            && requested != stored
+        {
+            return Err(RuntimeError::Resume(
+                "route objective changed since checkpoint".into(),
+            ));
+        }
+        let route_objective = self
+            .route_objective
+            .or(stored_objective)
+            .unwrap_or(RouteObjective::Quality);
         let route_request = RouteRequest {
             mode,
             risk: risk_for_mode(mode),
             requires_tools: !tool_specs.is_empty(),
             requires_structured_output: true,
             allow_remote: request.permissions.allow_network,
-            objective: self.route_objective,
+            objective: route_objective,
             max_provider_p95_latency_ms: request.budget.max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
         };
         let route_plan = self.router.plan(&route_request);
-        let mut route_policy_sources = resume
+        let stored_sources = resume
             .as_ref()
-            .and_then(|prefix| prefix.checkpoint.route_policy_sources.clone())
+            .and_then(|prefix| prefix.checkpoint.route_policy_sources.clone());
+        let mut route_policy_sources = stored_sources
+            .clone()
             .unwrap_or_else(|| self.route_policy_sources.clone());
+        if self.route_objective.is_some()
+            && self.route_policy_sources.objective == PolicyValueSource::CliOverride
+        {
+            route_policy_sources.objective = PolicyValueSource::CliOverride;
+        }
         if resume.is_none() && route_policy_sources.latency_budget == PolicyValueSource::Unset {
             route_policy_sources.latency_budget =
                 if request.budget.max_provider_p95_latency_ms.is_some() {
@@ -695,6 +716,7 @@ impl AgentRuntime {
                                     as u64,
                                 route_plan_sha256: Some(route_plan_digest.clone()),
                                 route_policy_sources: Some(route_policy_sources.clone()),
+                                route_objective: Some(route_request.objective),
                             },
                         })
                         .map_err(|source| RuntimeError::Journal {
@@ -1189,7 +1211,8 @@ mod tests {
                 .resume(&interrupted_path, CancellationToken::new())
                 .await,
             Err(RuntimeError::Resume(message))
-                if message.contains("route plan or policy changed")
+                if message.contains("route objective changed")
+                    || message.contains("route plan or policy changed")
         ));
         let resumed = runtime
             .resume(&interrupted_path, CancellationToken::new())

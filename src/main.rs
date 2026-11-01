@@ -15,10 +15,11 @@ use first_principles_agent::{
     RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
     build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    infer_mode, load_suite, local_manifest, probe_provider, probe_provider_tools, read_events,
-    rebuild_and_compare, remote_manifest, replay_events, risk_for_mode, run_suite_with_providers,
-    scan_history, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    find_resumable_prefix, infer_mode, load_suite, local_manifest, probe_provider,
+    probe_provider_tools, read_events, rebuild_and_compare, remote_manifest, replay_events,
+    risk_for_mode, run_suite_with_providers, scan_history, verify_goldset_manifest,
+    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -206,6 +207,12 @@ enum Command {
         timeout_seconds: u64,
         #[arg(long)]
         route_objective: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    ResumeStatus {
+        #[arg(long)]
+        journal: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -1205,15 +1212,16 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
-            let (objective, objective_source) =
-                resolve_route_objective(route_objective.as_deref())?;
-            let runtime = AgentRuntime::new(candidates, tools, journal_dir)
-                .with_route_objective(objective)
-                .with_route_policy_sources(RoutePolicySources {
-                    objective: objective_source,
-                    latency_budget: PolicyValueSource::Unset,
-                    unit_cost_budget: PolicyValueSource::Unset,
-                });
+            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            if let Some(route_objective) = route_objective {
+                runtime = runtime
+                    .with_route_objective(parse_route_objective(&route_objective)?)
+                    .with_route_policy_sources(RoutePolicySources {
+                        objective: PolicyValueSource::CliOverride,
+                        latency_budget: PolicyValueSource::Unset,
+                        unit_cost_budget: PolicyValueSource::Unset,
+                    });
+            }
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
             tokio::spawn(async move {
@@ -1227,6 +1235,37 @@ async fn main() -> Result<()> {
             } else {
                 println!("{}", render_answer(&result));
                 println!("\n运行日志：{}", result.journal_path.display());
+            }
+        }
+        Command::ResumeStatus { journal, json } => {
+            let events = read_events(&journal)?;
+            let prefix = find_resumable_prefix(&events)?;
+            let checkpoint = prefix.checkpoint;
+            let route_aware = checkpoint.route_plan_sha256.is_some()
+                && checkpoint.route_policy_sources.is_some()
+                && checkpoint.route_objective.is_some();
+            let value = serde_json::json!({
+                "route_aware": route_aware,
+                "legacy": !route_aware,
+                "mode": checkpoint.mode,
+                "next_step": checkpoint.next_step,
+                "tool_calls_used": checkpoint.tool_calls_used,
+                "elapsed_ms": checkpoint.elapsed_ms,
+                "route_plan_sha256": checkpoint.route_plan_sha256,
+                "route_policy_sources": checkpoint.route_policy_sources,
+                "route_objective": checkpoint.route_objective,
+            });
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!(
+                    "route_aware={} mode={:?} next_step={} tool_calls={} elapsed_ms={}",
+                    route_aware,
+                    checkpoint.mode,
+                    checkpoint.next_step,
+                    checkpoint.tool_calls_used,
+                    checkpoint.elapsed_ms
+                );
             }
         }
         Command::Experience { command } => {
