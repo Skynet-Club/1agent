@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 - 2026-11-01
+
+- Added `verified` experience state between review and approval.
+- Added held-out verification reports with separate training/evaluation groups.
+- Added gates for success improvement, unsupported-certainty regression and cost growth.
+- Added `experience verify` CLI.
+- Added negative tests for data leakage and increased false certainty.
+- Added request-id persistence to run journals and host status journal paths.
+- Added bounded journal history discovery with client request id recovery.
+
 ## 0.8.0 - 2026-11-01
 
 - Added versioned JSONL stdio host protocol v3.

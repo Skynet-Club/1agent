@@ -6,10 +6,10 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
-    ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
-    default_registry, load_suite, local_manifest, read_events, remote_manifest, replay_events,
-    run_suite_with_providers, scan_history,
+    ExperienceVerificationInput, HostCommand, HostError, HostRegistry, HostRequestState,
+    HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError,
+    TaskRequest, ToolRegistry, audit_events, default_registry, load_suite, local_manifest,
+    read_events, remote_manifest, replay_events, run_suite_with_providers, scan_history,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -171,6 +171,14 @@ enum ExperienceCommand {
         id: Uuid,
         #[arg(long)]
         actor: String,
+    },
+    Verify {
+        #[arg(long, default_value = ".experience")]
+        store: PathBuf,
+        #[arg(long)]
+        id: Uuid,
+        #[arg(long)]
+        input: PathBuf,
     },
     Approve {
         #[arg(long, default_value = ".experience")]
@@ -640,6 +648,14 @@ fn handle_experience(command: ExperienceCommand) -> Result<()> {
         ExperienceCommand::Review { store, id, actor } => {
             ExperienceStore::open(store)?.review(id, &actor)?;
             println!("candidate {id}: reviewed");
+        }
+        ExperienceCommand::Verify { store, id, input } => {
+            let content = std::fs::read_to_string(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            let verification: ExperienceVerificationInput = serde_json::from_str(&content)
+                .with_context(|| format!("invalid verification JSON in {}", input.display()))?;
+            ExperienceStore::open(store)?.verify(id, verification)?;
+            println!("candidate {id}: verified");
         }
         ExperienceCommand::Approve { store, id, actor } => {
             ExperienceStore::open(store)?.approve(id, &actor)?;

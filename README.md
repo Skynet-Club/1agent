@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.8.0` is an executable V0 vertical slice:
+Version `0.9.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -25,11 +25,12 @@ Version `0.8.0` is an executable V0 vertical slice:
 - active-experience retrieval by mode, scope and expiry with explicit unverified labeling;
 - bounded, read-root-confined workspace text search;
 - versioned offline evaluation suites with JSON and human-readable scorecards;
-- versioned JSONL host protocol v2 with request IDs, cancellation and bounded concurrency;
+- versioned JSONL host protocol v3 with request IDs, cancellation, status and bounded concurrency;
+- held-out experience verification with leakage and negative-transfer gates;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.8.md`](docs/status-v0.8.md).
+[`docs/status-v0.9.md`](docs/status-v0.9.md).
 
 Current V0 assumptions:
 

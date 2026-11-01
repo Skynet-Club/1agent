@@ -838,7 +838,9 @@ fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static st
 mod tests {
     use super::*;
     use crate::domain::{PermissionSet, RunBudget};
-    use crate::experience::{ExperienceCandidateSpec, ExperienceKind, ExperienceStore};
+    use crate::experience::{
+        ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
+    };
     use crate::journal::{audit_events, read_events};
     use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
     use crate::tools::default_registry;
@@ -1131,6 +1133,22 @@ mod tests {
             )
             .unwrap();
         store.review(active.id, "reviewer").unwrap();
+        store
+            .verify(
+                active.id,
+                ExperienceVerificationInput {
+                    suite_id: "heldout-runtime-v1".into(),
+                    training_group: "A".into(),
+                    evaluation_group: "B".into(),
+                    baseline_success_bps: 5_000,
+                    learned_success_bps: 6_000,
+                    baseline_unsupported_bps: 1_000,
+                    learned_unsupported_bps: 900,
+                    cost_delta_bps: 100,
+                    evidence: "runtime injection report".into(),
+                },
+            )
+            .unwrap();
         store.approve(active.id, "owner").unwrap();
         store.activate(active.id).unwrap();
         store

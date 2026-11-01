@@ -25,11 +25,41 @@ pub enum ExperienceKind {
 pub enum ExperienceStatus {
     Draft,
     Reviewed,
+    Verified,
     Approved,
     Rejected,
     Active,
     Degraded,
     RolledBack,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceVerificationInput {
+    pub suite_id: String,
+    pub training_group: String,
+    pub evaluation_group: String,
+    pub baseline_success_bps: u16,
+    pub learned_success_bps: u16,
+    pub baseline_unsupported_bps: u16,
+    pub learned_unsupported_bps: u16,
+    pub cost_delta_bps: i32,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExperienceVerification {
+    pub suite_id: String,
+    pub training_group: String,
+    pub evaluation_group: String,
+    pub baseline_success_bps: u16,
+    pub learned_success_bps: u16,
+    pub baseline_unsupported_bps: u16,
+    pub learned_unsupported_bps: u16,
+    pub cost_delta_bps: i32,
+    pub evidence: String,
+    pub passed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +96,8 @@ pub struct ExperienceCandidate {
     pub expires_at_unix_ms: Option<u128>,
     pub supersedes: Option<Uuid>,
     pub status: ExperienceStatus,
+    #[serde(default)]
+    pub verification: Option<ExperienceVerification>,
     pub created_unix_ms: u128,
     pub updated_unix_ms: u128,
 }
@@ -83,11 +115,15 @@ struct ExperienceEvent {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 enum ExperienceEventKind {
     Proposed {
-        candidate: ExperienceCandidate,
+        candidate: Box<ExperienceCandidate>,
     },
     Reviewed {
         id: Uuid,
         actor: String,
+    },
+    Verified {
+        id: Uuid,
+        verification: ExperienceVerification,
     },
     Approved {
         id: Uuid,
@@ -134,6 +170,7 @@ impl ExperienceStore {
             let event_candidate_id = match &event.event {
                 ExperienceEventKind::Proposed { candidate } => candidate.id,
                 ExperienceEventKind::Reviewed { id, .. }
+                | ExperienceEventKind::Verified { id, .. }
                 | ExperienceEventKind::Approved { id, .. }
                 | ExperienceEventKind::Rejected { id, .. }
                 | ExperienceEventKind::Activated { id }
@@ -142,7 +179,7 @@ impl ExperienceStore {
             };
             match event.event {
                 ExperienceEventKind::Proposed { candidate } => {
-                    if candidates.insert(candidate.id, candidate).is_some() {
+                    if candidates.insert(candidate.id, *candidate).is_some() {
                         return Err(ExperienceError::DuplicateCandidate);
                     }
                 }
@@ -156,11 +193,22 @@ impl ExperienceStore {
                         },
                     )?;
                 }
-                ExperienceEventKind::Approved { id, .. } => {
+                ExperienceEventKind::Verified { id, verification } => {
                     transition(
                         &mut candidates,
                         id,
                         &[ExperienceStatus::Reviewed],
+                        |candidate| {
+                            candidate.status = ExperienceStatus::Verified;
+                            candidate.verification = Some(verification.clone());
+                        },
+                    )?;
+                }
+                ExperienceEventKind::Approved { id, .. } => {
+                    transition(
+                        &mut candidates,
+                        id,
+                        &[ExperienceStatus::Verified],
                         |candidate| candidate.status = ExperienceStatus::Approved,
                     )?;
                 }
@@ -168,7 +216,11 @@ impl ExperienceStore {
                     transition(
                         &mut candidates,
                         id,
-                        &[ExperienceStatus::Draft, ExperienceStatus::Reviewed],
+                        &[
+                            ExperienceStatus::Draft,
+                            ExperienceStatus::Reviewed,
+                            ExperienceStatus::Verified,
+                        ],
                         |candidate| candidate.status = ExperienceStatus::Rejected,
                     )?;
                 }
@@ -251,11 +303,12 @@ impl ExperienceStore {
             expires_at_unix_ms: spec.expires_at_unix_ms,
             supersedes: spec.supersedes,
             status: ExperienceStatus::Draft,
+            verification: None,
             created_unix_ms: timestamp,
             updated_unix_ms: timestamp,
         };
         self.append(ExperienceEventKind::Proposed {
-            candidate: candidate.clone(),
+            candidate: Box::new(candidate.clone()),
         })?;
         Ok(candidate)
     }
@@ -270,11 +323,57 @@ impl ExperienceStore {
     }
 
     pub fn approve(&mut self, id: Uuid, actor: &str) -> Result<(), ExperienceError> {
-        self.transition(id, &[ExperienceStatus::Reviewed], |_| {
+        self.transition(id, &[ExperienceStatus::Verified], |_| {
             Ok(ExperienceEventKind::Approved {
                 id,
                 actor: validate_actor(actor)?.to_string(),
             })
+        })
+    }
+
+    pub fn verify(
+        &mut self,
+        id: Uuid,
+        input: ExperienceVerificationInput,
+    ) -> Result<(), ExperienceError> {
+        validate_text(&input.suite_id)?;
+        validate_text(&input.training_group)?;
+        validate_text(&input.evaluation_group)?;
+        validate_text(&input.evidence)?;
+        if input.training_group == input.evaluation_group {
+            return Err(ExperienceError::InvalidVerification(
+                "training and evaluation groups must differ".into(),
+            ));
+        }
+        if input.baseline_success_bps > 10_000
+            || input.learned_success_bps > 10_000
+            || input.baseline_unsupported_bps > 10_000
+            || input.learned_unsupported_bps > 10_000
+        {
+            return Err(ExperienceError::InvalidVerification(
+                "basis points must be between 0 and 10000".into(),
+            ));
+        }
+        let passed = input.learned_success_bps > input.baseline_success_bps
+            && input.learned_unsupported_bps <= input.baseline_unsupported_bps
+            && input.cost_delta_bps <= 1_000;
+        if !passed {
+            return Err(ExperienceError::VerificationFailed);
+        }
+        let verification = ExperienceVerification {
+            suite_id: input.suite_id,
+            training_group: input.training_group,
+            evaluation_group: input.evaluation_group,
+            baseline_success_bps: input.baseline_success_bps,
+            learned_success_bps: input.learned_success_bps,
+            baseline_unsupported_bps: input.baseline_unsupported_bps,
+            learned_unsupported_bps: input.learned_unsupported_bps,
+            cost_delta_bps: input.cost_delta_bps,
+            evidence: input.evidence,
+            passed,
+        };
+        self.transition(id, &[ExperienceStatus::Reviewed], |_| {
+            Ok(ExperienceEventKind::Verified { id, verification })
         })
     }
 
@@ -519,6 +618,10 @@ pub enum ExperienceError {
     },
     #[error("invalid text: {0}")]
     InvalidText(&'static str),
+    #[error("invalid verification: {0}")]
+    InvalidVerification(String),
+    #[error("candidate verification failed held-out transfer gates")]
+    VerificationFailed,
     #[error("unsupported experience schema version {0}")]
     UnsupportedSchema(u32),
     #[error("invalid event sequence: expected {expected}, got {actual}")]
@@ -603,6 +706,20 @@ mod tests {
         }
     }
 
+    fn verification() -> ExperienceVerificationInput {
+        ExperienceVerificationInput {
+            suite_id: "heldout-v1".into(),
+            training_group: "A".into(),
+            evaluation_group: "B".into(),
+            baseline_success_bps: 5_000,
+            learned_success_bps: 6_000,
+            baseline_unsupported_bps: 1_000,
+            learned_unsupported_bps: 800,
+            cost_delta_bps: 200,
+            evidence: "evaluation report".into(),
+        }
+    }
+
     #[test]
     fn candidate_requires_review_and_approval_before_activation() {
         let dir = tempfile::tempdir().unwrap();
@@ -615,6 +732,7 @@ mod tests {
             Err(ExperienceError::InvalidTransition { .. })
         ));
         store.review(candidate.id, "reviewer").unwrap();
+        store.verify(candidate.id, verification()).unwrap();
         store.approve(candidate.id, "owner").unwrap();
         store.activate(candidate.id).unwrap();
         let candidates = store.candidates().unwrap();
@@ -641,6 +759,7 @@ mod tests {
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let candidate = store.propose(spec(), &events).unwrap();
         store.review(candidate.id, "reviewer").unwrap();
+        store.verify(candidate.id, verification()).unwrap();
         store.approve(candidate.id, "owner").unwrap();
         store.activate(candidate.id).unwrap();
         store.degrade(candidate.id, "held-out regression").unwrap();
@@ -674,6 +793,7 @@ mod tests {
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let active = store.propose(spec(), &events).unwrap();
         store.review(active.id, "reviewer").unwrap();
+        store.verify(active.id, verification()).unwrap();
         store.approve(active.id, "owner").unwrap();
         store.activate(active.id).unwrap();
         let mut draft = spec();
@@ -685,6 +805,7 @@ mod tests {
         wrong_scope.scope = "finance".into();
         let wrong_scope = store.propose(wrong_scope, &events).unwrap();
         store.review(wrong_scope.id, "reviewer").unwrap();
+        store.verify(wrong_scope.id, verification()).unwrap();
         store.approve(wrong_scope.id, "owner").unwrap();
         store.activate(wrong_scope.id).unwrap();
 
@@ -698,5 +819,26 @@ mod tests {
         assert_eq!(retrieved.len(), 1);
         assert_eq!(retrieved[0].id, active.id);
         assert_ne!(retrieved[0].id, draft.id);
+    }
+
+    #[test]
+    fn verification_rejects_leakage_or_increased_false_certainty() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let candidate = store.propose(spec(), &events).unwrap();
+        store.review(candidate.id, "reviewer").unwrap();
+        let mut leaked = verification();
+        leaked.evaluation_group = leaked.training_group.clone();
+        assert!(matches!(
+            store.verify(candidate.id, leaked),
+            Err(ExperienceError::InvalidVerification(_))
+        ));
+        let mut unsafe_confidence = verification();
+        unsafe_confidence.learned_unsupported_bps = 1_200;
+        assert!(matches!(
+            store.verify(candidate.id, unsafe_confidence),
+            Err(ExperienceError::VerificationFailed)
+        ));
     }
 }

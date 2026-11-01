@@ -81,26 +81,77 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
         .unwrap();
     assert!(!premature_activation.status.success());
 
-    for action in ["review", "approve"] {
-        let output = Command::new(binary)
-            .args([
-                "experience",
-                action,
-                "--store",
-                &store.display().to_string(),
-                "--id",
-                &candidate.id.to_string(),
-                "--actor",
-                "test-owner",
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{action}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    let review_output = Command::new(binary)
+        .args([
+            "experience",
+            "review",
+            "--store",
+            &store.display().to_string(),
+            "--id",
+            &candidate.id.to_string(),
+            "--actor",
+            "test-owner",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        review_output.status.success(),
+        "review: {}",
+        String::from_utf8_lossy(&review_output.stderr)
+    );
+    let verification = workspace.path().join("verification.json");
+    std::fs::write(
+        &verification,
+        serde_json::to_vec(&serde_json::json!({
+            "suite_id": "heldout-e2e-v1",
+            "training_group": "A",
+            "evaluation_group": "B",
+            "baseline_success_bps": 5000,
+            "learned_success_bps": 6200,
+            "baseline_unsupported_bps": 1000,
+            "learned_unsupported_bps": 800,
+            "cost_delta_bps": 150,
+            "evidence": "held-out report"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let verify_output = Command::new(binary)
+        .args([
+            "experience",
+            "verify",
+            "--store",
+            &store.display().to_string(),
+            "--id",
+            &candidate.id.to_string(),
+            "--input",
+            &verification.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        verify_output.status.success(),
+        "verify: {}",
+        String::from_utf8_lossy(&verify_output.stderr)
+    );
+    let approve_output = Command::new(binary)
+        .args([
+            "experience",
+            "approve",
+            "--store",
+            &store.display().to_string(),
+            "--id",
+            &candidate.id.to_string(),
+            "--actor",
+            "test-owner",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        approve_output.status.success(),
+        "approve: {}",
+        String::from_utf8_lossy(&approve_output.stderr)
+    );
     let activate_output = Command::new(binary)
         .args([
             "experience",
