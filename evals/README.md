@@ -7,6 +7,9 @@ hidden-control rejection.
 Suites declare a `kind`. `contract_fixture` suites validate system contracts and cannot be used as
 model-quality promotion evidence. `model_quality` requires real provider runs and reviewed tasks.
 
+`model-quality-template.json` is intentionally `template` status and cannot run. A runnable
+model-quality suite must be `ready` and declare provider requirements, a reviewer and calibration.
+
 | Suite | Evidence |
 |---|---|
 | Domain contract | Mode inference, answer validation, read-only action rejection |

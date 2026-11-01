@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.46.0 - 2026-11-02
+
+- Added evaluation execution statuses: unspecified, template, draft and ready.
+- Added provider requirements, reviewer and calibration prerequisites.
+- Added `evals/model-quality-template.json`.
+- Allowed templates with no cases to load but prevented execution.
+- Required ready status and metadata for runnable model-quality suites.
+- Prevented template/draft inspection from being treated as completed evidence.
+- Added template load/run rejection coverage.
+
 ## 0.45.0 - 2026-11-02
 
 - Added suite kinds: unspecified, contract fixture and model quality.

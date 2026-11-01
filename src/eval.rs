@@ -20,6 +20,14 @@ pub struct EvalSuite {
     pub suite_version: String,
     #[serde(default)]
     pub kind: EvalSuiteKind,
+    #[serde(default)]
+    pub execution_status: EvalExecutionStatus,
+    #[serde(default)]
+    pub provider_requirements: Vec<String>,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub calibration_required: bool,
     pub cases: Vec<EvalCase>,
 }
 
@@ -34,6 +42,16 @@ pub enum EvalSuiteKind {
     Unspecified,
     ContractFixture,
     ModelQuality,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EvalExecutionStatus {
+    #[default]
+    Unspecified,
+    Template,
+    Draft,
+    Ready,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -124,6 +142,7 @@ pub struct EvalCaseResult {
 pub struct EvalReport {
     pub suite: String,
     pub kind: EvalSuiteKind,
+    pub execution_status: EvalExecutionStatus,
     pub total: usize,
     pub passed: usize,
     pub failed: usize,
@@ -157,7 +176,8 @@ pub async fn evaluate_experience_suite(
     if suite.kind == EvalSuiteKind::ContractFixture {
         return Err(EvalError::FixtureCannotProveModelQuality);
     }
-    if suite.cases.is_empty() {
+    ensure_runnable_model_quality(&suite)?;
+    if suite.cases.is_empty() && suite.execution_status != EvalExecutionStatus::Template {
         return Err(EvalError::EmptySuite);
     }
     if suite.cases.iter().any(|case| {
@@ -244,7 +264,7 @@ fn unsupported_certainty_bps(report: &EvalReport) -> u16 {
 pub fn load_suite(path: impl AsRef<Path>) -> Result<EvalSuite, EvalError> {
     let content = std::fs::read_to_string(path.as_ref())?;
     let suite: EvalSuite = serde_json::from_str(&content)?;
-    if suite.cases.is_empty() {
+    if suite.cases.is_empty() && suite.execution_status != EvalExecutionStatus::Template {
         return Err(EvalError::EmptySuite);
     }
     Ok(suite)
@@ -279,6 +299,14 @@ pub async fn run_suite_with_learning(
     if providers.is_empty() {
         return Err(EvalError::NoProviders);
     }
+    if suite.execution_status == EvalExecutionStatus::Template
+        || suite.execution_status == EvalExecutionStatus::Draft
+    {
+        return Err(EvalError::SuiteNotRunnable);
+    }
+    if suite.kind == EvalSuiteKind::ModelQuality {
+        ensure_runnable_model_quality(&suite)?;
+    }
     let mut results = Vec::new();
     for case in suite.cases {
         results.push(
@@ -301,6 +329,7 @@ pub async fn run_suite_with_learning(
     Ok(EvalReport {
         suite: suite.name,
         kind: suite.kind,
+        execution_status: suite.execution_status,
         total: results.len(),
         passed,
         failed: results.len() - passed,
@@ -586,6 +615,27 @@ pub enum EvalError {
     MissingExperienceScope,
     #[error("contract fixture suites cannot be promoted as model-quality evidence")]
     FixtureCannotProveModelQuality,
+    #[error("evaluation suite is a template or draft and cannot run")]
+    SuiteNotRunnable,
+    #[error("model-quality suite is missing requirements, reviewer or ready status")]
+    ModelQualityMetadataMissing,
+}
+
+fn ensure_runnable_model_quality(suite: &EvalSuite) -> Result<(), EvalError> {
+    if suite.kind == EvalSuiteKind::ModelQuality
+        && (suite.execution_status != EvalExecutionStatus::Ready
+            || suite.provider_requirements.is_empty()
+            || suite
+                .reviewer
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default()
+                .is_empty()
+            || !suite.calibration_required)
+    {
+        return Err(EvalError::ModelQualityMetadataMissing);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -763,6 +813,10 @@ mod tests {
             name: "test".into(),
             suite_version: "1".into(),
             kind: EvalSuiteKind::ContractFixture,
+            execution_status: EvalExecutionStatus::Unspecified,
+            provider_requirements: Vec::new(),
+            reviewer: None,
+            calibration_required: false,
             cases: vec![EvalCase {
                 id: "read".into(),
                 objective: "Research @read-file:\"${workspace}/evidence.txt\"".into(),
@@ -798,6 +852,10 @@ mod tests {
             name: "fixture-reasoning-v1".into(),
             suite_version: "1".into(),
             kind: EvalSuiteKind::ContractFixture,
+            execution_status: EvalExecutionStatus::Unspecified,
+            provider_requirements: Vec::new(),
+            reviewer: None,
+            calibration_required: false,
             cases: vec![
                 EvalCase {
                     id: "source-conflict".into(),
@@ -912,6 +970,20 @@ mod tests {
         assert!(error.contains("unsafe setup path"));
     }
 
+    #[tokio::test]
+    async fn model_quality_template_loads_but_cannot_run() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("template.json");
+        std::fs::write(&path, include_str!("../evals/model-quality-template.json")).unwrap();
+        let suite = load_suite(&path).unwrap();
+        assert_eq!(suite.kind, EvalSuiteKind::ModelQuality);
+        assert_eq!(suite.execution_status, EvalExecutionStatus::Template);
+        assert!(matches!(
+            run_suite(suite).await,
+            Err(EvalError::SuiteNotRunnable)
+        ));
+    }
+
     struct GuidanceAwareProvider;
 
     #[async_trait]
@@ -983,6 +1055,10 @@ mod tests {
                 name: "heldout-test".into(),
                 suite_version: "1".into(),
                 kind: EvalSuiteKind::Unspecified,
+                execution_status: EvalExecutionStatus::Unspecified,
+                provider_requirements: Vec::new(),
+                reviewer: None,
+                calibration_required: false,
                 cases: vec![EvalCase {
                     id: "heldout-1".into(),
                     objective: "Choose the repository option".into(),
