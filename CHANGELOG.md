@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.87.0 - 2026-11-02
+
+- Added explicit integrity, content-binding, signature and authenticity labels to concise text summaries.
+- Kept machine-readable summary fields unchanged.
+- Added signed-report text-output CLI coverage.
+
 ## 0.86.0 - 2026-11-02
 
 - Rejected partial approval proof arguments before reading or validating a report.

@@ -372,11 +372,29 @@ pub enum ContentBindingStatus {
     Unbound,
 }
 
+impl ContentBindingStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Bound => "bound",
+            Self::Unbound => "unbound",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticityStatus {
     Unauthenticated,
     Verified,
+}
+
+impl AuthenticityStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unauthenticated => "unauthenticated",
+            Self::Verified => "verified",
+        }
+    }
 }
 
 pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 4;

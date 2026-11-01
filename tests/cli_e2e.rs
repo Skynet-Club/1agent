@@ -331,6 +331,32 @@ fn cli_eval_inspect_verifies_signed_report() {
         AuthenticityStatus::Verified
     );
 
+    let text_inspect = Command::new(binary)
+        .env("REPORT_APPROVAL_KEY", "test-only-report-key-32-bytes!!!")
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.display().to_string(),
+            "--summary",
+            "--require-authenticity",
+            "--approval",
+            &approval_path.display().to_string(),
+            "--approval-key-env",
+            "REPORT_APPROVAL_KEY",
+            "--approval-registry",
+            &registry_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        text_inspect.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&text_inspect.stderr)
+    );
+    assert!(String::from_utf8_lossy(&text_inspect.stdout).contains(
+        "verification=integrity:checked,binding:bound,signature:present,authenticity:verified"
+    ));
+
     let partial = Command::new(binary)
         .args([
             "eval-inspect",
