@@ -6,11 +6,12 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
-    DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
-    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
-    ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
-    default_registry, evaluate_experience_suite, load_suite, local_manifest, read_events,
-    remote_manifest, replay_events, run_suite_with_providers, scan_history,
+    CalibrationPrediction, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
+    ExperienceVerificationInput, HostCommand, HostError, HostRegistry, HostRequestState,
+    HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError,
+    TaskRequest, ToolRegistry, audit_events, default_registry, evaluate_experience_suite,
+    load_suite, local_manifest, read_events, remote_manifest, replay_events,
+    run_suite_with_providers, scan_history,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -270,6 +271,18 @@ enum AnnotateCommand {
     List {
         #[arg(long, default_value = ".annotations")]
         store: PathBuf,
+    },
+    Calibrate {
+        #[arg(long, default_value = ".annotations")]
+        store: PathBuf,
+        #[arg(long)]
+        predictions: PathBuf,
+        #[arg(long, default_value_t = 600)]
+        min_kappa_millis: i32,
+        #[arg(long, default_value_t = 20)]
+        min_samples: usize,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -828,6 +841,37 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
                 "{}",
                 serde_json::to_string_pretty(&AnnotationStore::open(store)?.records()?)?
             );
+        }
+        AnnotateCommand::Calibrate {
+            store,
+            predictions,
+            min_kappa_millis,
+            min_samples,
+            json,
+        } => {
+            let content = std::fs::read_to_string(&predictions)
+                .with_context(|| format!("cannot read {}", predictions.display()))?;
+            let predictions = content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(serde_json::from_str::<CalibrationPrediction>)
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let report = AnnotationStore::open(store)?.calibrate(
+                predictions,
+                min_kappa_millis,
+                min_samples,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "samples={} kappa={:.3} ECE={}bps Brier={}",
+                    report.samples,
+                    report.kappa_millis as f64 / 1_000.0,
+                    report.ece_bps,
+                    report.brier_micros
+                );
+            }
         }
     }
     Ok(())

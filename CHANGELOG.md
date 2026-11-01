@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 - 2026-11-02
+
+- Added `annotate calibrate` for opt-in reliability-gated calibration analysis.
+- Added ECE, Brier score, reliability bins and selective-risk points.
+- Added kappa and sample-count hard gates.
+- Added refusal when labels or predictions are insufficient.
+- Added calibration tests for allowed and refused evidence states.
+
 ## 0.11.0 - 2026-11-02
 
 - Added `annotate add/list/agreement`.
