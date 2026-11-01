@@ -1,7 +1,8 @@
 use std::process::Command;
 
 use first_principles_agent::{
-    DecisionCompletenessFloorSource, EvalReport, JournalAudit, ReplayState, RunResult, StopReason,
+    DecisionCompletenessFloorSource, EvalReport, EvalReportSummary, JournalAudit, ReplayState,
+    RunResult, StopReason,
 };
 
 #[test]
@@ -119,6 +120,27 @@ fn cli_eval_reports_versioned_completeness_policy() {
     );
     let inspected: EvalReport = serde_json::from_slice(&inspect_output.stdout).unwrap();
     assert_eq!(inspected, report);
+
+    let summary_output = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.path().display().to_string(),
+            "--summary",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        summary_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&summary_output.stderr)
+    );
+    let summary: EvalReportSummary = serde_json::from_slice(&summary_output.stdout).unwrap();
+    assert_eq!(summary.total, report.total);
+    assert_eq!(summary.passed, report.passed);
+    let summary_json: serde_json::Value = serde_json::from_slice(&summary_output.stdout).unwrap();
+    assert!(summary_json.get("cases").is_none());
 }
 
 #[test]

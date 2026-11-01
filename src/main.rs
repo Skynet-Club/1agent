@@ -7,12 +7,12 @@ use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
-    DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
-    GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
-    OpenAiCompatibleProvider, PolicyValueSource, ProviderAdapter, ProviderCandidate,
-    ProviderProbeReport, ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy,
-    ReleasePolicyMode, RouteObjective, RoutePolicySources, RouteRequest, Router, RunBudget,
-    RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
+    DeterministicProvider, EvalReportSummary, ExperienceCandidateSpec, ExperienceStore,
+    ExperienceVerificationInput, GoldSetManifest, HostCommand, HostError, HostRegistry,
+    HostRequestState, HostResponse, OpenAiCompatibleProvider, PolicyValueSource, ProviderAdapter,
+    ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport, RegistrySnapshot,
+    ReleasePolicy, ReleasePolicyMode, RouteObjective, RoutePolicySources, RouteRequest, Router,
+    RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
     build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
     find_resumable_prefix, infer_mode, load_eval_report, load_suite, local_manifest,
@@ -114,6 +114,8 @@ enum Command {
     EvalInspect {
         #[arg(long)]
         report: PathBuf,
+        #[arg(long)]
+        summary: bool,
         #[arg(long)]
         json: bool,
     },
@@ -803,9 +805,31 @@ async fn main() -> Result<()> {
                 );
             }
         }
-        Command::EvalInspect { report, json } => {
+        Command::EvalInspect {
+            report,
+            summary,
+            json,
+        } => {
             let report = load_eval_report(&report)?;
-            if json {
+            if summary {
+                let summary = EvalReportSummary::from(&report);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&summary)?);
+                } else {
+                    println!(
+                        "{}: {}/{} passed, hard-gate failures={}, completeness={}/{} ({} bps), policy=v{} {}",
+                        summary.suite,
+                        summary.passed,
+                        summary.total,
+                        summary.hard_gate_failures,
+                        summary.decision_completeness_ok_cases,
+                        summary.decision_completeness_cases,
+                        summary.decision_completeness_rate_bps,
+                        summary.decision_completeness_policy.version,
+                        summary.decision_completeness_policy.floor_source.as_str()
+                    );
+                }
+            } else if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!(

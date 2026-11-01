@@ -313,6 +313,42 @@ impl EvalReport {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EvalReportSummary {
+    pub suite: String,
+    pub kind: EvalSuiteKind,
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub hard_gate_failures: usize,
+    pub decision_completeness_cases: usize,
+    pub decision_completeness_ok_cases: usize,
+    pub decision_completeness_rate_bps: u16,
+    pub min_decision_completeness_bps: u16,
+    pub decision_completeness_floor_passed: bool,
+    pub decision_completeness_policy: DecisionCompletenessPolicy,
+}
+
+impl From<&EvalReport> for EvalReportSummary {
+    fn from(report: &EvalReport) -> Self {
+        Self {
+            suite: report.suite.clone(),
+            kind: report.kind,
+            total: report.total,
+            passed: report.passed,
+            failed: report.failed,
+            hard_gate_failures: report.hard_gate_failures,
+            decision_completeness_cases: report.decision_completeness.cases,
+            decision_completeness_ok_cases: report.decision_completeness.ok_cases,
+            decision_completeness_rate_bps: report.decision_completeness.completion_rate_bps,
+            min_decision_completeness_bps: report.min_decision_completeness_bps,
+            decision_completeness_floor_passed: report.decision_completeness_floor_passed,
+            decision_completeness_policy: report.decision_completeness_policy.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ExperienceEvaluationReport {
@@ -1390,6 +1426,12 @@ mod tests {
                 "decision-completeness floor status is inconsistent"
             ))
         ));
+
+        let summary = EvalReportSummary::from(&report);
+        let json = serde_json::to_value(summary).unwrap();
+        assert_eq!(json["total"], 1);
+        assert!(json.get("cases").is_none());
+        assert!(json.get("id").is_none());
     }
 
     #[tokio::test]

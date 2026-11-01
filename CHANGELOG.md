@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.79.0 - 2026-11-02
+
+- Added compact `eval-inspect --summary` output for host integrations.
+- Excluded case payloads and case identifiers from the summary contract.
+- Preserved explicit full normalized report output.
+- Applied existing report-integrity validation before summary generation.
+- Added unit and CLI end-to-end summary coverage.
+
 ## 0.78.0 - 2026-11-02
 
 - Bound evaluation report inspection to internal aggregate invariants.
