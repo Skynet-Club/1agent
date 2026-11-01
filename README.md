@@ -122,6 +122,8 @@ Evaluation suite types, metrics and promotion gates are in
 [`docs/evaluation.md`](docs/evaluation.md).
 Self-evolution levels, promotion gates and rollback rules are in
 [`docs/self-evolution.md`](docs/self-evolution.md).
+Research sources and the limits of their transfer are summarized in
+[`docs/research-foundations.md`](docs/research-foundations.md).
 
 Current V0 assumptions:
 
