@@ -28,6 +28,29 @@ Status: explicit route objectives implemented
 | Tool capability filtered | retained |
 | Unit tests | 73 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 29868df42e56ec6ba5ce247dd42fbbd7d3e8a1d0
+git dirty: false
+
+Linux binary:
+bc36750938d6bee5dea4f0cf5b7d66a0ba6ce2bab76370ed7e5e730b517cb7fc
+
+Windows binary:
+140590c26eb27ff034e7700db36892f932a62e9e8cad14368616958c561d2ff0
+
+Linux tar.gz:
+30dbf7d2d80333a9e99851d2b0dc006b7dd44672a20c15bad4103109f25d06c2
+
+Windows zip:
+cb040bdf213806bce1d82210b8a5ed42106184093fe218c0b5199861d14995ae
+
+Release manifest:
+0aa0c5eb352005ed91b801b5aa3958f7cc3faf8df900cb9e4f368b10d872d977
+```
 
 ## Known limitations
 
