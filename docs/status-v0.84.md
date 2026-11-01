@@ -40,7 +40,21 @@ Summaries distinguish `signature_present` from `authenticity=verified`. Unsigned
 | missing proof fields rejected | passed |
 | key registry enforcement | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `a90139841005a45fd0113ff806f22bd754615acd`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `4c73a9784dda21ace6df39a2e3a649796a7f91c87841d4a06e9d1b887ece23ba` |
+| Windows `zip` | `bbcb53f93d7e83a1f4a22ed26ce0d07bf95bea915020b494c732be361f67aa1e` |
+| Release manifest | `85e5fe856817598bd9b13ba008de4fcbbe4b10e8ac0985dd33144defcf4b360d` |
+| Linux binary | `d78d83853ba1ce167805c17f4dbc995f6e5c083f16417d68b6816c7f7c402551` |
+| Windows binary | `2cdead0db076ec222b91906f0d28b3df5fec69d7dc60c4271f30e5c3117cc749` |
 
 ## Known limitations
 
