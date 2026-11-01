@@ -26,6 +26,29 @@ Status: provider route budget constraints implemented
 | Runtime budget mapping | implemented |
 | Unit tests | 74 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 2711406ac55aa8df12193b812191a60ddd6f1edb
+git dirty: false
+
+Linux binary:
+17228f90789df947f20b9cb587759f966ad7874c1cb671cacdbe4899559732ea
+
+Windows binary:
+264b1aa5df20ed166c2dd1efece93f3bbcc53e67d8b488201f84da8a09cfde60
+
+Linux tar.gz:
+7b3956887e2459d1961c94f076d36d2776e6e8e8c016bd5717b7451750809578
+
+Windows zip:
+53e839be031cea947b76b33486724c49335d8ad02a0f827362e446da9dadd660
+
+Release manifest:
+6372b11e2be730ff04bd6316ba72d5a986701860cb3a21fef83d0de3d083a47e
+```
 
 ## Semantics and limitations
 
