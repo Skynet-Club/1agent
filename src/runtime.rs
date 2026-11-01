@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -229,8 +230,11 @@ impl AgentRuntime {
             max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
         };
         let route_plan = self.router.plan(&route_request);
-        let mut route_policy_sources = self.route_policy_sources.clone();
-        if route_policy_sources.latency_budget == PolicyValueSource::Unset {
+        let mut route_policy_sources = resume
+            .as_ref()
+            .and_then(|prefix| prefix.checkpoint.route_policy_sources.clone())
+            .unwrap_or_else(|| self.route_policy_sources.clone());
+        if resume.is_none() && route_policy_sources.latency_budget == PolicyValueSource::Unset {
             route_policy_sources.latency_budget =
                 if request.budget.max_provider_p95_latency_ms.is_some() {
                     PolicyValueSource::TaskRequest
@@ -238,7 +242,7 @@ impl AgentRuntime {
                     PolicyValueSource::Unset
                 };
         }
-        if route_policy_sources.unit_cost_budget == PolicyValueSource::Unset {
+        if resume.is_none() && route_policy_sources.unit_cost_budget == PolicyValueSource::Unset {
             route_policy_sources.unit_cost_budget =
                 if request.budget.max_unit_cost_micros_per_k.is_some() {
                     PolicyValueSource::TaskRequest
@@ -246,10 +250,25 @@ impl AgentRuntime {
                     PolicyValueSource::Unset
                 };
         }
+        let route_plan_digest =
+            route_plan_digest(&route_plan, &route_policy_sources).map_err(|message| {
+                RuntimeError::RoutePlan {
+                    path: journal_path.clone(),
+                    message,
+                }
+            })?;
+        if let Some(prefix) = &resume
+            && let Some(expected) = &prefix.checkpoint.route_plan_sha256
+            && expected != &route_plan_digest
+        {
+            return Err(RuntimeError::Resume(
+                "route plan or policy changed since checkpoint".into(),
+            ));
+        }
         journal
             .append(JournalEventKind::RoutePlanned {
                 plan: route_plan.clone(),
-                sources: route_policy_sources,
+                sources: route_policy_sources.clone(),
             })
             .map_err(|source| RuntimeError::Journal {
                 path: journal_path.clone(),
@@ -674,6 +693,8 @@ impl AgentRuntime {
                                     .as_millis()
                                     .min(u128::from(u64::MAX))
                                     as u64,
+                                route_plan_sha256: Some(route_plan_digest.clone()),
+                                route_policy_sources: Some(route_policy_sources.clone()),
                             },
                         })
                         .map_err(|source| RuntimeError::Journal {
@@ -883,6 +904,8 @@ pub enum RuntimeError {
     Cancelled { path: PathBuf },
     #[error("run cannot be resumed: {0}")]
     Resume(String),
+    #[error("route plan failed: {message}; journal: {path}")]
+    RoutePlan { path: PathBuf, message: String },
     #[error("experience loading failed: {0}")]
     Experience(String),
 }
@@ -894,11 +917,20 @@ impl RuntimeError {
             | Self::Provider { path, .. }
             | Self::NoRoute { path, .. }
             | Self::InvalidOutput { path, .. }
+            | Self::RoutePlan { path, .. }
             | Self::Cancelled { path } => path,
             Self::Resume(_) => Path::new(""),
             Self::Experience(_) => Path::new(""),
         }
     }
+}
+
+fn route_plan_digest(
+    plan: &crate::router::RoutePlan,
+    sources: &RoutePolicySources,
+) -> Result<String, String> {
+    let bytes = serde_json::to_vec(&(plan, sources)).map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static str {
@@ -1135,6 +1167,15 @@ mod tests {
             .iter()
             .position(|event| matches!(event.event, JournalEventKind::Checkpoint { .. }))
             .unwrap();
+        let checkpoint = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::Checkpoint { checkpoint } => Some(checkpoint),
+                _ => None,
+            })
+            .unwrap();
+        assert!(checkpoint.route_plan_sha256.is_some());
+        assert!(checkpoint.route_policy_sources.is_some());
         let interrupted_path = workspace.path().join("interrupted.jsonl");
         let mut interrupted = Journal::create(&interrupted_path, Uuid::new_v4()).unwrap();
         for event in &events[..=checkpoint_index] {
@@ -1142,6 +1183,14 @@ mod tests {
         }
         drop(interrupted);
 
+        let changed_policy = runtime.clone().with_route_objective(RouteObjective::Cost);
+        assert!(matches!(
+            changed_policy
+                .resume(&interrupted_path, CancellationToken::new())
+                .await,
+            Err(RuntimeError::Resume(message))
+                if message.contains("route plan or policy changed")
+        ));
         let resumed = runtime
             .resume(&interrupted_path, CancellationToken::new())
             .await

@@ -411,6 +411,10 @@ pub struct RuntimeCheckpoint {
     pub unavailable_routes: Vec<ProviderRouteKey>,
     pub next_step: usize,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub route_plan_sha256: Option<String>,
+    #[serde(default)]
+    pub route_policy_sources: Option<crate::router::RoutePolicySources>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -546,5 +550,20 @@ mod tests {
                 "missing".into()
             ))
         );
+    }
+
+    #[test]
+    fn legacy_checkpoint_without_route_metadata_deserializes() {
+        let checkpoint: RuntimeCheckpoint = serde_json::from_value(serde_json::json!({
+            "mode": "direct_answer",
+            "messages": [],
+            "tool_calls_used": 0,
+            "unavailable_routes": [],
+            "next_step": 0,
+            "elapsed_ms": 0
+        }))
+        .unwrap();
+        assert_eq!(checkpoint.route_plan_sha256, None);
+        assert_eq!(checkpoint.route_policy_sources, None);
     }
 }

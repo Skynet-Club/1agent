@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.34.0 - 2026-11-02
+
+- Bound checkpoints to the canonical route plan and policy-source digest.
+- Persisted effective route policy sources in each checkpoint.
+- Resume recomputes the plan and rejects changed objective, budgets, provider manifests or policy
+  sources.
+- Preserved legacy checkpoints without route digests.
+- Added interruption/resume policy-change rejection coverage.
+
 ## 0.33.0 - 2026-11-02
 
 - Added `RoutePlanned` journal events with ranked and rejected candidates.
