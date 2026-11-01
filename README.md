@@ -120,6 +120,8 @@ Provider capability filtering, ranking and fallback semantics are in
 [`docs/model-routing.md`](docs/model-routing.md).
 Evaluation suite types, metrics and promotion gates are in
 [`docs/evaluation.md`](docs/evaluation.md).
+Self-evolution levels, promotion gates and rollback rules are in
+[`docs/self-evolution.md`](docs/self-evolution.md).
 
 Current V0 assumptions:
 
