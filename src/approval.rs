@@ -12,6 +12,7 @@ pub enum ArtifactKind {
     Experience,
     EvaluationReport,
     ApprovalRegistry,
+    Provenance,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

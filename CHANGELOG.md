@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0 - 2026-11-02
+
+- Added build provenance with commit, dirty state and tool versions.
+- Added target triple, artifact size and SHA-256.
+- Added `provenance create/verify`.
+- Added optional signed provenance approval.
+- Package output now includes Linux and Windows provenance.
+- Added artifact-change rejection tests.
+
 ## 0.18.0 - 2026-11-02
 
 - Added external trust-anchor manifests.

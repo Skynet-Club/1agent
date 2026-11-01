@@ -10,10 +10,11 @@ use first_principles_agent::{
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
     OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, RunBudget, RuntimeError,
-    TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events, create_goldset_manifest,
-    create_trust_anchor, default_registry, evaluate_experience_suite, load_suite, local_manifest,
-    read_events, remote_manifest, replay_events, run_suite_with_providers, scan_history,
-    verify_goldset_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events, collect_provenance,
+    create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
+    load_suite, local_manifest, read_events, remote_manifest, replay_events,
+    run_suite_with_providers, scan_history, verify_goldset_manifest, verify_provenance,
+    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -134,6 +135,10 @@ enum Command {
     Approval {
         #[command(subcommand)]
         command: ApprovalCommand,
+    },
+    Provenance {
+        #[command(subcommand)]
+        command: ProvenanceCommand,
     },
     Resume {
         #[arg(long)]
@@ -429,6 +434,30 @@ enum ApprovalCommand {
         key_env: String,
         #[arg(long)]
         registry: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProvenanceCommand {
+    Create {
+        #[arg(long)]
+        artifact: PathBuf,
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        key_env: Option<String>,
+        #[arg(long)]
+        approver: Option<String>,
+        #[arg(long)]
+        approval_output: Option<PathBuf>,
+    },
+    Verify {
+        #[arg(long)]
+        provenance: PathBuf,
+        #[arg(long)]
+        artifact: PathBuf,
     },
 }
 
@@ -803,6 +832,9 @@ async fn main() -> Result<()> {
         Command::Approval { command } => {
             handle_approval(command)?;
         }
+        Command::Provenance { command } => {
+            handle_provenance(command)?;
+        }
         Command::Resume {
             journal,
             config,
@@ -1125,6 +1157,7 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
                 "gold_set" | "gold-set" => ArtifactKind::GoldSet,
                 "experience" => ArtifactKind::Experience,
                 "evaluation_report" | "evaluation-report" => ArtifactKind::EvaluationReport,
+                "provenance" => ArtifactKind::Provenance,
                 other => bail!("unsupported artifact kind '{other}'"),
             };
             let key = read_secret_env(&key_env)?;
@@ -1288,6 +1321,57 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
             }
             std::fs::write(&output, serde_json::to_vec_pretty(&anchor)?)?;
             println!("{}", output.display());
+        }
+    }
+    Ok(())
+}
+
+fn handle_provenance(command: ProvenanceCommand) -> Result<()> {
+    match command {
+        ProvenanceCommand::Create {
+            artifact,
+            target,
+            output,
+            key_env,
+            approver,
+            approval_output,
+        } => {
+            let workspace = std::env::current_dir()?;
+            let provenance = collect_provenance(&workspace, &artifact, target)?;
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output, serde_json::to_vec_pretty(&provenance)?)?;
+            match (key_env, approver, approval_output) {
+                (Some(key_env), Some(approver), Some(approval_output)) => {
+                    let envelope = ApprovalEnvelope::sign(
+                        &output,
+                        ArtifactKind::Provenance,
+                        approver,
+                        "release provenance".into(),
+                        "provenance-key".into(),
+                        &read_secret_env(&key_env)?,
+                    )?;
+                    if let Some(parent) = approval_output.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&approval_output, serde_json::to_vec_pretty(&envelope)?)?;
+                }
+                (None, None, None) => {}
+                _ => bail!("--key-env, --approver and --approval-output must be provided together"),
+            }
+            println!("{}", output.display());
+        }
+        ProvenanceCommand::Verify {
+            provenance,
+            artifact,
+        } => {
+            let provenance = serde_json::from_str(
+                &std::fs::read_to_string(&provenance)
+                    .with_context(|| format!("cannot read {}", provenance.display()))?,
+            )?;
+            verify_provenance(&provenance, artifact)?;
+            println!("provenance verified");
         }
     }
     Ok(())

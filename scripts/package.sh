@@ -21,6 +21,17 @@ mkdir -p "$linux_dir" "$windows_dir"
 install -m 0755 target/release/first-principles-agent "$linux_dir/1agent"
 install -m 0755 target/x86_64-pc-windows-gnu/release/first-principles-agent.exe \
   "$windows_dir/1agent.exe"
+mkdir -p "$package_root/provenance"
+target/release/first-principles-agent provenance create \
+  --artifact "$linux_dir/1agent" \
+  --target x86_64-unknown-linux-gnu \
+  --output "$package_root/provenance/linux-x86_64.json" \
+  >/dev/null
+target/release/first-principles-agent provenance create \
+  --artifact "$windows_dir/1agent.exe" \
+  --target x86_64-pc-windows-gnu \
+  --output "$package_root/provenance/windows-x86_64.json" \
+  >/dev/null
 install -m 0644 README.md LICENSE CHANGELOG.md "$package_root/"
 cp -R docs evals configs "$package_root/"
 
