@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.0 - 2026-11-02
+
+- Isolated build-path reproducibility differences.
+- Fixed SOURCE_DATE_EPOCH, incremental state, symbol stripping and source/target path remapping.
+- Added `scripts/reproducible-build.sh`.
+- Produced byte-identical Linux builds: SHA-256 `40b6b6...c484`, size `7,744,216`.
+- Integrated double-build reproducibility verification into packaging.
+
 ## 0.20.0 - 2026-11-02
 
 - Added `provenance rebuild`.
