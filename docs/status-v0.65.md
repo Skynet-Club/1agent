@@ -30,8 +30,8 @@ Status: content-bound experience evidence implemented
 | source run identity | checked |
 | review/approve/activate CLI binding | passed |
 | legacy digest-free candidate | accepted |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -39,6 +39,28 @@ Status: content-bound experience evidence implemented
 - Legacy candidates without digests are not retroactively protected.
 - Source journal availability is required at each bound transition.
 - Verification/evaluation does not independently reread the source journal.
+
+## Verified clean release
+
+```text
+source commit: a98d4c1292862504370a7dae31a63d9cc91e83f3
+git dirty: false
+
+Linux binary:
+3099924de19eae7bfe4c4ac10d8a4684670c00d4d2fe3c3c30491b4f337caa8c
+
+Windows binary:
+afb55701239c2805572a5797cfe3fd78ea48bd276251ea285d90d4940e5bb443
+
+Linux tar.gz:
+7674696b32a3cba407dca34aa5f6646c52143807151bd2f2d71ba8fdf574d961
+
+Windows zip:
+fcb479cb16f741aa6129b9dea998a093b7c83c742b0fcce56f4023f8bf971320
+
+Release manifest:
+6e022424caadb6de4882647ff1672b08fa1baf6845d0cdb7f938be3f93d04b7e
+```
 
 ## Next requirement
 
