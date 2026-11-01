@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,6 +69,7 @@ pub struct HostStatusSnapshot {
     pub failed_requests: u64,
     pub target_request_id: Option<String>,
     pub target_state: Option<HostRequestState>,
+    pub target_journal_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -228,10 +230,16 @@ impl HostResponse {
 #[derive(Default)]
 pub struct HostRegistry {
     active: HashMap<String, CancellationToken>,
-    recent: VecDeque<(String, HostRequestState)>,
+    recent: VecDeque<RecentHostRequest>,
     completed: u64,
     cancelled: u64,
     failed: u64,
+}
+
+struct RecentHostRequest {
+    request_id: String,
+    state: HostRequestState,
+    journal_path: Option<PathBuf>,
 }
 
 impl HostRegistry {
@@ -257,7 +265,12 @@ impl HostRegistry {
             .is_some()
     }
 
-    pub fn finish(&mut self, request_id: &str, state: HostRequestState) {
+    pub fn finish(
+        &mut self,
+        request_id: &str,
+        state: HostRequestState,
+        journal_path: Option<PathBuf>,
+    ) {
         self.active.remove(request_id);
         match state {
             HostRequestState::Completed => self.completed += 1,
@@ -265,24 +278,31 @@ impl HostRegistry {
             HostRequestState::Failed => self.failed += 1,
             HostRequestState::Running => return,
         }
-        self.recent.push_back((request_id.to_string(), state));
+        self.recent.push_back(RecentHostRequest {
+            request_id: request_id.to_string(),
+            state,
+            journal_path,
+        });
         while self.recent.len() > 256 {
             self.recent.pop_front();
         }
     }
 
     pub fn snapshot(&self, target_request_id: Option<&str>) -> HostStatusSnapshot {
-        let target_state = target_request_id.and_then(|target| {
+        let target = target_request_id.and_then(|target| {
             if self.active.contains_key(target) {
-                Some(HostRequestState::Running)
+                Some((HostRequestState::Running, None))
             } else {
                 self.recent
                     .iter()
                     .rev()
-                    .find(|(request_id, _)| request_id == target)
-                    .map(|(_, state)| *state)
+                    .find(|entry| entry.request_id == target)
+                    .map(|entry| (entry.state, entry.journal_path.clone()))
             }
         });
+        let (target_state, target_journal_path) = target
+            .map(|(state, path)| (Some(state), path))
+            .unwrap_or((None, None));
         HostStatusSnapshot {
             active_requests: self.active.len(),
             completed_requests: self.completed,
@@ -290,6 +310,7 @@ impl HostRegistry {
             failed_requests: self.failed,
             target_request_id: target_request_id.map(str::to_string),
             target_state,
+            target_journal_path,
         }
     }
 }
@@ -393,11 +414,19 @@ mod tests {
         let running = registry.snapshot(Some("req-1"));
         assert_eq!(running.active_requests, 1);
         assert_eq!(running.target_state, Some(HostRequestState::Running));
-        registry.finish("req-1", HostRequestState::Completed);
+        registry.finish(
+            "req-1",
+            HostRequestState::Completed,
+            Some(PathBuf::from("req-1.jsonl")),
+        );
         let completed = registry.snapshot(Some("req-1"));
         assert_eq!(completed.active_requests, 0);
         assert_eq!(completed.completed_requests, 1);
         assert_eq!(completed.target_state, Some(HostRequestState::Completed));
+        assert_eq!(
+            completed.target_journal_path,
+            Some(PathBuf::from("req-1.jsonl"))
+        );
         assert_eq!(registry.snapshot(Some("missing")).target_state, None);
     }
 }

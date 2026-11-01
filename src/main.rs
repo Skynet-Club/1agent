@@ -457,24 +457,47 @@ async fn main() -> Result<()> {
                         tasks.spawn(async move {
                             let _permit = permit;
                             let request_id = request.request_id.clone();
-                            let response =
-                                match runtime.run(request.task, request_cancellation).await {
-                                    Ok(result) => HostResponse::success(request_id.clone(), result),
-                                    Err(RuntimeError::Cancelled { .. }) => HostResponse::failure(
+                            let (response, journal_path) = match runtime
+                                .run_with_client_request_id(
+                                    request.task,
+                                    request_id.clone(),
+                                    request_cancellation,
+                                )
+                                .await
+                            {
+                                Ok(result) => {
+                                    let path = result.journal_path.clone();
+                                    (
+                                        HostResponse::success(request_id.clone(), result),
+                                        Some(path),
+                                    )
+                                }
+                                Err(RuntimeError::Cancelled { path }) => (
+                                    HostResponse::failure(
                                         request_id.clone(),
                                         HostError {
                                             code: "cancelled".into(),
                                             message: "request was cancelled".into(),
                                         },
                                     ),
-                                    Err(error) => HostResponse::failure(
-                                        request_id.clone(),
-                                        HostError {
-                                            code: "run_failed".into(),
-                                            message: error.to_string(),
-                                        },
-                                    ),
-                                };
+                                    Some(path),
+                                ),
+                                Err(error) => {
+                                    let path = error.journal_path();
+                                    let journal_path =
+                                        (!path.as_os_str().is_empty()).then(|| path.to_path_buf());
+                                    (
+                                        HostResponse::failure(
+                                            request_id.clone(),
+                                            HostError {
+                                                code: "run_failed".into(),
+                                                message: error.to_string(),
+                                            },
+                                        ),
+                                        journal_path,
+                                    )
+                                }
+                            };
                             let state = if response.ok {
                                 HostRequestState::Completed
                             } else if response
@@ -486,7 +509,10 @@ async fn main() -> Result<()> {
                             } else {
                                 HostRequestState::Failed
                             };
-                            registry.lock().await.finish(&request_id, state);
+                            registry
+                                .lock()
+                                .await
+                                .finish(&request_id, state, journal_path);
                             let _ = write_host_response(&stdout, &response).await;
                         });
                     }

@@ -2,8 +2,8 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use first_principles_agent::{
-    HOST_PROTOCOL_VERSION, HostAction, HostRequest, HostResponse, StopReason, TaskRequest,
-    audit_events, read_events,
+    HOST_PROTOCOL_VERSION, HostAction, HostRequest, HostResponse, JournalEventKind, StopReason,
+    TaskRequest, audit_events, read_events, scan_history,
 };
 
 #[test]
@@ -84,9 +84,22 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
     for response in successful {
         let result = response.result.as_ref().unwrap();
         assert_eq!(result.stop_reason, StopReason::Completed);
-        let audit = audit_events(&read_events(&result.journal_path).unwrap());
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ClientRequestLinked { client_request_id }
+                if client_request_id == &response.request_id
+        )));
+        let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
     }
+    let history = scan_history(workspace.path().join("journal"), 10).unwrap();
+    let mut client_ids: Vec<_> = history
+        .iter()
+        .filter_map(|entry| entry.client_request_id.as_deref())
+        .collect();
+    client_ids.sort_unstable();
+    assert_eq!(client_ids, vec!["host-1", "host-2"]);
 }
 
 #[test]

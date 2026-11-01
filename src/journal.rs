@@ -28,6 +28,9 @@ pub enum JournalEventKind {
         request: TaskRequest,
         mode: CognitiveMode,
     },
+    ClientRequestLinked {
+        client_request_id: String,
+    },
     ResumeStarted {
         original_run_id: Uuid,
         checkpoint_seq: u64,
@@ -142,6 +145,7 @@ pub struct ReplayState {
     pub tool_calls: Vec<ToolCall>,
     pub observations: Vec<ToolObservation>,
     pub checkpoint: Option<RuntimeCheckpoint>,
+    pub client_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -152,6 +156,7 @@ pub struct RunHistoryEntry {
     pub size_bytes: u64,
     pub modified_unix_ms: u128,
     pub stop_reason: Option<StopReason>,
+    pub client_request_id: Option<String>,
 }
 
 pub fn scan_history(
@@ -169,7 +174,7 @@ pub fn scan_history(
         if !metadata.is_file() {
             continue;
         }
-        let (run_id, stop_reason) = read_history_tail(&path)?;
+        let markers = read_history_markers(&path)?;
         let modified_unix_ms = metadata
             .modified()
             .ok()
@@ -177,11 +182,12 @@ pub fn scan_history(
             .unwrap_or_default()
             .as_millis();
         entries.push(RunHistoryEntry {
-            run_id,
+            run_id: markers.run_id,
             path,
             size_bytes: metadata.len(),
             modified_unix_ms,
-            stop_reason,
+            stop_reason: markers.stop_reason,
+            client_request_id: markers.client_request_id,
         });
     }
     entries.sort_by(|left, right| {
@@ -194,13 +200,42 @@ pub fn scan_history(
     Ok(entries)
 }
 
-fn read_history_tail(path: &Path) -> Result<(Option<Uuid>, Option<StopReason>), std::io::Error> {
+struct HistoryMarkers {
+    run_id: Option<Uuid>,
+    stop_reason: Option<StopReason>,
+    client_request_id: Option<String>,
+}
+
+fn read_history_markers(path: &Path) -> Result<HistoryMarkers, std::io::Error> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
+    let head_window = length.min(65_536);
+    file.seek(SeekFrom::Start(0))?;
+    let mut head = Vec::with_capacity(head_window as usize);
+    Read::by_ref(&mut file)
+        .take(head_window)
+        .read_to_end(&mut head)?;
+    let head_text = String::from_utf8_lossy(&head);
+    let mut client_request_id = None;
+    for line in head_text.lines() {
+        let Ok(event) = serde_json::from_str::<JournalEvent>(line) else {
+            continue;
+        };
+        if let JournalEventKind::ClientRequestLinked {
+            client_request_id: value,
+        } = event.event
+        {
+            client_request_id = Some(value);
+            break;
+        }
+    }
+
+    file.seek(SeekFrom::Start(length.saturating_sub(length.min(65_536))))?;
     let window = length.min(65_536);
-    file.seek(SeekFrom::Start(length - window))?;
     let mut bytes = Vec::with_capacity(window as usize);
-    file.take(window).read_to_end(&mut bytes)?;
+    Read::by_ref(&mut file)
+        .take(window)
+        .read_to_end(&mut bytes)?;
     let text = String::from_utf8_lossy(&bytes);
     let mut run_id = None;
     let mut stop_reason = None;
@@ -217,7 +252,11 @@ fn read_history_tail(path: &Path) -> Result<(Option<Uuid>, Option<StopReason>), 
         }
         break;
     }
-    Ok((run_id, stop_reason))
+    Ok(HistoryMarkers {
+        run_id,
+        stop_reason,
+        client_request_id,
+    })
 }
 
 pub fn read_events(path: impl AsRef<Path>) -> Result<Vec<JournalEvent>, JournalReadError> {
@@ -375,6 +414,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         tool_calls: Vec::new(),
         observations: Vec::new(),
         checkpoint: None,
+        client_request_id: None,
     };
 
     for event in events {
@@ -383,6 +423,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
                 state.request = Some(request.clone());
                 state.mode = Some(*mode);
             }
+            JournalEventKind::ClientRequestLinked {
+                client_request_id: value,
+            } => state.client_request_id = Some(value.clone()),
             JournalEventKind::ResumeStarted {
                 request,
                 checkpoint,
@@ -704,6 +747,11 @@ mod tests {
             })
             .unwrap();
         journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "client-1".into(),
+            })
+            .unwrap();
+        journal
             .append(JournalEventKind::RunStopped {
                 reason: StopReason::BudgetExhausted,
             })
@@ -713,5 +761,6 @@ mod tests {
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].run_id, Some(run_id));
         assert_eq!(history[0].stop_reason, Some(StopReason::BudgetExhausted));
+        assert_eq!(history[0].client_request_id.as_deref(), Some("client-1"));
     }
 }

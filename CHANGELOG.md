@@ -14,6 +14,8 @@
 - Added secret-safe `providers` configuration inspection.
 - Added host `status` queries with bounded recent lifecycle history.
 - Added bounded journal-tail history discovery without loading observation bodies.
+- Persisted host request ids in authoritative run journals.
+- Added journal paths to terminal host status entries.
 
 ## 0.7.0 - 2026-11-01
 

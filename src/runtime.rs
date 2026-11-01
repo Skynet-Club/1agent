@@ -66,7 +66,23 @@ impl AgentRuntime {
         request: TaskRequest,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
-        self.run_internal(request, None, cancellation).await
+        self.run_internal(request, None, None, cancellation).await
+    }
+
+    pub async fn run_with_client_request_id(
+        &self,
+        request: TaskRequest,
+        client_request_id: impl Into<String>,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        let client_request_id = client_request_id.into();
+        if client_request_id.trim().is_empty() {
+            return Err(RuntimeError::Resume(
+                "client request id must not be empty".into(),
+            ));
+        }
+        self.run_internal(request, None, Some(client_request_id), cancellation)
+            .await
     }
 
     pub async fn resume(
@@ -78,7 +94,7 @@ impl AgentRuntime {
             .map_err(|error| RuntimeError::Resume(error.to_string()))?;
         let prefix = find_resumable_prefix(&events)
             .map_err(|error| RuntimeError::Resume(error.to_string()))?;
-        self.run_internal(prefix.request.clone(), Some(prefix), cancellation)
+        self.run_internal(prefix.request.clone(), Some(prefix), None, cancellation)
             .await
     }
 
@@ -86,6 +102,7 @@ impl AgentRuntime {
         &self,
         request: TaskRequest,
         resume: Option<ResumablePrefix>,
+        client_request_id: Option<String>,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
         let run_id = Uuid::new_v4();
@@ -121,6 +138,14 @@ impl AgentRuntime {
                     path: journal_path.clone(),
                     source,
                 })?;
+            if let Some(client_request_id) = client_request_id {
+                journal
+                    .append(JournalEventKind::ClientRequestLinked { client_request_id })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+            }
         }
 
         if cancellation.is_cancelled() {

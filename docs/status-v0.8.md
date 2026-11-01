@@ -20,6 +20,9 @@ Status: stable stdio host protocol
 - `providers` command for secret-safe configuration inspection.
 - `status` control message for global counters and per-request lifecycle state.
 - `history` CLI command for recent run discovery from journal tails.
+- Host request ids are persisted as `ClientRequestLinked` journal events.
+- History discovery restores client request ids and stop reasons from bounded head/tail reads.
+- Terminal host status includes the authoritative journal path.
 - Ctrl+C cancellation propagates into the active run.
 - Example request at `examples/host_request.json`.
 
@@ -76,6 +79,7 @@ Status responses include active/completed/cancelled/failed totals and an optiona
 | Provider inspection with secret environment | passed; env name shown, value absent |
 | Host registry active/terminal state | passed |
 | Journal-tail history discovery | passed |
+| Host request-id to journal binding | passed |
 | Host result semantic audit | passed |
 | Existing CLI/config/experience/resume/eval suites | passed |
 | Clippy `-D warnings` | passed |
@@ -83,10 +87,10 @@ Status responses include active/completed/cancelled/failed totals and an optiona
 Release artifacts:
 
 ```text
-Linux binary:   8138a5bb516abb2bc16789096ef32fef3b848f6a4519f9516737bcea65f5a4da
-Windows binary: 45c8879ebe6c5591dd3d35649c60fce56d3843f6a9e7fbe59b5e352dd66419e6
-Linux tar.gz:   729ace0310b8e3d9d4f0dc1ffc3f4045856c52679f3c164b8932628bb1cce984
-Windows zip:    329f58040e363fb8012e832e42794a0593755967d14ec35325400a46985df84b
+Linux binary:   6b542b4b5a3d052afac32382bb8e55015005e4d8fce339ad09bb7ec082e54c07
+Windows binary: d186cb15dc07ad7365bb0d6529ce645732c48d02103ebf4f7067da16b6bdf0d3
+Linux tar.gz:   b4e238801a4e33de928eb5bdddd461dc386488cdd3c37931933bd2a62199fd35
+Windows zip:    6ff584f8b620e7236126ca3f6632cf019c1e81cda98f391ed167ea950bfd795b
 ```
 
 ## Requirement comparison
@@ -103,6 +107,7 @@ Windows zip:    329f58040e363fb8012e832e42794a0593755967d14ec35325400a46985df84b
 | Queue admission errors | implemented |
 | Host status/lifecycle query | implemented with bounded 256-entry recent history |
 | Run-history discovery | implemented with bounded tail reads and 200-entry output cap |
+| Request-id to journal binding | implemented and restart-discoverable |
 | Desktop/terminal adapter | pending |
 | Real-provider quality | unverified, no credentials |
 
@@ -113,10 +118,10 @@ Windows zip:    329f58040e363fb8012e832e42794a0593755967d14ec35325400a46985df84b
 
 ## Next requirement
 
-Persist external request ids into authoritative run journals:
+Add held-out experience transfer evaluation:
 
-1. Record host request id in the run-start event.
-2. Return journal path from host status for terminal requests.
-3. Preserve compatibility for non-host CLI runs.
-4. Rebuild request-id history from journals after host restart.
-5. Test duplicate request-id reuse after a terminal run.
+1. Split learning and evaluation task groups.
+2. Activate candidates from group A only.
+3. Compare baseline and learned behavior on unseen group B.
+4. Reject candidates with negative transfer or unsafe confidence increases.
+5. Persist the evaluation evidence with the candidate.
