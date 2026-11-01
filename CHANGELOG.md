@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0 - 2026-11-02
+
+- Added `provenance rebuild`.
+- Added fresh target-directory release builds.
+- Added byte-for-byte hash and size comparison.
+- Added fail-closed reproducer promotion.
+- Recorded the current Linux rebuild as non-reproducible.
+
 ## 0.19.0 - 2026-11-02
 
 - Added build provenance with commit, dirty state and tool versions.

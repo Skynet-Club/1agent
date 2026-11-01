@@ -12,7 +12,7 @@ use first_principles_agent::{
     OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, RunBudget, RuntimeError,
     TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events, collect_provenance,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    load_suite, local_manifest, read_events, remote_manifest, replay_events,
+    load_suite, local_manifest, read_events, rebuild_and_compare, remote_manifest, replay_events,
     run_suite_with_providers, scan_history, verify_goldset_manifest, verify_provenance,
     verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
@@ -458,6 +458,14 @@ enum ProvenanceCommand {
         provenance: PathBuf,
         #[arg(long)]
         artifact: PathBuf,
+    },
+    Rebuild {
+        #[arg(long)]
+        artifact: PathBuf,
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1372,6 +1380,28 @@ fn handle_provenance(command: ProvenanceCommand) -> Result<()> {
             )?;
             verify_provenance(&provenance, artifact)?;
             println!("provenance verified");
+        }
+        ProvenanceCommand::Rebuild {
+            artifact,
+            target,
+            json,
+        } => {
+            let report = rebuild_and_compare(std::env::current_dir()?, &artifact, &target)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "target={} equal={} original={} rebuilt={} duration_ms={}",
+                    report.target_triple,
+                    report.hashes_equal,
+                    report.original_sha256,
+                    report.rebuilt_sha256,
+                    report.duration_ms
+                );
+            }
+            if !report.hashes_equal || !report.sizes_equal {
+                bail!("rebuild is not byte-for-byte reproducible");
+            }
         }
     }
     Ok(())

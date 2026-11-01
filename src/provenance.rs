@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,19 @@ pub struct BuildProvenance {
     pub artifact_sha256: String,
     pub artifact_size_bytes: u64,
     pub generated_unix_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReproducibleBuildReport {
+    pub target_triple: String,
+    pub original_sha256: String,
+    pub rebuilt_sha256: String,
+    pub original_size_bytes: u64,
+    pub rebuilt_size_bytes: u64,
+    pub hashes_equal: bool,
+    pub sizes_equal: bool,
+    pub duration_ms: u64,
 }
 
 pub fn collect_provenance(
@@ -62,6 +75,72 @@ pub fn verify_provenance(
     Ok(())
 }
 
+pub fn rebuild_and_compare(
+    workspace: impl AsRef<Path>,
+    artifact: impl AsRef<Path>,
+    target_triple: &str,
+) -> Result<ReproducibleBuildReport, ProvenanceError> {
+    let workspace = workspace.as_ref();
+    let artifact = artifact.as_ref();
+    let start = Instant::now();
+    let build_dir = tempfile::Builder::new().prefix("1agent-repro-").tempdir()?;
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "--offline",
+            "--release",
+            "--target",
+            target_triple,
+            "--target-dir",
+        ])
+        .arg(build_dir.path())
+        .current_dir(workspace)
+        .status()
+        .map_err(|error| ProvenanceError::Command("cargo build".into(), error.to_string()))?;
+    if !status.success() {
+        return Err(ProvenanceError::Command(
+            "cargo build".into(),
+            format!("exit status {status}"),
+        ));
+    }
+    let file_name = artifact
+        .file_name()
+        .ok_or(ProvenanceError::InvalidArtifactPath)?;
+    let rebuilt = build_dir
+        .path()
+        .join(target_triple)
+        .join("release")
+        .join(file_name);
+    let report = compare_artifacts(workspace, artifact, &rebuilt, target_triple)?;
+    let duration_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    Ok(ReproducibleBuildReport {
+        duration_ms,
+        ..report
+    })
+}
+
+fn compare_artifacts(
+    _workspace: &Path,
+    original: &Path,
+    rebuilt: &Path,
+    target_triple: &str,
+) -> Result<ReproducibleBuildReport, ProvenanceError> {
+    let original_bytes = std::fs::read(original)?;
+    let rebuilt_bytes = std::fs::read(rebuilt)?;
+    let original_sha256 = hex::encode(Sha256::digest(&original_bytes));
+    let rebuilt_sha256 = hex::encode(Sha256::digest(&rebuilt_bytes));
+    Ok(ReproducibleBuildReport {
+        target_triple: target_triple.into(),
+        original_sha256,
+        rebuilt_sha256,
+        original_size_bytes: original_bytes.len() as u64,
+        rebuilt_size_bytes: rebuilt_bytes.len() as u64,
+        hashes_equal: original_bytes == rebuilt_bytes,
+        sizes_equal: original_bytes.len() == rebuilt_bytes.len(),
+        duration_ms: 0,
+    })
+}
+
 fn command_output(
     workspace: &Path,
     program: &str,
@@ -100,6 +179,8 @@ pub enum ProvenanceError {
     ArtifactMismatch,
     #[error("command {0} failed: {1}")]
     Command(String, String),
+    #[error("artifact path has no file name")]
+    InvalidArtifactPath,
 }
 
 #[cfg(test)]
@@ -120,5 +201,19 @@ mod tests {
             verify_provenance(&provenance, &artifact),
             Err(ProvenanceError::ArtifactMismatch)
         ));
+    }
+
+    #[test]
+    fn artifact_comparison_detects_equal_and_different_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let left = dir.path().join("left.bin");
+        let right = dir.path().join("right.bin");
+        std::fs::write(&left, b"same").unwrap();
+        std::fs::write(&right, b"same").unwrap();
+        let report = compare_artifacts(dir.path(), &left, &right, "target").unwrap();
+        assert!(report.hashes_equal);
+        std::fs::write(&right, b"different").unwrap();
+        let report = compare_artifacts(dir.path(), &left, &right, "target").unwrap();
+        assert!(!report.hashes_equal);
     }
 }
