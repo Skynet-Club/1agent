@@ -28,6 +28,29 @@ Status: evidence freshness policy implemented
 | Stale evidence count | implemented |
 | Unit tests | 88 passed |
 | Core evaluation | 6/6 passed |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: e1adddd244ae0cb2dab3f417c414803d9b2d92ea
+git dirty: false
+
+Linux binary:
+126b60dd40dfad308088738ac20b290dc3107b00c9f275dde905b7f2e3831bd1
+
+Windows binary:
+e2e7bba29d59ee053342e800e12cf82d8f75206c9a210358b4e94b9007a715f0
+
+Linux tar.gz:
+3741f2d408d41e648c79b31938dde38b559fee9690a49f8b2cfba37a2b0b0739
+
+Windows zip:
+aad282211d001ee480ac100ad1293fb0a07cf44572c53093f938d34fe41311d9
+
+Release manifest:
+98dbe3e4cab863a2fc53fe168ca340f079641d917c246b70792c0f950677f64d
+```
 
 ## Known limitations
 
