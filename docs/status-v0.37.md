@@ -21,6 +21,29 @@ Status: bounded human route trace implemented
 | Normal route attempt count | passed |
 | Unit tests | 76 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 845fcdb24409c906564dc38210ef480eefc59b4d
+git dirty: false
+
+Linux binary:
+106b432f10dcca803f89613b299881dc605aa1a8579c079aaed1677038df8665
+
+Windows binary:
+6264124fe5676d7c98f9b7f18d0d3d7c3f211823215154a3874674c048ab827f
+
+Linux tar.gz:
+e1d89fa463cf1fbfdd7deb17517db982d233456bea6686431eba3dbff0f512f4
+
+Windows zip:
+a8709a1ba1d5261c1d31c73575fb5fcd7a4163c418675ba7c2d408b658136c80
+
+Release manifest:
+1b88331a736c77089262276dc917b31bc03d2b214fa61bb05f8aaa4127cb0006
+```
 
 ## Known limitations
 
