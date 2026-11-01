@@ -35,7 +35,19 @@ Evaluation reports now include:
 | legacy report decoding | passed |
 | invalid source rejection | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `90223e088d270d433617e7fe0dfdd0bae2cafb8f09c416b9c77e158983bedd86` |
+| Windows `zip` | `88328431a575f47eaf21b7f1b3a86cdd3bd3cb313da08be9fa273fa59aabb6b5` |
+| Release manifest | `5d4ef40660f0e3f2c0eb04683ff8bb5060189f660117819895cab466c7551c90` |
+| Linux binary | `804a54a1ccb9333ef28c406a3e48ac863fab45f62d976e35150b0796348fa644` |
+| Windows binary | `350ea072e3768815a7217565a045a7e29c44d8883923f117732447aa775d6add` |
 
 ## Known limitations
 
