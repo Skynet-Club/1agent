@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.57.0 - 2026-11-02
+
+- Stopped copying non-2xx provider response bodies into errors.
+- Classified HTTP errors by status before consuming their bodies.
+- Made authentication and malformed-request failures non-retryable.
+- Kept rate-limit, timeout and server errors retryable.
+- Exposed only normalized status metadata in provider HTTP errors.
+- Covered authentication, rate-limit, gateway timeout, server and bad-request responses.
+
 ## 0.56.0 - 2026-11-02
 
 - Added an 8 MiB response-body ceiling for OpenAI-compatible providers.

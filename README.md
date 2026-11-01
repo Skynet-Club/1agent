@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.56.0` is an executable V0 vertical slice:
+Version `0.57.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -74,10 +74,11 @@ Version `0.56.0` is an executable V0 vertical slice:
 - answer schema v2 with decision-completeness and target-bound flip conditions;
 - stable machine-readable audit finding codes with event indexes;
 - an 8 MiB streaming response ceiling for OpenAI-compatible providers;
+- normalized non-2xx provider errors without remote body excerpts;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.56.md`](docs/status-v0.56.md).
+[`docs/status-v0.57.md`](docs/status-v0.57.md).
 
 Current V0 assumptions:
 

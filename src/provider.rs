@@ -765,20 +765,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
 
         let status = response.status();
         if !status.is_success() {
-            let body = read_response_body(response, cancellation).await?;
-            let code = match status.as_u16() {
-                401 | 403 => ProviderErrorCode::Authentication,
-                429 => ProviderErrorCode::RateLimited,
-                408 | 504 => ProviderErrorCode::Timeout,
-                500..=599 => ProviderErrorCode::ProviderUnavailable,
-                _ => ProviderErrorCode::InvalidResponse,
-            };
-            let excerpt: String = String::from_utf8_lossy(&body).chars().take(512).collect();
-            return Err(ProviderError::new(
-                code,
-                format!("provider returned HTTP {status}: {excerpt}"),
-                code != ProviderErrorCode::Authentication,
-            ));
+            return Err(provider_http_error(status));
         }
 
         let body = read_response_body(response, cancellation).await?;
@@ -988,6 +975,17 @@ fn response_too_large(limit: usize) -> ProviderError {
     )
 }
 
+fn provider_http_error(status: reqwest::StatusCode) -> ProviderError {
+    let (code, retryable) = match status.as_u16() {
+        401 | 403 => (ProviderErrorCode::Authentication, false),
+        429 => (ProviderErrorCode::RateLimited, true),
+        408 | 504 => (ProviderErrorCode::Timeout, true),
+        500..=599 => (ProviderErrorCode::ProviderUnavailable, true),
+        _ => (ProviderErrorCode::InvalidResponse, false),
+    };
+    ProviderError::new(code, format!("provider returned HTTP {status}"), retryable)
+}
+
 #[derive(Serialize)]
 struct WireRequest {
     model: String,
@@ -1188,6 +1186,45 @@ mod tests {
         budget.push(b"1234").unwrap();
         budget.push(b"5678").unwrap();
         assert_eq!(budget.bytes, b"12345678");
+    }
+
+    #[test]
+    fn provider_http_errors_expose_only_normalized_status_metadata() {
+        let cases = [
+            (
+                reqwest::StatusCode::UNAUTHORIZED,
+                ProviderErrorCode::Authentication,
+                false,
+            ),
+            (
+                reqwest::StatusCode::TOO_MANY_REQUESTS,
+                ProviderErrorCode::RateLimited,
+                true,
+            ),
+            (
+                reqwest::StatusCode::GATEWAY_TIMEOUT,
+                ProviderErrorCode::Timeout,
+                true,
+            ),
+            (
+                reqwest::StatusCode::BAD_GATEWAY,
+                ProviderErrorCode::ProviderUnavailable,
+                true,
+            ),
+            (
+                reqwest::StatusCode::BAD_REQUEST,
+                ProviderErrorCode::InvalidResponse,
+                false,
+            ),
+        ];
+        for (status, expected_code, retryable) in cases {
+            let error = provider_http_error(status);
+            assert_eq!(error.code, expected_code);
+            assert_eq!(error.retryable, retryable);
+            assert_eq!(error.message, format!("provider returned HTTP {status}"));
+            assert!(!error.message.contains('<'));
+            assert!(!error.message.contains("secret"));
+        }
     }
 
     #[test]
