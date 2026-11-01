@@ -22,7 +22,21 @@ Status: report verification boundary hardening implemented
 | signed report still accepted | passed |
 | unsigned inspection compatibility | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `c2923668883bdd0ec5c722fc2eb700471339f712`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `89b8c7a4fa25e2aeeab588d8674b7124c277aec0536704a8477e5d9b18e4a622` |
+| Windows `zip` | `e26b3577fc95c1c89ca23b55e6076dabfb67a17b3a5384124fdc00adc7d50a68` |
+| Release manifest | `c4c7cc9f56f7297728cab0058f9955bbea2743c9f616823489a52b34aead83eb` |
+| Linux binary | `4d227c5055207d3b61a41376c402c4d002a964e259aeb17ec1c4874d7da46493` |
+| Windows binary | `6a9d1cbbb4e2c1f2906d7f585ba8f06fd51366bfdbe6dbaac152451737eb11e1` |
 
 ## Known limitations
 
