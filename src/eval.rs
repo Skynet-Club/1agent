@@ -581,6 +581,164 @@ mod tests {
     use crate::router::PrivacyClass;
     use crate::runtime::ProviderCandidate;
 
+    struct FixtureReasoningProvider;
+
+    impl FixtureReasoningProvider {
+        fn latest_observation(
+            messages: &[crate::domain::ModelMessage],
+        ) -> Option<crate::domain::ToolObservation> {
+            messages.iter().rev().find_map(|message| {
+                (message.role == MessageRole::Tool)
+                    .then(|| serde_json::from_str(&message.content).ok())
+                    .flatten()
+            })
+        }
+
+        fn read_target(messages: &[crate::domain::ModelMessage]) -> Option<String> {
+            let text = messages
+                .iter()
+                .rev()
+                .find(|message| message.role == MessageRole::User)
+                .map(|message| message.content.as_str())?;
+            let start = text.find("@read-file:\"")? + "@read-file:\"".len();
+            let end = text[start..].find('"')? + start;
+            Some(text[start..end].to_string())
+        }
+    }
+
+    #[async_trait]
+    impl ModelProvider for FixtureReasoningProvider {
+        fn id(&self) -> &str {
+            "fixture-reasoning"
+        }
+
+        fn model(&self) -> &str {
+            "fixture-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: crate::domain::ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            if request
+                .messages
+                .iter()
+                .any(|message| message.content.contains("observe-marker"))
+                && Self::latest_observation(&request.messages).is_none()
+            {
+                let path = Self::read_target(&request.messages).ok_or_else(|| ProviderError {
+                    code: crate::provider::ProviderErrorCode::InvalidResponse,
+                    message: "missing read target".into(),
+                    retryable: false,
+                })?;
+                return Ok(ModelResponse {
+                    provider_id: self.id().into(),
+                    model: self.model().into(),
+                    turn: ModelTurn::ToolCalls {
+                        calls: vec![crate::domain::ToolCall {
+                            id: "fixture-call-1".into(),
+                            name: "read_file".into(),
+                            arguments: serde_json::json!({"path": path}),
+                        }],
+                    },
+                    usage: crate::domain::Usage::default(),
+                });
+            }
+
+            let answer = if let Some(observation) = Self::latest_observation(&request.messages) {
+                AgentAnswer {
+                    status: AnswerStatus::Completed,
+                    conclusion: format!("verified after observation: {}", observation.summary),
+                    claims: vec![Claim {
+                        id: "claim-observed".into(),
+                        text: observation.summary.clone(),
+                        status: ClaimStatus::Verified,
+                        sources: vec!["evidence.txt".into()],
+                        scope: Some("fixture observation".into()),
+                    }],
+                    evidence: vec![crate::domain::Evidence {
+                        source: "evidence.txt".into(),
+                        statement: observation.summary,
+                        claim_ids: vec!["claim-observed".into()],
+                    }],
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                }
+            } else if request
+                .messages
+                .iter()
+                .any(|message| message.content.contains("conflict-marker"))
+            {
+                AgentAnswer {
+                    status: AnswerStatus::Conditional,
+                    conclusion: "sources conflict; result is conditional".into(),
+                    claims: vec![Claim {
+                        id: "claim-conflict".into(),
+                        text: "source A and source B disagree".into(),
+                        status: ClaimStatus::Conflicting,
+                        sources: vec!["source-a".into(), "source-b".into()],
+                        scope: Some("fixture conflict".into()),
+                    }],
+                    evidence: vec![
+                        crate::domain::Evidence {
+                            source: "source-a".into(),
+                            statement: "source A reports one value".into(),
+                            claim_ids: vec!["claim-conflict".into()],
+                        },
+                        crate::domain::Evidence {
+                            source: "source-b".into(),
+                            statement: "source B reports another value".into(),
+                            claim_ids: vec!["claim-conflict".into()],
+                        },
+                    ],
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: vec![crate::domain::UnknownItem {
+                        description: "which source is current is unknown".into(),
+                        why_it_matters: Some("it flips the conclusion".into()),
+                        reduction_method: Some("obtain timestamps".into()),
+                    }],
+                    flip_conditions: vec![crate::domain::FlipCondition {
+                        if_observed: "source B is newer".into(),
+                        then: "prefer source B".into(),
+                    }],
+                    action_receipts: Vec::new(),
+                }
+            } else {
+                AgentAnswer {
+                    status: AnswerStatus::Conditional,
+                    conclusion: "decision is conditional on cost".into(),
+                    claims: vec![Claim {
+                        id: "claim-flip".into(),
+                        text: "option A is preferred under current assumptions".into(),
+                        status: ClaimStatus::ModelPrior,
+                        sources: Vec::new(),
+                        scope: Some("fixture decision".into()),
+                    }],
+                    evidence: Vec::new(),
+                    assumptions: vec!["current cost estimate holds".into()],
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    flip_conditions: vec![crate::domain::FlipCondition {
+                        if_observed: "option B becomes cheaper".into(),
+                        then: "switch to option B".into(),
+                    }],
+                    action_receipts: Vec::new(),
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final { answer },
+                usage: crate::domain::Usage::default(),
+            })
+        }
+    }
+
     #[tokio::test]
     async fn deterministic_suite_reports_success_and_hard_gates() {
         let report = run_suite(EvalSuite {
@@ -612,6 +770,111 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(report.passed, 1);
+        assert_eq!(report.hard_gate_failures, 0);
+    }
+
+    #[tokio::test]
+    async fn scripted_fixture_covers_conflict_flip_and_external_correction() {
+        let suite = EvalSuite {
+            name: "fixture-reasoning-v1".into(),
+            suite_version: "1".into(),
+            cases: vec![
+                EvalCase {
+                    id: "source-conflict".into(),
+                    objective: "Research conflict-marker sources".into(),
+                    setup_files: Vec::new(),
+                    experience_scope: None,
+                    rubric: Some(EvalRubric {
+                        required_conclusion_terms: vec!["conflict".into()],
+                        forbidden_conclusion_terms: Vec::new(),
+                        required_sources: vec!["source-a".into(), "source-b".into()],
+                        required_claim_statuses: vec![ClaimStatus::Conflicting],
+                    }),
+                    expect: EvalExpectation {
+                        stop_reason: StopReason::Completed,
+                        answer_status: AnswerStatus::Conditional,
+                        min_evidence: 2,
+                        min_claims: 1,
+                        min_unknowns: 1,
+                        min_flip_conditions: 1,
+                        expect_checkpoint: false,
+                        tool_status: None,
+                        tool_error_code: None,
+                        audit_ok: true,
+                    },
+                },
+                EvalCase {
+                    id: "decision-flip".into(),
+                    objective: "Choose flip-marker option".into(),
+                    setup_files: Vec::new(),
+                    experience_scope: None,
+                    rubric: None,
+                    expect: EvalExpectation {
+                        stop_reason: StopReason::Completed,
+                        answer_status: AnswerStatus::Conditional,
+                        min_evidence: 0,
+                        min_claims: 1,
+                        min_unknowns: 0,
+                        min_flip_conditions: 1,
+                        expect_checkpoint: false,
+                        tool_status: None,
+                        tool_error_code: None,
+                        audit_ok: true,
+                    },
+                },
+                EvalCase {
+                    id: "external-correction".into(),
+                    objective: "Research observe-marker @read-file:\"${workspace}/evidence.txt\""
+                        .into(),
+                    setup_files: vec![SetupFile {
+                        path: "evidence.txt".into(),
+                        content: "observed evidence".into(),
+                    }],
+                    experience_scope: None,
+                    rubric: Some(EvalRubric {
+                        required_conclusion_terms: vec!["verified after observation".into()],
+                        forbidden_conclusion_terms: Vec::new(),
+                        required_sources: vec!["evidence.txt".into()],
+                        required_claim_statuses: vec![ClaimStatus::Verified],
+                    }),
+                    expect: EvalExpectation {
+                        stop_reason: StopReason::Completed,
+                        answer_status: AnswerStatus::Completed,
+                        min_evidence: 1,
+                        min_claims: 1,
+                        min_unknowns: 0,
+                        min_flip_conditions: 0,
+                        expect_checkpoint: true,
+                        tool_status: Some(ToolStatus::Ok),
+                        tool_error_code: None,
+                        audit_ok: true,
+                    },
+                },
+            ],
+        };
+        let provider = ProviderCandidate {
+            provider: std::sync::Arc::new(FixtureReasoningProvider),
+            manifest: crate::router::ProviderManifest {
+                provider_id: "fixture-reasoning".into(),
+                model: "fixture-v1".into(),
+                privacy: PrivacyClass::Local,
+                supported_modes: vec![
+                    crate::domain::CognitiveMode::EvidenceResearch,
+                    crate::domain::CognitiveMode::DecisionAnalysis,
+                ],
+                supports_tools: true,
+                supports_structured_output: true,
+                max_risk: crate::domain::RiskLevel::High,
+                quality_score: 1,
+                input_cost_micros_per_k: 0,
+                output_cost_micros_per_k: 0,
+                p95_latency_ms: 0,
+            },
+        };
+        let report = run_suite_with_providers(suite, vec![provider], false)
+            .await
+            .unwrap();
+        assert_eq!(report.passed, 3, "{:?}", report.cases);
         assert_eq!(report.hard_gate_failures, 0);
     }
 

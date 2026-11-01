@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.44.0 - 2026-11-02
+
+- Added a scripted reasoning fixture provider for evaluation-framework validation.
+- Covered contradictory sources with explicit conflicting claims.
+- Covered conditional decisions with flip conditions.
+- Covered self-correction only after a real file observation.
+- Clearly separated fixture behavior from real-model quality evidence.
+
 ## 0.43.0 - 2026-11-02
 
 - Added minimum unknown and flip-condition expectations to evaluation cases.
