@@ -34,6 +34,21 @@ pub struct ProviderFailure {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryOutcome {
+    Completed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RetryTiming {
+    pub delay_ms: u64,
+    pub elapsed_ms: u64,
+    pub outcome: RetryOutcome,
+}
+
 impl ProviderFailure {
     pub fn from_error(
         provider_id: impl Into<String>,
@@ -106,6 +121,9 @@ pub enum JournalEventKind {
         delay_ms: u64,
         next_provider_id: String,
         next_model: String,
+    },
+    ProviderRetryElapsed {
+        timing: RetryTiming,
     },
     ToolCalled {
         call: ToolCall,
@@ -214,6 +232,9 @@ pub enum AuditFindingCode {
     ProviderRetryWithoutNextRoute,
     ProviderRetryDelayAboveCap,
     DuplicateProviderRetrySchedule,
+    ProviderRetryOutcomeWithoutSchedule,
+    ProviderRetryDelayMismatch,
+    ProviderRetryElapsedAboveCap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -243,6 +264,8 @@ pub struct ReplayState {
     pub provider_failures: Vec<ProviderFailure>,
     #[serde(default)]
     pub retry_delays_ms: Vec<u64>,
+    #[serde(default)]
+    pub retry_timings: Vec<RetryTiming>,
     pub route_plan: Option<RoutePlan>,
     pub route_policy_sources: Option<RoutePolicySources>,
     pub tool_capabilities: Option<ToolCapabilitySnapshot>,
@@ -505,6 +528,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
     let mut selected_route: Option<(String, String)> = None;
     let mut responded_route: Option<(String, String)> = None;
     let mut pending_retry: Option<(String, String, usize)> = None;
+    let mut last_retry_schedule: Option<(u64, usize)> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
@@ -620,6 +644,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                 next_provider_id,
                 next_model,
             } => {
+                last_retry_schedule = Some((*delay_ms, index));
                 if *delay_ms > crate::domain::MAX_PROVIDER_RETRY_BACKOFF_MS {
                     push_audit_finding(
                         &mut findings,
@@ -657,6 +682,42 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                         Some(index),
                         format!("event {index}: duplicate provider retry schedule"),
                     );
+                }
+            }
+            JournalEventKind::ProviderRetryElapsed { timing } => {
+                if timing.elapsed_ms > crate::domain::MAX_PROVIDER_RETRY_ELAPSED_MS {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderRetryElapsedAboveCap,
+                        Some(index),
+                        format!(
+                            "event {index}: retry elapsed {} ms exceeds {} ms",
+                            timing.elapsed_ms,
+                            crate::domain::MAX_PROVIDER_RETRY_ELAPSED_MS
+                        ),
+                    );
+                }
+                match last_retry_schedule.take() {
+                    Some((scheduled_delay, schedule_index))
+                        if scheduled_delay != timing.delay_ms =>
+                    {
+                        push_audit_finding(
+                            &mut findings,
+                            AuditFindingCode::ProviderRetryDelayMismatch,
+                            Some(index),
+                            format!(
+                                "event {index}: retry timing delay {} does not match schedule {scheduled_delay} at event {schedule_index}",
+                                timing.delay_ms
+                            ),
+                        );
+                    }
+                    Some(_) => {}
+                    None => push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderRetryOutcomeWithoutSchedule,
+                        Some(index),
+                        format!("event {index}: retry timing has no preceding schedule"),
+                    ),
                 }
             }
             JournalEventKind::ProviderFailed { failure } => {
@@ -850,6 +911,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         model: None,
         provider_failures: Vec::new(),
         retry_delays_ms: Vec::new(),
+        retry_timings: Vec::new(),
         route_plan: None,
         route_policy_sources: None,
         tool_capabilities: None,
@@ -890,6 +952,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             }
             JournalEventKind::ProviderRetryScheduled { delay_ms, .. } => {
                 state.retry_delays_ms.push(*delay_ms);
+            }
+            JournalEventKind::ProviderRetryElapsed { timing } => {
+                state.retry_timings.push(*timing);
             }
             JournalEventKind::RoutePlanned { plan, sources } => {
                 state.route_plan = Some(plan.clone());
@@ -1680,6 +1745,87 @@ mod tests {
             AuditFindingCode::ProviderRetryTargetMismatch,
             AuditFindingCode::DuplicateProviderRetrySchedule,
             AuditFindingCode::ProviderRetryWithoutNextRoute,
+        ] {
+            assert!(
+                audit
+                    .findings
+                    .iter()
+                    .any(|finding| finding.code == expected),
+                "missing {expected:?}: {:?}",
+                audit.findings
+            );
+        }
+    }
+
+    #[test]
+    fn audit_detects_invalid_retry_timing_outcomes() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderRetryScheduled {
+                    delay_ms: 50,
+                    next_provider_id: "provider-a".into(),
+                    next_model: "model-a".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderRetryElapsed {
+                    timing: RetryTiming {
+                        delay_ms: 100,
+                        elapsed_ms: 3_000,
+                        outcome: RetryOutcome::Completed,
+                    },
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 3,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderRetryElapsed {
+                    timing: RetryTiming {
+                        delay_ms: 0,
+                        elapsed_ms: 0,
+                        outcome: RetryOutcome::Cancelled,
+                    },
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 4,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::ProviderError,
+                },
+            },
+        ];
+
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        for expected in [
+            AuditFindingCode::ProviderRetryDelayMismatch,
+            AuditFindingCode::ProviderRetryElapsedAboveCap,
+            AuditFindingCode::ProviderRetryOutcomeWithoutSchedule,
         ] {
             assert!(
                 audit

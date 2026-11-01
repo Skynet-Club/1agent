@@ -15,7 +15,8 @@ use crate::domain::{
 };
 use crate::experience::ExperienceStore;
 use crate::journal::{
-    Journal, JournalEventKind, ProviderFailure, ResumablePrefix, find_resumable_prefix, read_events,
+    Journal, JournalEventKind, ProviderFailure, ResumablePrefix, RetryOutcome, RetryTiming,
+    find_resumable_prefix, read_events,
 };
 use crate::provider::{ModelProvider, ProviderError, agent_system_prompt};
 use crate::router::{
@@ -641,21 +642,41 @@ impl AgentRuntime {
                                     path: journal_path.clone(),
                                     source,
                                 })?;
-                            tokio::select! {
+                            let sleep_started = Instant::now();
+                            let outcome = tokio::select! {
                                 _ = cancellation.cancelled() => {
-                                    journal
-                                        .append(JournalEventKind::RunStopped {
-                                            reason: StopReason::Cancelled,
-                                        })
-                                        .map_err(|source| RuntimeError::Journal {
-                                            path: journal_path.clone(),
-                                            source,
-                                        })?;
-                                    return Err(RuntimeError::Cancelled {
-                                        path: journal_path.clone(),
-                                    });
+                                    RetryOutcome::Cancelled
                                 }
-                                _ = tokio::time::sleep(delay) => {}
+                                _ = tokio::time::sleep(delay) => RetryOutcome::Completed
+                            };
+                            journal
+                                .append(JournalEventKind::ProviderRetryElapsed {
+                                    timing: RetryTiming {
+                                        delay_ms,
+                                        elapsed_ms: sleep_started
+                                            .elapsed()
+                                            .as_millis()
+                                            .min(u128::from(u64::MAX))
+                                            as u64,
+                                        outcome,
+                                    },
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            if outcome == RetryOutcome::Cancelled {
+                                journal
+                                    .append(JournalEventKind::RunStopped {
+                                        reason: StopReason::Cancelled,
+                                    })
+                                    .map_err(|source| RuntimeError::Journal {
+                                        path: journal_path.clone(),
+                                        source,
+                                    })?;
+                                return Err(RuntimeError::Cancelled {
+                                    path: journal_path.clone(),
+                                });
                             }
                         }
                     }
@@ -1385,6 +1406,9 @@ mod tests {
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.provider_failures.len(), 1);
         assert_eq!(replay.retry_delays_ms, vec![0]);
+        assert_eq!(replay.retry_timings.len(), 1);
+        assert_eq!(replay.retry_timings[0].delay_ms, 0);
+        assert_eq!(replay.retry_timings[0].outcome, RetryOutcome::Completed);
         assert!(events.iter().any(|event| matches!(
             &event.event,
             JournalEventKind::ProviderRetryScheduled { delay_ms: 0, .. }
@@ -1545,6 +1569,10 @@ mod tests {
             JournalEventKind::ProviderRetryScheduled { delay_ms: 1000, .. }
         )));
         assert_eq!(summarize_route_trace(&events).unwrap().provider_failures, 1);
+        let timings = replay_events(&events).unwrap().retry_timings;
+        assert_eq!(timings.len(), 1);
+        assert_eq!(timings[0].outcome, RetryOutcome::Cancelled);
+        assert!(timings[0].elapsed_ms <= crate::domain::MAX_PROVIDER_RETRY_ELAPSED_MS);
         assert!(audit_events(&events).ok);
     }
 

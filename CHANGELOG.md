@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.63.0 - 2026-11-02
+
+- Added replayable retry timing outcomes with requested and elapsed duration.
+- Distinguished completed and cancelled retry delays.
+- Added a bounded 2-second elapsed timing audit.
+- Detected timing without a preceding schedule.
+- Detected timing whose delay differs from its schedule.
+- Preserved cancellation as a legitimate terminal retry outcome.
+
 ## 0.62.0 - 2026-11-02
 
 - Shared the 1-second provider retry backoff cap through the domain contract.
