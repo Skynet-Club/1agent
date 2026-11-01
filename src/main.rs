@@ -9,13 +9,14 @@ use first_principles_agent::{
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
-    OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, RunBudget, RuntimeError,
-    TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events, collect_provenance,
-    collect_release_manifest, create_goldset_manifest, create_trust_anchor, default_registry,
-    evaluate_experience_suite, load_suite, local_manifest, read_events, rebuild_and_compare,
-    remote_manifest, replay_events, run_suite_with_providers, scan_history,
-    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
-    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, ReleasePolicy,
+    ReleasePolicyMode, RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest,
+    audit_events, build_release_verification_report, collect_provenance, collect_release_manifest,
+    create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
+    load_suite, local_manifest, read_events, rebuild_and_compare, remote_manifest, replay_events,
+    run_suite_with_providers, scan_history, verify_goldset_manifest, verify_provenance,
+    verify_release_approval, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -507,6 +508,10 @@ enum ReleaseCommand {
         trust_anchor: Option<PathBuf>,
         #[arg(long, default_value_t = 1)]
         min_registry_version: u64,
+        #[arg(long)]
+        policy: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1485,7 +1490,38 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
             registry_snapshot,
             trust_anchor,
             min_registry_version,
+            policy,
+            json,
         } => {
+            let policy = policy
+                .map(|path| {
+                    let content = std::fs::read_to_string(&path)
+                        .with_context(|| format!("cannot read {}", path.display()))?;
+                    serde_json::from_str::<ReleasePolicy>(&content)
+                        .with_context(|| format!("invalid release policy {}", path.display()))
+                })
+                .transpose()?;
+            if let Some(policy) = &policy {
+                policy.validate()?;
+            }
+            if production
+                && policy.as_ref().map(|policy| policy.mode) == Some(ReleasePolicyMode::Development)
+            {
+                bail!("--production conflicts with a development release policy");
+            }
+            let policy_mode = policy
+                .as_ref()
+                .map(|policy| policy.mode)
+                .unwrap_or(if production {
+                    ReleasePolicyMode::Production
+                } else {
+                    ReleasePolicyMode::Development
+                });
+            let production = policy_mode == ReleasePolicyMode::Production;
+            let effective_min_registry_version = policy
+                .as_ref()
+                .map(|policy| policy.minimum_registry_version)
+                .unwrap_or(min_registry_version);
             let content = std::fs::read_to_string(&manifest)
                 .with_context(|| format!("cannot read {}", manifest.display()))?;
             let manifest_value = serde_json::from_str(&content)
@@ -1514,6 +1550,8 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                      --registry-key-env, at least one --registry-snapshot and --trust-anchor"
                 );
             }
+            let mut signed = false;
+            let mut registry_chain_verified = false;
             match (approval, key_env, registry) {
                 (Some(approval), Some(key_env), Some(registry)) => {
                     let envelope: ApprovalEnvelope = serde_json::from_str(
@@ -1522,12 +1560,16 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                     )?;
                     let registry_path = registry;
                     let registry = ApprovalKeyRegistry::load(&registry_path)?;
+                    if let Some(policy) = &policy {
+                        policy.authorize_manifest_approval(&envelope)?;
+                    }
                     verify_release_approval(
                         &manifest,
                         &envelope,
                         &read_secret_env(&key_env)?,
                         &registry,
                     )?;
+                    signed = true;
                     if production {
                         let snapshots = registry_snapshot
                             .iter()
@@ -1550,6 +1592,9 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                                 )
                             })?,
                         )?;
+                        if let Some(policy) = &policy {
+                            policy.authorize_registry_signers(&snapshots, &anchor)?;
+                        }
                         verify_snapshot_chain_with_anchor(
                             &snapshots,
                             &anchor,
@@ -1558,8 +1603,9 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                             &read_secret_env(
                                 registry_key_env.as_deref().expect("validated above"),
                             )?,
-                            min_registry_version,
+                            effective_min_registry_version,
                         )?;
+                        registry_chain_verified = true;
                     }
                 }
                 (None, None, None) => {}
@@ -1569,10 +1615,21 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                 bail!("release manifest changed during verification");
             }
             verify_release_manifest(&manifest_value, parent)?;
-            if production {
-                println!("release manifest verified (production policy)");
+            let report = build_release_verification_report(
+                &manifest_value,
+                &manifest,
+                policy_mode,
+                signed,
+                registry_chain_verified,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("release manifest verified (development policy)");
+                let mode = match report.policy_mode {
+                    ReleasePolicyMode::Development => "development",
+                    ReleasePolicyMode::Production => "production",
+                };
+                println!("release manifest verified ({mode} policy)");
             }
         }
     }

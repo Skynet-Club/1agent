@@ -4,7 +4,10 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::approval::{ApprovalEnvelope, ApprovalError, ApprovalKeyRegistry, ArtifactKind};
+use crate::approval::{
+    ApprovalEnvelope, ApprovalError, ApprovalKeyRegistry, ArtifactKind, RegistrySnapshot,
+    TrustAnchorManifest,
+};
 use crate::provenance::{BuildProvenance, ProvenanceError, verify_provenance};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -64,6 +67,85 @@ pub struct ReleaseManifest {
     pub cargo_version: String,
     pub generated_unix_ms: u128,
     pub artifacts: Vec<ReleaseArtifact>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleasePolicyMode {
+    Development,
+    Production,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReleasePolicy {
+    pub schema_version: u32,
+    pub mode: ReleasePolicyMode,
+    pub minimum_registry_version: u64,
+    pub allowed_manifest_key_ids: Vec<String>,
+    pub allowed_registry_key_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseVerificationReport {
+    pub schema_version: u32,
+    pub package_version: String,
+    pub git_commit: String,
+    pub manifest_sha256: String,
+    pub policy_mode: ReleasePolicyMode,
+    pub signed: bool,
+    pub registry_chain_verified: bool,
+    pub artifacts_verified: usize,
+    pub status: String,
+}
+
+impl ReleasePolicy {
+    pub fn validate(&self) -> Result<(), ReleaseError> {
+        if self.schema_version != 1 {
+            return Err(ReleaseError::UnsupportedPolicyVersion);
+        }
+        if self.mode == ReleasePolicyMode::Production
+            && (self.minimum_registry_version == 0
+                || self.allowed_manifest_key_ids.is_empty()
+                || self.allowed_registry_key_ids.is_empty())
+        {
+            return Err(ReleaseError::InvalidPolicy);
+        }
+        Ok(())
+    }
+
+    pub fn authorize_manifest_approval(
+        &self,
+        envelope: &ApprovalEnvelope,
+    ) -> Result<(), ReleaseError> {
+        if self.mode == ReleasePolicyMode::Production
+            && !self.allowed_manifest_key_ids.contains(&envelope.key_id)
+        {
+            return Err(ReleaseError::PolicyKeyNotAllowed(envelope.key_id.clone()));
+        }
+        Ok(())
+    }
+
+    pub fn authorize_registry_signers(
+        &self,
+        snapshots: &[RegistrySnapshot],
+        anchor: &TrustAnchorManifest,
+    ) -> Result<(), ReleaseError> {
+        if self.mode != ReleasePolicyMode::Production {
+            return Ok(());
+        }
+        for key_id in snapshots
+            .iter()
+            .map(|snapshot| &snapshot.key_id)
+            .chain(anchor.admin_key_ids.iter())
+        {
+            if !self.allowed_registry_key_ids.contains(key_id) {
+                return Err(ReleaseError::PolicyKeyNotAllowed(key_id.clone()));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -209,6 +291,27 @@ pub fn verify_release_approval(
 ) -> Result<(), ApprovalError> {
     envelope.require_kind(ArtifactKind::ReleaseManifest)?;
     registry.verify_approval(envelope, manifest_path, key)
+}
+
+pub fn build_release_verification_report(
+    manifest: &ReleaseManifest,
+    manifest_path: impl AsRef<Path>,
+    policy_mode: ReleasePolicyMode,
+    signed: bool,
+    registry_chain_verified: bool,
+) -> Result<ReleaseVerificationReport, ReleaseError> {
+    let bytes = std::fs::read(manifest_path)?;
+    Ok(ReleaseVerificationReport {
+        schema_version: 1,
+        package_version: manifest.package_version.clone(),
+        git_commit: manifest.git_commit.clone(),
+        manifest_sha256: hex::encode(Sha256::digest(bytes)),
+        policy_mode,
+        signed,
+        registry_chain_verified,
+        artifacts_verified: manifest.artifacts.len(),
+        status: "verified".into(),
+    })
 }
 
 fn validate_provenance_pair(
@@ -388,6 +491,12 @@ pub enum ReleaseError {
     Provenance(#[from] ProvenanceError),
     #[error("unsupported release manifest version")]
     UnsupportedVersion,
+    #[error("unsupported release policy version")]
+    UnsupportedPolicyVersion,
+    #[error("release policy is incomplete")]
+    InvalidPolicy,
+    #[error("release policy does not allow key: {0}")]
+    PolicyKeyNotAllowed(String),
     #[error("release manifest contains an empty required field")]
     EmptyField,
     #[error("dirty source cannot be promoted as a release")]
@@ -626,6 +735,63 @@ mod tests {
         assert!(matches!(
             verify_release_approval(&manifest_path, &wrong_kind, &key, &registry),
             Err(ApprovalError::UnexpectedArtifactKind)
+        ));
+    }
+
+    #[test]
+    fn release_policy_requires_configured_production_signers() {
+        let mut policy = ReleasePolicy {
+            schema_version: 1,
+            mode: ReleasePolicyMode::Production,
+            minimum_registry_version: 7,
+            allowed_manifest_key_ids: vec!["release-key".into()],
+            allowed_registry_key_ids: vec!["admin-key".into()],
+        };
+        policy.validate().unwrap();
+        let envelope = ApprovalEnvelope {
+            envelope_version: 1,
+            artifact_kind: ArtifactKind::ReleaseManifest,
+            artifact_sha256: "0".repeat(64),
+            approver: "owner".into(),
+            approved_unix_ms: 0,
+            purpose: "release".into(),
+            key_id: "release-key".into(),
+            mac_sha256: "0".repeat(64),
+        };
+        policy.authorize_manifest_approval(&envelope).unwrap();
+        let mut unauthorized = envelope;
+        unauthorized.key_id = "other-key".into();
+        assert!(matches!(
+            policy.authorize_manifest_approval(&unauthorized),
+            Err(ReleaseError::PolicyKeyNotAllowed(_))
+        ));
+
+        let snapshot = RegistrySnapshot {
+            snapshot_version: 1,
+            registry_version: 7,
+            registry_sha256: "0".repeat(64),
+            approved_unix_ms: 0,
+            approver: "admin".into(),
+            key_id: "admin-key".into(),
+            mac_sha256: "0".repeat(64),
+            previous_snapshot_sha256: None,
+            snapshot_sha256: "0".repeat(64),
+        };
+        let anchor = TrustAnchorManifest {
+            anchor_version: 1,
+            first_snapshot_sha256: snapshot.snapshot_sha256.clone(),
+            operator: "owner".into(),
+            admin_key_ids: vec!["admin-key".into()],
+            created_unix_ms: 0,
+        };
+        policy
+            .authorize_registry_signers(std::slice::from_ref(&snapshot), &anchor)
+            .unwrap();
+
+        policy.allowed_registry_key_ids.clear();
+        assert!(matches!(
+            policy.validate(),
+            Err(ReleaseError::InvalidPolicy)
         ));
     }
 }

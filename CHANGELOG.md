@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.26.0 - 2026-11-02
+
+- Added versioned release-policy files.
+- Bound release mode, minimum registry version, manifest signer IDs and registry signer IDs.
+- Added signer allowlist enforcement for release approvals and registry snapshot chains.
+- Added machine-readable release verification reports.
+- Added `configs/release-policy.example.json`.
+- Kept ad hoc production flags compatible while allowing policy files to define the mode and
+  minimum registry version.
+
 ## 0.25.0 - 2026-11-02
 
 - Added explicit development and production release verification policies.
