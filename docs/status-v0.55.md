@@ -50,13 +50,35 @@ missing_answer_for_stop
 | Serialized snake-case code | passed |
 | Legacy issues compatibility | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
 - Finding messages remain diagnostic prose; clients should branch on `code`.
 - Codes in this release cover current journal invariants, not future policy violations.
 - The audit report itself is not signed.
+
+## Verified clean release
+
+```text
+source commit: 6ea123815a4096147f4b3e53f933aec0f1981e3b
+git dirty: false
+
+Linux binary:
+45b459169ad5d31884f36038d33e60ce988f284ffb21b8eda93cbc24bd29e1b8
+
+Windows binary:
+985677874822287cf88f6f10276ab060fe0836203e08c4870d3f3d8cc35698cd
+
+Linux tar.gz:
+101e49f96d986203fc981b115e471037bbd6c8dc17f5e9f8205bce25cb7a3be2
+
+Windows zip:
+74028194f9d9a023139c4586d09cc30a1d34c33b1937c8f64d4ef0019feed63a
+
+Release manifest:
+f626e6340935cf5e7dd354e2692852ce914ee4c6e0a9e3141f2c12d674499f31
+```
 
 ## Next requirement
 
