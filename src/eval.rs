@@ -350,6 +350,7 @@ pub struct EvalReportSummary {
 pub struct EvalReportVerification {
     pub integrity_checked: bool,
     pub content_binding: ContentBindingStatus,
+    pub signature_present: bool,
     pub authenticity: AuthenticityStatus,
 }
 
@@ -358,6 +359,7 @@ impl Default for EvalReportVerification {
         Self {
             integrity_checked: false,
             content_binding: ContentBindingStatus::Unbound,
+            signature_present: false,
             authenticity: AuthenticityStatus::Unauthenticated,
         }
     }
@@ -374,9 +376,10 @@ pub enum ContentBindingStatus {
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticityStatus {
     Unauthenticated,
+    Verified,
 }
 
-pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 3;
+pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 4;
 
 impl From<&EvalReport> for EvalReportSummary {
     fn from(report: &EvalReport) -> Self {
@@ -402,6 +405,7 @@ impl From<&EvalReport> for EvalReportSummary {
                 } else {
                     ContentBindingStatus::Unbound
                 },
+                signature_present: false,
                 authenticity: AuthenticityStatus::Unauthenticated,
             },
         }
@@ -474,6 +478,13 @@ impl EvalReportSummary {
                 "content-binding status does not match report digest",
             ));
         }
+        if self.verification.authenticity == AuthenticityStatus::Verified
+            && !self.verification.signature_present
+        {
+            return Err(EvalError::InvalidReportSummary(
+                "verified authenticity requires a signature",
+            ));
+        }
         if self
             .report_content_sha256
             .as_deref()
@@ -494,12 +505,16 @@ pub struct EvalReportTrustRequirements {
 }
 
 impl EvalReportTrustRequirements {
-    pub fn validate(self, report: &EvalReport) -> Result<(), EvalError> {
+    pub fn validate(
+        self,
+        report: &EvalReport,
+        authenticity_verified: bool,
+    ) -> Result<(), EvalError> {
         report.validate_integrity()?;
         if self.require_content_binding && report.content_sha256.is_none() {
             return Err(EvalError::ReportContentBindingRequired);
         }
-        if self.require_authenticity {
+        if self.require_authenticity && !authenticity_verified {
             return Err(EvalError::ReportAuthenticityRequired);
         }
         Ok(())
@@ -1210,7 +1225,7 @@ pub enum EvalError {
     InvalidReportSummary(&'static str),
     #[error("report content binding is required but the report is unbound")]
     ReportContentBindingRequired,
-    #[error("report authenticity is required but report signatures are not supported")]
+    #[error("report authenticity is required but no verified report signature was provided")]
     ReportAuthenticityRequired,
 }
 
@@ -1617,14 +1632,14 @@ mod tests {
         ));
 
         EvalReportTrustRequirements::default()
-            .validate(&report)
+            .validate(&report, false)
             .unwrap();
         assert!(matches!(
             EvalReportTrustRequirements {
                 require_content_binding: true,
                 require_authenticity: false,
             }
-            .validate(&report),
+            .validate(&report, false),
             Err(EvalError::ReportContentBindingRequired)
         ));
 
@@ -1635,16 +1650,22 @@ mod tests {
             require_content_binding: true,
             require_authenticity: false,
         }
-        .validate(&report)
+        .validate(&report, false)
         .unwrap();
         assert!(matches!(
             EvalReportTrustRequirements {
                 require_content_binding: false,
                 require_authenticity: true,
             }
-            .validate(&report),
+            .validate(&report, false),
             Err(EvalError::ReportAuthenticityRequired)
         ));
+        EvalReportTrustRequirements {
+            require_content_binding: true,
+            require_authenticity: true,
+        }
+        .validate(&report, true)
+        .unwrap();
         let summary = EvalReportSummary::from(&report);
         summary.validate().unwrap();
         let json = serde_json::to_value(&summary).unwrap();
@@ -1657,6 +1678,7 @@ mod tests {
             EvalReportVerification {
                 integrity_checked: true,
                 content_binding: ContentBindingStatus::Bound,
+                signature_present: false,
                 authenticity: AuthenticityStatus::Unauthenticated,
             }
         );
@@ -1690,7 +1712,7 @@ mod tests {
         invalid.schema_version = REPORT_SUMMARY_SCHEMA_VERSION + 1;
         assert!(matches!(
             invalid.validate(),
-            Err(EvalError::UnsupportedReportSummaryVersion(4))
+            Err(EvalError::UnsupportedReportSummaryVersion(5))
         ));
 
         let mut invalid = summary.clone();
@@ -1717,6 +1739,15 @@ mod tests {
             invalid.validate(),
             Err(EvalError::InvalidReportSummary(
                 "content-binding status does not match report digest"
+            ))
+        ));
+
+        let mut invalid = summary.clone();
+        invalid.verification.authenticity = AuthenticityStatus::Verified;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "verified authenticity requires a signature"
             ))
         ));
 

@@ -137,7 +137,7 @@ fn cli_eval_reports_versioned_completeness_policy() {
         String::from_utf8_lossy(&summary_output.stderr)
     );
     let summary: EvalReportSummary = serde_json::from_slice(&summary_output.stdout).unwrap();
-    assert_eq!(summary.schema_version, 3);
+    assert_eq!(summary.schema_version, 4);
     assert_eq!(summary.total, report.total);
     assert_eq!(summary.passed, report.passed);
     assert_eq!(summary.report_content_sha256, report.content_sha256);
@@ -146,6 +146,7 @@ fn cli_eval_reports_versioned_completeness_policy() {
         Some(64)
     );
     assert!(summary.verification.integrity_checked);
+    assert!(!summary.verification.signature_present);
     assert_eq!(
         summary.verification.content_binding,
         ContentBindingStatus::Bound
@@ -185,8 +186,9 @@ fn cli_eval_reports_versioned_completeness_policy() {
         .unwrap();
     assert!(!authenticity_output.status.success());
     assert!(
-        String::from_utf8_lossy(&authenticity_output.stderr)
-            .contains("report authenticity is required but report signatures are not supported")
+        String::from_utf8_lossy(&authenticity_output.stderr).contains(
+            "report authenticity is required but no verified report signature was provided"
+        )
     );
 }
 
@@ -235,4 +237,111 @@ fn cli_eval_inspect_rejects_unsupported_policy_version() {
     assert!(
         String::from_utf8_lossy(&inspect_output.stderr).contains("case count does not match total")
     );
+}
+
+#[test]
+fn cli_eval_inspect_verifies_signed_report() {
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let workspace = tempfile::tempdir().unwrap();
+    let suite = format!("{}/evals/core.json", env!("CARGO_MANIFEST_DIR"));
+    let output = Command::new(binary)
+        .args(["eval", "--suite", &suite, "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report_path = workspace.path().join("report.json");
+    std::fs::write(&report_path, &output.stdout).unwrap();
+
+    let registry_path = workspace.path().join("approval-registry.json");
+    let key_add = Command::new(binary)
+        .args([
+            "approval",
+            "key-add",
+            "--registry",
+            &registry_path.display().to_string(),
+            "--key-id",
+            "report-key",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        key_add.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&key_add.stderr)
+    );
+
+    let approval_path = workspace.path().join("report.approval.json");
+    let sign = Command::new(binary)
+        .env("REPORT_APPROVAL_KEY", "test-only-report-key-32-bytes!!!")
+        .args([
+            "approval",
+            "sign",
+            "--artifact",
+            &report_path.display().to_string(),
+            "--artifact-kind",
+            "evaluation_report",
+            "--approver",
+            "qa",
+            "--purpose",
+            "report-inspection",
+            "--key-id",
+            "report-key",
+            "--key-env",
+            "REPORT_APPROVAL_KEY",
+            "--registry",
+            &registry_path.display().to_string(),
+            "--output",
+            &approval_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        sign.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&sign.stderr)
+    );
+
+    let inspect = Command::new(binary)
+        .env("REPORT_APPROVAL_KEY", "test-only-report-key-32-bytes!!!")
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.display().to_string(),
+            "--summary",
+            "--json",
+            "--require-authenticity",
+            "--approval",
+            &approval_path.display().to_string(),
+            "--approval-key-env",
+            "REPORT_APPROVAL_KEY",
+            "--approval-registry",
+            &registry_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        inspect.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let summary: EvalReportSummary = serde_json::from_slice(&inspect.stdout).unwrap();
+    assert!(summary.verification.signature_present);
+    assert_eq!(
+        summary.verification.authenticity,
+        AuthenticityStatus::Verified
+    );
+
+    let partial = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.display().to_string(),
+            "--require-authenticity",
+            "--approval",
+            &approval_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!partial.status.success());
+    assert!(String::from_utf8_lossy(&partial.stderr).contains("must be supplied together"));
 }

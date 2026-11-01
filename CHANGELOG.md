@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.84.0 - 2026-11-02
+
+- Added HMAC-authenticated evaluation report inspection through approval envelopes.
+- Bound report signatures to the exact report bytes and the evaluation-report artifact kind.
+- Enforced approval key registry state during authenticity verification.
+- Distinguished signature presence from verified authenticity in summaries.
+- Added signed-report CLI end-to-end coverage and honest symmetric-key limits.
+
 ## 0.83.0 - 2026-11-02
 
 - Added explicit content-binding and authenticity trust requirements for report consumers.

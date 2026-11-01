@@ -6,20 +6,20 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
-    ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
-    DeterministicProvider, EvalReportSummary, EvalReportTrustRequirements, ExperienceCandidateSpec,
-    ExperienceStore, ExperienceVerificationInput, GoldSetManifest, HostCommand, HostError,
-    HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider, PolicyValueSource,
-    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
-    RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective, RoutePolicySources,
-    RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest,
-    audit_events, build_release_verification_report, collect_provenance, collect_release_manifest,
-    create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    find_resumable_prefix, infer_mode, load_eval_report, load_suite, local_manifest,
-    probe_provider, probe_provider_tools, read_events, rebuild_and_compare, remote_manifest,
-    replay_events, risk_for_mode, run_suite_with_providers, scan_history, summarize_route_trace,
-    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
-    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, AuthenticityStatus,
+    CalibrationPrediction, DeterministicProvider, EvalReportSummary, EvalReportTrustRequirements,
+    ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
+    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
+    PolicyValueSource, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
+    ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective,
+    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry,
+    TrustAnchorManifest, audit_events, build_release_verification_report, collect_provenance,
+    collect_release_manifest, create_goldset_manifest, create_trust_anchor, default_registry,
+    evaluate_experience_suite, find_resumable_prefix, infer_mode, load_eval_report, load_suite,
+    local_manifest, probe_provider, probe_provider_tools, read_events, rebuild_and_compare,
+    remote_manifest, replay_events, risk_for_mode, run_suite_with_providers, scan_history,
+    summarize_route_trace, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -120,6 +120,12 @@ enum Command {
         require_content_binding: bool,
         #[arg(long)]
         require_authenticity: bool,
+        #[arg(long)]
+        approval: Option<PathBuf>,
+        #[arg(long)]
+        approval_key_env: Option<String>,
+        #[arg(long)]
+        approval_registry: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -814,16 +820,46 @@ async fn main() -> Result<()> {
             summary,
             require_content_binding,
             require_authenticity,
+            approval,
+            approval_key_env,
+            approval_registry,
             json,
         } => {
-            let report = load_eval_report(&report)?;
+            let report_path = report;
+            let report = load_eval_report(&report_path)?;
+            let authenticity_verified = match (approval, approval_key_env, approval_registry) {
+                (None, None, None) => false,
+                (Some(approval), Some(key_env), Some(registry)) => {
+                    let envelope: ApprovalEnvelope = serde_json::from_str(
+                        &std::fs::read_to_string(&approval)
+                            .with_context(|| format!("cannot read {}", approval.display()))?,
+                    )
+                    .with_context(|| format!("invalid approval {}", approval.display()))?;
+                    envelope.require_kind(ArtifactKind::EvaluationReport)?;
+                    let key = std::env::var(&key_env)
+                        .with_context(|| format!("missing approval key environment {key_env}"))?;
+                    ApprovalKeyRegistry::load(registry)?.verify_approval(
+                        &envelope,
+                        &report_path,
+                        key.as_bytes(),
+                    )?;
+                    true
+                }
+                _ => bail!(
+                    "approval, approval key environment and approval registry must be supplied together"
+                ),
+            };
             EvalReportTrustRequirements {
                 require_content_binding,
                 require_authenticity,
             }
-            .validate(&report)?;
+            .validate(&report, authenticity_verified)?;
             if summary {
-                let summary = EvalReportSummary::from(&report);
+                let mut summary = EvalReportSummary::from(&report);
+                if authenticity_verified {
+                    summary.verification.signature_present = true;
+                    summary.verification.authenticity = AuthenticityStatus::Verified;
+                }
                 summary.validate()?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&summary)?);
