@@ -28,7 +28,21 @@ No runtime behavior changed; this release proves existing failure paths at the e
 | revoked key rejected | passed |
 | unsigned report remains inspectable | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `1afa3770bb28fa3c9c5c0723b76d6de6e5a5329a`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `a25996a7885ecad3d20375e28fb4b314ec96640d88203dc50c812ab1a03b5cc1` |
+| Windows `zip` | `33a84b0846516a1c3f347e9ae0dda335b79b1c639fa20d6bcba730a4f1c63d22` |
+| Release manifest | `7bf7d729e34a140736bae93d545c463c09ce34bfb71a67a1658086b96bc93d87` |
+| Linux binary | `c13decb3a4142453ad418c541083616e33891d0d019bc730ec67ad2adee249bb` |
+| Windows binary | `c71f6ea11d12d8f5b59fc16aa89c2d13d8b08585b50fa718c44cc72ddb46605a` |
 
 ## Known limitations
 
