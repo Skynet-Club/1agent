@@ -30,7 +30,21 @@ Validation failures exit non-zero and identify the violated invariant.
 | floor contradiction | rejected |
 | policy validation preserved | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `f56bcd0aec73aa2365f21c545844c9b155d09aae`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `bfad9bdead4d6ffc51d5c30ccd309968c93eb6f71961ef60fe6aa158551e09d9` |
+| Windows `zip` | `ef253245370da39825d00aa529eb648a626a5eb381c28ff2952af55d756c5a4e` |
+| Release manifest | `075258fad5df65bfa3eec1dd013d5e3377508a3b4cafa3c8bed3ef8a77d4b66f` |
+| Linux binary | `7635f9ea98d4f98e66f90a915129534817a6d20ca1c261fce5986551d8407f36` |
+| Windows binary | `97947483c037e7bd0294e45fa03078afdc191a2b980c03a8af32593502da16d9` |
 
 ## Known limitations
 
