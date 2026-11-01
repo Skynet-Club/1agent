@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.41.0 - 2026-11-02
+
+- Added `tools --json` for host-visible capability inspection.
+- Reports tool names, descriptions, schemas, risk, write requirement, timeout and status.
+- Uses the same runtime registry/spec source as execution.
+- Added implemented/degraded/unsupported capability status taxonomy.
+- Added end-to-end coverage for tool inventory and path redaction.
+
 ## 0.40.0 - 2026-11-02
 
 - Added central observation summary/content bounds.

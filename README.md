@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.40.0` is an executable V0 vertical slice:
+Version `0.41.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -58,10 +58,11 @@ Version `0.40.0` is an executable V0 vertical slice:
 - normalized OpenAI-compatible assistant content and tool-call wire formats;
 - bounded JSON Schema validation before every tool execution;
 - bounded and control-safe tool observations at the registry boundary;
+- host-visible tool capability and schema inspection through the runtime registry;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.40.md`](docs/status-v0.40.md).
+[`docs/status-v0.41.md`](docs/status-v0.41.md).
 
 Current V0 assumptions:
 
@@ -86,6 +87,7 @@ cargo run --offline -- replay --journal .journal/run.jsonl
 cargo run --offline -- eval --suite evals/core.json
 cargo run --offline -- experience list --store .experience
 cargo run --offline -- resume-status --journal .journal/run.jsonl --json
+cargo run --offline -- tools --json
 ```
 
 Remote OpenAI-compatible provider:

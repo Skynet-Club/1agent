@@ -141,6 +141,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Tools {
+        #[arg(long)]
+        json: bool,
+    },
     RoutePlan {
         #[arg(long, conflicts_with = "input")]
         task: Option<String>,
@@ -1150,6 +1154,24 @@ async fn main() -> Result<()> {
                         provider.credential_status,
                         provider.configuration_error
                     );
+                }
+            }
+        }
+        Command::Tools { json } => {
+            let capabilities = default_registry().capabilities();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&capabilities)?);
+            } else {
+                for capability in capabilities {
+                    println!(
+                        "{} | {:?} | risk={:?} | write={} | timeout={}ms",
+                        capability.name,
+                        capability.status,
+                        capability.risk,
+                        capability.requires_write,
+                        capability.timeout_ms
+                    );
+                    println!("- {}", capability.description);
                 }
             }
         }

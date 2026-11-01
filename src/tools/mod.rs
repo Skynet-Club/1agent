@@ -20,6 +20,26 @@ pub struct ToolOutcome {
     pub metadata: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCapabilityStatus {
+    Implemented,
+    Degraded,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolCapability {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+    pub risk: RiskLevel,
+    pub requires_write: bool,
+    pub timeout_ms: u64,
+    pub status: ToolCapabilityStatus,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     #[error("invalid arguments: {0}")]
@@ -91,6 +111,27 @@ impl ToolRegistry {
         let mut specs: Vec<_> = self.tools.values().map(|tool| tool.spec()).collect();
         specs.sort_by(|left, right| left.name.cmp(&right.name));
         specs
+    }
+
+    pub fn capabilities(&self) -> Vec<ToolCapability> {
+        let mut capabilities = self
+            .tools
+            .values()
+            .map(|tool| {
+                let spec = tool.spec();
+                ToolCapability {
+                    name: spec.name,
+                    description: spec.description,
+                    parameters: spec.parameters,
+                    risk: tool.risk(),
+                    requires_write: tool.requires_write(),
+                    timeout_ms: tool.timeout().as_millis().min(u128::from(u64::MAX)) as u64,
+                    status: ToolCapabilityStatus::Implemented,
+                }
+            })
+            .collect::<Vec<_>>();
+        capabilities.sort_by(|left, right| left.name.cmp(&right.name));
+        capabilities
     }
 
     pub async fn execute(
