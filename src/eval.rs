@@ -104,6 +104,8 @@ pub struct EvalExpectation {
     #[serde(default)]
     pub min_high_impact_unknowns: usize,
     #[serde(default)]
+    pub min_high_impact_assumptions: usize,
+    #[serde(default)]
     pub expect_checkpoint: bool,
     #[serde(default)]
     pub tool_status: Option<ToolStatus>,
@@ -131,6 +133,9 @@ pub struct EvalCaseResult {
     pub low_impact_unknown_count: usize,
     pub medium_impact_unknown_count: usize,
     pub high_impact_unknown_count: usize,
+    pub low_impact_assumption_count: usize,
+    pub medium_impact_assumption_count: usize,
+    pub high_impact_assumption_count: usize,
     pub flip_condition_count: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
@@ -467,6 +472,18 @@ async fn run_case(
             case.expect.min_high_impact_unknowns, high_impact_unknowns
         ));
     }
+    let high_impact_assumptions = result
+        .answer
+        .assumptions
+        .iter()
+        .filter(|assumption| assumption.impact == crate::domain::ImpactLevel::High)
+        .count();
+    if high_impact_assumptions < case.expect.min_high_impact_assumptions {
+        issues.push(format!(
+            "expected at least {} high-impact assumptions, got {}",
+            case.expect.min_high_impact_assumptions, high_impact_assumptions
+        ));
+    }
     if audit.ok != case.expect.audit_ok {
         issues.push(format!(
             "expected audit_ok={}, got {}",
@@ -524,6 +541,19 @@ async fn run_case(
             .filter(|unknown| unknown.impact == crate::domain::ImpactLevel::Medium)
             .count(),
         high_impact_unknown_count: high_impact_unknowns,
+        low_impact_assumption_count: result
+            .answer
+            .assumptions
+            .iter()
+            .filter(|assumption| assumption.impact == crate::domain::ImpactLevel::Low)
+            .count(),
+        medium_impact_assumption_count: result
+            .answer
+            .assumptions
+            .iter()
+            .filter(|assumption| assumption.impact == crate::domain::ImpactLevel::Medium)
+            .count(),
+        high_impact_assumption_count: high_impact_assumptions,
         flip_condition_count: result.answer.flip_conditions.len(),
         rubric_checks,
         rubric_passed,
@@ -570,6 +600,9 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         low_impact_unknown_count: 0,
         medium_impact_unknown_count: 0,
         high_impact_unknown_count: 0,
+        low_impact_assumption_count: 0,
+        medium_impact_assumption_count: 0,
+        high_impact_assumption_count: 0,
         flip_condition_count: 0,
         rubric_checks: 0,
         rubric_passed: 0,
@@ -868,6 +901,7 @@ mod tests {
                     min_unknowns: 0,
                     min_flip_conditions: 0,
                     min_high_impact_unknowns: 0,
+                    min_high_impact_assumptions: 0,
                     expect_checkpoint: true,
                     tool_status: Some(ToolStatus::Ok),
                     tool_error_code: None,
@@ -911,6 +945,7 @@ mod tests {
                         min_unknowns: 1,
                         min_flip_conditions: 1,
                         min_high_impact_unknowns: 1,
+                        min_high_impact_assumptions: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
@@ -931,6 +966,7 @@ mod tests {
                         min_unknowns: 0,
                         min_flip_conditions: 1,
                         min_high_impact_unknowns: 0,
+                        min_high_impact_assumptions: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
@@ -960,6 +996,7 @@ mod tests {
                         min_unknowns: 0,
                         min_flip_conditions: 0,
                         min_high_impact_unknowns: 0,
+                        min_high_impact_assumptions: 0,
                         expect_checkpoint: true,
                         tool_status: Some(ToolStatus::Ok),
                         tool_error_code: None,
@@ -1111,6 +1148,7 @@ mod tests {
                         min_unknowns: 0,
                         min_flip_conditions: 0,
                         min_high_impact_unknowns: 0,
+                        min_high_impact_assumptions: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,

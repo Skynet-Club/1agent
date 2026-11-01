@@ -197,6 +197,72 @@ pub struct FlipCondition {
     pub then: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AssumptionItem {
+    pub description: String,
+    pub impact: ImpactLevel,
+    pub verification_method: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for AssumptionItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Representation {
+            Legacy(String),
+            Structured(StructuredAssumption),
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct StructuredAssumption {
+            description: String,
+            #[serde(default)]
+            impact: ImpactLevel,
+            #[serde(default)]
+            verification_method: Option<String>,
+        }
+        match Representation::deserialize(deserializer)? {
+            Representation::Legacy(description) => Ok(Self {
+                description,
+                impact: ImpactLevel::Medium,
+                verification_method: None,
+            }),
+            Representation::Structured(StructuredAssumption {
+                description,
+                impact,
+                verification_method,
+            }) => Ok(Self {
+                description,
+                impact,
+                verification_method,
+            }),
+        }
+    }
+}
+
+impl From<&str> for AssumptionItem {
+    fn from(value: &str) -> Self {
+        Self {
+            description: value.into(),
+            impact: ImpactLevel::Medium,
+            verification_method: None,
+        }
+    }
+}
+
+impl From<String> for AssumptionItem {
+    fn from(value: String) -> Self {
+        Self {
+            description: value,
+            impact: ImpactLevel::Medium,
+            verification_method: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentAnswer {
@@ -207,7 +273,7 @@ pub struct AgentAnswer {
     #[serde(default)]
     pub evidence: Vec<Evidence>,
     #[serde(default)]
-    pub assumptions: Vec<String>,
+    pub assumptions: Vec<AssumptionItem>,
     #[serde(default)]
     pub constraints: Vec<String>,
     #[serde(default)]
@@ -291,6 +357,25 @@ impl AgentAnswer {
                 ));
             }
         }
+        for assumption in &self.assumptions {
+            if assumption.description.trim().is_empty() {
+                return Err(AnswerValidationError::EmptyAssumptionDescription);
+            }
+            if assumption.impact == ImpactLevel::High
+                && assumption
+                    .verification_method
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default()
+                    .is_empty()
+            {
+                return Err(
+                    AnswerValidationError::HighImpactAssumptionWithoutVerification(
+                        assumption.description.clone(),
+                    ),
+                );
+            }
+        }
         for evidence in &self.evidence {
             if evidence.source.trim().is_empty() {
                 return Err(AnswerValidationError::EmptyEvidenceSource);
@@ -365,6 +450,10 @@ pub enum AnswerValidationError {
     EmptyUnknownDescription,
     #[error("high-impact unknown '{0}' requires a reduction method")]
     HighImpactUnknownWithoutReduction(String),
+    #[error("assumption description must not be empty")]
+    EmptyAssumptionDescription,
+    #[error("high-impact assumption '{0}' requires a verification method")]
+    HighImpactAssumptionWithoutVerification(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -820,6 +909,38 @@ mod tests {
             ))
         );
         answer.unknowns[0].reduction_method = Some("request the missing input".into());
+        answer.validate(&request).unwrap();
+    }
+
+    #[test]
+    fn assumptions_are_structured_and_high_impact_requires_verification() {
+        let mut answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+            "status": "conditional",
+            "conclusion": "conditional",
+            "claims": [],
+            "evidence": [],
+            "assumptions": ["legacy assumption"],
+            "constraints": [],
+            "unknowns": [],
+            "flip_conditions": [],
+            "action_receipts": []
+        }))
+        .unwrap();
+        assert_eq!(answer.assumptions[0].description, "legacy assumption");
+        assert_eq!(answer.assumptions[0].impact, ImpactLevel::Medium);
+
+        answer.assumptions[0].impact = ImpactLevel::High;
+        answer.assumptions[0].verification_method = None;
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        assert_eq!(
+            answer.validate(&request),
+            Err(
+                AnswerValidationError::HighImpactAssumptionWithoutVerification(
+                    "legacy assumption".into()
+                )
+            )
+        );
+        answer.assumptions[0].verification_method = Some("verify against current data".into());
         answer.validate(&request).unwrap();
     }
 }

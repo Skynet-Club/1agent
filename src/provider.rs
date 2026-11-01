@@ -129,7 +129,7 @@ Return only one JSON object matching this shape:
   "conclusion": "string",
   "claims": [{"id":"string","text":"string","status":"verified|user_asserted|derived|assumed|model_prior|conflicting|unknown","sources":["string"],"scope":"string|null"}],
   "evidence": [{"source":"string","statement":"string","claim_ids":["string"]}],
-  "assumptions": ["string"],
+  "assumptions": [{"description":"string","impact":"low|medium|high","verification_method":"string|null"}],
   "constraints": ["string"],
   "unknowns": [{"description":"string","why_it_matters":"string|null","reduction_method":"string|null"}],
   "flip_conditions": [{"if_observed":"string","then":"string"}],

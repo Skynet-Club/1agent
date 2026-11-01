@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.49.0 - 2026-11-02
+
+- Upgraded assumptions to structured records with description, impact and verification method.
+- Preserved decoding of legacy string assumptions as medium impact.
+- Required high-impact assumptions to provide a verification method.
+- Added high-impact assumption minimums to evaluation cases.
+- Added assumption counts by impact to JSON scorecards.
+- Updated human-readable output and provider prompt schema.
+
 ## 0.48.0 - 2026-11-02
 
 - Added low, medium and high impact levels to unknown items.

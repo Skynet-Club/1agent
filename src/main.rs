@@ -2136,7 +2136,11 @@ fn render_answer(result: &first_principles_agent::RunResult) -> String {
     if !answer.assumptions.is_empty() {
         output.push_str("\n假设：");
         for assumption in &answer.assumptions {
-            output.push_str(&format!("\n- {assumption}"));
+            output.push_str(&format!(
+                "\n- [{}] {}",
+                answer_impact_label(assumption.impact),
+                assumption.description
+            ));
         }
     }
     if !answer.constraints.is_empty() {
@@ -2161,6 +2165,15 @@ fn render_answer(result: &first_principles_agent::RunResult) -> String {
         }
     }
     output
+}
+
+fn answer_impact_label(impact: first_principles_agent::ImpactLevel) -> &'static str {
+    use first_principles_agent::ImpactLevel;
+    match impact {
+        ImpactLevel::Low => "低",
+        ImpactLevel::Medium => "中",
+        ImpactLevel::High => "高",
+    }
 }
 
 fn print_route_trace(journal_path: &std::path::Path) -> Result<()> {
