@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.67.0 - 2026-11-02
+
+- Reject proposed experience events that are not unverified drafts.
+- Validate candidate version, source run ID, mode list and evidence references on replay.
+- Validate candidate evidence digest format while preserving legacy digest-free entries.
+- Recheck supersession version increments and active-scope uniqueness during replay.
+- Added tampered experience-history coverage.
+
 ## 0.66.0 - 2026-11-02
 
 - Restricted experience evidence to observation, answer and provider-failure events.

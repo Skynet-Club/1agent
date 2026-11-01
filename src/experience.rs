@@ -191,6 +191,7 @@ impl ExperienceStore {
             };
             match event.event {
                 ExperienceEventKind::Proposed { candidate } => {
+                    validate_proposed_candidate(&candidate)?;
                     if candidates.insert(candidate.id, *candidate).is_some() {
                         return Err(ExperienceError::DuplicateCandidate);
                     }
@@ -254,12 +255,33 @@ impl ExperienceStore {
                         if previous.scope != candidate.scope {
                             return Err(ExperienceError::SupersessionScopeMismatch(previous_id));
                         }
+                        if candidate.version != previous.version.saturating_add(1) {
+                            return Err(ExperienceError::SupersessionVersionMismatch {
+                                previous: previous.version,
+                                candidate: candidate.version,
+                            });
+                        }
+                        if candidates.values().any(|other| {
+                            other.id != previous_id
+                                && other.status == ExperienceStatus::Active
+                                && other.kind == candidate.kind
+                                && other.scope == candidate.scope
+                        }) {
+                            return Err(ExperienceError::ActiveExperienceConflict);
+                        }
                         transition(
                             &mut candidates,
                             previous_id,
                             &[ExperienceStatus::Active],
                             |previous| previous.status = ExperienceStatus::Superseded,
                         )?;
+                    } else if candidates.values().any(|other| {
+                        other.id != id
+                            && other.status == ExperienceStatus::Active
+                            && other.kind == candidate.kind
+                            && other.scope == candidate.scope
+                    }) {
+                        return Err(ExperienceError::ActiveExperienceConflict);
                     }
                     transition(
                         &mut candidates,
@@ -730,6 +752,42 @@ fn select_applicable(
     selected
 }
 
+fn validate_proposed_candidate(candidate: &ExperienceCandidate) -> Result<(), ExperienceError> {
+    if candidate.status != ExperienceStatus::Draft || candidate.verification.is_some() {
+        return Err(ExperienceError::InvalidProposedStatus);
+    }
+    if candidate.version == 0 {
+        return Err(ExperienceError::InvalidCandidateVersion);
+    }
+    if candidate.source_run_id == Uuid::nil() {
+        return Err(ExperienceError::InvalidSourceRunId);
+    }
+    if candidate.evidence_event_seqs.is_empty() {
+        return Err(ExperienceError::NoEvidence);
+    }
+    let unique_sequences: std::collections::BTreeSet<_> =
+        candidate.evidence_event_seqs.iter().copied().collect();
+    if unique_sequences.len() != candidate.evidence_event_seqs.len() {
+        return Err(ExperienceError::DuplicateEvidenceSeq);
+    }
+    if !candidate.evidence_sha256.is_empty()
+        && (candidate.evidence_sha256.len() != 64
+            || !candidate
+                .evidence_sha256
+                .chars()
+                .all(|character| character.is_ascii_hexdigit()))
+    {
+        return Err(ExperienceError::InvalidEvidenceDigest);
+    }
+    if candidate.applicable_modes.is_empty() {
+        return Err(ExperienceError::EmptyApplicableModes);
+    }
+    validate_text(&candidate.title)?;
+    validate_text(&candidate.content)?;
+    validate_text(&candidate.scope)?;
+    Ok(())
+}
+
 fn evidence_digest(
     source_events: &[JournalEvent],
     evidence_event_seqs: &[u64],
@@ -890,6 +948,16 @@ pub enum ExperienceError {
     EvidenceDigestMismatch,
     #[error("candidate {0} not found")]
     CandidateNotFound(Uuid),
+    #[error("proposed candidate must be an unverified draft")]
+    InvalidProposedStatus,
+    #[error("candidate version must be greater than zero")]
+    InvalidCandidateVersion,
+    #[error("candidate source run id must not be nil")]
+    InvalidSourceRunId,
+    #[error("candidate evidence digest must be 64 hexadecimal characters")]
+    InvalidEvidenceDigest,
+    #[error("candidate must support at least one cognitive mode")]
+    EmptyApplicableModes,
     #[error("duplicate candidate id")]
     DuplicateCandidate,
     #[error("invalid status transition from {from:?}; allowed: {allowed_from:?}")]
@@ -1121,6 +1189,61 @@ mod tests {
         assert!(matches!(
             store.review_with_source(candidate.id, "reviewer", Some(&rewritten)),
             Err(ExperienceError::EvidenceDigestMismatch)
+        ));
+    }
+
+    #[test]
+    fn replay_rejects_tampered_proposal_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        store.propose(spec(), &events).unwrap();
+        let path = store.path().to_path_buf();
+        let original = std::fs::read_to_string(&path).unwrap();
+        let mut event: ExperienceEvent = serde_json::from_str(original.trim()).unwrap();
+        let ExperienceEventKind::Proposed { candidate } = &mut event.event else {
+            panic!("expected proposed event");
+        };
+        candidate.evidence_sha256 = "not-a-digest".into();
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&event).unwrap()),
+        )
+        .unwrap();
+        let invalid_digest = store.candidates();
+        assert!(
+            matches!(invalid_digest, Err(ExperienceError::InvalidEvidenceDigest)),
+            "{invalid_digest:?}"
+        );
+
+        let mut event: ExperienceEvent = serde_json::from_str(original.trim()).unwrap();
+        let ExperienceEventKind::Proposed { candidate } = &mut event.event else {
+            panic!("expected proposed event");
+        };
+        candidate.status = ExperienceStatus::Active;
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&event).unwrap()),
+        )
+        .unwrap();
+        assert!(matches!(
+            store.candidates(),
+            Err(ExperienceError::InvalidProposedStatus)
+        ));
+
+        let mut event: ExperienceEvent = serde_json::from_str(original.trim()).unwrap();
+        let ExperienceEventKind::Proposed { candidate } = &mut event.event else {
+            panic!("expected proposed event");
+        };
+        candidate.version = 0;
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&event).unwrap()),
+        )
+        .unwrap();
+        assert!(matches!(
+            store.candidates(),
+            Err(ExperienceError::InvalidCandidateVersion)
         ));
     }
 
