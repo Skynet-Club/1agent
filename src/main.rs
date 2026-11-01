@@ -109,6 +109,12 @@ enum Command {
         #[arg(long, default_value_t = 4)]
         max_concurrency: usize,
     },
+    Providers {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     Resume {
         #[arg(long)]
         journal: PathBuf,
@@ -475,6 +481,29 @@ async fn main() -> Result<()> {
                 }
             }
             while tasks.join_next().await.is_some() {}
+        }
+        Command::Providers { config, json } => {
+            let value = if let Some(config_path) = config {
+                let config = AgentConfig::load(config_path)?;
+                serde_json::to_value(config)?
+            } else {
+                serde_json::json!({
+                    "providers": [{
+                        "provider_id": local_manifest().provider_id,
+                        "model": local_manifest().model,
+                        "privacy": "local",
+                        "quality_score": 1,
+                        "supports_tools": true,
+                        "supports_structured_output": true
+                    }]
+                })
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!("Provider configuration (secret values are never loaded):");
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            }
         }
         Command::Resume {
             journal,

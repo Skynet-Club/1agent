@@ -17,6 +17,7 @@ Status: stable stdio host protocol
 - Cancel control message keyed by request id.
 - Immediate `queue_full` response when concurrency is saturated.
 - Immediate `duplicate_request` response for an active request id.
+- `providers` command for secret-safe configuration inspection.
 - Ctrl+C cancellation propagates into the active run.
 - Example request at `examples/host_request.json`.
 
@@ -61,6 +62,7 @@ Cancel acknowledgement:
 | Invalid JSON followed by a valid request | passed; host survives and continues |
 | Two concurrent requests plus invalid input | passed; all 3 responses correlated correctly |
 | Queue full plus cancel by request id | passed; target cancelled, peer unaffected |
+| Provider inspection with secret environment | passed; env name shown, value absent |
 | Host result semantic audit | passed |
 | Existing CLI/config/experience/resume/eval suites | passed |
 | Clippy `-D warnings` | passed |
@@ -68,10 +70,10 @@ Cancel acknowledgement:
 Release artifacts:
 
 ```text
-Linux binary:   77e9205a7a871f2677b1eb6ac723fcf651c3db0c3ff64ad3da48ad802e14b2c7
-Windows binary: 1e9fff1aa2ccd9acf681cfe366d8686340277efddd3dee5eeaf76b25cc17ff06
-Linux tar.gz:   23ef517d33d4e2ccb238aa9e2bb6b521faddc5f2a9b880c97cdc5b3259dae702
-Windows zip:    1ef5f579a3d25051ba0948b23c67cdb6370ce51c6da59e45e5ff07f058433ba4
+Linux binary:   367a47cea6d8c0062806c0abe24b0eecf170850138b857f9bfd8075cbb90afe1
+Windows binary: 49711d85941fd385848de8e87f8a819a872eee757f8f9d70ed201d7f9f6a3982
+Linux tar.gz:   2f3bfe36fba95269d008978817e386e3c4ce13eaaa63fd506b94d38a47a740d3
+Windows zip:    3e9bced39a1362e10e9fbc868c8ab9e2b713ff650452e9291f024d9e1b716e84
 ```
 
 ## Requirement comparison

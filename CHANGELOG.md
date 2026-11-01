@@ -11,6 +11,7 @@
 - Added `cancel` control messages keyed by request id.
 - Added immediate `queue_full` and `duplicate_request` responses.
 - Added structured cancellation responses and real slow-provider tests.
+- Added secret-safe `providers` configuration inspection.
 
 ## 0.7.0 - 2026-11-01
 
