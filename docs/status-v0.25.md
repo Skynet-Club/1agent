@@ -33,6 +33,29 @@ Status: explicit development/production release policy implemented
 | Stale pre-retirement snapshot rejection | passed |
 | Unit tests | 66 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: f1fd89b329da3177df12262bc4cc5cbd2a5fb028
+git dirty: false
+
+Linux binary:
+a2202a7f457493be595a302e16b421a15ca0e529dc40bc918ffeb697102e43cf
+
+Windows binary:
+9f40eb314f90e313aa13cb6e2dcaee13cc7b8f40c62e2692fc0fa82753ee7fc0
+
+Linux tar.gz:
+9f2f557ac77d92988ed65d897d0087c06b6e682a3ed27c36075c9d53535e3645
+
+Windows zip:
+df67c4da0ddcd58873bc3045d653d7df8401336e3874efda3c94aed88798e882
+
+Release manifest:
+0c726080566bcd847254718024141b57687da56eaf2368277b724c9e80a2c003
+```
 
 ## Actual CLI scenario
 
