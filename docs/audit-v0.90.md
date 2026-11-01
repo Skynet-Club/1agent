@@ -25,6 +25,8 @@ Date: 2026-11-02
 | Release manifest and Linux provenance | passed |
 | Historical manifests v0.71–v0.90 | all verified |
 | Packaged Linux binary smoke | passed |
+| Git object integrity | passed |
+| Locked dependency metadata | passed |
 
 The packaged binary reported `1agent 0.90.0`, executed the six-case core suite at 6/6, and
 re-inspected its content-bound, integrity-checked, unauthenticated report summary successfully.
