@@ -28,6 +28,29 @@ Status: OpenAI-compatible response normalization implemented
 | Duplicate call IDs | rejected by implementation |
 | Unit tests | 78 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: efb600573a987cbb216bfe7c5afdfeb4ededc9b8
+git dirty: false
+
+Linux binary:
+0a352438ca981d609e298f313822fd1e4ee548b8b0cc56827d7cd85debf9dbe9
+
+Windows binary:
+c7ae723e7e4cdb234f9d58a2fe067adb984e07fae8480695d4831c74f8e9f21a
+
+Linux tar.gz:
+4cc8dca66221d1ff944c780505c48f4ba0fef1e8907a7571b7702371b73bc108
+
+Windows zip:
+d5980ae91ce7dce0d15f7e1de11364ef39cc3cb99e52bfb7997cdf2e6f85ce2d
+
+Release manifest:
+7f7cc5e7dbadba5d82f35b5e92c107cc8fb16020995e3f8a746425bd9b8d0343
+```
 
 ## Known limitations
 
