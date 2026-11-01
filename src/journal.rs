@@ -137,6 +137,7 @@ pub struct JournalAudit {
     pub event_count: usize,
     pub run_id: Option<Uuid>,
     pub terminal_reason: Option<StopReason>,
+    pub answer_schema_version: Option<u32>,
     pub unresolved_tool_calls: Vec<String>,
     pub issues: Vec<String>,
 }
@@ -516,6 +517,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
         event_count: events.len(),
         run_id,
         terminal_reason,
+        answer_schema_version: answer.as_ref().map(|answer| answer.schema_version),
         unresolved_tool_calls,
         issues,
     }
@@ -709,6 +711,7 @@ mod tests {
 
     fn answer() -> AgentAnswer {
         AgentAnswer {
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
             claims: Vec::new(),
@@ -769,6 +772,10 @@ mod tests {
         let events = read_events(&path).unwrap();
         let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
+        assert_eq!(
+            audit.answer_schema_version,
+            Some(crate::domain::ANSWER_SCHEMA_VERSION)
+        );
         assert_eq!(
             find_resumable_prefix(&events),
             Err(ResumeError::AlreadyTerminal)
@@ -916,6 +923,7 @@ mod tests {
                 timestamp_unix_ms: 0,
                 event: JournalEventKind::AnswerProduced {
                     answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "done".into(),
                         claims: Vec::new(),
@@ -952,6 +960,105 @@ mod tests {
                 .issues
                 .iter()
                 .any(|issue| issue.contains("unknown claim id 'missing'"))
+        );
+    }
+
+    #[test]
+    fn legacy_journal_answer_defaults_to_schema_version_one() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let events: Vec<JournalEvent> = serde_json::from_value(serde_json::json!([
+            {
+                "schema_version": PROTOCOL_VERSION,
+                "run_id": run_id,
+                "seq": 0,
+                "timestamp_unix_ms": 0,
+                "event": {
+                    "type": "run_started",
+                    "data": {"request": request, "mode": "direct_answer"}
+                }
+            },
+            {
+                "schema_version": PROTOCOL_VERSION,
+                "run_id": run_id,
+                "seq": 1,
+                "timestamp_unix_ms": 0,
+                "event": {
+                    "type": "answer_produced",
+                    "data": {
+                        "answer": {
+                            "status": "completed",
+                            "conclusion": "legacy answer"
+                        }
+                    }
+                }
+            },
+            {
+                "schema_version": PROTOCOL_VERSION,
+                "run_id": run_id,
+                "seq": 2,
+                "timestamp_unix_ms": 0,
+                "event": {"type": "run_stopped", "data": {"reason": "completed"}}
+            }
+        ]))
+        .unwrap();
+
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+        assert_eq!(
+            audit.answer_schema_version,
+            Some(crate::domain::ANSWER_SCHEMA_VERSION)
+        );
+    }
+
+    #[test]
+    fn audit_rejects_unsupported_answer_schema_version() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let mut unsupported = answer();
+        unsupported.schema_version = crate::domain::ANSWER_SCHEMA_VERSION + 1;
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::AnswerProduced {
+                    answer: unsupported,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::Completed,
+                },
+            },
+        ];
+
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        assert_eq!(
+            audit.answer_schema_version,
+            Some(crate::domain::ANSWER_SCHEMA_VERSION + 1)
+        );
+        assert!(
+            audit
+                .issues
+                .iter()
+                .any(|issue| issue.contains("unsupported answer schema version"))
         );
     }
 

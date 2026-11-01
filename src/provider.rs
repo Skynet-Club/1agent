@@ -125,6 +125,7 @@ Rules:
 
 Return only one JSON object matching this shape:
 {
+  "schema_version": 1,
   "status": "completed" | "conditional" | "needs_evidence" | "needs_authorization" | "failed",
   "conclusion": "string",
   "claims": [{"id":"string","text":"string","status":"verified|user_asserted|derived|assumed|model_prior|conflicting|unknown","sources":["string"],"scope":"string|null"}],
@@ -458,6 +459,7 @@ impl ModelProvider for DeterministicProvider {
                 Vec::new()
             };
             let answer = AgentAnswer {
+                schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                 status,
                 conclusion: if observation.status == ToolStatus::Ok {
                     format!("已读取证据源：{}", observation.summary)
@@ -555,6 +557,7 @@ impl ModelProvider for DeterministicProvider {
         }
 
         let answer = AgentAnswer {
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::NeedsEvidence,
             conclusion: "当前离线 Provider 不对自然语言任务作可靠性判断；请配置推理 Provider，或使用 @read-file:<path> 验证只读证据链路。".into(),
             claims: Vec::new(),
@@ -1039,6 +1042,7 @@ mod tests {
             } else {
                 ModelTurn::Final {
                     answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "tool conformance complete".into(),
                         claims: Vec::new(),

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u32 = 1;
+pub const ANSWER_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -295,6 +296,8 @@ impl From<String> for AssumptionItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentAnswer {
+    #[serde(default = "default_answer_schema_version")]
+    pub schema_version: u32,
     pub status: AnswerStatus,
     pub conclusion: String,
     #[serde(default)]
@@ -317,6 +320,9 @@ pub struct AgentAnswer {
 
 impl AgentAnswer {
     pub fn validate(&self, request: &TaskRequest) -> Result<(), AnswerValidationError> {
+        if self.schema_version != ANSWER_SCHEMA_VERSION {
+            return Err(AnswerValidationError::UnsupportedAnswerVersion);
+        }
         if self.conclusion.trim().is_empty() {
             return Err(AnswerValidationError::EmptyConclusion);
         }
@@ -578,6 +584,8 @@ impl AgentAnswer {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum AnswerValidationError {
+    #[error("unsupported answer schema version")]
+    UnsupportedAnswerVersion,
     #[error("answer conclusion must not be empty")]
     EmptyConclusion,
     #[error("read-only task reported an external action receipt")]
@@ -637,6 +645,10 @@ pub enum AnswerValidationError {
     MissingEvidenceTimestamp(String),
     #[error("evidence '{0}' exceeds the task freshness limit")]
     StaleEvidenceForPolicy(String),
+}
+
+fn default_answer_schema_version() -> u32 {
+    ANSWER_SCHEMA_VERSION
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -910,9 +922,43 @@ mod tests {
     }
 
     #[test]
+    fn answer_schema_version_is_explicit_and_legacy_json_is_version_one() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+            "status": "completed",
+            "conclusion": "legacy answer",
+        }))
+        .unwrap();
+
+        assert_eq!(answer.schema_version, ANSWER_SCHEMA_VERSION);
+        answer.validate(&request).unwrap();
+        let serialized = serde_json::to_value(answer).unwrap();
+        assert_eq!(serialized["schema_version"], ANSWER_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn unsupported_answer_schema_version_fails_closed() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let mut answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+            "schema_version": ANSWER_SCHEMA_VERSION + 1,
+            "status": "completed",
+            "conclusion": "future answer",
+        }))
+        .unwrap();
+
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::UnsupportedAnswerVersion)
+        );
+        answer.schema_version = ANSWER_SCHEMA_VERSION;
+        answer.validate(&request).unwrap();
+    }
+
+    #[test]
     fn read_only_answer_rejects_action_receipts() {
         let request = TaskRequest::from_objective("answer", PathBuf::from("."));
         let answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "done".into(),
             claims: Vec::new(),
@@ -935,6 +981,7 @@ mod tests {
     fn evidence_must_reference_a_declared_claim() {
         let request = TaskRequest::from_objective("answer", PathBuf::from("."));
         let answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "done".into(),
             claims: Vec::new(),
@@ -988,6 +1035,7 @@ mod tests {
             scope: None,
         };
         let mut answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
             claims: vec![claim.clone()],
@@ -1046,6 +1094,7 @@ mod tests {
             scope: None,
         };
         let mut answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
             claims: vec![claim],
@@ -1085,6 +1134,7 @@ mod tests {
     fn high_impact_unknown_requires_reduction_method() {
         let request = TaskRequest::from_objective("answer", PathBuf::from("."));
         let mut answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::NeedsEvidence,
             conclusion: "need evidence".into(),
             claims: Vec::new(),
@@ -1163,6 +1213,7 @@ mod tests {
             },
         ];
         let mut answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Conditional,
             conclusion: "conflict".into(),
             claims,
@@ -1209,6 +1260,7 @@ mod tests {
         let mut request = TaskRequest::from_objective("answer", PathBuf::from("."));
         request.evidence_max_age_ms = Some(1_000);
         let mut answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
             claims: vec![Claim {

@@ -741,6 +741,7 @@ mod tests {
         journal
             .append(JournalEventKind::AnswerProduced {
                 answer: AgentAnswer {
+                    schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: crate::domain::AnswerStatus::Completed,
                     conclusion: "done".into(),
                     claims: Vec::new(),

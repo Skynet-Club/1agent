@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.53.0 - 2026-11-02
+
+- Added an explicit schema version to structured agent answers.
+- Preserved decoding of legacy unversioned answers as schema version 1.
+- Rejected unsupported future answer schema versions before semantic validation.
+- Exposed the answer schema version in journal audit reports.
+- Updated provider and fixture contracts to emit versioned answers.
+- Added legacy migration and fail-closed version tests.
+
 ## 0.52.0 - 2026-11-02
 
 - Added optional observation and expiration timestamps to evidence.

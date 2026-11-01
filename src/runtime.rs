@@ -848,6 +848,7 @@ fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
 
 fn authorization_answer() -> crate::domain::AgentAnswer {
     crate::domain::AgentAnswer {
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::NeedsAuthorization,
         conclusion: "当前任务被识别为执行操作，但 V0 默认只读；未执行任何外部动作。".into(),
         claims: Vec::new(),
@@ -871,6 +872,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
 
 fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
     crate::domain::AgentAnswer {
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::NeedsEvidence,
         conclusion: format!("本轮未形成可验证结论：{reason}。"),
         claims: Vec::new(),

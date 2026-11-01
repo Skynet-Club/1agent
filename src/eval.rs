@@ -818,6 +818,7 @@ mod tests {
 
             let answer = if let Some(observation) = Self::latest_observation(&request.messages) {
                 AgentAnswer {
+                    schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Completed,
                     conclusion: format!("verified after observation: {}", observation.summary),
                     claims: vec![Claim {
@@ -847,6 +848,7 @@ mod tests {
                 .any(|message| message.content.contains("conflict-marker"))
             {
                 AgentAnswer {
+                    schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Conditional,
                     conclusion: "sources conflict; result is conditional".into(),
                     claims: vec![
@@ -905,6 +907,7 @@ mod tests {
                 }
             } else {
                 AgentAnswer {
+                    schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Conditional,
                     conclusion: "decision is conditional on cost".into(),
                     claims: vec![Claim {
@@ -1147,6 +1150,7 @@ mod tests {
             });
             let answer = if guided {
                 AgentAnswer {
+                    schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Completed,
                     conclusion: "guided answer".into(),
                     claims: vec![Claim {
@@ -1166,6 +1170,7 @@ mod tests {
                 }
             } else {
                 AgentAnswer {
+                    schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::NeedsEvidence,
                     conclusion: "baseline answer".into(),
                     claims: Vec::new(),

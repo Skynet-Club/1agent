@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.52.0` is an executable V0 vertical slice:
+Version `0.53.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -70,10 +70,11 @@ Version `0.52.0` is an executable V0 vertical slice:
 - explicit unresolved/resolved conflict records with evidence-bound resolution;
 - resolution sources bound to conflict-side or explicit resolution claims;
 - freshness-aware evidence with expiration and task staleness policies;
+- explicit versioned answers with legacy v1 decoding and fail-closed future versions;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.52.md`](docs/status-v0.52.md).
+[`docs/status-v0.53.md`](docs/status-v0.53.md).
 
 Current V0 assumptions:
 

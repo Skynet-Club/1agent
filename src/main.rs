@@ -678,10 +678,11 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&audit)?);
             } else if audit.ok {
                 println!(
-                    "审计通过：{} 个事件，run_id={}，终止原因={:?}",
+                    "审计通过：{} 个事件，run_id={}，终止原因={:?}，答案契约={:?}",
                     audit.event_count,
                     audit.run_id.map(|id| id.to_string()).unwrap_or_default(),
-                    audit.terminal_reason
+                    audit.terminal_reason,
+                    audit.answer_schema_version
                 );
             } else {
                 println!("审计失败：");
