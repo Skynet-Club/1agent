@@ -107,6 +107,8 @@ Version `0.85.0` is an executable V0 vertical slice:
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
 [`docs/status-v0.85.md`](docs/status-v0.85.md).
+The evidence plan required before expanding autonomy is in
+[`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
 
 Current V0 assumptions:
 
