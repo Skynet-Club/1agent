@@ -46,7 +46,21 @@ It is generated only after report policy and integrity validation succeeds.
 | full report compatibility | passed |
 | integrity gate preserved | passed |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `34ae92b75a9fa4e7b778568363923348e499e44f`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `f4488a9972e8214c962e5066385ed1aaab8ace5570a02f5205495348bc219174` |
+| Windows `zip` | `563e102e1edf32e58d2d5fbefb1e753e24c50c068e2a2468f31e81032dec9529` |
+| Release manifest | `b470b5cfff97d56d678e2cae1f97ce8e55ad13a8f667d98b03b45de439e22b88` |
+| Linux binary | `e7b0565c0f1bb6dec2fc124b759e544aad35485f14c1225b979e77092419c67d` |
+| Windows binary | `5a9c52b519b5f574b30801724284fff035e7b334334a65a3498671841ae77fdf` |
 
 ## Known limitations
 
