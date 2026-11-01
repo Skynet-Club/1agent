@@ -14,6 +14,7 @@ v0.86.0 are tagged, documented and backed by reproducible Linux/Windows packages
 | `cargo fmt --check` | passed |
 | Clippy with `-D warnings` | passed |
 | Unit tests | 123 passed |
+| Release-profile tests | 123 unit + all E2E passed |
 | Offline integration / CLI E2E | passed |
 | Core contract evaluation | 6/6 passed |
 | Core hard-gate failures | 0 |
