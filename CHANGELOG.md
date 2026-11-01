@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.33.0 - 2026-11-02
+
+- Added `RoutePlanned` journal events with ranked and rejected candidates.
+- Journaled objective, latency-budget and unit-cost budget value sources.
+- Extended replay state and CLI replay output to recover route plans and policy sources.
+- Added audit rejection when an executed route is absent from its preceding route plan.
+- Preserved old journals that contain no route-plan event.
+- Added runtime replay and negative route-selection audit coverage.
+
 ## 0.32.0 - 2026-11-02
 
 - Added provider p95 latency and unit-cost limits to run budgets.

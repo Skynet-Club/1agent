@@ -17,7 +17,10 @@ use crate::journal::{
     Journal, JournalEventKind, ResumablePrefix, find_resumable_prefix, read_events,
 };
 use crate::provider::{ModelProvider, ProviderError, agent_system_prompt};
-use crate::router::{PrivacyClass, ProviderManifest, RouteObjective, RouteRequest, Router};
+use crate::router::{
+    PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
+    RouteRequest, Router,
+};
 use crate::tools::ToolRegistry;
 
 #[derive(Clone)]
@@ -35,6 +38,7 @@ pub struct AgentRuntime {
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
     route_objective: RouteObjective,
+    route_policy_sources: RoutePolicySources,
 }
 
 impl AgentRuntime {
@@ -57,11 +61,21 @@ impl AgentRuntime {
             experience_dir: None,
             shadow_experience: Vec::new(),
             route_objective: RouteObjective::Quality,
+            route_policy_sources: RoutePolicySources {
+                objective: PolicyValueSource::RuntimeDefault,
+                latency_budget: PolicyValueSource::Unset,
+                unit_cost_budget: PolicyValueSource::Unset,
+            },
         }
     }
 
     pub fn with_route_objective(mut self, objective: RouteObjective) -> Self {
         self.route_objective = objective;
+        self
+    }
+
+    pub fn with_route_policy_sources(mut self, sources: RoutePolicySources) -> Self {
+        self.route_policy_sources = sources;
         self
     }
 
@@ -214,7 +228,34 @@ impl AgentRuntime {
             max_provider_p95_latency_ms: request.budget.max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
         };
-        let routes = self.router.rank(&route_request);
+        let route_plan = self.router.plan(&route_request);
+        let mut route_policy_sources = self.route_policy_sources.clone();
+        if route_policy_sources.latency_budget == PolicyValueSource::Unset {
+            route_policy_sources.latency_budget =
+                if request.budget.max_provider_p95_latency_ms.is_some() {
+                    PolicyValueSource::TaskRequest
+                } else {
+                    PolicyValueSource::Unset
+                };
+        }
+        if route_policy_sources.unit_cost_budget == PolicyValueSource::Unset {
+            route_policy_sources.unit_cost_budget =
+                if request.budget.max_unit_cost_micros_per_k.is_some() {
+                    PolicyValueSource::TaskRequest
+                } else {
+                    PolicyValueSource::Unset
+                };
+        }
+        journal
+            .append(JournalEventKind::RoutePlanned {
+                plan: route_plan.clone(),
+                sources: route_policy_sources,
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let routes = route_plan.ranked;
         if routes.is_empty() {
             return Err(RuntimeError::NoRoute {
                 path: journal_path.clone(),
@@ -876,7 +917,7 @@ mod tests {
     use crate::experience::{
         ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
     };
-    use crate::journal::{audit_events, read_events};
+    use crate::journal::{audit_events, read_events, replay_events};
     use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
     use crate::tools::default_registry;
     use async_trait::async_trait;
@@ -950,6 +991,16 @@ mod tests {
         let events = read_events(&result.journal_path).unwrap();
         let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
+        let planned = events.iter().find_map(|event| match &event.event {
+            JournalEventKind::RoutePlanned { plan, sources } => Some((plan, sources)),
+            _ => None,
+        });
+        let (plan, sources) = planned.expect("route plan should be journaled");
+        assert_eq!(plan.ranked.len(), 1);
+        assert_eq!(sources.objective, PolicyValueSource::RuntimeDefault);
+        let replay = replay_events(&events).unwrap();
+        assert_eq!(replay.route_plan.as_ref(), Some(plan));
+        assert_eq!(replay.route_policy_sources.as_ref(), Some(sources));
     }
 
     #[tokio::test]

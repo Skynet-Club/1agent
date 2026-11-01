@@ -71,6 +71,24 @@ pub enum RouteRejectionReason {
     UnitCostExceeded,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyValueSource {
+    #[default]
+    Unset,
+    RuntimeDefault,
+    TaskRequest,
+    CliOverride,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RoutePolicySources {
+    pub objective: PolicyValueSource,
+    pub latency_budget: PolicyValueSource,
+    pub unit_cost_budget: PolicyValueSource,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RejectedRoute {

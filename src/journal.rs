@@ -10,6 +10,7 @@ use crate::domain::{
     AgentAnswer, CognitiveMode, InjectedExperience, ModelRequest, ModelResponse, PROTOCOL_VERSION,
     RuntimeCheckpoint, StopReason, TaskRequest, ToolCall, ToolObservation,
 };
+use crate::router::{RoutePlan, RoutePolicySources};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +42,10 @@ pub enum JournalEventKind {
         provider_id: String,
         model: String,
         reason: String,
+    },
+    RoutePlanned {
+        plan: RoutePlan,
+        sources: RoutePolicySources,
     },
     ModelRequested {
         request: ModelRequest,
@@ -140,6 +145,8 @@ pub struct ReplayState {
     pub mode: Option<CognitiveMode>,
     pub provider_id: Option<String>,
     pub model: Option<String>,
+    pub route_plan: Option<RoutePlan>,
+    pub route_policy_sources: Option<RoutePolicySources>,
     pub answer: Option<AgentAnswer>,
     pub stop_reason: Option<StopReason>,
     pub tool_calls: Vec<ToolCall>,
@@ -284,6 +291,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
     let mut terminal_reason = None;
     let mut request = None;
     let mut answer = None;
+    let mut current_route_plan: Option<RoutePlan> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
@@ -324,6 +332,23 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                     issues.push(format!(
                         "event {index}: duplicate observation for {}",
                         observation.call_id
+                    ));
+                }
+            }
+            JournalEventKind::RoutePlanned { plan, .. } => {
+                current_route_plan = Some(plan.clone());
+            }
+            JournalEventKind::RouteSelected {
+                provider_id, model, ..
+            } => {
+                if let Some(plan) = &current_route_plan
+                    && !plan.ranked.iter().any(|candidate| {
+                        candidate.manifest.provider_id == *provider_id
+                            && candidate.manifest.model == *model
+                    })
+                {
+                    issues.push(format!(
+                        "event {index}: selected route {provider_id}/{model} is not in the route plan"
                     ));
                 }
             }
@@ -409,6 +434,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         mode: None,
         provider_id: None,
         model: None,
+        route_plan: None,
+        route_policy_sources: None,
         answer: None,
         stop_reason: None,
         tool_calls: Vec::new(),
@@ -440,6 +467,10 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             } => {
                 state.provider_id = Some(provider_id.clone());
                 state.model = Some(model.clone());
+            }
+            JournalEventKind::RoutePlanned { plan, sources } => {
+                state.route_plan = Some(plan.clone());
+                state.route_policy_sources = Some(sources.clone());
             }
             JournalEventKind::ToolCalled { call } => state.tool_calls.push(call.clone()),
             JournalEventKind::ToolObserved { observation } => {
@@ -568,6 +599,9 @@ pub enum ResumeError {
 mod tests {
     use super::*;
     use crate::domain::{AnswerStatus, ToolStatus};
+    use crate::router::{
+        PolicyValueSource, RouteObjective, RoutePlan, RoutePolicySources, RouteRequest,
+    };
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -674,6 +708,87 @@ mod tests {
         assert!(!audit.ok);
         assert_eq!(audit.unresolved_tool_calls, vec!["call-1"]);
         assert!(audit.terminal_reason.is_none());
+    }
+
+    #[test]
+    fn audit_rejects_route_selection_outside_the_plan() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let plan = RoutePlan {
+            request: RouteRequest {
+                mode: CognitiveMode::DirectAnswer,
+                risk: crate::domain::RiskLevel::Low,
+                requires_tools: false,
+                requires_structured_output: true,
+                allow_remote: false,
+                objective: RouteObjective::Quality,
+                max_provider_p95_latency_ms: None,
+                max_unit_cost_micros_per_k: None,
+            },
+            ranked: Vec::new(),
+            rejected: Vec::new(),
+        };
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RoutePlanned {
+                    plan,
+                    sources: RoutePolicySources {
+                        objective: PolicyValueSource::RuntimeDefault,
+                        latency_budget: PolicyValueSource::Unset,
+                        unit_cost_budget: PolicyValueSource::Unset,
+                    },
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RouteSelected {
+                    provider_id: "unplanned".into(),
+                    model: "model".into(),
+                    reason: "tampered".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 3,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::AnswerProduced { answer: answer() },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 4,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::Completed,
+                },
+            },
+        ];
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        assert!(
+            audit
+                .issues
+                .iter()
+                .any(|issue| issue.contains("is not in the route plan"))
+        );
     }
 
     #[test]

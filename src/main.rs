@@ -9,10 +9,11 @@ use first_principles_agent::{
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
-    OpenAiCompatibleProvider, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective,
-    RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest,
-    audit_events, build_release_verification_report, collect_provenance, collect_release_manifest,
+    OpenAiCompatibleProvider, PolicyValueSource, ProviderAdapter, ProviderCandidate,
+    ProviderProbeReport, ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy,
+    ReleasePolicyMode, RouteObjective, RoutePolicySources, RouteRequest, Router, RunBudget,
+    RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
+    build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
     infer_mode, load_suite, local_manifest, probe_provider, probe_provider_tools, read_events,
     rebuild_and_compare, remote_manifest, replay_events, risk_for_mode, run_suite_with_providers,
@@ -76,8 +77,8 @@ enum Command {
         max_provider_p95_latency_ms: Option<u64>,
         #[arg(long)]
         max_unit_cost_micros_per_k: Option<u64>,
-        #[arg(long, default_value = "quality")]
-        route_objective: String,
+        #[arg(long)]
+        route_objective: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -152,8 +153,8 @@ enum Command {
         max_provider_p95_latency_ms: Option<u64>,
         #[arg(long)]
         max_unit_cost_micros_per_k: Option<u64>,
-        #[arg(long, default_value = "quality")]
-        route_objective: String,
+        #[arg(long)]
+        route_objective: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -203,8 +204,8 @@ enum Command {
         journal_dir: PathBuf,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
-        #[arg(long, default_value = "quality")]
-        route_objective: String,
+        #[arg(long)]
+        route_objective: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -578,13 +579,31 @@ async fn main() -> Result<()> {
             json,
         } => {
             let mut request = load_request(task, input)?;
+            let task_latency_budget = request.budget.max_provider_p95_latency_ms;
+            let task_unit_cost_budget = request.budget.max_unit_cost_micros_per_k;
+            let effective_latency_budget = max_provider_p95_latency_ms.or(task_latency_budget);
+            let effective_unit_cost_budget = max_unit_cost_micros_per_k.or(task_unit_cost_budget);
+            let latency_budget_source = if max_provider_p95_latency_ms.is_some() {
+                PolicyValueSource::CliOverride
+            } else if task_latency_budget.is_some() {
+                PolicyValueSource::TaskRequest
+            } else {
+                PolicyValueSource::Unset
+            };
+            let unit_cost_budget_source = if max_unit_cost_micros_per_k.is_some() {
+                PolicyValueSource::CliOverride
+            } else if task_unit_cost_budget.is_some() {
+                PolicyValueSource::TaskRequest
+            } else {
+                PolicyValueSource::Unset
+            };
             request.budget = RunBudget {
                 max_steps,
                 max_tool_calls,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
                 max_context_chars,
-                max_provider_p95_latency_ms,
-                max_unit_cost_micros_per_k,
+                max_provider_p95_latency_ms: effective_latency_budget,
+                max_unit_cost_micros_per_k: effective_unit_cost_budget,
             };
             request.permissions.allow_network = allow_network;
             if experience_scope.is_some() {
@@ -606,8 +625,15 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
+            let (objective, objective_source) =
+                resolve_route_objective(route_objective.as_deref())?;
             let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
-                .with_route_objective(parse_route_objective(&route_objective)?);
+                .with_route_objective(objective)
+                .with_route_policy_sources(RoutePolicySources {
+                    objective: objective_source,
+                    latency_budget: latency_budget_source,
+                    unit_cost_budget: unit_cost_budget_source,
+                });
             if let Some(experience_dir) = experience_dir {
                 runtime = runtime.with_experience_dir(experience_dir);
             }
@@ -1038,6 +1064,20 @@ async fn main() -> Result<()> {
             json,
         } => {
             let mut request = load_request(task, input)?;
+            let latency_budget_source = if max_provider_p95_latency_ms.is_some() {
+                PolicyValueSource::CliOverride
+            } else if request.budget.max_provider_p95_latency_ms.is_some() {
+                PolicyValueSource::TaskRequest
+            } else {
+                PolicyValueSource::Unset
+            };
+            let unit_cost_budget_source = if max_unit_cost_micros_per_k.is_some() {
+                PolicyValueSource::CliOverride
+            } else if request.budget.max_unit_cost_micros_per_k.is_some() {
+                PolicyValueSource::TaskRequest
+            } else {
+                PolicyValueSource::Unset
+            };
             if max_provider_p95_latency_ms.is_some() {
                 request.budget.max_provider_p95_latency_ms = max_provider_p95_latency_ms;
             }
@@ -1048,7 +1088,13 @@ async fn main() -> Result<()> {
             let manifests = config.manifests()?;
             let readiness = config.inspect_readiness()?;
             let mode = infer_mode(&request);
-            let objective = parse_route_objective(&route_objective)?;
+            let (objective, objective_source) =
+                resolve_route_objective(route_objective.as_deref())?;
+            let policy_sources = RoutePolicySources {
+                objective: objective_source,
+                latency_budget: latency_budget_source,
+                unit_cost_budget: unit_cost_budget_source,
+            };
             let plan = Router::new(manifests).plan(&RouteRequest {
                 mode,
                 risk: risk_for_mode(mode),
@@ -1063,6 +1109,8 @@ async fn main() -> Result<()> {
                 "schema_version": 1,
                 "mode": mode,
                 "route_objective": objective,
+                "objective_source": objective_source,
+                "policy_sources": policy_sources,
                 "plan": plan,
                 "readiness": readiness,
             });
@@ -1157,8 +1205,15 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
+            let (objective, objective_source) =
+                resolve_route_objective(route_objective.as_deref())?;
             let runtime = AgentRuntime::new(candidates, tools, journal_dir)
-                .with_route_objective(parse_route_objective(&route_objective)?);
+                .with_route_objective(objective)
+                .with_route_policy_sources(RoutePolicySources {
+                    objective: objective_source,
+                    latency_budget: PolicyValueSource::Unset,
+                    unit_cost_budget: PolicyValueSource::Unset,
+                });
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
             tokio::spawn(async move {
@@ -1909,6 +1964,16 @@ fn parse_route_objective(value: &str) -> Result<RouteObjective> {
         other => {
             bail!("unsupported route objective '{other}'; use quality, balanced, latency or cost")
         }
+    }
+}
+
+fn resolve_route_objective(value: Option<&str>) -> Result<(RouteObjective, PolicyValueSource)> {
+    match value {
+        Some(value) => Ok((
+            parse_route_objective(value)?,
+            PolicyValueSource::CliOverride,
+        )),
+        None => Ok((RouteObjective::Quality, PolicyValueSource::RuntimeDefault)),
     }
 }
 
