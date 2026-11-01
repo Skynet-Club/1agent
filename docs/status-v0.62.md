@@ -37,8 +37,8 @@ duplicate_provider_retry_schedule
 | duplicate schedule | rejected |
 | stalled schedule | rejected |
 | cancelled schedule termination | accepted |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -46,6 +46,28 @@ duplicate_provider_retry_schedule
 - Delay timestamps are not recorded, only requested milliseconds.
 - A cancelled schedule does not record elapsed sleep time.
 - No jitter or circuit breaker exists.
+
+## Verified clean release
+
+```text
+source commit: fbf5ba1c577b4febb582aaa486efa9d2181636d3
+git dirty: false
+
+Linux binary:
+1aec8339bb46cc4945f1c5ce1d63e75d7e813ea143795ec297dde9cade153e2a
+
+Windows binary:
+2a13c25b9969ae6986e385e2c282acb3fc816e6647ca7eaf5b22545a9ac99f2a
+
+Linux tar.gz:
+aa71238b856f794a92eceaa53381ddb80b60d9906bcf1ee4c5fce9ef60fdf838
+
+Windows zip:
+4fcdb716dee5f0d198e3ddd0c58a3275aa2a0be2271cd14e3ae574610f79f9ff
+
+Release manifest:
+0f37ddf6c7492eeb814d50e3ef2c8644a7c43066cf38c3d213d2ed40223e9c2f
+```
 
 ## Next requirement
 
