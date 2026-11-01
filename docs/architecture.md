@@ -80,6 +80,7 @@ events or provider/tool contracts.
 - Execute-mode requests stop at `needs_authorization` without calling a provider.
 - Provider network access requires explicit `--allow-network`.
 - API keys are read from an environment variable or hidden CLI option and are not journaled.
+- Non-loopback provider credentials require HTTPS; plaintext HTTP is limited to loopback development.
 - Release verification fails closed on dirty source, missing artifact roles, digest drift,
   incomplete checksums, invalid approval kind, revoked keys or unanchored registry history.
 - Report inspection always validates policy compatibility and internal aggregate consistency.

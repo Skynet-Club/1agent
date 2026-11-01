@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.89.0 - 2026-11-02
+
+- Rejected bearer credentials sent to non-loopback plaintext HTTP endpoints.
+- Kept plaintext HTTP for local loopback providers without credentials.
+- Rejected empty API keys and credentials embedded in endpoint URLs.
+- Added provider-construction coverage for remote and loopback endpoints.
+
 ## 0.88.0 - 2026-11-02
 
 - Added direct decision-completeness floor status to human-readable report summaries.

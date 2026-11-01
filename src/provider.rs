@@ -644,6 +644,36 @@ impl OpenAiCompatibleProvider {
                 false,
             ));
         }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidConfiguration,
+                "base URL must not contain embedded credentials",
+                false,
+            ));
+        }
+        if api_key.as_deref().is_some_and(|key| key.trim().is_empty()) {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidConfiguration,
+                "API key must not be empty",
+                false,
+            ));
+        }
+        if api_key.is_some() && url.scheme() == "http" {
+            let host = url.host_str().unwrap_or_default();
+            let is_loopback = host.eq_ignore_ascii_case("localhost")
+                || host
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|address| address.is_loopback());
+            if !is_loopback {
+                return Err(ProviderError::new(
+                    ProviderErrorCode::InvalidConfiguration,
+                    "API credentials require HTTPS for non-loopback endpoints",
+                    false,
+                ));
+            }
+        }
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
@@ -1151,6 +1181,65 @@ mod tests {
         assert_eq!(
             strip_json_fence("```json\n{\"status\":\"completed\"}\n```"),
             "{\"status\":\"completed\"}"
+        );
+    }
+
+    #[test]
+    fn remote_bearer_credentials_require_https() {
+        let error = OpenAiCompatibleProvider::new(
+            "remote",
+            "model",
+            "http://example.com/v1",
+            Some("secret".into()),
+            Duration::from_secs(1),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.code, ProviderErrorCode::InvalidConfiguration);
+        assert!(error.message.contains("require HTTPS"));
+    }
+
+    #[test]
+    fn loopback_http_and_https_credentials_are_allowed() {
+        OpenAiCompatibleProvider::new(
+            "ollama",
+            "model",
+            "http://127.0.0.1:11434/v1",
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        OpenAiCompatibleProvider::new(
+            "remote",
+            "model",
+            "https://example.com/v1",
+            Some("secret".into()),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn empty_or_embedded_credentials_are_rejected() {
+        assert!(
+            OpenAiCompatibleProvider::new(
+                "remote",
+                "model",
+                "https://example.com/v1",
+                Some(" ".into()),
+                Duration::from_secs(1),
+            )
+            .is_err()
+        );
+        assert!(
+            OpenAiCompatibleProvider::new(
+                "remote",
+                "model",
+                "https://user:secret@example.com/v1",
+                None,
+                Duration::from_secs(1),
+            )
+            .is_err()
         );
     }
 

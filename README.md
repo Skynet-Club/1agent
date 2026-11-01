@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.88.0` is an executable V0 vertical slice:
+Version `0.89.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -106,10 +106,11 @@ Version `0.88.0` is an executable V0 vertical slice:
 - pre-inspection rejection of partial approval proofs and overflow-safe summary checks;
 - human-readable report summaries with explicit trust-state labels;
 - direct floor-pass labels in human-readable evaluation summaries;
+- HTTPS enforcement for non-loopback provider credentials;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.88.md`](docs/status-v0.88.md).
+[`docs/status-v0.89.md`](docs/status-v0.89.md).
 The evidence plan required before expanding autonomy is in
 [`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
 The latest cross-requirement audit is in [`docs/audit-v0.88.md`](docs/audit-v0.88.md).
