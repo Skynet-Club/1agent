@@ -31,8 +31,8 @@ Status: provider attempt budget and failure summaries implemented
 | Budget-exhausted audit | passed |
 | Checkpoint attempt count | passed |
 | Resume restores attempt count | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -40,6 +40,28 @@ Status: provider attempt budget and failure summaries implemented
 - No delay, backoff, jitter or circuit breaker is implemented.
 - The hard ceiling is not configurable above 16.
 - Provider failures remain provider-local rather than global routing quality signals.
+
+## Verified clean release
+
+```text
+source commit: d36df44153712451d3e629b3aa01f4340ee34ccc
+git dirty: false
+
+Linux binary:
+fbd547162fafe27cd3b6f67c31bd66f1168783e7844e25b0e63ee753419c553c
+
+Windows binary:
+ef4698069654c2441b2b3744d8e0830254b6edbdf720acb34dcc3511254ff5c8
+
+Linux tar.gz:
+8ebcec5735396c0036760a5de949deb9af57ec11eb92af2759d5d901f5a39040
+
+Windows zip:
+f62b1694887628b609a25e606dcf121a0fd4f47178beaf6e4bfa9293263e27c6
+
+Release manifest:
+59af3ff64b36fb8681da7f2ce2f8ae97648c09f6af13403e7d04cc4aaea948c6
+```
 
 ## Next requirement
 
