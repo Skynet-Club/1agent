@@ -34,7 +34,30 @@ Status: external release manifest and extracted-content verification implemented
 | Required artifact roles | 7 |
 | Unit tests | 65 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
-| Archive extraction comparison | pending release run |
+| Archive extraction comparison | passed |
+
+## Verified clean release
+
+```text
+source commit: 6e7a2f21680eeef0adca62d28a312da8af8ca221
+git dirty: false
+generated_unix_ms: 0
+
+Linux binary:
+d2c31969b587f33823c3c31efd8dec6c13328676bada9cddeb5a9d574bab6dc5
+
+Windows binary:
+d12a32e73dd1582a99c200502e49c8ff498eee8247b9528435077ea7e3b49945
+
+Linux tar.gz:
+775adc55c87602383d7d8cf52947dcbabd94dcffd14178ca711d73a6ba10a995
+
+Windows zip:
+f0b080ac7d204a89ba8cc45f7d2e4e7806f9ebe611dd047fffb29bf272ea4245
+
+Release manifest:
+f55ff53599f00e56391a80a66740ed70fa13eaa0429a94762d8bd01120427fdb
+```
 
 ## Known limitations
 
