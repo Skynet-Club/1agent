@@ -110,6 +110,7 @@ Real-model reasoning quality and full cross-platform support are not yet verifie
 [`docs/status-v0.86.md`](docs/status-v0.86.md).
 The evidence plan required before expanding autonomy is in
 [`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
+The latest cross-requirement audit is in [`docs/audit-v0.86.md`](docs/audit-v0.86.md).
 
 Current V0 assumptions:
 
