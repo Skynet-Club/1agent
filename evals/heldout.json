@@ -1,6 +1,7 @@
 {
   "name": "heldout-repository-v1",
   "suite_version": "1",
+  "kind": "contract_fixture",
   "cases": [
     {
       "id": "heldout-read-evidence",

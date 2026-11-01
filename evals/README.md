@@ -4,6 +4,9 @@ V0 evaluation is intentionally offline and deterministic. The default `core-v2` 
 six cases covering evidence success, authorization boundaries, honest refusal, file failure and
 hidden-control rejection.
 
+Suites declare a `kind`. `contract_fixture` suites validate system contracts and cannot be used as
+model-quality promotion evidence. `model_quality` requires real provider runs and reviewed tasks.
+
 | Suite | Evidence |
 |---|---|
 | Domain contract | Mode inference, answer validation, read-only action rejection |

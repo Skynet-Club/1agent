@@ -18,11 +18,22 @@ pub struct EvalSuite {
     pub name: String,
     #[serde(default = "default_suite_version")]
     pub suite_version: String,
+    #[serde(default)]
+    pub kind: EvalSuiteKind,
     pub cases: Vec<EvalCase>,
 }
 
 fn default_suite_version() -> String {
     "1".into()
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EvalSuiteKind {
+    #[default]
+    Unspecified,
+    ContractFixture,
+    ModelQuality,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +123,7 @@ pub struct EvalCaseResult {
 #[serde(deny_unknown_fields)]
 pub struct EvalReport {
     pub suite: String,
+    pub kind: EvalSuiteKind,
     pub total: usize,
     pub passed: usize,
     pub failed: usize,
@@ -142,6 +154,9 @@ pub async fn evaluate_experience_suite(
     }
     let bytes = std::fs::read(suite_path.as_ref())?;
     let suite: EvalSuite = serde_json::from_slice(&bytes)?;
+    if suite.kind == EvalSuiteKind::ContractFixture {
+        return Err(EvalError::FixtureCannotProveModelQuality);
+    }
     if suite.cases.is_empty() {
         return Err(EvalError::EmptySuite);
     }
@@ -285,6 +300,7 @@ pub async fn run_suite_with_learning(
     let rubric_passed = results.iter().map(|result| result.rubric_passed).sum();
     Ok(EvalReport {
         suite: suite.name,
+        kind: suite.kind,
         total: results.len(),
         passed,
         failed: results.len() - passed,
@@ -568,6 +584,8 @@ pub enum EvalError {
     InvalidGrouping,
     #[error("every experience evaluation case requires a non-empty experience_scope")]
     MissingExperienceScope,
+    #[error("contract fixture suites cannot be promoted as model-quality evidence")]
+    FixtureCannotProveModelQuality,
 }
 
 #[cfg(test)]
@@ -744,6 +762,7 @@ mod tests {
         let report = run_suite(EvalSuite {
             name: "test".into(),
             suite_version: "1".into(),
+            kind: EvalSuiteKind::ContractFixture,
             cases: vec![EvalCase {
                 id: "read".into(),
                 objective: "Research @read-file:\"${workspace}/evidence.txt\"".into(),
@@ -778,6 +797,7 @@ mod tests {
         let suite = EvalSuite {
             name: "fixture-reasoning-v1".into(),
             suite_version: "1".into(),
+            kind: EvalSuiteKind::ContractFixture,
             cases: vec![
                 EvalCase {
                     id: "source-conflict".into(),
@@ -962,6 +982,7 @@ mod tests {
             serde_json::to_vec_pretty(&EvalSuite {
                 name: "heldout-test".into(),
                 suite_version: "1".into(),
+                kind: EvalSuiteKind::Unspecified,
                 cases: vec![EvalCase {
                     id: "heldout-1".into(),
                     objective: "Choose the repository option".into(),
@@ -1003,6 +1024,27 @@ mod tests {
             created_unix_ms: 0,
             updated_unix_ms: 0,
         };
+        let fixture_path = workspace.path().join("fixture.json");
+        let mut fixture_suite: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&suite_path).unwrap()).unwrap();
+        fixture_suite["kind"] = serde_json::json!("contract_fixture");
+        std::fs::write(
+            &fixture_path,
+            serde_json::to_vec_pretty(&fixture_suite).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            evaluate_experience_suite(
+                &fixture_path,
+                candidate.clone(),
+                Vec::new(),
+                false,
+                "A".into(),
+                "B".into(),
+            )
+            .await,
+            Err(EvalError::FixtureCannotProveModelQuality)
+        ));
         let provider = ProviderCandidate {
             provider: std::sync::Arc::new(GuidanceAwareProvider),
             manifest: crate::router::ProviderManifest {

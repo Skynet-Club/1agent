@@ -715,8 +715,9 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!(
-                    "评测：{}，通过 {}/{}，硬门禁失败 {}，rubric {}/{}",
+                    "评测：{}（{:?}），通过 {}/{}，硬门禁失败 {}，rubric {}/{}",
                     report.suite,
+                    report.kind,
                     report.passed,
                     report.total,
                     report.hard_gate_failures,

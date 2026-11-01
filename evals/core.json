@@ -1,6 +1,7 @@
 {
   "name": "core-v2",
   "suite_version": "2",
+  "kind": "contract_fixture",
   "cases": [
     {
       "id": "read-evidence",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.45.0 - 2026-11-02
+
+- Added suite kinds: unspecified, contract fixture and model quality.
+- Displayed suite kind in JSON and text evaluation reports.
+- Marked core and shipped held-out examples as contract fixtures.
+- Prevented contract fixtures from being promoted as model-quality experience evidence.
+- Preserved compatibility for existing suites without a kind.
+
 ## 0.44.0 - 2026-11-02
 
 - Added a scripted reasoning fixture provider for evaluation-framework validation.
