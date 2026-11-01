@@ -2,7 +2,7 @@
 
 ## 0.8.0 - 2026-11-01
 
-- Added versioned JSONL stdio host protocol v2.
+- Added versioned JSONL stdio host protocol v3.
 - Added stable request IDs and structured success/error responses.
 - Added request-size, JSON and protocol-version validation.
 - Added `serve` CLI command with configured providers.
@@ -12,6 +12,7 @@
 - Added immediate `queue_full` and `duplicate_request` responses.
 - Added structured cancellation responses and real slow-provider tests.
 - Added secret-safe `providers` configuration inspection.
+- Added host `status` queries with bounded recent lifecycle history.
 
 ## 0.7.0 - 2026-11-01
 

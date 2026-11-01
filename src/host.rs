@@ -1,9 +1,12 @@
+use std::collections::{HashMap, VecDeque};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::domain::{RunResult, TaskRequest};
 
-pub const HOST_PROTOCOL_VERSION: u32 = 2;
+pub const HOST_PROTOCOL_VERSION: u32 = 3;
 pub const MAX_HOST_REQUEST_BYTES: usize = 1_048_576;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -19,6 +22,7 @@ pub struct HostRequest {
 pub enum HostAction {
     Run,
     Cancel,
+    Status,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -29,10 +33,41 @@ pub struct HostCancel {
     pub action: HostAction,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HostStatusRequest {
+    pub protocol_version: u32,
+    pub request_id: String,
+    pub action: HostAction,
+    #[serde(default)]
+    pub target_request_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostCommand {
     Run(Box<HostRequest>),
     Cancel(HostCancel),
+    Status(Box<HostStatusRequest>),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostRequestState {
+    Running,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HostStatusSnapshot {
+    pub active_requests: usize,
+    pub completed_requests: u64,
+    pub cancelled_requests: u64,
+    pub failed_requests: u64,
+    pub target_request_id: Option<String>,
+    pub target_state: Option<HostRequestState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -46,6 +81,8 @@ pub struct HostResponse {
     pub result: Option<RunResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<HostError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<HostStatusSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,22 +127,38 @@ impl HostCommand {
     pub fn parse(line: &str) -> Result<Self, HostError> {
         validate_line_size(line)?;
         let value: Value = serde_json::from_str(line).map_err(invalid_json)?;
-        if value.get("action").and_then(Value::as_str) == Some("cancel") {
-            let cancel: HostCancel = serde_json::from_value(value).map_err(invalid_json)?;
-            validate_protocol(cancel.protocol_version)?;
-            validate_request_id(&cancel.request_id)?;
-            if cancel.action != HostAction::Cancel {
-                return Err(HostError {
-                    code: "invalid_action".into(),
-                    message: "expected cancel action".into(),
-                });
+        match value.get("action").and_then(Value::as_str) {
+            Some("cancel") => {
+                let cancel: HostCancel = serde_json::from_value(value).map_err(invalid_json)?;
+                validate_protocol(cancel.protocol_version)?;
+                validate_request_id(&cancel.request_id)?;
+                if cancel.action != HostAction::Cancel {
+                    return Err(HostError {
+                        code: "invalid_action".into(),
+                        message: "expected cancel action".into(),
+                    });
+                }
+                Ok(Self::Cancel(cancel))
             }
-            Ok(Self::Cancel(cancel))
-        } else {
-            let request: HostRequest = serde_json::from_value(value).map_err(invalid_json)?;
-            validate_protocol(request.protocol_version)?;
-            validate_request_id(&request.request_id)?;
-            Ok(Self::Run(Box::new(request)))
+            Some("status") => {
+                let status: HostStatusRequest =
+                    serde_json::from_value(value).map_err(invalid_json)?;
+                validate_protocol(status.protocol_version)?;
+                validate_request_id(&status.request_id)?;
+                if status.action != HostAction::Status {
+                    return Err(HostError {
+                        code: "invalid_action".into(),
+                        message: "expected status action".into(),
+                    });
+                }
+                Ok(Self::Status(Box::new(status)))
+            }
+            _ => {
+                let request: HostRequest = serde_json::from_value(value).map_err(invalid_json)?;
+                validate_protocol(request.protocol_version)?;
+                validate_request_id(&request.request_id)?;
+                Ok(Self::Run(Box::new(request)))
+            }
         }
     }
 }
@@ -119,6 +172,7 @@ impl HostResponse {
             ok: true,
             result: Some(result),
             error: None,
+            status: None,
         }
     }
 
@@ -130,6 +184,7 @@ impl HostResponse {
             ok: false,
             result: None,
             error: Some(error),
+            status: None,
         }
     }
 
@@ -141,6 +196,7 @@ impl HostResponse {
             ok: true,
             result: None,
             error: None,
+            status: None,
         }
     }
 
@@ -152,6 +208,88 @@ impl HostResponse {
             ok: false,
             result: None,
             error: Some(error),
+            status: None,
+        }
+    }
+
+    pub fn status(request_id: impl Into<String>, status: HostStatusSnapshot) -> Self {
+        Self {
+            protocol_version: HOST_PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            action: HostAction::Status,
+            ok: true,
+            result: None,
+            error: None,
+            status: Some(status),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct HostRegistry {
+    active: HashMap<String, CancellationToken>,
+    recent: VecDeque<(String, HostRequestState)>,
+    completed: u64,
+    cancelled: u64,
+    failed: u64,
+}
+
+impl HostRegistry {
+    pub fn reserve(
+        &mut self,
+        request_id: String,
+        cancellation: CancellationToken,
+    ) -> Result<(), HostError> {
+        if self.active.contains_key(&request_id) {
+            return Err(HostError {
+                code: "duplicate_request".into(),
+                message: "request id is already active".into(),
+            });
+        }
+        self.active.insert(request_id, cancellation);
+        Ok(())
+    }
+
+    pub fn cancel(&mut self, request_id: &str) -> bool {
+        self.active
+            .get(request_id)
+            .map(CancellationToken::cancel)
+            .is_some()
+    }
+
+    pub fn finish(&mut self, request_id: &str, state: HostRequestState) {
+        self.active.remove(request_id);
+        match state {
+            HostRequestState::Completed => self.completed += 1,
+            HostRequestState::Cancelled => self.cancelled += 1,
+            HostRequestState::Failed => self.failed += 1,
+            HostRequestState::Running => return,
+        }
+        self.recent.push_back((request_id.to_string(), state));
+        while self.recent.len() > 256 {
+            self.recent.pop_front();
+        }
+    }
+
+    pub fn snapshot(&self, target_request_id: Option<&str>) -> HostStatusSnapshot {
+        let target_state = target_request_id.and_then(|target| {
+            if self.active.contains_key(target) {
+                Some(HostRequestState::Running)
+            } else {
+                self.recent
+                    .iter()
+                    .rev()
+                    .find(|(request_id, _)| request_id == target)
+                    .map(|(_, state)| *state)
+            }
+        });
+        HostStatusSnapshot {
+            active_requests: self.active.len(),
+            completed_requests: self.completed,
+            cancelled_requests: self.cancelled,
+            failed_requests: self.failed,
+            target_request_id: target_request_id.map(str::to_string),
+            target_state,
         }
     }
 }
@@ -241,7 +379,25 @@ mod tests {
                 assert_eq!(cancel.request_id, "req-1");
                 assert_eq!(cancel.action, HostAction::Cancel);
             }
-            HostCommand::Run(_) => panic!("expected cancel command"),
+            HostCommand::Run(_) | HostCommand::Status(_) => {
+                panic!("expected cancel command")
+            }
         }
+    }
+
+    #[test]
+    fn registry_tracks_active_and_terminal_requests() {
+        let mut registry = HostRegistry::default();
+        let token = CancellationToken::new();
+        registry.reserve("req-1".into(), token).unwrap();
+        let running = registry.snapshot(Some("req-1"));
+        assert_eq!(running.active_requests, 1);
+        assert_eq!(running.target_state, Some(HostRequestState::Running));
+        registry.finish("req-1", HostRequestState::Completed);
+        let completed = registry.snapshot(Some("req-1"));
+        assert_eq!(completed.active_requests, 0);
+        assert_eq!(completed.completed_requests, 1);
+        assert_eq!(completed.target_state, Some(HostRequestState::Completed));
+        assert_eq!(registry.snapshot(Some("missing")).target_state, None);
     }
 }

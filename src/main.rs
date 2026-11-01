@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,9 +6,10 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    HostCommand, HostError, HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget,
-    RuntimeError, TaskRequest, ToolRegistry, audit_events, default_registry, load_suite,
-    local_manifest, read_events, remote_manifest, replay_events, run_suite_with_providers,
+    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
+    ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
+    default_registry, load_suite, local_manifest, read_events, remote_manifest, replay_events,
+    run_suite_with_providers,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -379,10 +379,7 @@ async fn main() -> Result<()> {
             let mut lines = BufReader::new(tokio::io::stdin()).lines();
             let stdout = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
-            let active_tokens = Arc::new(tokio::sync::Mutex::new(HashMap::<
-                String,
-                CancellationToken,
-            >::new()));
+            let registry = Arc::new(tokio::sync::Mutex::new(HostRegistry::default()));
             let mut tasks = tokio::task::JoinSet::new();
             while let Some(line) = lines.next_line().await? {
                 if line.trim().is_empty() {
@@ -390,9 +387,7 @@ async fn main() -> Result<()> {
                 }
                 match HostCommand::parse(&line) {
                     Ok(HostCommand::Cancel(cancel)) => {
-                        let token = active_tokens.lock().await.get(&cancel.request_id).cloned();
-                        let response = if let Some(token) = token {
-                            token.cancel();
+                        let response = if registry.lock().await.cancel(&cancel.request_id) {
                             HostResponse::cancelled(cancel.request_id)
                         } else {
                             HostResponse::control_failure(
@@ -404,6 +399,17 @@ async fn main() -> Result<()> {
                             )
                         };
                         write_host_response(&stdout, &response).await?;
+                    }
+                    Ok(HostCommand::Status(status)) => {
+                        let snapshot = registry
+                            .lock()
+                            .await
+                            .snapshot(status.target_request_id.as_deref());
+                        write_host_response(
+                            &stdout,
+                            &HostResponse::status(status.request_id, snapshot),
+                        )
+                        .await?;
                     }
                     Ok(HostCommand::Run(request)) => {
                         let request = *request;
@@ -425,27 +431,21 @@ async fn main() -> Result<()> {
                             }
                         };
                         let request_cancellation = cancellation.child_token();
+                        if let Err(error) = registry
+                            .lock()
+                            .await
+                            .reserve(request.request_id.clone(), request_cancellation.clone())
                         {
-                            let mut tokens = active_tokens.lock().await;
-                            if tokens.contains_key(&request.request_id) {
-                                write_host_response(
-                                    &stdout,
-                                    &HostResponse::failure(
-                                        request.request_id,
-                                        HostError {
-                                            code: "duplicate_request".into(),
-                                            message: "request id is already active".into(),
-                                        },
-                                    ),
-                                )
-                                .await?;
-                                continue;
-                            }
-                            tokens.insert(request.request_id.clone(), request_cancellation.clone());
+                            write_host_response(
+                                &stdout,
+                                &HostResponse::failure(request.request_id, error),
+                            )
+                            .await?;
+                            continue;
                         }
                         let runtime = runtime.clone();
                         let stdout = stdout.clone();
-                        let active_tokens = active_tokens.clone();
+                        let registry = registry.clone();
                         tasks.spawn(async move {
                             let _permit = permit;
                             let request_id = request.request_id.clone();
@@ -467,7 +467,18 @@ async fn main() -> Result<()> {
                                         },
                                     ),
                                 };
-                            active_tokens.lock().await.remove(&request_id);
+                            let state = if response.ok {
+                                HostRequestState::Completed
+                            } else if response
+                                .error
+                                .as_ref()
+                                .is_some_and(|error| error.code == "cancelled")
+                            {
+                                HostRequestState::Cancelled
+                            } else {
+                                HostRequestState::Failed
+                            };
+                            registry.lock().await.finish(&request_id, state);
                             let _ = write_host_response(&stdout, &response).await;
                         });
                     }
