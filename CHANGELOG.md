@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0 - 2026-11-02
+
+- Added previous-snapshot digest links and snapshot self-digests.
+- Added `approval verify-chain`.
+- Added contiguous chain verification.
+- Rejected forks, out-of-order history and repeated versions.
+- Calibration now requires a valid snapshot chain ending at current registry.
+- Added fork and ordering tests.
+
 ## 0.16.0 - 2026-11-02
 
 - Added signed approval-registry snapshots.

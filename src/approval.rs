@@ -63,6 +63,10 @@ pub struct RegistrySnapshot {
     pub approver: String,
     pub key_id: String,
     pub mac_sha256: String,
+    #[serde(default)]
+    pub previous_snapshot_sha256: Option<String>,
+    #[serde(default)]
+    pub snapshot_sha256: String,
 }
 
 impl ApprovalKeyRegistry {
@@ -150,11 +154,17 @@ impl ApprovalKeyRegistry {
         approver: String,
         key_id: String,
         key: &[u8],
+        previous: Option<&RegistrySnapshot>,
     ) -> Result<RegistrySnapshot, ApprovalError> {
         validate_text(&approver)?;
         validate_text(&key_id)?;
         if key.len() < 16 {
             return Err(ApprovalError::WeakKey);
+        }
+        if let Some(previous) = previous
+            && self.version <= previous.registry_version
+        {
+            return Err(ApprovalError::RegistryVersionMismatch);
         }
         let bytes = std::fs::read(registry_path)?;
         let mut snapshot = RegistrySnapshot {
@@ -165,8 +175,11 @@ impl ApprovalKeyRegistry {
             approver,
             key_id,
             mac_sha256: String::new(),
+            previous_snapshot_sha256: previous.map(|value| value.snapshot_sha256.clone()),
+            snapshot_sha256: String::new(),
         };
         snapshot.mac_sha256 = snapshot.compute_mac(key)?;
+        snapshot.snapshot_sha256 = snapshot.compute_snapshot_digest()?;
         Ok(snapshot)
     }
 }
@@ -179,20 +192,30 @@ impl RegistrySnapshot {
         key: &[u8],
         minimum_registry_version: u64,
     ) -> Result<(), ApprovalError> {
-        if self.snapshot_version != 1 {
-            return Err(ApprovalError::UnsupportedVersion);
-        }
-        if registry.version < minimum_registry_version
-            || self.registry_version < minimum_registry_version
-        {
-            return Err(ApprovalError::RegistryRollback);
-        }
+        self.verify_integrity(key, minimum_registry_version)?;
         if self.registry_version != registry.version {
             return Err(ApprovalError::RegistryVersionMismatch);
         }
         let bytes = std::fs::read(registry_path)?;
         if hex::encode(Sha256::digest(&bytes)) != self.registry_sha256 {
             return Err(ApprovalError::ArtifactChanged);
+        }
+        Ok(())
+    }
+
+    pub fn verify_integrity(
+        &self,
+        key: &[u8],
+        minimum_registry_version: u64,
+    ) -> Result<(), ApprovalError> {
+        if self.snapshot_version != 1 {
+            return Err(ApprovalError::UnsupportedVersion);
+        }
+        if self.registry_version < minimum_registry_version {
+            return Err(ApprovalError::RegistryRollback);
+        }
+        if self.compute_snapshot_digest()? != self.snapshot_sha256 {
+            return Err(ApprovalError::InvalidSnapshotDigest);
         }
         let key = hmac::Key::new(hmac::HMAC_SHA256, key);
         hmac::verify(
@@ -218,8 +241,58 @@ impl RegistrySnapshot {
             self.approved_unix_ms,
             &self.approver,
             &self.key_id,
+            &self.previous_snapshot_sha256,
         ))?)
     }
+
+    fn compute_snapshot_digest(&self) -> Result<String, ApprovalError> {
+        Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(
+            self.snapshot_version,
+            self.registry_version,
+            &self.registry_sha256,
+            self.approved_unix_ms,
+            &self.approver,
+            &self.key_id,
+            &self.previous_snapshot_sha256,
+            &self.mac_sha256,
+        ))?)))
+    }
+}
+
+pub fn verify_snapshot_chain(
+    snapshots: &[RegistrySnapshot],
+    registry: &ApprovalKeyRegistry,
+    registry_path: impl AsRef<Path>,
+    key: &[u8],
+    minimum_registry_version: u64,
+) -> Result<(), ApprovalError> {
+    if snapshots.is_empty() {
+        return Err(ApprovalError::EmptySnapshotChain);
+    }
+    let mut previous: Option<&RegistrySnapshot> = None;
+    for snapshot in snapshots {
+        snapshot.verify_integrity(key, minimum_registry_version)?;
+        if let Some(previous) = previous {
+            if snapshot.registry_version <= previous.registry_version {
+                return Err(ApprovalError::SnapshotChainOrder);
+            }
+            if snapshot.previous_snapshot_sha256.as_deref()
+                != Some(previous.snapshot_sha256.as_str())
+            {
+                return Err(ApprovalError::SnapshotChainFork);
+            }
+        } else if snapshot.previous_snapshot_sha256.is_some() {
+            return Err(ApprovalError::SnapshotChainFork);
+        }
+        previous = Some(snapshot);
+    }
+    snapshots.last().expect("chain is non-empty").verify(
+        registry,
+        registry_path,
+        key,
+        minimum_registry_version,
+    )?;
+    Ok(())
 }
 
 impl ApprovalEnvelope {
@@ -335,6 +408,14 @@ pub enum ApprovalError {
     RegistryRollback,
     #[error("registry snapshot version does not match registry")]
     RegistryVersionMismatch,
+    #[error("registry snapshot digest is invalid")]
+    InvalidSnapshotDigest,
+    #[error("registry snapshot chain is empty")]
+    EmptySnapshotChain,
+    #[error("registry snapshot chain is out of order")]
+    SnapshotChainOrder,
+    #[error("registry snapshot chain forked")]
+    SnapshotChainFork,
 }
 
 #[cfg(test)]
@@ -438,7 +519,7 @@ mod tests {
         registry.add_active("key-1".into()).unwrap();
         registry.save(&path).unwrap();
         let snapshot = registry
-            .sign_snapshot(&path, "admin".into(), "admin-key".into(), &key())
+            .sign_snapshot(&path, "admin".into(), "admin-key".into(), &key(), None)
             .unwrap();
         snapshot.verify(&registry, &path, &key(), 1).unwrap();
         assert!(matches!(
@@ -450,6 +531,53 @@ mod tests {
         assert!(matches!(
             snapshot.verify(&registry, &path, &key(), 1),
             Err(ApprovalError::ArtifactChanged | ApprovalError::RegistryVersionMismatch)
+        ));
+    }
+
+    #[test]
+    fn snapshot_chain_rejects_fork_and_out_of_order_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("key-1".into()).unwrap();
+        registry.save(&path).unwrap();
+        let first = registry
+            .sign_snapshot(&path, "admin".into(), "admin-key".into(), &key(), None)
+            .unwrap();
+        registry.add_active("key-2".into()).unwrap();
+        registry.save(&path).unwrap();
+        let second = registry
+            .sign_snapshot(
+                &path,
+                "admin".into(),
+                "admin-key".into(),
+                &key(),
+                Some(&first),
+            )
+            .unwrap();
+        verify_snapshot_chain(
+            &[first.clone(), second.clone()],
+            &registry,
+            &path,
+            &key(),
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            verify_snapshot_chain(
+                &[second.clone(), first.clone()],
+                &registry,
+                &path,
+                &key(),
+                1
+            ),
+            Err(ApprovalError::SnapshotChainOrder | ApprovalError::SnapshotChainFork)
+        ));
+        let mut second_fork = second;
+        second_fork.previous_snapshot_sha256 = Some("f".repeat(64));
+        assert!(matches!(
+            verify_snapshot_chain(&[first, second_fork], &registry, &path, &key(), 1),
+            Err(ApprovalError::InvalidSnapshotDigest | ApprovalError::SnapshotChainFork)
         ));
     }
 }

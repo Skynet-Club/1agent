@@ -13,6 +13,7 @@ use first_principles_agent::{
     TaskRequest, ToolRegistry, audit_events, create_goldset_manifest, default_registry,
     evaluate_experience_suite, load_suite, local_manifest, read_events, remote_manifest,
     replay_events, run_suite_with_providers, scan_history, verify_goldset_manifest,
+    verify_snapshot_chain,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -293,7 +294,7 @@ enum AnnotateCommand {
         #[arg(long)]
         approval_registry: PathBuf,
         #[arg(long)]
-        registry_snapshot: PathBuf,
+        registry_snapshot: Vec<PathBuf>,
         #[arg(long)]
         registry_key_env: String,
         #[arg(long, default_value_t = 1)]
@@ -382,12 +383,24 @@ enum ApprovalCommand {
         key_id: String,
         #[arg(long)]
         key_env: String,
+        #[arg(long)]
+        previous: Option<PathBuf>,
     },
     VerifySnapshot {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
         snapshot: PathBuf,
+        #[arg(long)]
+        key_env: String,
+        #[arg(long, default_value_t = 1)]
+        min_version: u64,
+    },
+    VerifyChain {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        snapshot: Vec<PathBuf>,
         #[arg(long)]
         key_env: String,
         #[arg(long, default_value_t = 1)]
@@ -986,14 +999,21 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             .with_context(|| format!("invalid approval envelope {}", approval.display()))?;
             let approval_key = read_secret_env(&approval_key_env)?;
             let registry = ApprovalKeyRegistry::load(&approval_registry)?;
-            let snapshot: RegistrySnapshot = serde_json::from_str(
-                &std::fs::read_to_string(&registry_snapshot)
-                    .with_context(|| format!("cannot read {}", registry_snapshot.display()))?,
-            )?;
-            snapshot.verify(
+            let snapshots = registry_snapshot
+                .iter()
+                .map(|path| {
+                    let content = std::fs::read_to_string(path)
+                        .with_context(|| format!("cannot read {}", path.display()))?;
+                    serde_json::from_str::<RegistrySnapshot>(&content)
+                        .with_context(|| format!("invalid registry snapshot {}", path.display()))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let registry_key = read_secret_env(&registry_key_env)?;
+            verify_snapshot_chain(
+                &snapshots,
                 &registry,
                 &approval_registry,
-                &read_secret_env(&registry_key_env)?,
+                &registry_key,
                 min_registry_version,
             )?;
             registry.verify_approval(&envelope, &goldset, &approval_key)?;
@@ -1152,14 +1172,24 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
             approver,
             key_id,
             key_env,
+            previous,
         } => {
             let registry_value = ApprovalKeyRegistry::load(&registry)?;
             registry_value.require_active(&key_id)?;
+            let previous = previous
+                .map(|path| {
+                    let content = std::fs::read_to_string(&path)
+                        .with_context(|| format!("cannot read {}", path.display()))?;
+                    serde_json::from_str::<RegistrySnapshot>(&content)
+                        .with_context(|| format!("invalid snapshot {}", path.display()))
+                })
+                .transpose()?;
             let snapshot = registry_value.sign_snapshot(
                 &registry,
                 approver,
                 key_id,
                 &read_secret_env(&key_env)?,
+                previous.as_ref(),
             )?;
             if let Some(parent) = output.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -1185,6 +1215,31 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
                 min_version,
             )?;
             println!("registry snapshot verified");
+        }
+        ApprovalCommand::VerifyChain {
+            registry,
+            snapshot,
+            key_env,
+            min_version,
+        } => {
+            let registry_value = ApprovalKeyRegistry::load(&registry)?;
+            let snapshots = snapshot
+                .iter()
+                .map(|path| {
+                    let content = std::fs::read_to_string(path)
+                        .with_context(|| format!("cannot read {}", path.display()))?;
+                    serde_json::from_str::<RegistrySnapshot>(&content)
+                        .with_context(|| format!("invalid snapshot {}", path.display()))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            verify_snapshot_chain(
+                &snapshots,
+                &registry_value,
+                &registry,
+                &read_secret_env(&key_env)?,
+                min_version,
+            )?;
+            println!("registry snapshot chain verified");
         }
     }
     Ok(())
