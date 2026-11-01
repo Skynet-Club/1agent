@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::approval::{ApprovalEnvelope, ApprovalError, ApprovalKeyRegistry, ArtifactKind};
 use crate::provenance::{BuildProvenance, ProvenanceError, verify_provenance};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -198,6 +199,16 @@ pub fn verify_release_manifest(
     let package_root = checksums.parent().ok_or(ReleaseError::PathHasNoParent)?;
     verify_checksums_file(checksums, package_root)?;
     Ok(())
+}
+
+pub fn verify_release_approval(
+    manifest_path: impl AsRef<Path>,
+    envelope: &ApprovalEnvelope,
+    key: &[u8],
+    registry: &ApprovalKeyRegistry,
+) -> Result<(), ApprovalError> {
+    envelope.require_kind(ArtifactKind::ReleaseManifest)?;
+    registry.verify_approval(envelope, manifest_path, key)
 }
 
 fn validate_provenance_pair(
@@ -420,6 +431,7 @@ impl std::fmt::Display for ReleaseArtifactKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::approval::{ApprovalKeyStatus, ArtifactKind};
 
     fn fixture() -> (tempfile::TempDir, ReleaseManifest) {
         let root = tempfile::tempdir().unwrap();
@@ -555,6 +567,65 @@ mod tests {
         assert!(matches!(
             verify_release_manifest(&manifest, root.path()),
             Err(ReleaseError::ChecksumsIncomplete)
+        ));
+    }
+
+    #[test]
+    fn release_approval_requires_the_release_kind_and_respects_key_state() {
+        let (root, manifest) = fixture();
+        let manifest_path = root.path().join("release.json");
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let key = b"test-only-release-approval-key".to_vec();
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("release-key".into()).unwrap();
+        let envelope = ApprovalEnvelope::sign(
+            &manifest_path,
+            ArtifactKind::ReleaseManifest,
+            "release-owner".into(),
+            "approve release".into(),
+            "release-key".into(),
+            &key,
+        )
+        .unwrap();
+        verify_release_approval(&manifest_path, &envelope, &key, &registry).unwrap();
+
+        registry
+            .transition("release-key", ApprovalKeyStatus::Retired, "rotated".into())
+            .unwrap();
+        verify_release_approval(&manifest_path, &envelope, &key, &registry).unwrap();
+        assert!(matches!(
+            registry.require_active("release-key"),
+            Err(ApprovalError::KeyNotActive)
+        ));
+
+        registry
+            .transition(
+                "release-key",
+                ApprovalKeyStatus::Revoked,
+                "compromised".into(),
+            )
+            .unwrap();
+        assert!(matches!(
+            verify_release_approval(&manifest_path, &envelope, &key, &registry),
+            Err(ApprovalError::KeyRevoked)
+        ));
+
+        let wrong_kind = ApprovalEnvelope::sign(
+            &manifest_path,
+            ArtifactKind::Provenance,
+            "release-owner".into(),
+            "approve release".into(),
+            "release-key".into(),
+            &key,
+        )
+        .unwrap();
+        assert!(matches!(
+            verify_release_approval(&manifest_path, &wrong_kind, &key, &registry),
+            Err(ApprovalError::UnexpectedArtifactKind)
         ));
     }
 }

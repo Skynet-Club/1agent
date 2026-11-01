@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.23.0` is an executable V0 vertical slice:
+Version `0.24.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -41,10 +41,11 @@ Version `0.23.0` is an executable V0 vertical slice:
 - byte-identical reproducible builds under the documented remapping profile;
 - byte-identical Linux tar.gz and Windows zip archives during consecutive packages;
 - fail-closed external release manifests binding source, toolchain and seven artifacts;
+- optional HMAC approval for release manifests with registry key-state enforcement;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.23.md`](docs/status-v0.23.md).
+[`docs/status-v0.24.md`](docs/status-v0.24.md).
 
 Current V0 assumptions:
 
@@ -97,7 +98,18 @@ cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline
 ./scripts/verify.sh
 ./scripts/verify-reproducible-package.sh
-cargo run --offline -- release verify --manifest dist/1agent-0.23.0-release.json
+cargo run --offline -- release verify --manifest dist/1agent-0.24.0-release.json
+```
+
+A signed release check additionally requires the approval envelope, key environment variable and
+key registry:
+
+```bash
+cargo run --offline -- release verify \
+  --manifest dist/1agent-0.24.0-release.json \
+  --approval dist/1agent-0.24.0-release.approval.json \
+  --key-env RELEASE_APPROVAL_KEY \
+  --registry approval-registry.json
 ```
 
 The package reproducibility gate performs four complete builds and compares both archives

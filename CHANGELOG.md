@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.24.0 - 2026-11-02
+
+- Added `release_manifest` to the approval artifact taxonomy.
+- Added expected-kind checking for approval envelopes.
+- Added optional signed verification to `release verify`.
+- Enforced registry key state for signed release verification.
+- Verified retired keys can validate historical releases but cannot sign new releases.
+- Verified revoked keys and mismatched artifact kinds fail closed.
+
 ## 0.23.0 - 2026-11-02
 
 - Added strict, versioned external release manifests.

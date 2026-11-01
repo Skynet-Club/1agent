@@ -14,8 +14,8 @@ use first_principles_agent::{
     collect_release_manifest, create_goldset_manifest, create_trust_anchor, default_registry,
     evaluate_experience_suite, load_suite, local_manifest, read_events, rebuild_and_compare,
     remote_manifest, replay_events, run_suite_with_providers, scan_history,
-    verify_goldset_manifest, verify_provenance, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor,
+    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
+    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -491,6 +491,12 @@ enum ReleaseCommand {
     Verify {
         #[arg(long)]
         manifest: PathBuf,
+        #[arg(long)]
+        approval: Option<PathBuf>,
+        #[arg(long)]
+        key_env: Option<String>,
+        #[arg(long)]
+        registry: Option<PathBuf>,
     },
 }
 
@@ -1194,6 +1200,7 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
                 "experience" => ArtifactKind::Experience,
                 "evaluation_report" | "evaluation-report" => ArtifactKind::EvaluationReport,
                 "provenance" => ArtifactKind::Provenance,
+                "release_manifest" | "release-manifest" => ArtifactKind::ReleaseManifest,
                 other => bail!("unsupported artifact kind '{other}'"),
             };
             let key = read_secret_env(&key_env)?;
@@ -1458,7 +1465,12 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
             std::fs::write(&output, serde_json::to_vec_pretty(&manifest)?)?;
             println!("{}", output.display());
         }
-        ReleaseCommand::Verify { manifest } => {
+        ReleaseCommand::Verify {
+            manifest,
+            approval,
+            key_env,
+            registry,
+        } => {
             let content = std::fs::read_to_string(&manifest)
                 .with_context(|| format!("cannot read {}", manifest.display()))?;
             let manifest_value = serde_json::from_str(&content)
@@ -1467,6 +1479,23 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                 .parent()
                 .context("release manifest must have a parent directory")?;
             verify_release_manifest(&manifest_value, parent)?;
+            match (approval, key_env, registry) {
+                (Some(approval), Some(key_env), Some(registry)) => {
+                    let envelope: ApprovalEnvelope = serde_json::from_str(
+                        &std::fs::read_to_string(&approval)
+                            .with_context(|| format!("cannot read {}", approval.display()))?,
+                    )?;
+                    let registry = ApprovalKeyRegistry::load(registry)?;
+                    verify_release_approval(
+                        &manifest,
+                        &envelope,
+                        &read_secret_env(&key_env)?,
+                        &registry,
+                    )?;
+                }
+                (None, None, None) => {}
+                _ => bail!("--approval, --key-env and --registry must be provided together"),
+            }
             println!("release manifest verified");
         }
     }

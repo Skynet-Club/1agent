@@ -13,6 +13,7 @@ pub enum ArtifactKind {
     EvaluationReport,
     ApprovalRegistry,
     Provenance,
+    ReleaseManifest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -361,6 +362,13 @@ pub fn verify_snapshot_chain_with_anchor(
 }
 
 impl ApprovalEnvelope {
+    pub fn require_kind(&self, expected: ArtifactKind) -> Result<(), ApprovalError> {
+        if self.artifact_kind != expected {
+            return Err(ApprovalError::UnexpectedArtifactKind);
+        }
+        Ok(())
+    }
+
     pub fn sign(
         artifact_path: impl AsRef<Path>,
         artifact_kind: ArtifactKind,
@@ -457,6 +465,8 @@ pub enum ApprovalError {
     UnsupportedVersion,
     #[error("approval fields must not be empty")]
     InvalidApproval,
+    #[error("approval artifact kind does not match the required use")]
+    UnexpectedArtifactKind,
     #[error("artifact bytes changed after approval")]
     ArtifactChanged,
     #[error("approval MAC is invalid")]
