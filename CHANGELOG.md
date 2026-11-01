@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.80.0 - 2026-11-02
+
+- Added schema version `1` to evaluation report summaries.
+- Validated summary counts, basis-point ranges and floor status.
+- Decoded version-less version `0` summaries while normalizing new output.
+- Rejected unsupported summary versions and internally inconsistent summaries.
+- Added legacy, boundary and CLI end-to-end summary-version coverage.
+
 ## 0.79.0 - 2026-11-02
 
 - Added compact `eval-inspect --summary` output for host integrations.

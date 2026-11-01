@@ -137,6 +137,7 @@ fn cli_eval_reports_versioned_completeness_policy() {
         String::from_utf8_lossy(&summary_output.stderr)
     );
     let summary: EvalReportSummary = serde_json::from_slice(&summary_output.stdout).unwrap();
+    assert_eq!(summary.schema_version, 1);
     assert_eq!(summary.total, report.total);
     assert_eq!(summary.passed, report.passed);
     let summary_json: serde_json::Value = serde_json::from_slice(&summary_output.stdout).unwrap();

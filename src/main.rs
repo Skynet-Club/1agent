@@ -813,6 +813,7 @@ async fn main() -> Result<()> {
             let report = load_eval_report(&report)?;
             if summary {
                 let summary = EvalReportSummary::from(&report);
+                summary.validate()?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&summary)?);
                 } else {

@@ -316,6 +316,8 @@ impl EvalReport {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EvalReportSummary {
+    #[serde(default)]
+    pub schema_version: u8,
     pub suite: String,
     pub kind: EvalSuiteKind,
     pub total: usize,
@@ -330,9 +332,12 @@ pub struct EvalReportSummary {
     pub decision_completeness_policy: DecisionCompletenessPolicy,
 }
 
+pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 1;
+
 impl From<&EvalReport> for EvalReportSummary {
     fn from(report: &EvalReport) -> Self {
         Self {
+            schema_version: REPORT_SUMMARY_SCHEMA_VERSION,
             suite: report.suite.clone(),
             kind: report.kind,
             total: report.total,
@@ -346,6 +351,63 @@ impl From<&EvalReport> for EvalReportSummary {
             decision_completeness_floor_passed: report.decision_completeness_floor_passed,
             decision_completeness_policy: report.decision_completeness_policy.clone(),
         }
+    }
+}
+
+impl EvalReportSummary {
+    pub fn validate(&self) -> Result<(), EvalError> {
+        match self.schema_version {
+            0 | REPORT_SUMMARY_SCHEMA_VERSION => {}
+            version => return Err(EvalError::UnsupportedReportSummaryVersion(version)),
+        }
+        self.decision_completeness_policy.validate()?;
+        if self.passed + self.failed != self.total {
+            return Err(EvalError::InvalidReportSummary(
+                "passed and failed counts do not sum to total",
+            ));
+        }
+        if self.hard_gate_failures > self.failed {
+            return Err(EvalError::InvalidReportSummary(
+                "hard-gate failures exceed failed cases",
+            ));
+        }
+        if self.decision_completeness_cases != self.total {
+            return Err(EvalError::InvalidReportSummary(
+                "decision-completeness case count does not match total",
+            ));
+        }
+        if self.decision_completeness_ok_cases > self.decision_completeness_cases {
+            return Err(EvalError::InvalidReportSummary(
+                "decision-completeness passes exceed cases",
+            ));
+        }
+        if self.min_decision_completeness_bps > 10_000
+            || self.decision_completeness_rate_bps > 10_000
+        {
+            return Err(EvalError::InvalidReportSummary(
+                "basis-point values exceed 10000",
+            ));
+        }
+        let expected_rate = if self.decision_completeness_cases == 0 {
+            0
+        } else {
+            ((self.decision_completeness_ok_cases as u128 * 10_000)
+                / self.decision_completeness_cases as u128)
+                .min(10_000) as u16
+        };
+        if self.decision_completeness_rate_bps != expected_rate {
+            return Err(EvalError::InvalidReportSummary(
+                "decision-completeness rate does not match counts",
+            ));
+        }
+        let floor_passed =
+            self.decision_completeness_rate_bps >= self.min_decision_completeness_bps;
+        if self.decision_completeness_floor_passed != floor_passed {
+            return Err(EvalError::InvalidReportSummary(
+                "decision-completeness floor status is inconsistent",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -1030,6 +1092,10 @@ pub enum EvalError {
     UnsupportedDecisionCompletenessPolicyVersion(u8),
     #[error("evaluation report integrity violation: {0}")]
     InvalidReportIntegrity(&'static str),
+    #[error("unsupported evaluation report summary version: {0}")]
+    UnsupportedReportSummaryVersion(u8),
+    #[error("evaluation report summary integrity violation: {0}")]
+    InvalidReportSummary(&'static str),
 }
 
 fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
@@ -1428,10 +1494,42 @@ mod tests {
         ));
 
         let summary = EvalReportSummary::from(&report);
-        let json = serde_json::to_value(summary).unwrap();
+        summary.validate().unwrap();
+        let json = serde_json::to_value(&summary).unwrap();
+        assert_eq!(json["schema_version"], REPORT_SUMMARY_SCHEMA_VERSION);
         assert_eq!(json["total"], 1);
         assert!(json.get("cases").is_none());
         assert!(json.get("id").is_none());
+
+        let mut legacy = json.clone();
+        legacy.as_object_mut().unwrap().remove("schema_version");
+        let legacy: EvalReportSummary = serde_json::from_value(legacy).unwrap();
+        legacy.validate().unwrap();
+
+        let mut invalid = summary.clone();
+        invalid.schema_version = REPORT_SUMMARY_SCHEMA_VERSION + 1;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::UnsupportedReportSummaryVersion(2))
+        ));
+
+        let mut invalid = summary.clone();
+        invalid.decision_completeness_rate_bps = 10_001;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "basis-point values exceed 10000"
+            ))
+        ));
+
+        let mut invalid = summary;
+        invalid.passed = 0;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "passed and failed counts do not sum to total"
+            ))
+        ));
     }
 
     #[tokio::test]
