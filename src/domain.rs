@@ -221,12 +221,80 @@ impl AgentAnswer {
         if claim_ids.len() != self.claims.len() {
             return Err(AnswerValidationError::DuplicateClaimId);
         }
+        for claim in &self.claims {
+            match claim.status {
+                ClaimStatus::Verified
+                    if !claim.sources.iter().any(|source| !source.trim().is_empty()) =>
+                {
+                    return Err(AnswerValidationError::VerifiedClaimWithoutSource(
+                        claim.id.clone(),
+                    ));
+                }
+                ClaimStatus::Derived | ClaimStatus::Assumed
+                    if claim
+                        .scope
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or_default()
+                        .is_empty() =>
+                {
+                    return Err(AnswerValidationError::ScopedClaimMissingScope(
+                        claim.id.clone(),
+                    ));
+                }
+                ClaimStatus::ModelPrior
+                    if claim.sources.iter().any(|source| !source.trim().is_empty()) =>
+                {
+                    return Err(AnswerValidationError::ModelPriorHasSource(claim.id.clone()));
+                }
+                ClaimStatus::Conflicting
+                    if claim
+                        .sources
+                        .iter()
+                        .filter(|source| !source.trim().is_empty())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        < 2 =>
+                {
+                    return Err(AnswerValidationError::ConflictingClaimNeedsTwoSources(
+                        claim.id.clone(),
+                    ));
+                }
+                _ => {}
+            }
+        }
         for evidence in &self.evidence {
+            if evidence.source.trim().is_empty() {
+                return Err(AnswerValidationError::EmptyEvidenceSource);
+            }
+            if evidence.statement.trim().is_empty() {
+                return Err(AnswerValidationError::EmptyEvidenceStatement);
+            }
+            if evidence.claim_ids.is_empty() {
+                return Err(AnswerValidationError::EvidenceWithoutClaim);
+            }
+            let mut seen_claims = std::collections::BTreeSet::new();
             for claim_id in &evidence.claim_ids {
+                if !seen_claims.insert(claim_id.as_str()) {
+                    return Err(AnswerValidationError::DuplicateEvidenceClaimReference(
+                        claim_id.clone(),
+                    ));
+                }
                 if !claim_ids.contains(claim_id.as_str()) {
                     return Err(AnswerValidationError::UnknownClaimReference(
                         claim_id.clone(),
                     ));
+                }
+                let claim = self
+                    .claims
+                    .iter()
+                    .find(|claim| claim.id == *claim_id)
+                    .expect("claim id was checked above");
+                if !claim.sources.contains(&evidence.source) {
+                    return Err(AnswerValidationError::EvidenceSourceNotDeclared {
+                        evidence_source: evidence.source.clone(),
+                        claim_id: claim_id.clone(),
+                    });
                 }
             }
         }
@@ -244,6 +312,27 @@ pub enum AnswerValidationError {
     DuplicateClaimId,
     #[error("evidence references unknown claim id '{0}'")]
     UnknownClaimReference(String),
+    #[error("verified claim '{0}' has no source")]
+    VerifiedClaimWithoutSource(String),
+    #[error("derived or assumed claim '{0}' has no scope")]
+    ScopedClaimMissingScope(String),
+    #[error("model-prior claim '{0}' must not declare an external source")]
+    ModelPriorHasSource(String),
+    #[error("conflicting claim '{0}' requires at least two distinct sources")]
+    ConflictingClaimNeedsTwoSources(String),
+    #[error("evidence source must not be empty")]
+    EmptyEvidenceSource,
+    #[error("evidence statement must not be empty")]
+    EmptyEvidenceStatement,
+    #[error("evidence record must reference at least one claim")]
+    EvidenceWithoutClaim,
+    #[error("evidence repeats claim reference '{0}'")]
+    DuplicateEvidenceClaimReference(String),
+    #[error("evidence source '{evidence_source}' is not declared by claim '{claim_id}'")]
+    EvidenceSourceNotDeclared {
+        evidence_source: String,
+        claim_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -571,5 +660,105 @@ mod tests {
         assert_eq!(checkpoint.route_policy_sources, None);
         assert_eq!(checkpoint.route_objective, None);
         assert_eq!(checkpoint.tool_capabilities_sha256, None);
+    }
+
+    #[test]
+    fn claim_statuses_enforce_evidence_provenance_invariants() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let mut claim = Claim {
+            id: "claim-1".into(),
+            text: "claim".into(),
+            status: ClaimStatus::Verified,
+            sources: Vec::new(),
+            scope: None,
+        };
+        let mut answer = AgentAnswer {
+            status: AnswerStatus::Completed,
+            conclusion: "answer".into(),
+            claims: vec![claim.clone()],
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::VerifiedClaimWithoutSource(
+                "claim-1".into()
+            ))
+        );
+
+        claim.status = ClaimStatus::Assumed;
+        claim.scope = None;
+        answer.claims = vec![claim.clone()];
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ScopedClaimMissingScope(
+                "claim-1".into()
+            ))
+        );
+
+        claim.status = ClaimStatus::ModelPrior;
+        claim.sources = vec!["fabricated-source".into()];
+        answer.claims = vec![claim.clone()];
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ModelPriorHasSource("claim-1".into()))
+        );
+
+        claim.status = ClaimStatus::Conflicting;
+        claim.sources = vec!["source-a".into()];
+        answer.claims = vec![claim.clone()];
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ConflictingClaimNeedsTwoSources(
+                "claim-1".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn evidence_references_are_unique_and_declared_by_claims() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let claim = Claim {
+            id: "claim-1".into(),
+            text: "claim".into(),
+            status: ClaimStatus::Verified,
+            sources: vec!["source-a".into()],
+            scope: None,
+        };
+        let mut answer = AgentAnswer {
+            status: AnswerStatus::Completed,
+            conclusion: "answer".into(),
+            claims: vec![claim],
+            evidence: vec![Evidence {
+                source: "source-a".into(),
+                statement: "evidence".into(),
+                claim_ids: vec!["claim-1".into(), "claim-1".into()],
+            }],
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::DuplicateEvidenceClaimReference(
+                "claim-1".into()
+            ))
+        );
+
+        answer.evidence[0].claim_ids = vec!["claim-1".into()];
+        answer.evidence[0].source = "source-b".into();
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::EvidenceSourceNotDeclared {
+                evidence_source: "source-b".into(),
+                claim_id: "claim-1".into(),
+            })
+        );
     }
 }

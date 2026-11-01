@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.47.0 - 2026-11-02
+
+- Verified claims now require a non-empty source.
+- Derived and assumed claims now require a non-empty scope.
+- Model-prior claims cannot declare external evidence sources.
+- Conflicting claims require at least two distinct sources.
+- Evidence must be non-empty and reference at least one claim.
+- Evidence claim references must be unique.
+- Evidence source must already be declared by every referenced claim.
+- Added provenance invariant tests used by runtime and journal audit.
+
 ## 0.46.0 - 2026-11-02
 
 - Added evaluation execution statuses: unspecified, template, draft and ready.
