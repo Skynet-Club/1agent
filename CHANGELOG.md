@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.66.0 - 2026-11-02
+
+- Restricted experience evidence to observation, answer and provider-failure events.
+- Rejected lifecycle-only events such as run start, routing and checkpoints.
+- Added a stable invalid-evidence-kind error.
+- Covered accepted answer evidence and rejected lifecycle evidence.
+- Made experience E2E derive evidence sequence from the source journal.
+
 ## 0.65.0 - 2026-11-02
 
 - Added a canonical digest over referenced experience evidence events.

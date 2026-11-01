@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::domain::CognitiveMode;
 use crate::domain::PROTOCOL_VERSION;
-use crate::journal::{JournalEvent, audit_events};
+use crate::journal::{JournalEvent, JournalEventKind, audit_events};
 use crate::safety::contains_disallowed_control;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -316,16 +316,17 @@ impl ExperienceStore {
             .first()
             .map(|event| event.run_id)
             .ok_or(ExperienceError::NoEvidence)?;
-        let known_seqs: std::collections::BTreeSet<_> =
-            source_events.iter().map(|event| event.seq).collect();
         let unique_evidence_seqs: std::collections::BTreeSet<_> =
             spec.evidence_event_seqs.iter().copied().collect();
         if unique_evidence_seqs.len() != spec.evidence_event_seqs.len() {
             return Err(ExperienceError::DuplicateEvidenceSeq);
         }
         for seq in &spec.evidence_event_seqs {
-            if !known_seqs.contains(seq) {
+            let Some(event) = source_events.iter().find(|event| event.seq == *seq) else {
                 return Err(ExperienceError::UnknownEvidenceSeq(*seq));
+            };
+            if !is_evidence_event(&event.event) {
+                return Err(ExperienceError::InvalidEvidenceKind(*seq));
             }
         }
         let evidence_sha256 = evidence_digest(source_events, &spec.evidence_event_seqs)?;
@@ -753,6 +754,15 @@ fn evidence_digest(
     Ok(hex::encode(hasher.finalize()))
 }
 
+fn is_evidence_event(event: &JournalEventKind) -> bool {
+    matches!(
+        event,
+        JournalEventKind::ToolObserved { .. }
+            | JournalEventKind::AnswerProduced { .. }
+            | JournalEventKind::ProviderFailed { .. }
+    )
+}
+
 fn all_modes() -> Vec<CognitiveMode> {
     vec![
         CognitiveMode::DirectAnswer,
@@ -870,6 +880,8 @@ pub enum ExperienceError {
     DuplicateEvidenceSeq,
     #[error("evidence event sequence {0} does not exist in source run")]
     UnknownEvidenceSeq(u64),
+    #[error("evidence event sequence {0} is lifecycle metadata, not evidence")]
+    InvalidEvidenceKind(u64),
     #[error("source events are required to validate bound experience evidence")]
     MissingSourceEvidence,
     #[error("source run does not match the candidate")]
@@ -1059,6 +1071,23 @@ mod tests {
             store.propose(candidate, &events),
             Err(ExperienceError::UnknownEvidenceSeq(999))
         ));
+    }
+
+    #[test]
+    fn experience_evidence_must_be_observation_or_answer() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let mut lifecycle_only = spec();
+        lifecycle_only.evidence_event_seqs = vec![0];
+        assert!(matches!(
+            store.propose(lifecycle_only, &events),
+            Err(ExperienceError::InvalidEvidenceKind(0))
+        ));
+
+        let mut answer_evidence = spec();
+        answer_evidence.evidence_event_seqs = vec![3];
+        store.propose(answer_evidence, &events).unwrap();
     }
 
     #[test]

@@ -1,6 +1,8 @@
 use std::process::Command;
 
-use first_principles_agent::{ExperienceCandidate, ExperienceStatus, RunResult, StopReason};
+use first_principles_agent::{
+    ExperienceCandidate, ExperienceStatus, JournalEventKind, RunResult, StopReason, read_events,
+};
 
 #[test]
 fn experience_candidate_cannot_activate_without_review_and_approval() {
@@ -31,6 +33,12 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
     );
     let run: RunResult = serde_json::from_slice(&run_output.stdout).unwrap();
     assert_eq!(run.stop_reason, StopReason::Completed);
+    let source_events = read_events(&run.journal_path).unwrap();
+    let evidence_seq = source_events
+        .iter()
+        .find(|event| matches!(&event.event, JournalEventKind::ToolObserved { .. }))
+        .unwrap()
+        .seq;
 
     let candidate_path = workspace.path().join("candidate.json");
     std::fs::write(
@@ -40,7 +48,7 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
             "title": "Inspect verified evidence first",
             "content": "When a decision depends on a repository fact, inspect the cited source before deciding.",
             "scope": "repository decisions",
-            "evidence_event_seqs": [2],
+            "evidence_event_seqs": vec![evidence_seq],
             "sensitive": false,
             "supersedes": null
         }))
