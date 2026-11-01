@@ -55,6 +55,32 @@ pub struct RouteDecision {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteRejectionReason {
+    UnsupportedMode,
+    RiskExceeded,
+    ToolsUnsupported,
+    StructuredOutputUnsupported,
+    RemoteDisallowed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RejectedRoute {
+    pub provider_id: String,
+    pub model: String,
+    pub reasons: Vec<RouteRejectionReason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RoutePlan {
+    pub request: RouteRequest,
+    pub ranked: Vec<RouteDecision>,
+    pub rejected: Vec<RejectedRoute>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Router {
     manifests: Vec<ProviderManifest>,
@@ -66,21 +92,36 @@ impl Router {
     }
 
     pub fn route(&self, request: &RouteRequest) -> Option<RouteDecision> {
-        self.rank(request).into_iter().next()
+        self.plan(request).ranked.into_iter().next()
     }
 
     pub fn rank(&self, request: &RouteRequest) -> Vec<RouteDecision> {
+        self.plan(request).ranked
+    }
+
+    pub fn plan(&self, request: &RouteRequest) -> RoutePlan {
         let mut candidates: Vec<&ProviderManifest> = self
             .manifests
             .iter()
-            .filter(|manifest| {
-                manifest.supported_modes.contains(&request.mode)
-                    && request.risk <= manifest.max_risk
-                    && (!request.requires_tools || manifest.supports_tools)
-                    && (!request.requires_structured_output || manifest.supports_structured_output)
-                    && (request.allow_remote || manifest.privacy == PrivacyClass::Local)
-            })
+            .filter(|manifest| rejection_reasons(manifest, request).is_empty())
             .collect();
+        let mut rejected = self
+            .manifests
+            .iter()
+            .filter_map(|manifest| {
+                let reasons = rejection_reasons(manifest, request);
+                (!reasons.is_empty()).then(|| RejectedRoute {
+                    provider_id: manifest.provider_id.clone(),
+                    model: manifest.model.clone(),
+                    reasons,
+                })
+            })
+            .collect::<Vec<_>>();
+        rejected.sort_by(|left, right| {
+            left.provider_id
+                .cmp(&right.provider_id)
+                .then_with(|| left.model.cmp(&right.model))
+        });
 
         match request.objective {
             RouteObjective::Quality => candidates.sort_by_key(|manifest| {
@@ -142,7 +183,7 @@ impl Router {
             }
         }
 
-        candidates
+        let ranked = candidates
             .into_iter()
             .map(|manifest| RouteDecision {
                 manifest: manifest.clone(),
@@ -156,8 +197,36 @@ impl Router {
                     request.allow_remote
                 ),
             })
-            .collect()
+            .collect();
+        RoutePlan {
+            request: request.clone(),
+            ranked,
+            rejected,
+        }
     }
+}
+
+fn rejection_reasons(
+    manifest: &ProviderManifest,
+    request: &RouteRequest,
+) -> Vec<RouteRejectionReason> {
+    let mut reasons = Vec::new();
+    if !manifest.supported_modes.contains(&request.mode) {
+        reasons.push(RouteRejectionReason::UnsupportedMode);
+    }
+    if request.risk > manifest.max_risk {
+        reasons.push(RouteRejectionReason::RiskExceeded);
+    }
+    if request.requires_tools && !manifest.supports_tools {
+        reasons.push(RouteRejectionReason::ToolsUnsupported);
+    }
+    if request.requires_structured_output && !manifest.supports_structured_output {
+        reasons.push(RouteRejectionReason::StructuredOutputUnsupported);
+    }
+    if !request.allow_remote && manifest.privacy == PrivacyClass::Remote {
+        reasons.push(RouteRejectionReason::RemoteDisallowed);
+    }
+    reasons
 }
 
 fn total_cost(manifest: &ProviderManifest) -> u64 {

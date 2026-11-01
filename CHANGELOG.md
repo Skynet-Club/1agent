@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.0 - 2026-11-02
+
+- Added `route-plan` for offline provider selection inspection.
+- Exposed ranked candidates and each hard-filter rejection reason.
+- Added per-provider credential and endpoint readiness to route-plan output.
+- Reused the runtime Router implementation, preventing planning/execution drift.
+- Added end-to-end coverage proving remote and tool-capability rejections are reported without
+  network calls.
+
 ## 0.30.0 - 2026-11-02
 
 - Added quality, balanced, latency and cost route objectives.

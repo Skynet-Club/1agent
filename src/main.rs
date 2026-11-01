@@ -11,13 +11,13 @@ use first_principles_agent::{
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
     OpenAiCompatibleProvider, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
     ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective,
-    RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
-    build_release_verification_report, collect_provenance, collect_release_manifest,
+    RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest,
+    audit_events, build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
-    load_suite, local_manifest, probe_provider, probe_provider_tools, read_events,
-    rebuild_and_compare, remote_manifest, replay_events, run_suite_with_providers, scan_history,
-    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
-    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    infer_mode, load_suite, local_manifest, probe_provider, probe_provider_tools, read_events,
+    rebuild_and_compare, remote_manifest, replay_events, risk_for_mode, run_suite_with_providers,
+    scan_history, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -132,6 +132,20 @@ enum Command {
         allow_network: bool,
         #[arg(long, default_value_t = 30)]
         probe_timeout_seconds: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    RoutePlan {
+        #[arg(long, conflicts_with = "input")]
+        task: Option<String>,
+        #[arg(long)]
+        input: Option<PathBuf>,
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long, default_value = "quality")]
+        route_objective: String,
         #[arg(long)]
         json: bool,
     },
@@ -998,6 +1012,66 @@ async fn main() -> Result<()> {
                 } else {
                     println!("Provider configuration (secret values are never loaded):");
                     println!("{}", serde_json::to_string_pretty(&value)?);
+                }
+            }
+        }
+        Command::RoutePlan {
+            task,
+            input,
+            config,
+            allow_network,
+            route_objective,
+            json,
+        } => {
+            let request = load_request(task, input)?;
+            let config = AgentConfig::load(config)?;
+            let manifests = config.manifests()?;
+            let readiness = config.inspect_readiness()?;
+            let mode = infer_mode(&request);
+            let objective = parse_route_objective(&route_objective)?;
+            let plan = Router::new(manifests).plan(&RouteRequest {
+                mode,
+                risk: risk_for_mode(mode),
+                requires_tools: true,
+                requires_structured_output: true,
+                allow_remote: allow_network,
+                objective,
+            });
+            let value = serde_json::json!({
+                "schema_version": 1,
+                "mode": mode,
+                "route_objective": objective,
+                "plan": plan,
+                "readiness": readiness,
+            });
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!("mode={mode:?} objective={objective:?}");
+                println!("ranked:");
+                for candidate in &plan.ranked {
+                    println!(
+                        "- {}/{}: {}",
+                        candidate.manifest.provider_id, candidate.manifest.model, candidate.reason
+                    );
+                }
+                println!("rejected:");
+                for candidate in &plan.rejected {
+                    println!(
+                        "- {}/{}: {:?}",
+                        candidate.provider_id, candidate.model, candidate.reasons
+                    );
+                }
+                println!("readiness:");
+                for provider in &readiness {
+                    println!(
+                        "- {}/{}: ready={} credential={:?} error={:?}",
+                        provider.provider_id,
+                        provider.model,
+                        provider.ready,
+                        provider.credential_status,
+                        provider.configuration_error
+                    );
                 }
             }
         }

@@ -53,6 +53,26 @@ pub enum ProviderAdapter {
     OpenAiCompatible,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialStatus {
+    NotRequired,
+    Present,
+    Missing,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderReadiness {
+    pub provider_id: String,
+    pub model: String,
+    pub adapter: ProviderAdapter,
+    pub credential_status: CredentialStatus,
+    pub credential_variable: Option<String>,
+    pub ready: bool,
+    pub configuration_error: Option<String>,
+}
+
 fn default_max_risk() -> RiskLevel {
     RiskLevel::Medium
 }
@@ -194,6 +214,73 @@ impl AgentConfig {
             })
             .collect()
     }
+
+    pub fn manifests(&self) -> Result<Vec<ProviderManifest>, ConfigError> {
+        self.validate()?;
+        Ok(self.providers.iter().map(provider_to_manifest).collect())
+    }
+
+    pub fn inspect_readiness(&self) -> Result<Vec<ProviderReadiness>, ConfigError> {
+        self.validate()?;
+        Ok(self
+            .providers
+            .iter()
+            .map(|provider| {
+                let (credential_status, credential_variable) = match provider.api_key_env.as_deref()
+                {
+                    Some(name) if std::env::var(name).is_ok() => {
+                        (CredentialStatus::Present, Some(name.into()))
+                    }
+                    Some(name) => (CredentialStatus::Missing, Some(name.into())),
+                    None => (CredentialStatus::NotRequired, None),
+                };
+                let configuration_error = if provider.adapter == ProviderAdapter::OpenAiCompatible {
+                    provider
+                        .base_url
+                        .as_deref()
+                        .and_then(|base_url| {
+                            OpenAiCompatibleProvider::new(
+                                provider.id.clone(),
+                                provider.model.clone(),
+                                base_url,
+                                None,
+                                Duration::from_secs(1),
+                            )
+                            .err()
+                        })
+                        .map(|error| error.to_string())
+                } else {
+                    None
+                };
+                ProviderReadiness {
+                    provider_id: provider.id.clone(),
+                    model: provider.model.clone(),
+                    adapter: provider.adapter,
+                    credential_status,
+                    credential_variable,
+                    ready: credential_status != CredentialStatus::Missing
+                        && configuration_error.is_none(),
+                    configuration_error,
+                }
+            })
+            .collect())
+    }
+}
+
+fn provider_to_manifest(provider: &ProviderConfig) -> ProviderManifest {
+    ProviderManifest {
+        provider_id: provider.id.clone(),
+        model: provider.model.clone(),
+        privacy: provider.privacy,
+        supported_modes: provider.supported_modes.clone(),
+        supports_tools: provider.supports_tools,
+        supports_structured_output: provider.supports_structured_output,
+        max_risk: provider.max_risk,
+        quality_score: provider.quality_score,
+        input_cost_micros_per_k: provider.input_cost_micros_per_k,
+        output_cost_micros_per_k: provider.output_cost_micros_per_k,
+        p95_latency_ms: provider.p95_latency_ms,
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -292,5 +379,25 @@ mod tests {
             config.build_providers(Duration::from_secs(1)),
             Err(ConfigError::MissingCredential { .. })
         ));
+    }
+
+    #[test]
+    fn readiness_reports_credentials_without_loading_providers() {
+        let mut config = config();
+        config.providers[0].adapter = ProviderAdapter::OpenAiCompatible;
+        config.providers[0].id = "remote".into();
+        config.providers[0].base_url = Some("https://example.invalid/v1".into());
+        config.providers[0].api_key_env = Some("FIRST_PRINCIPLES_AGENT_READINESS_TEST".into());
+        let readiness = config.inspect_readiness().unwrap();
+        assert_eq!(readiness.len(), 1);
+        assert_eq!(readiness[0].credential_status, CredentialStatus::Missing);
+        assert!(!readiness[0].ready);
+        assert!(
+            !readiness[0]
+                .credential_variable
+                .as_deref()
+                .unwrap()
+                .contains("secret")
+        );
     }
 }

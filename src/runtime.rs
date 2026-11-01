@@ -716,7 +716,7 @@ pub fn remote_manifest(
     }
 }
 
-fn risk_for_mode(mode: CognitiveMode) -> RiskLevel {
+pub fn risk_for_mode(mode: CognitiveMode) -> RiskLevel {
     match mode {
         CognitiveMode::Execute => RiskLevel::High,
         CognitiveMode::DecisionAnalysis | CognitiveMode::Diagnosis => RiskLevel::Medium,
