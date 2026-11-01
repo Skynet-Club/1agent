@@ -14,6 +14,8 @@ use crate::domain::{
 use crate::router::ProviderManifest;
 use crate::tools::{EchoTool, ToolRegistry};
 
+pub const MAX_PROVIDER_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderErrorCode {
@@ -25,6 +27,7 @@ pub enum ProviderErrorCode {
     InvalidResponse,
     ProviderUnavailable,
     Cancelled,
+    ResponseTooLarge,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -762,7 +765,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
 
         let status = response.status();
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = read_response_body(response, cancellation).await?;
             let code = match status.as_u16() {
                 401 | 403 => ProviderErrorCode::Authentication,
                 429 => ProviderErrorCode::RateLimited,
@@ -770,7 +773,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
                 500..=599 => ProviderErrorCode::ProviderUnavailable,
                 _ => ProviderErrorCode::InvalidResponse,
             };
-            let excerpt: String = body.chars().take(512).collect();
+            let excerpt: String = String::from_utf8_lossy(&body).chars().take(512).collect();
             return Err(ProviderError::new(
                 code,
                 format!("provider returned HTTP {status}: {excerpt}"),
@@ -778,7 +781,8 @@ impl ModelProvider for OpenAiCompatibleProvider {
             ));
         }
 
-        let wire: WireResponse = response.json().await.map_err(|error| {
+        let body = read_response_body(response, cancellation).await?;
+        let wire: WireResponse = serde_json::from_slice(&body).map_err(|error| {
             ProviderError::new(
                 ProviderErrorCode::InvalidResponse,
                 format!("invalid provider response JSON: {error}"),
@@ -910,6 +914,78 @@ fn strip_json_fence(content: &str) -> &str {
         .strip_suffix("```")
         .map(str::trim)
         .unwrap_or(after_header)
+}
+
+struct ResponseBodyBudget {
+    limit: usize,
+    bytes: Vec<u8>,
+}
+
+impl ResponseBodyBudget {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            bytes: Vec::new(),
+        }
+    }
+
+    fn check_declared_length(&self, declared: Option<u64>) -> Result<(), ProviderError> {
+        if declared.is_some_and(|length| length > self.limit as u64) {
+            return Err(response_too_large(self.limit));
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, chunk: &[u8]) -> Result<(), ProviderError> {
+        if chunk.len() > self.limit.saturating_sub(self.bytes.len()) {
+            return Err(response_too_large(self.limit));
+        }
+        self.bytes.extend_from_slice(chunk);
+        Ok(())
+    }
+}
+
+async fn read_response_body(
+    mut response: reqwest::Response,
+    cancellation: &CancellationToken,
+) -> Result<Vec<u8>, ProviderError> {
+    let mut budget = ResponseBodyBudget::new(MAX_PROVIDER_RESPONSE_BYTES);
+    budget.check_declared_length(response.content_length())?;
+    loop {
+        let chunk = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(ProviderError::new(
+                    ProviderErrorCode::Cancelled,
+                    "provider response cancelled",
+                    false,
+                ));
+            }
+            chunk = response.chunk() => chunk.map_err(|error| {
+                ProviderError::new(
+                    if error.is_timeout() {
+                        ProviderErrorCode::Timeout
+                    } else {
+                        ProviderErrorCode::Network
+                    },
+                    "failed to read provider response body",
+                    error.is_timeout() || error.is_connect(),
+                )
+            })?,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
+        budget.push(&chunk)?;
+    }
+    Ok(budget.bytes)
+}
+
+fn response_too_large(limit: usize) -> ProviderError {
+    ProviderError::new(
+        ProviderErrorCode::ResponseTooLarge,
+        format!("provider response exceeded {limit} bytes"),
+        false,
+    )
 }
 
 #[derive(Serialize)]
@@ -1082,6 +1158,36 @@ mod tests {
             strip_json_fence("```json\n{\"status\":\"completed\"}\n```"),
             "{\"status\":\"completed\"}"
         );
+    }
+
+    #[test]
+    fn response_budget_rejects_declared_oversize_without_body_content() {
+        let budget = ResponseBodyBudget::new(16);
+        let error = budget.check_declared_length(Some(17)).unwrap_err();
+        assert_eq!(error.code, ProviderErrorCode::ResponseTooLarge);
+        assert!(error.message.contains("16 bytes"));
+        assert!(!error.retryable);
+        assert_eq!(
+            serde_json::to_value(error.code).unwrap(),
+            serde_json::json!("response_too_large")
+        );
+    }
+
+    #[test]
+    fn response_budget_rejects_chunked_accumulation_without_echoing_content() {
+        let mut budget = ResponseBodyBudget::new(8);
+        budget.push(b"12345").unwrap();
+        let error = budget.push(b"secret").unwrap_err();
+        assert_eq!(error.code, ProviderErrorCode::ResponseTooLarge);
+        assert!(!error.message.contains("secret"));
+    }
+
+    #[test]
+    fn response_budget_accepts_the_exact_limit() {
+        let mut budget = ResponseBodyBudget::new(8);
+        budget.push(b"1234").unwrap();
+        budget.push(b"5678").unwrap();
+        assert_eq!(budget.bytes, b"12345678");
     }
 
     #[test]

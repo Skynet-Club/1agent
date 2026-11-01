@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.56.0 - 2026-11-02
+
+- Added an 8 MiB response-body ceiling for OpenAI-compatible providers.
+- Rejected oversized declared `Content-Length` before body consumption.
+- Bounded streamed and chunked response bodies during accumulation.
+- Added the stable `response_too_large` provider error code.
+- Applied the same response ceiling to successful and HTTP-error bodies.
+- Ensured size errors omit response content.
+
 ## 0.55.0 - 2026-11-02
 
 - Added stable machine-readable journal audit finding codes.
