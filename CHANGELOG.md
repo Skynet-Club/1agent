@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.88.0 - 2026-11-02
+
+- Added direct decision-completeness floor status to human-readable report summaries.
+- Prevented readers from having to compare the completion rate with the floor manually.
+- Kept the machine-readable summary contract unchanged.
+- Extended signed-report text-output E2E assertions.
+
 ## 0.87.0 - 2026-11-02
 
 - Added explicit integrity, content-binding, signature and authenticity labels to concise text summaries.

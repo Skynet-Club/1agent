@@ -353,7 +353,9 @@ fn cli_eval_inspect_verifies_signed_report() {
         "stderr: {}",
         String::from_utf8_lossy(&text_inspect.stderr)
     );
-    assert!(String::from_utf8_lossy(&text_inspect.stdout).contains(
+    let text_summary = String::from_utf8_lossy(&text_inspect.stdout);
+    assert!(text_summary.contains("floor=0 bps:passed"));
+    assert!(text_summary.contains(
         "verification=integrity:checked,binding:bound,signature:present,authenticity:verified"
     ));
 

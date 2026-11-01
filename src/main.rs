@@ -876,7 +876,7 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&summary)?);
                 } else {
                     println!(
-                        "{}: {}/{} passed, hard-gate failures={}, completeness={}/{} ({} bps), policy=v{} {}, verification=integrity:{},binding:{},signature:{},authenticity:{}",
+                        "{}: {}/{} passed, hard-gate failures={}, completeness={}/{} ({} bps), floor={} bps:{}, policy=v{} {}, verification=integrity:{},binding:{},signature:{},authenticity:{}",
                         summary.suite,
                         summary.passed,
                         summary.total,
@@ -884,6 +884,12 @@ async fn main() -> Result<()> {
                         summary.decision_completeness_ok_cases,
                         summary.decision_completeness_cases,
                         summary.decision_completeness_rate_bps,
+                        summary.min_decision_completeness_bps,
+                        if summary.decision_completeness_floor_passed {
+                            "passed"
+                        } else {
+                            "failed"
+                        },
                         summary.decision_completeness_policy.version,
                         summary.decision_completeness_policy.floor_source.as_str(),
                         if summary.verification.integrity_checked {
