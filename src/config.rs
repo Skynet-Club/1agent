@@ -243,7 +243,10 @@ impl AgentConfig {
                                 provider.id.clone(),
                                 provider.model.clone(),
                                 base_url,
-                                None,
+                                provider
+                                    .api_key_env
+                                    .as_ref()
+                                    .map(|_| "readiness-placeholder".into()),
                                 Duration::from_secs(1),
                             )
                             .err()
@@ -398,6 +401,24 @@ mod tests {
                 .as_deref()
                 .unwrap()
                 .contains("secret")
+        );
+    }
+
+    #[test]
+    fn readiness_rejects_remote_http_with_declared_credentials() {
+        let mut config = config();
+        config.providers[0].adapter = ProviderAdapter::OpenAiCompatible;
+        config.providers[0].id = "remote".into();
+        config.providers[0].base_url = Some("http://example.invalid/v1".into());
+        config.providers[0].api_key_env = Some("FIRST_PRINCIPLES_AGENT_HTTP_READINESS_TEST".into());
+        let readiness = config.inspect_readiness().unwrap();
+        assert!(!readiness[0].ready);
+        assert!(
+            readiness[0]
+                .configuration_error
+                .as_deref()
+                .unwrap()
+                .contains("require HTTPS")
         );
     }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.90.0 - 2026-11-02
+
+- Made provider readiness evaluate credential-bearing transport rules.
+- Prevented remote HTTP providers with declared keys from appearing ready.
+- Kept deterministic and local unauthenticated provider readiness unchanged.
+- Added readiness/transport consistency coverage.
+
 ## 0.89.0 - 2026-11-02
 
 - Rejected bearer credentials sent to non-loopback plaintext HTTP endpoints.
