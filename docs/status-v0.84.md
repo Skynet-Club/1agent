@@ -72,3 +72,9 @@ report inspection:
 2. reject a wrong artifact kind explicitly;
 3. ensure revoked keys fail;
 4. preserve unsigned informational inspection.
+
+Partial proof is rejected by the current CLI path and covered by signed-report E2E.
+The report trust boundary is documented in
+[`architecture.md`](architecture.md),
+[`adr/0004-evaluation-report-trust.md`](adr/0004-evaluation-report-trust.md) and
+[`audit-v0.84.md`](audit-v0.84.md).
