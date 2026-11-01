@@ -104,6 +104,9 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
         &verification,
         serde_json::to_vec(&serde_json::json!({
             "suite_id": "heldout-e2e-v1",
+            "suite_version": "1",
+            "case_ids": ["e2e-case-1"],
+            "suite_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "training_group": "A",
             "evaluation_group": "B",
             "baseline_success_bps": 5000,

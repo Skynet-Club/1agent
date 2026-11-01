@@ -1138,6 +1138,9 @@ mod tests {
                 active.id,
                 ExperienceVerificationInput {
                     suite_id: "heldout-runtime-v1".into(),
+                    suite_version: "1".into(),
+                    case_ids: vec!["runtime-case-1".into()],
+                    suite_sha256: "b".repeat(64),
                     training_group: "A".into(),
                     evaluation_group: "B".into(),
                     baseline_success_bps: 5_000,

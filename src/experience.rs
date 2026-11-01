@@ -37,6 +37,9 @@ pub enum ExperienceStatus {
 #[serde(deny_unknown_fields)]
 pub struct ExperienceVerificationInput {
     pub suite_id: String,
+    pub suite_version: String,
+    pub case_ids: Vec<String>,
+    pub suite_sha256: String,
     pub training_group: String,
     pub evaluation_group: String,
     pub baseline_success_bps: u16,
@@ -51,6 +54,9 @@ pub struct ExperienceVerificationInput {
 #[serde(deny_unknown_fields)]
 pub struct ExperienceVerification {
     pub suite_id: String,
+    pub suite_version: String,
+    pub case_ids: Vec<String>,
+    pub suite_sha256: String,
     pub training_group: String,
     pub evaluation_group: String,
     pub baseline_success_bps: u16,
@@ -337,9 +343,31 @@ impl ExperienceStore {
         input: ExperienceVerificationInput,
     ) -> Result<(), ExperienceError> {
         validate_text(&input.suite_id)?;
+        validate_text(&input.suite_version)?;
         validate_text(&input.training_group)?;
         validate_text(&input.evaluation_group)?;
         validate_text(&input.evidence)?;
+        if input.case_ids.is_empty() {
+            return Err(ExperienceError::InvalidVerification(
+                "case_ids must not be empty".into(),
+            ));
+        }
+        let unique_cases: std::collections::BTreeSet<_> = input.case_ids.iter().collect();
+        if unique_cases.len() != input.case_ids.len() {
+            return Err(ExperienceError::InvalidVerification(
+                "case_ids must be unique".into(),
+            ));
+        }
+        if input.suite_sha256.len() != 64
+            || !input
+                .suite_sha256
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            return Err(ExperienceError::InvalidVerification(
+                "suite_sha256 must be 64 hexadecimal characters".into(),
+            ));
+        }
         if input.training_group == input.evaluation_group {
             return Err(ExperienceError::InvalidVerification(
                 "training and evaluation groups must differ".into(),
@@ -362,6 +390,9 @@ impl ExperienceStore {
         }
         let verification = ExperienceVerification {
             suite_id: input.suite_id,
+            suite_version: input.suite_version,
+            case_ids: input.case_ids,
+            suite_sha256: input.suite_sha256,
             training_group: input.training_group,
             evaluation_group: input.evaluation_group,
             baseline_success_bps: input.baseline_success_bps,
@@ -709,6 +740,9 @@ mod tests {
     fn verification() -> ExperienceVerificationInput {
         ExperienceVerificationInput {
             suite_id: "heldout-v1".into(),
+            suite_version: "1".into(),
+            case_ids: vec!["case-1".into()],
+            suite_sha256: "a".repeat(64),
             training_group: "A".into(),
             evaluation_group: "B".into(),
             baseline_success_bps: 5_000,

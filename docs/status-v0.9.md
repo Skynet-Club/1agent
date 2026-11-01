@@ -20,6 +20,7 @@ Verification requires:
 - no increase in unsupported-certainty rate;
 - cost increase no greater than 10%;
 - non-empty evidence reference;
+- suite version, unique case ids and a 64-character hexadecimal SHA-256;
 - all rates between 0 and 10000 basis points.
 
 Approval is rejected unless the candidate is `verified`.
@@ -46,10 +47,10 @@ Approval is rejected unless the candidate is `verified`.
 Release artifacts:
 
 ```text
-Linux binary:   4c86756889b24611aef50d92ab74b2c178e3eb48a793c607a7ccfdd09c100037
-Windows binary: 15b6bee2403d5d669b375b9b234135d393364ea12d4f202ddcfd1db749e88c59
-Linux tar.gz:   9fc46d7c4a389f96e0757f2ad0d68c7caca01fbf956c60c1d703d8bd2b8a06d2
-Windows zip:    e462fb081a6675bfa5120b87739d332412f1aaa45237fd8eed03a44cac7dcc73
+Linux binary:   2553805adac7dc25765f77486d49566c46bafb8433c8537a0680f1557de14ace
+Windows binary: ef20f4d83199687bdcf6e694cb2ead633cd4ae628340738eedb8d1479c8ff37a
+Linux tar.gz:   fd354eaedc86027121aaf5cfc7151649c6e365b3f074f7bf9472e0e633dc5f9a
+Windows zip:    86b7d6c08d591694e8abc92e7637fe6d75e33d377d2909c0fb290ddfb21f8325
 ```
 
 ## Requirement comparison
@@ -61,6 +62,7 @@ Windows zip:    e462fb081a6675bfa5120b87739d332412f1aaa45237fd8eed03a44cac7dcc73
 | Increased false-certainty blocker | implemented |
 | Cost-growth gate | implemented |
 | Verification evidence persistence | implemented |
+| Suite metadata binding | implemented |
 | Automated evidence generation | pending |
 | Real-provider evaluation | blocked by missing credentials |
 

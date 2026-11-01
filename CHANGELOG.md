@@ -9,6 +9,7 @@
 - Added negative tests for data leakage and increased false certainty.
 - Added request-id persistence to run journals and host status journal paths.
 - Added bounded journal history discovery with client request id recovery.
+- Bound experience verification reports to suite version, unique case ids and SHA-256.
 
 ## 0.8.0 - 2026-11-01
 
