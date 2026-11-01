@@ -7,9 +7,9 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::domain::{
-    AgentAnswer, AnswerStatus, CognitiveMode, Evidence, FlipCondition, ModelMessage, ModelRequest,
-    ModelResponse, ModelTurn, PermissionSet, TaskRequest, ToolCall, ToolObservation, ToolStatus,
-    UnknownItem, Usage,
+    AgentAnswer, AnswerStatus, CognitiveMode, Evidence, FlipCondition, ImpactLevel, ModelMessage,
+    ModelRequest, ModelResponse, ModelTurn, PermissionSet, TaskRequest, ToolCall, ToolObservation,
+    ToolStatus, UnknownItem, Usage,
 };
 use crate::router::ProviderManifest;
 use crate::tools::{EchoTool, ToolRegistry};
@@ -488,6 +488,7 @@ impl ModelProvider for DeterministicProvider {
                         description: observation
                             .error_code
                             .unwrap_or_else(|| "tool_failure".into()),
+                        impact: ImpactLevel::Medium,
                         why_it_matters: Some(observation.summary),
                         reduction_method: None,
                     }]
@@ -562,6 +563,7 @@ impl ModelProvider for DeterministicProvider {
                 .unwrap_or_default(),
             unknowns: vec![UnknownItem {
                 description: "缺少能够回答当前任务的推理模型".into(),
+                impact: ImpactLevel::High,
                 why_it_matters: Some("离线确定性 Provider 只能验证运行时链路，不能替代真实推理。".into()),
                 reduction_method: Some("配置 OpenAI-compatible Provider".into()),
             }],

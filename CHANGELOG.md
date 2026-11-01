@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.48.0 - 2026-11-02
+
+- Added low, medium and high impact levels to unknown items.
+- Required high-impact unknowns to provide a reduction method.
+- Added high-impact unknown minimums to evaluation cases.
+- Added low/medium/high unknown counts to JSON scorecards.
+- Preserved string assumptions for backward compatibility.
+
 ## 0.47.0 - 2026-11-02
 
 - Verified claims now require a non-empty source.

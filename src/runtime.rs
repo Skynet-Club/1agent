@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 use crate::context::compact_messages;
 use crate::domain::{
-    AnswerStatus, CognitiveMode, FlipCondition, InjectedExperience, ModelMessage, ModelRequest,
-    ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest,
-    UnknownItem,
+    AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience, ModelMessage,
+    ModelRequest, ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason,
+    TaskRequest, UnknownItem,
 };
 use crate::experience::ExperienceStore;
 use crate::journal::{
@@ -856,6 +856,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
         constraints: vec!["allow_write=false".into()],
         unknowns: vec![UnknownItem {
             description: "缺少明确的写入权限和审批范围".into(),
+            impact: ImpactLevel::High,
             why_it_matters: Some("没有授权就无法安全执行副作用动作".into()),
             reduction_method: Some("由用户明确授权具体动作、范围和回滚条件".into()),
         }],
@@ -877,6 +878,7 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
         constraints: vec![reason.into()],
         unknowns: vec![UnknownItem {
             description: "任务尚未完成验证".into(),
+            impact: ImpactLevel::High,
             why_it_matters: Some("预算停止时不能把部分工作报告为成功".into()),
             reduction_method: Some("提高预算或缩小任务范围后重新运行".into()),
         }],

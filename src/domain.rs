@@ -56,9 +56,20 @@ impl TaskRequest {
 pub struct UnknownItem {
     pub description: String,
     #[serde(default)]
+    pub impact: ImpactLevel,
+    #[serde(default)]
     pub why_it_matters: Option<String>,
     #[serde(default)]
     pub reduction_method: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ImpactLevel {
+    Low,
+    #[default]
+    Medium,
+    High,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -263,6 +274,23 @@ impl AgentAnswer {
                 _ => {}
             }
         }
+        for unknown in &self.unknowns {
+            if unknown.description.trim().is_empty() {
+                return Err(AnswerValidationError::EmptyUnknownDescription);
+            }
+            if unknown.impact == ImpactLevel::High
+                && unknown
+                    .reduction_method
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default()
+                    .is_empty()
+            {
+                return Err(AnswerValidationError::HighImpactUnknownWithoutReduction(
+                    unknown.description.clone(),
+                ));
+            }
+        }
         for evidence in &self.evidence {
             if evidence.source.trim().is_empty() {
                 return Err(AnswerValidationError::EmptyEvidenceSource);
@@ -333,6 +361,10 @@ pub enum AnswerValidationError {
         evidence_source: String,
         claim_id: String,
     },
+    #[error("unknown description must not be empty")]
+    EmptyUnknownDescription,
+    #[error("high-impact unknown '{0}' requires a reduction method")]
+    HighImpactUnknownWithoutReduction(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -760,5 +792,34 @@ mod tests {
                 claim_id: "claim-1".into(),
             })
         );
+    }
+
+    #[test]
+    fn high_impact_unknown_requires_reduction_method() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let mut answer = AgentAnswer {
+            status: AnswerStatus::NeedsEvidence,
+            conclusion: "need evidence".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: vec![UnknownItem {
+                description: "critical missing input".into(),
+                impact: ImpactLevel::High,
+                why_it_matters: Some("it can flip the decision".into()),
+                reduction_method: None,
+            }],
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::HighImpactUnknownWithoutReduction(
+                "critical missing input".into()
+            ))
+        );
+        answer.unknowns[0].reduction_method = Some("request the missing input".into());
+        answer.validate(&request).unwrap();
     }
 }

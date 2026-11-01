@@ -18,5 +18,6 @@ model-quality suite must be `ready` and declare provider requirements, a reviewe
 | Provider adapter | Local HTTP fixture verifies OpenAI-compatible request/response translation; ignored in managed sandboxes that forbid loopback binding |
 | End-to-end CLI | Real process run, evidence read, journal audit and replay |
 | Epistemic output | Unknown and flip-condition minimums |
+| Epistemic impact | High-impact unknown reduction requirements |
 
 These tests prove contract and runtime integrity, not real-model reasoning quality. Real-model evaluation begins after provider credentials, a gold task set and calibrated human review are available.

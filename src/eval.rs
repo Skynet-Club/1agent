@@ -102,6 +102,8 @@ pub struct EvalExpectation {
     #[serde(default)]
     pub min_flip_conditions: usize,
     #[serde(default)]
+    pub min_high_impact_unknowns: usize,
+    #[serde(default)]
     pub expect_checkpoint: bool,
     #[serde(default)]
     pub tool_status: Option<ToolStatus>,
@@ -126,6 +128,9 @@ pub struct EvalCaseResult {
     pub evidence_count: usize,
     pub claim_count: usize,
     pub unknown_count: usize,
+    pub low_impact_unknown_count: usize,
+    pub medium_impact_unknown_count: usize,
+    pub high_impact_unknown_count: usize,
     pub flip_condition_count: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
@@ -450,6 +455,18 @@ async fn run_case(
             result.answer.flip_conditions.len()
         ));
     }
+    let high_impact_unknowns = result
+        .answer
+        .unknowns
+        .iter()
+        .filter(|unknown| unknown.impact == crate::domain::ImpactLevel::High)
+        .count();
+    if high_impact_unknowns < case.expect.min_high_impact_unknowns {
+        issues.push(format!(
+            "expected at least {} high-impact unknowns, got {}",
+            case.expect.min_high_impact_unknowns, high_impact_unknowns
+        ));
+    }
     if audit.ok != case.expect.audit_ok {
         issues.push(format!(
             "expected audit_ok={}, got {}",
@@ -494,6 +511,19 @@ async fn run_case(
         evidence_count: result.answer.evidence.len(),
         claim_count: result.answer.claims.len(),
         unknown_count: result.answer.unknowns.len(),
+        low_impact_unknown_count: result
+            .answer
+            .unknowns
+            .iter()
+            .filter(|unknown| unknown.impact == crate::domain::ImpactLevel::Low)
+            .count(),
+        medium_impact_unknown_count: result
+            .answer
+            .unknowns
+            .iter()
+            .filter(|unknown| unknown.impact == crate::domain::ImpactLevel::Medium)
+            .count(),
+        high_impact_unknown_count: high_impact_unknowns,
         flip_condition_count: result.answer.flip_conditions.len(),
         rubric_checks,
         rubric_passed,
@@ -537,6 +567,9 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         evidence_count: 0,
         claim_count: 0,
         unknown_count: 0,
+        low_impact_unknown_count: 0,
+        medium_impact_unknown_count: 0,
+        high_impact_unknown_count: 0,
         flip_condition_count: 0,
         rubric_checks: 0,
         rubric_passed: 0,
@@ -767,6 +800,7 @@ mod tests {
                     constraints: Vec::new(),
                     unknowns: vec![crate::domain::UnknownItem {
                         description: "which source is current is unknown".into(),
+                        impact: crate::domain::ImpactLevel::High,
                         why_it_matters: Some("it flips the conclusion".into()),
                         reduction_method: Some("obtain timestamps".into()),
                     }],
@@ -833,6 +867,7 @@ mod tests {
                     min_claims: 1,
                     min_unknowns: 0,
                     min_flip_conditions: 0,
+                    min_high_impact_unknowns: 0,
                     expect_checkpoint: true,
                     tool_status: Some(ToolStatus::Ok),
                     tool_error_code: None,
@@ -875,6 +910,7 @@ mod tests {
                         min_claims: 1,
                         min_unknowns: 1,
                         min_flip_conditions: 1,
+                        min_high_impact_unknowns: 1,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
@@ -894,6 +930,7 @@ mod tests {
                         min_claims: 1,
                         min_unknowns: 0,
                         min_flip_conditions: 1,
+                        min_high_impact_unknowns: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
@@ -922,6 +959,7 @@ mod tests {
                         min_claims: 1,
                         min_unknowns: 0,
                         min_flip_conditions: 0,
+                        min_high_impact_unknowns: 0,
                         expect_checkpoint: true,
                         tool_status: Some(ToolStatus::Ok),
                         tool_error_code: None,
@@ -1072,6 +1110,7 @@ mod tests {
                         min_claims: 1,
                         min_unknowns: 0,
                         min_flip_conditions: 0,
+                        min_high_impact_unknowns: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
