@@ -32,6 +32,29 @@ Status: route-plan journaling and replay implemented
 | Out-of-plan selection rejection | passed |
 | Unit tests | 75 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 3ca189a7b80abbec13c463f86a70ca2d40e5e3ee
+git dirty: false
+
+Linux binary:
+f6b48453bf64cb128c506550e032a3482014cdad4efb2f17d24e368d7c9af2a1
+
+Windows binary:
+b67eca7662d558cfcf2b9edb12c13241027ba6e9a9bb5b5809a76248864513d3
+
+Linux tar.gz:
+dd77fb7d1b579b9af78c728d16ace94fc21fbbb43dae5fedd2ea6fbd4aeb0bb2
+
+Windows zip:
+68af3c645d22ae4b7fd5f568111ab89966c952745f8b1ead39cb7e43850e12d0
+
+Release manifest:
+4b3606bc23a6ca629555a45d59cf37690a62228f48da87d9a78becb7aa223d8b
+```
 
 ## Known limitations
 
