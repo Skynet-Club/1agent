@@ -38,8 +38,8 @@ provider_retry_elapsed_above_cap
 | delay mismatch | rejected |
 | elapsed above cap | rejected |
 | normal audit | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -47,6 +47,28 @@ provider_retry_elapsed_above_cap
 - A 2-second elapsed ceiling is diagnostic, not a hard timing guarantee.
 - Timing is wall-clock duration from a monotonic clock but stored as milliseconds.
 - No retry timing distribution metrics are produced.
+
+## Verified clean release
+
+```text
+source commit: bd1e594bec33bc07a7829c51cadcc810ac3da7df
+git dirty: false
+
+Linux binary:
+c72b41dda3356b6f61be9fd43f7c89dbf30b6f223a90760b71dad43be728aa3c
+
+Windows binary:
+f96db44e8aed5ffb8ebf9b9e302fe006cba38eccfdfe145aa57c2c32c1079e3a
+
+Linux tar.gz:
+c8ec8e5d21e96562976ba3ede113cd1bf650fa8c60229f33e8babea7837971c3
+
+Windows zip:
+d636c36afd33941bc37e177c6bc54a5e94a537e1ff00d3ed7e6da5d0d9b1cf79
+
+Release manifest:
+7269ef919e40f80e302b20fa93dc09e3d51a1c73572345965b23294c274095e5
+```
 
 ## Next requirement
 
