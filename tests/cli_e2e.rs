@@ -344,4 +344,85 @@ fn cli_eval_inspect_verifies_signed_report() {
         .unwrap();
     assert!(!partial.status.success());
     assert!(String::from_utf8_lossy(&partial.stderr).contains("must be supplied together"));
+
+    let wrong_kind_path = workspace.path().join("wrong-kind.approval.json");
+    let wrong_kind = Command::new(binary)
+        .env("REPORT_APPROVAL_KEY", "test-only-report-key-32-bytes!!!")
+        .args([
+            "approval",
+            "sign",
+            "--artifact",
+            &report_path.display().to_string(),
+            "--artifact-kind",
+            "gold_set",
+            "--approver",
+            "qa",
+            "--purpose",
+            "wrong-kind",
+            "--key-id",
+            "report-key",
+            "--key-env",
+            "REPORT_APPROVAL_KEY",
+            "--registry",
+            &registry_path.display().to_string(),
+            "--output",
+            &wrong_kind_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(wrong_kind.status.success());
+    let wrong_kind_inspect = Command::new(binary)
+        .env("REPORT_APPROVAL_KEY", "test-only-report-key-32-bytes!!!")
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.display().to_string(),
+            "--require-authenticity",
+            "--approval",
+            &wrong_kind_path.display().to_string(),
+            "--approval-key-env",
+            "REPORT_APPROVAL_KEY",
+            "--approval-registry",
+            &registry_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!wrong_kind_inspect.status.success());
+    assert!(
+        String::from_utf8_lossy(&wrong_kind_inspect.stderr)
+            .contains("approval artifact kind does not match the required use")
+    );
+
+    let revoke = Command::new(binary)
+        .args([
+            "approval",
+            "key-revoke",
+            "--registry",
+            &registry_path.display().to_string(),
+            "--key-id",
+            "report-key",
+            "--reason",
+            "test rotation",
+        ])
+        .output()
+        .unwrap();
+    assert!(revoke.status.success());
+    let revoked_inspect = Command::new(binary)
+        .env("REPORT_APPROVAL_KEY", "test-only-report-key-32-bytes!!!")
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.display().to_string(),
+            "--require-authenticity",
+            "--approval",
+            &approval_path.display().to_string(),
+            "--approval-key-env",
+            "REPORT_APPROVAL_KEY",
+            "--approval-registry",
+            &registry_path.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!revoked_inspect.status.success());
+    assert!(String::from_utf8_lossy(&revoked_inspect.stderr).contains("approval key is revoked"));
 }

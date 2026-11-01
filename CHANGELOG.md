@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.85.0 - 2026-11-02
+
+- Added CLI end-to-end rejection of a report approval with the wrong artifact kind.
+- Added CLI end-to-end rejection after the report signing key is revoked.
+- Kept informational and successful authenticated inspection behavior unchanged.
+- Extended the report trust audit with partial-proof and registry-state negatives.
+
 ## 0.84.0 - 2026-11-02
 
 - Added HMAC-authenticated evaluation report inspection through approval envelopes.
