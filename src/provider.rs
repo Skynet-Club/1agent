@@ -751,15 +751,7 @@ impl ModelProvider for OpenAiCompatibleProvider {
                 ));
             }
             response = builder.send() => response.map_err(|error| {
-                ProviderError::new(
-                    if error.is_timeout() {
-                        ProviderErrorCode::Timeout
-                    } else {
-                        ProviderErrorCode::Network
-                    },
-                    format!("provider request failed: {error}"),
-                    error.is_timeout() || error.is_connect(),
-                )
+                provider_transport_error(error.is_timeout(), error.is_connect())
             })?,
         };
 
@@ -948,15 +940,7 @@ async fn read_response_body(
                 ));
             }
             chunk = response.chunk() => chunk.map_err(|error| {
-                ProviderError::new(
-                    if error.is_timeout() {
-                        ProviderErrorCode::Timeout
-                    } else {
-                        ProviderErrorCode::Network
-                    },
-                    "failed to read provider response body",
-                    error.is_timeout() || error.is_connect(),
-                )
+                provider_transport_error(error.is_timeout(), error.is_connect())
             })?,
         };
         let Some(chunk) = chunk else {
@@ -972,6 +956,18 @@ fn response_too_large(limit: usize) -> ProviderError {
         ProviderErrorCode::ResponseTooLarge,
         format!("provider response exceeded {limit} bytes"),
         false,
+    )
+}
+
+fn provider_transport_error(timeout: bool, connect: bool) -> ProviderError {
+    ProviderError::new(
+        if timeout {
+            ProviderErrorCode::Timeout
+        } else {
+            ProviderErrorCode::Network
+        },
+        "provider transport failed",
+        timeout || connect,
     )
 }
 
@@ -1225,6 +1221,21 @@ mod tests {
             assert!(!error.message.contains('<'));
             assert!(!error.message.contains("secret"));
         }
+    }
+
+    #[test]
+    fn provider_transport_errors_omit_endpoint_and_query_data() {
+        let timeout = provider_transport_error(true, true);
+        assert_eq!(timeout.code, ProviderErrorCode::Timeout);
+        assert!(timeout.retryable);
+        assert_eq!(timeout.message, "provider transport failed");
+
+        let network = provider_transport_error(false, false);
+        assert_eq!(network.code, ProviderErrorCode::Network);
+        assert!(!network.retryable);
+        assert_eq!(network.message, "provider transport failed");
+        assert!(!network.message.contains("http"));
+        assert!(!network.message.contains('?'));
     }
 
     #[test]

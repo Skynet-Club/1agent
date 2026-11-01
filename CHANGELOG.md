@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.58.0 - 2026-11-02
+
+- Removed HTTP client error formatting from provider transport errors.
+- Kept timeout and network classifications without exposing endpoint or query values.
+- Made transport retryability depend only on timeout or connect failure.
+- Added runtime coverage proving authentication failures do not trigger fallback.
+- Retained existing coverage proving retryable failures trigger fallback.
+
 ## 0.57.0 - 2026-11-02
 
 - Stopped copying non-2xx provider response bodies into errors.

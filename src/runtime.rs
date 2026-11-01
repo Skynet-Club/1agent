@@ -1013,6 +1013,7 @@ mod tests {
     use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
     use crate::tools::{EchoTool, default_registry};
     use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct RetryableFailureProvider;
 
@@ -1035,6 +1036,34 @@ mod tests {
                 code: ProviderErrorCode::ProviderUnavailable,
                 message: "injected failure".into(),
                 retryable: true,
+            })
+        }
+    }
+
+    struct NonRetryableFailureProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for NonRetryableFailureProvider {
+        fn id(&self) -> &str {
+            "unauthorized"
+        }
+
+        fn model(&self) -> &str {
+            "unauthorized-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(ProviderError {
+                code: ProviderErrorCode::Authentication,
+                message: "injected authentication failure".into(),
+                retryable: false,
             })
         }
     }
@@ -1212,6 +1241,49 @@ mod tests {
         let summary = summarize_route_trace(&events).unwrap();
         assert_eq!(summary.fallback_attempts, 2);
         assert_eq!(summary.selected_provider_id.as_deref(), Some("failing"));
+    }
+
+    #[tokio::test]
+    async fn non_retryable_provider_failure_does_not_fall_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let failing = Arc::new(NonRetryableFailureProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let mut unauthorized_manifest = local_manifest();
+        unauthorized_manifest.provider_id = "unauthorized".into();
+        unauthorized_manifest.model = "unauthorized-v1".into();
+        unauthorized_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: failing.clone(),
+                    manifest: unauthorized_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("Compare A and B", workspace.path().into());
+
+        let error = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            RuntimeError::Provider {
+                source: ProviderError {
+                    code: ProviderErrorCode::Authentication,
+                    ..
+                },
+                ..
+            }
+        ));
+        assert_eq!(failing.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
