@@ -487,6 +487,25 @@ impl EvalReportSummary {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EvalReportTrustRequirements {
+    pub require_content_binding: bool,
+    pub require_authenticity: bool,
+}
+
+impl EvalReportTrustRequirements {
+    pub fn validate(self, report: &EvalReport) -> Result<(), EvalError> {
+        report.validate_integrity()?;
+        if self.require_content_binding && report.content_sha256.is_none() {
+            return Err(EvalError::ReportContentBindingRequired);
+        }
+        if self.require_authenticity {
+            return Err(EvalError::ReportAuthenticityRequired);
+        }
+        Ok(())
+    }
+}
+
 fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64
         && value
@@ -1189,6 +1208,10 @@ pub enum EvalError {
     UnsupportedReportSummaryVersion(u8),
     #[error("evaluation report summary integrity violation: {0}")]
     InvalidReportSummary(&'static str),
+    #[error("report content binding is required but the report is unbound")]
+    ReportContentBindingRequired,
+    #[error("report authenticity is required but report signatures are not supported")]
+    ReportAuthenticityRequired,
 }
 
 fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
@@ -1593,9 +1616,35 @@ mod tests {
             ))
         ));
 
+        EvalReportTrustRequirements::default()
+            .validate(&report)
+            .unwrap();
+        assert!(matches!(
+            EvalReportTrustRequirements {
+                require_content_binding: true,
+                require_authenticity: false,
+            }
+            .validate(&report),
+            Err(EvalError::ReportContentBindingRequired)
+        ));
+
         let mut report = report;
         report.content_sha256 = Some(report_content_sha256(&report).unwrap());
         report.validate_integrity().unwrap();
+        EvalReportTrustRequirements {
+            require_content_binding: true,
+            require_authenticity: false,
+        }
+        .validate(&report)
+        .unwrap();
+        assert!(matches!(
+            EvalReportTrustRequirements {
+                require_content_binding: false,
+                require_authenticity: true,
+            }
+            .validate(&report),
+            Err(EvalError::ReportAuthenticityRequired)
+        ));
         let summary = EvalReportSummary::from(&report);
         summary.validate().unwrap();
         let json = serde_json::to_value(&summary).unwrap();

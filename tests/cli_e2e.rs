@@ -156,6 +156,38 @@ fn cli_eval_reports_versioned_completeness_policy() {
     );
     let summary_json: serde_json::Value = serde_json::from_slice(&summary_output.stdout).unwrap();
     assert!(summary_json.get("cases").is_none());
+
+    let binding_output = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.path().display().to_string(),
+            "--require-content-binding",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        binding_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&binding_output.stderr)
+    );
+
+    let authenticity_output = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.path().display().to_string(),
+            "--require-authenticity",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!authenticity_output.status.success());
+    assert!(
+        String::from_utf8_lossy(&authenticity_output.stderr)
+            .contains("report authenticity is required but report signatures are not supported")
+    );
 }
 
 #[test]

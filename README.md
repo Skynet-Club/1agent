@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.82.0` is an executable V0 vertical slice:
+Version `0.83.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -100,6 +100,7 @@ Version `0.82.0` is an executable V0 vertical slice:
 - versioned and bounded evaluation summary contracts;
 - report-content digests binding summaries to normalized evaluation payloads;
 - explicit integrity, content-binding and authenticity status in report summaries;
+- host-selectable content-binding and authenticity trust requirements;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
@@ -128,6 +129,7 @@ cargo run --offline -- replay --journal .journal/run.jsonl
 cargo run --offline -- eval --suite evals/core.json
 cargo run --offline -- eval-inspect --report report.json --json
 cargo run --offline -- eval-inspect --report report.json --summary --json
+cargo run --offline -- eval-inspect --report report.json --require-content-binding --json
 cargo run --offline -- experience list --store .experience
 cargo run --offline -- resume-status --journal .journal/run.jsonl --json
 cargo run --offline -- tools --json

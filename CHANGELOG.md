@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.83.0 - 2026-11-02
+
+- Added explicit content-binding and authenticity trust requirements for report consumers.
+- Kept informational inspection compatible with unbound reports.
+- Rejected unbound reports when content binding is required.
+- Rejected all reports when authenticity is required because signatures are not implemented.
+- Added trust-policy unit and CLI end-to-end coverage.
+
 ## 0.82.0 - 2026-11-02
 
 - Added an explicit three-part verification summary to evaluation reports.

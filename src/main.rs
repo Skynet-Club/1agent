@@ -7,13 +7,13 @@ use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
-    DeterministicProvider, EvalReportSummary, ExperienceCandidateSpec, ExperienceStore,
-    ExperienceVerificationInput, GoldSetManifest, HostCommand, HostError, HostRegistry,
-    HostRequestState, HostResponse, OpenAiCompatibleProvider, PolicyValueSource, ProviderAdapter,
-    ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport, RegistrySnapshot,
-    ReleasePolicy, ReleasePolicyMode, RouteObjective, RoutePolicySources, RouteRequest, Router,
-    RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
-    build_release_verification_report, collect_provenance, collect_release_manifest,
+    DeterministicProvider, EvalReportSummary, EvalReportTrustRequirements, ExperienceCandidateSpec,
+    ExperienceStore, ExperienceVerificationInput, GoldSetManifest, HostCommand, HostError,
+    HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider, PolicyValueSource,
+    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
+    RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective, RoutePolicySources,
+    RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest,
+    audit_events, build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
     find_resumable_prefix, infer_mode, load_eval_report, load_suite, local_manifest,
     probe_provider, probe_provider_tools, read_events, rebuild_and_compare, remote_manifest,
@@ -116,6 +116,10 @@ enum Command {
         report: PathBuf,
         #[arg(long)]
         summary: bool,
+        #[arg(long)]
+        require_content_binding: bool,
+        #[arg(long)]
+        require_authenticity: bool,
         #[arg(long)]
         json: bool,
     },
@@ -808,9 +812,16 @@ async fn main() -> Result<()> {
         Command::EvalInspect {
             report,
             summary,
+            require_content_binding,
+            require_authenticity,
             json,
         } => {
             let report = load_eval_report(&report)?;
+            EvalReportTrustRequirements {
+                require_content_binding,
+                require_authenticity,
+            }
+            .validate(&report)?;
             if summary {
                 let summary = EvalReportSummary::from(&report);
                 summary.validate()?;
