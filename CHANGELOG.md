@@ -8,6 +8,8 @@
 - Added SHA-256 and case-id binding generation from the actual suite file.
 - Added shadow candidate injection without activating unverified experience.
 - Added positive learned-transfer and negative false-certainty tests.
+- Added human-authored evaluation rubrics for conclusion terms, sources and claim statuses.
+- Added rubric pass/check totals to evaluation scorecards.
 
 ## 0.9.0 - 2026-11-01
 

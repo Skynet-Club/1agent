@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::domain::{AnswerStatus, StopReason, TaskRequest, ToolStatus, Usage};
+use crate::domain::{AnswerStatus, ClaimStatus, StopReason, TaskRequest, ToolStatus, Usage};
 use crate::experience::{ExperienceCandidate, ExperienceVerificationInput};
 use crate::journal::{audit_events, read_events};
 use crate::provider::DeterministicProvider;
@@ -34,7 +34,22 @@ pub struct EvalCase {
     pub setup_files: Vec<SetupFile>,
     #[serde(default)]
     pub experience_scope: Option<String>,
+    #[serde(default)]
+    pub rubric: Option<EvalRubric>,
     pub expect: EvalExpectation,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EvalRubric {
+    #[serde(default)]
+    pub required_conclusion_terms: Vec<String>,
+    #[serde(default)]
+    pub forbidden_conclusion_terms: Vec<String>,
+    #[serde(default)]
+    pub required_sources: Vec<String>,
+    #[serde(default)]
+    pub required_claim_statuses: Vec<ClaimStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -77,6 +92,8 @@ pub struct EvalCaseResult {
     pub answer_status: Option<AnswerStatus>,
     pub evidence_count: usize,
     pub claim_count: usize,
+    pub rubric_checks: usize,
+    pub rubric_passed: usize,
     pub provider_id: Option<String>,
     pub model: Option<String>,
     pub duration_ms: u64,
@@ -93,6 +110,8 @@ pub struct EvalReport {
     pub passed: usize,
     pub failed: usize,
     pub hard_gate_failures: usize,
+    pub rubric_checks: usize,
+    pub rubric_passed: usize,
     pub cases: Vec<EvalCaseResult>,
 }
 
@@ -256,12 +275,16 @@ pub async fn run_suite_with_learning(
         .iter()
         .filter(|result| result.hard_gate_failed)
         .count();
+    let rubric_checks = results.iter().map(|result| result.rubric_checks).sum();
+    let rubric_passed = results.iter().map(|result| result.rubric_passed).sum();
     Ok(EvalReport {
         suite: suite.name,
         total: results.len(),
         passed,
         failed: results.len() - passed,
         hard_gate_failures,
+        rubric_checks,
+        rubric_passed,
         cases: results,
     })
 }
@@ -393,6 +416,9 @@ async fn run_case(
             ));
         }
     }
+    let (rubric_passed, rubric_checks, rubric_issues) =
+        score_rubric(case.rubric.as_ref(), &result.answer);
+    issues.extend(rubric_issues);
     let hard_gate_failed = !audit.ok && case.expect.audit_ok;
     EvalCaseResult {
         id: case.id,
@@ -402,6 +428,8 @@ async fn run_case(
         answer_status: Some(result.answer.status),
         evidence_count: result.answer.evidence.len(),
         claim_count: result.answer.claims.len(),
+        rubric_checks,
+        rubric_passed,
         provider_id,
         model,
         duration_ms,
@@ -441,6 +469,8 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         answer_status: None,
         evidence_count: 0,
         claim_count: 0,
+        rubric_checks: 0,
+        rubric_passed: 0,
         provider_id: None,
         model: None,
         duration_ms: 0,
@@ -448,6 +478,56 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         audit_ok: false,
         issues: vec![issue],
     }
+}
+
+fn score_rubric(
+    rubric: Option<&EvalRubric>,
+    answer: &crate::domain::AgentAnswer,
+) -> (usize, usize, Vec<String>) {
+    let Some(rubric) = rubric else {
+        return (0, 0, Vec::new());
+    };
+    let conclusion = answer.conclusion.to_lowercase();
+    let mut passed = 0;
+    let mut checks = 0;
+    let mut issues = Vec::new();
+    for term in &rubric.required_conclusion_terms {
+        checks += 1;
+        if conclusion.contains(&term.to_lowercase()) {
+            passed += 1;
+        } else {
+            issues.push(format!("rubric: conclusion must contain '{term}'"));
+        }
+    }
+    for term in &rubric.forbidden_conclusion_terms {
+        checks += 1;
+        if conclusion.contains(&term.to_lowercase()) {
+            issues.push(format!("rubric: conclusion must not contain '{term}'"));
+        } else {
+            passed += 1;
+        }
+    }
+    for source in &rubric.required_sources {
+        checks += 1;
+        if answer
+            .evidence
+            .iter()
+            .any(|evidence| &evidence.source == source)
+        {
+            passed += 1;
+        } else {
+            issues.push(format!("rubric: evidence source '{source}' is missing"));
+        }
+    }
+    for status in &rubric.required_claim_statuses {
+        checks += 1;
+        if answer.claims.iter().any(|claim| claim.status == *status) {
+            passed += 1;
+        } else {
+            issues.push(format!("rubric: claim status {status:?} is missing"));
+        }
+    }
+    (passed, checks, issues)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -490,6 +570,7 @@ mod tests {
                     content: "verified evidence".into(),
                 }],
                 experience_scope: None,
+                rubric: None,
                 expect: EvalExpectation {
                     stop_reason: StopReason::Completed,
                     answer_status: AnswerStatus::Completed,
@@ -597,6 +678,7 @@ mod tests {
                     objective: "Choose the repository option".into(),
                     setup_files: Vec::new(),
                     experience_scope: Some("repository decisions".into()),
+                    rubric: None,
                     expect: EvalExpectation {
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Completed,

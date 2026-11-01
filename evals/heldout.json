@@ -12,6 +12,18 @@
           "content": "Verified: option A has the lower total cost."
         }
       ],
+      "rubric": {
+        "required_conclusion_terms": [
+          "已读取证据源"
+        ],
+        "forbidden_conclusion_terms": [],
+        "required_sources": [
+          "evidence.txt"
+        ],
+        "required_claim_statuses": [
+          "verified"
+        ]
+      },
       "expect": {
         "stop_reason": "completed",
         "answer_status": "completed",
