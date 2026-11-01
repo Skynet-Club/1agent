@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.78.0 - 2026-11-02
+
+- Bound evaluation report inspection to internal aggregate invariants.
+- Recompute case, pass/fail, hard-gate and rubric totals before acceptance.
+- Recompute decision-completeness aggregates and floor status before acceptance.
+- Reject reports whose top-level claims do not match their case records.
+- Added tampered-report unit and CLI end-to-end coverage.
+
 ## 0.77.0 - 2026-11-02
 
 - Added `eval-inspect` for external evaluation reports.

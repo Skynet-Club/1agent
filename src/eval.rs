@@ -254,6 +254,65 @@ pub struct EvalReport {
     pub cases: Vec<EvalCaseResult>,
 }
 
+impl EvalReport {
+    pub fn validate_integrity(&self) -> Result<(), EvalError> {
+        self.decision_completeness_policy.validate()?;
+        if self.min_decision_completeness_bps > 10_000 {
+            return Err(EvalError::InvalidDecisionCompletenessFloor);
+        }
+        if self.total != self.cases.len() {
+            return Err(EvalError::InvalidReportIntegrity(
+                "case count does not match total",
+            ));
+        }
+        let passed = self.cases.iter().filter(|case| case.passed).count();
+        if self.passed != passed {
+            return Err(EvalError::InvalidReportIntegrity(
+                "passed count does not match cases",
+            ));
+        }
+        let failed = self.cases.iter().filter(|case| !case.passed).count();
+        if self.failed != failed || self.passed + self.failed != self.total {
+            return Err(EvalError::InvalidReportIntegrity(
+                "failed count does not match cases",
+            ));
+        }
+        let hard_gate_failures = self
+            .cases
+            .iter()
+            .filter(|case| case.hard_gate_failed)
+            .count();
+        if self.hard_gate_failures != hard_gate_failures {
+            return Err(EvalError::InvalidReportIntegrity(
+                "hard-gate count does not match cases",
+            ));
+        }
+        let rubric_checks: usize = self.cases.iter().map(|case| case.rubric_checks).sum();
+        let rubric_passed: usize = self.cases.iter().map(|case| case.rubric_passed).sum();
+        if self.rubric_checks != rubric_checks
+            || self.rubric_passed != rubric_passed
+            || self.rubric_passed > self.rubric_checks
+        {
+            return Err(EvalError::InvalidReportIntegrity(
+                "rubric aggregates do not match cases",
+            ));
+        }
+        if self.decision_completeness != aggregate_decision_completeness(&self.cases) {
+            return Err(EvalError::InvalidReportIntegrity(
+                "decision-completeness aggregates do not match cases",
+            ));
+        }
+        let floor_passed =
+            self.decision_completeness.completion_rate_bps >= self.min_decision_completeness_bps;
+        if self.decision_completeness_floor_passed != floor_passed {
+            return Err(EvalError::InvalidReportIntegrity(
+                "decision-completeness floor status is inconsistent",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ExperienceEvaluationReport {
@@ -375,7 +434,7 @@ pub fn load_suite(path: impl AsRef<Path>) -> Result<EvalSuite, EvalError> {
 pub fn load_eval_report(path: impl AsRef<Path>) -> Result<EvalReport, EvalError> {
     let content = std::fs::read_to_string(path.as_ref())?;
     let report: EvalReport = serde_json::from_str(&content)?;
-    report.decision_completeness_policy.validate()?;
+    report.validate_integrity()?;
     Ok(report)
 }
 
@@ -933,6 +992,8 @@ pub enum EvalError {
     InvalidDecisionCompletenessPolicyCombination,
     #[error("unsupported decision-completeness policy version: {0}")]
     UnsupportedDecisionCompletenessPolicyVersion(u8),
+    #[error("evaluation report integrity violation: {0}")]
+    InvalidReportIntegrity(&'static str),
 }
 
 fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
@@ -1225,6 +1286,7 @@ mod tests {
         .unwrap();
         assert_eq!(report.passed, 1);
         assert_eq!(report.hard_gate_failures, 0);
+        report.validate_integrity().unwrap();
         assert_eq!(
             report.decision_completeness_policy,
             DecisionCompletenessPolicy {
@@ -1243,6 +1305,91 @@ mod tests {
             decoded.decision_completeness_policy,
             DecisionCompletenessPolicy::default()
         );
+    }
+
+    #[test]
+    fn report_integrity_rejects_tampered_aggregates() {
+        let report = EvalReport {
+            suite: "integrity".into(),
+            kind: EvalSuiteKind::ContractFixture,
+            execution_status: EvalExecutionStatus::Unspecified,
+            total: 1,
+            passed: 1,
+            failed: 0,
+            hard_gate_failures: 0,
+            rubric_checks: 1,
+            rubric_passed: 1,
+            decision_completeness: DecisionCompletenessAggregate {
+                cases: 1,
+                ok_cases: 1,
+                completion_rate_bps: 10_000,
+                ..DecisionCompletenessAggregate::default()
+            },
+            min_decision_completeness_bps: 0,
+            decision_completeness_floor_passed: true,
+            decision_completeness_policy: DecisionCompletenessPolicy {
+                version: DECISION_COMPLETENESS_POLICY_VERSION,
+                floor_source: DecisionCompletenessFloorSource::Default,
+            },
+            cases: vec![EvalCaseResult {
+                id: "passed".into(),
+                passed: true,
+                hard_gate_failed: false,
+                stop_reason: None,
+                answer_status: None,
+                evidence_count: 0,
+                claim_count: 0,
+                unknown_count: 0,
+                low_impact_unknown_count: 0,
+                medium_impact_unknown_count: 0,
+                high_impact_unknown_count: 0,
+                low_impact_assumption_count: 0,
+                medium_impact_assumption_count: 0,
+                high_impact_assumption_count: 0,
+                conflict_count: 0,
+                unresolved_conflict_count: 0,
+                stale_evidence_count: 0,
+                flip_condition_count: 0,
+                decision_completeness: DecisionCompletenessRollup {
+                    ok: true,
+                    ..DecisionCompletenessRollup::default()
+                },
+                rubric_checks: 1,
+                rubric_passed: 1,
+                provider_id: None,
+                model: None,
+                duration_ms: 0,
+                usage: Usage::default(),
+                audit_ok: true,
+                issues: Vec::new(),
+            }],
+        };
+        report.validate_integrity().unwrap();
+
+        let mut invalid = report.clone();
+        invalid.total = 2;
+        assert!(matches!(
+            invalid.validate_integrity(),
+            Err(EvalError::InvalidReportIntegrity(_))
+        ));
+
+        let mut invalid = report.clone();
+        invalid.decision_completeness.ok_cases = 0;
+        assert!(matches!(
+            invalid.validate_integrity(),
+            Err(EvalError::InvalidReportIntegrity(
+                "decision-completeness aggregates do not match cases"
+            ))
+        ));
+
+        let mut invalid = report.clone();
+        invalid.decision_completeness_floor_passed = false;
+        assert!(matches!(
+            invalid.validate_integrity(),
+            Err(EvalError::InvalidReportIntegrity(
+                "decision-completeness floor status is inconsistent"
+            ))
+        ));
     }
 
     #[tokio::test]

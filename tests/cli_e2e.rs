@@ -149,4 +149,21 @@ fn cli_eval_inspect_rejects_unsupported_policy_version() {
         String::from_utf8_lossy(&inspect_output.stderr)
             .contains("unsupported decision-completeness policy version: 2")
     );
+
+    report["decision_completeness_policy"]["version"] = serde_json::json!(1);
+    report["total"] = serde_json::json!(99);
+    std::fs::write(report_path.path(), serde_json::to_vec(&report).unwrap()).unwrap();
+    let inspect_output = Command::new(binary)
+        .args([
+            "eval-inspect",
+            "--report",
+            &report_path.path().display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!inspect_output.status.success());
+    assert!(
+        String::from_utf8_lossy(&inspect_output.stderr).contains("case count does not match total")
+    );
 }
