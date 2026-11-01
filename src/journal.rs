@@ -165,13 +165,39 @@ pub struct RouteTraceSummary {
     pub selected_provider_id: Option<String>,
     pub selected_model: Option<String>,
     pub selection_reason: Option<String>,
+    pub fallback_attempts: usize,
     pub policy_sources: RoutePolicySources,
+}
+
+impl RouteTraceSummary {
+    pub fn render(&self) -> String {
+        let mut output = format!(
+            "路由：mode={:?} objective={:?} candidates={} rejected={} fallback_attempts={}",
+            self.mode, self.objective, self.candidates, self.rejected, self.fallback_attempts
+        );
+        if let (Some(provider_id), Some(model)) = (&self.selected_provider_id, &self.selected_model)
+        {
+            output.push_str(&format!("\n路由选择：{provider_id}/{model}"));
+        }
+        if let Some(reason) = &self.selection_reason {
+            output.push_str(&format!("\n路由原因：{}", bounded_chars(reason, 240)));
+        }
+        output.push_str(&format!(
+            "\n策略来源：objective={:?} latency={:?} unit_cost={:?}",
+            self.policy_sources.objective,
+            self.policy_sources.latency_budget,
+            self.policy_sources.unit_cost_budget
+        ));
+        output
+    }
 }
 
 pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummary> {
     let mut route_plan = None;
     let mut selected = None;
     let mut sources = None;
+    let mut fallback_attempts = 0;
+    let mut first_attempt_phase = true;
     for event in events {
         match &event.event {
             JournalEventKind::RoutePlanned {
@@ -187,6 +213,13 @@ pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummar
                 reason,
             } if selected.is_none() => {
                 selected = Some((provider_id, model, reason));
+                fallback_attempts = 1;
+            }
+            JournalEventKind::RouteSelected { .. } if first_attempt_phase => {
+                fallback_attempts += 1;
+            }
+            JournalEventKind::ModelResponded { .. } => {
+                first_attempt_phase = false;
             }
             _ => {}
         }
@@ -201,8 +234,18 @@ pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummar
         selected_provider_id: selected.map(|value| value.0.clone()),
         selected_model: selected.map(|value| value.1.clone()),
         selection_reason: selected.map(|value| value.2.clone()),
+        fallback_attempts,
         policy_sources: sources,
     })
+}
+
+fn bounded_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.into();
+    }
+    let mut bounded: String = value.chars().take(max_chars.saturating_sub(1)).collect();
+    bounded.push('…');
+    bounded
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

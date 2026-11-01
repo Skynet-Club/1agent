@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.37.0 - 2026-11-02
+
+- Bounded human-readable route reasons to 240 characters.
+- Added first-model-step fallback-attempt count to route summaries.
+- Moved route-summary formatting into a testable library function.
+- Added bounded-output and fallback-count coverage.
+- Left complete, untruncated reasons in journal/replay JSON.
+
 ## 0.36.0 - 2026-11-02
 
 - Added concise route summaries to non-JSON run and resume output.

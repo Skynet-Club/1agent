@@ -2142,24 +2142,7 @@ fn render_answer(result: &first_principles_agent::RunResult) -> String {
 fn print_route_trace(journal_path: &std::path::Path) -> Result<()> {
     let events = read_events(journal_path)?;
     if let Some(summary) = summarize_route_trace(&events) {
-        println!(
-            "\n路由：mode={:?} objective={:?} candidates={} rejected={}",
-            summary.mode, summary.objective, summary.candidates, summary.rejected
-        );
-        if let (Some(provider_id), Some(model)) =
-            (summary.selected_provider_id, summary.selected_model)
-        {
-            println!("路由选择：{provider_id}/{model}");
-        }
-        if let Some(reason) = summary.selection_reason {
-            println!("路由原因：{reason}");
-        }
-        println!(
-            "策略来源：objective={:?} latency={:?} unit_cost={:?}",
-            summary.policy_sources.objective,
-            summary.policy_sources.latency_budget,
-            summary.policy_sources.unit_cost_budget
-        );
+        println!("\n{}", summary.render());
     }
     Ok(())
 }

@@ -1058,10 +1058,16 @@ mod tests {
         let summary = summarize_route_trace(&events).unwrap();
         assert_eq!(summary.candidates, 1);
         assert_eq!(summary.rejected, 0);
+        assert_eq!(summary.fallback_attempts, 1);
         assert_eq!(
             summary.selected_provider_id.as_deref(),
             Some("deterministic")
         );
+        let mut bounded = summary;
+        bounded.selection_reason = Some("x".repeat(300));
+        let rendered = bounded.render();
+        assert!(rendered.contains('…'));
+        assert!(!rendered.contains(&"x".repeat(241)));
     }
 
     #[tokio::test]
@@ -1156,6 +1162,9 @@ mod tests {
             .count();
         assert_eq!(failing_attempts, 1);
         assert_eq!(deterministic_attempts, 2);
+        let summary = summarize_route_trace(&events).unwrap();
+        assert_eq!(summary.fallback_attempts, 2);
+        assert_eq!(summary.selected_provider_id.as_deref(), Some("failing"));
     }
 
     #[tokio::test]
