@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.0 - 2026-11-02
+
+- Added deterministic provenance timestamps through `SOURCE_DATE_EPOCH`.
+- Recreated package output and archives before every package run.
+- Generated checksums before normalizing all packaged file timestamps.
+- Added sorted, ownership-neutral tar and deterministic gzip metadata.
+- Added sorted zip output with normalized timestamps and no directory entries.
+- Added `scripts/verify-reproducible-package.sh`.
+- Verified consecutive package runs produce byte-identical Linux and Windows archives.
+
 ## 0.21.0 - 2026-11-02
 
 - Isolated build-path reproducibility differences.

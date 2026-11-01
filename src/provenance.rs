@@ -161,10 +161,21 @@ fn command_output(
 }
 
 fn now_unix_ms() -> u128 {
+    if let Some(ms) =
+        timestamp_from_source_date_epoch(std::env::var("SOURCE_DATE_EPOCH").ok().as_deref())
+    {
+        return ms;
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+fn timestamp_from_source_date_epoch(value: Option<&str>) -> Option<u128> {
+    value
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .map(|seconds| u128::from(seconds) * 1_000)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -215,5 +226,17 @@ mod tests {
         std::fs::write(&right, b"different").unwrap();
         let report = compare_artifacts(dir.path(), &left, &right, "target").unwrap();
         assert!(!report.hashes_equal);
+    }
+
+    #[test]
+    fn source_date_epoch_accepts_only_valid_seconds() {
+        assert_eq!(timestamp_from_source_date_epoch(None), None);
+        assert_eq!(timestamp_from_source_date_epoch(Some("")), None);
+        assert_eq!(timestamp_from_source_date_epoch(Some("not-a-time")), None);
+        assert_eq!(timestamp_from_source_date_epoch(Some("0")), Some(0));
+        assert_eq!(
+            timestamp_from_source_date_epoch(Some("1735689600")),
+            Some(1_735_689_600_000)
+        );
     }
 }

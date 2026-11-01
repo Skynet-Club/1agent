@@ -11,6 +11,17 @@ if [[ -z "$version" ]]; then
 fi
 
 package_root="$project_dir/dist/1agent-$version"
+linux_archive="$project_dir/dist/1agent-$version-linux-x86_64.tar.gz"
+windows_archive="$project_dir/dist/1agent-$version-windows-x86_64.zip"
+case "$package_root" in
+  "$project_dir"/dist/1agent-*) ;;
+  *)
+    echo "unsafe package root: $package_root" >&2
+    exit 1
+    ;;
+esac
+rm -rf -- "$package_root"
+rm -f -- "$linux_archive" "$windows_archive"
 linux_dir="$package_root/linux-x86_64"
 windows_dir="$package_root/windows-x86_64"
 mkdir -p "$linux_dir" "$windows_dir"
@@ -18,12 +29,12 @@ mkdir -p "$linux_dir" "$windows_dir"
 ./scripts/reproducible-build.sh x86_64-unknown-linux-gnu "$linux_dir/1agent"
 ./scripts/reproducible-build.sh x86_64-pc-windows-gnu "$windows_dir/1agent.exe"
 mkdir -p "$package_root/provenance"
-"$linux_dir/1agent" provenance create \
+SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
   --artifact "$linux_dir/1agent" \
   --target x86_64-unknown-linux-gnu \
   --output "$package_root/provenance/linux-x86_64.json" \
   >/dev/null
-"$linux_dir/1agent" provenance create \
+SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
   --artifact "$windows_dir/1agent.exe" \
   --target x86_64-pc-windows-gnu \
   --output "$package_root/provenance/windows-x86_64.json" \
@@ -39,13 +50,20 @@ cp -R docs evals configs "$package_root/"
     > SHA256SUMS
 )
 
-tar -C "$project_dir/dist" -czf \
-  "$project_dir/dist/1agent-$version-linux-x86_64.tar.gz" \
-  "1agent-$version"
+TZ=UTC find "$package_root" -exec touch -h -t 198001010000 {} +
 
 (
   cd "$project_dir/dist"
-  zip -qr "1agent-$version-windows-x86_64.zip" "1agent-$version"
+  TZ=UTC tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+    --format=gnu -cf - "1agent-$version" \
+    | gzip -n -9 > "$linux_archive"
+)
+
+(
+  cd "$project_dir/dist"
+  find "1agent-$version" -type f -print \
+    | LC_ALL=C sort \
+    | TZ=UTC zip -X -D -q "$windows_archive" -@
 )
 
 echo "$package_root"
