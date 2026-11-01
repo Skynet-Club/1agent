@@ -25,6 +25,7 @@ Date: 2026-11-02
 | Windows archive reproducibility | passed |
 | Release manifest verification | passed |
 | Linux provenance verification | passed |
+| Relative Markdown links | passed |
 
 ## Historical release chain
 
