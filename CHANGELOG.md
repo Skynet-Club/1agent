@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.59.0 - 2026-11-02
+
+- Added a structured `provider_failed` journal event.
+- Record provider/model, error code, retryability and a bounded sanitized message.
+- Preserve provider failures in replay state.
+- Audit failures that do not match the selected route.
+- Audit contradictory success followed by failure in the same attempt.
+- Updated retryable and non-retryable runtime coverage.
+
 ## 0.58.0 - 2026-11-02
 
 - Removed HTTP client error formatting from provider transport errors.

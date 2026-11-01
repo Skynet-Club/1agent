@@ -10,6 +10,7 @@ use crate::domain::{
     AgentAnswer, CognitiveMode, InjectedExperience, ModelRequest, ModelResponse, PROTOCOL_VERSION,
     RuntimeCheckpoint, StopReason, TaskRequest, ToolCall, ToolObservation,
 };
+use crate::provider::{ProviderError, ProviderErrorCode};
 use crate::router::{RouteObjective, RoutePlan, RoutePolicySources};
 use crate::tools::ToolCapabilitySnapshot;
 
@@ -21,6 +22,47 @@ pub struct JournalEvent {
     pub seq: u64,
     pub timestamp_unix_ms: u128,
     pub event: JournalEventKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderFailure {
+    pub provider_id: String,
+    pub model: String,
+    pub code: ProviderErrorCode,
+    pub retryable: bool,
+    pub message: String,
+}
+
+impl ProviderFailure {
+    pub fn from_error(
+        provider_id: impl Into<String>,
+        model: impl Into<String>,
+        error: &ProviderError,
+    ) -> Self {
+        let mut message = error
+            .message
+            .chars()
+            .map(|character| {
+                if crate::safety::is_disallowed_control(character) {
+                    '�'
+                } else {
+                    character
+                }
+            })
+            .take(511)
+            .collect::<String>();
+        if error.message.chars().count() > 511 {
+            message.push('…');
+        }
+        Self {
+            provider_id: provider_id.into(),
+            model: model.into(),
+            code: error.code,
+            retryable: error.retryable,
+            message,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +98,9 @@ pub enum JournalEventKind {
     },
     ModelResponded {
         response: ModelResponse,
+    },
+    ProviderFailed {
+        failure: ProviderFailure,
     },
     ToolCalled {
         call: ToolCall,
@@ -157,6 +202,8 @@ pub enum AuditFindingCode {
     AnswerValidationFailed,
     StopReasonMismatch,
     MissingAnswerForStop,
+    ProviderFailureOutsideSelectedRoute,
+    ProviderSucceededAndFailed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -182,6 +229,8 @@ pub struct ReplayState {
     pub mode: Option<CognitiveMode>,
     pub provider_id: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub provider_failures: Vec<ProviderFailure>,
     pub route_plan: Option<RoutePlan>,
     pub route_policy_sources: Option<RoutePolicySources>,
     pub tool_capabilities: Option<ToolCapabilitySnapshot>,
@@ -425,6 +474,8 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
     let mut answer = None;
     let mut answer_event_index = None;
     let mut current_route_plan: Option<RoutePlan> = None;
+    let mut selected_route: Option<(String, String)> = None;
+    let mut responded_route: Option<(String, String)> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
@@ -501,6 +552,8 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
             JournalEventKind::RouteSelected {
                 provider_id, model, ..
             } => {
+                selected_route = Some((provider_id.clone(), model.clone()));
+                responded_route = None;
                 if let Some(plan) = &current_route_plan
                     && !plan.ranked.iter().any(|candidate| {
                         candidate.manifest.provider_id == *provider_id
@@ -513,6 +566,34 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                         Some(index),
                         format!(
                             "event {index}: selected route {provider_id}/{model} is not in the route plan"
+                        ),
+                    );
+                }
+            }
+            JournalEventKind::ModelResponded { .. } => {
+                responded_route = selected_route.clone();
+            }
+            JournalEventKind::ProviderFailed { failure } => {
+                let failure_route = (failure.provider_id.clone(), failure.model.clone());
+                if selected_route.as_ref() != Some(&failure_route) {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderFailureOutsideSelectedRoute,
+                        Some(index),
+                        format!(
+                            "event {index}: provider failure {}/{} has no matching selected route",
+                            failure.provider_id, failure.model
+                        ),
+                    );
+                }
+                if responded_route.as_ref() == Some(&failure_route) {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::ProviderSucceededAndFailed,
+                        Some(index),
+                        format!(
+                            "event {index}: provider {}/{} responded and then failed in the same attempt",
+                            failure.provider_id, failure.model
                         ),
                     );
                 }
@@ -664,6 +745,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         mode: None,
         provider_id: None,
         model: None,
+        provider_failures: Vec::new(),
         route_plan: None,
         route_policy_sources: None,
         tool_capabilities: None,
@@ -698,6 +780,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             } => {
                 state.provider_id = Some(provider_id.clone());
                 state.model = Some(model.clone());
+            }
+            JournalEventKind::ProviderFailed { failure } => {
+                state.provider_failures.push(failure.clone());
             }
             JournalEventKind::RoutePlanned { plan, sources } => {
                 state.route_plan = Some(plan.clone());
@@ -1320,6 +1405,94 @@ mod tests {
                 .iter()
                 .any(|finding| finding["code"] == "duplicate_answer" && finding["event_index"] == 3)
         }));
+    }
+
+    #[test]
+    fn audit_detects_contradictory_provider_failures() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let failure = ProviderFailure {
+            provider_id: "provider-a".into(),
+            model: "model-a".into(),
+            code: ProviderErrorCode::ProviderUnavailable,
+            retryable: true,
+            message: "unavailable".into(),
+        };
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderFailed {
+                    failure: failure.clone(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RouteSelected {
+                    provider_id: "provider-a".into(),
+                    model: "model-a".into(),
+                    reason: "selected".into(),
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 3,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ModelResponded {
+                    response: ModelResponse {
+                        provider_id: "provider-a".into(),
+                        model: "model-a".into(),
+                        turn: crate::domain::ModelTurn::Final { answer: answer() },
+                        usage: crate::domain::Usage::default(),
+                    },
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 4,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ProviderFailed { failure },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 5,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::ProviderError,
+                },
+            },
+        ];
+
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::ProviderFailureOutsideSelectedRoute
+                && finding.event_index == Some(1)
+        }));
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::ProviderSucceededAndFailed
+                && finding.event_index == Some(4)
+        }));
+        let replay = replay_events(&events).unwrap();
+        assert_eq!(replay.provider_failures.len(), 2);
     }
 
     #[test]

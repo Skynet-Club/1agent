@@ -15,7 +15,7 @@ use crate::domain::{
 };
 use crate::experience::ExperienceStore;
 use crate::journal::{
-    Journal, JournalEventKind, ResumablePrefix, find_resumable_prefix, read_events,
+    Journal, JournalEventKind, ProviderFailure, ResumablePrefix, find_resumable_prefix, read_events,
 };
 use crate::provider::{ModelProvider, ProviderError, agent_system_prompt};
 use crate::router::{
@@ -577,6 +577,13 @@ impl AgentRuntime {
                         break;
                     }
                     Ok(Err(source)) if source.retryable => {
+                        append_provider_failure(
+                            &mut journal,
+                            &journal_path,
+                            &route.manifest.provider_id,
+                            &route.manifest.model,
+                            &source,
+                        )?;
                         unavailable_routes.insert(route_key);
                         last_retryable_error = Some(source);
                     }
@@ -591,6 +598,13 @@ impl AgentRuntime {
                         });
                     }
                     Ok(Err(source)) => {
+                        append_provider_failure(
+                            &mut journal,
+                            &journal_path,
+                            &route.manifest.provider_id,
+                            &route.manifest.model,
+                            &source,
+                        )?;
                         let _ = journal.append(JournalEventKind::RunStopped {
                             reason: StopReason::ProviderError,
                         });
@@ -846,6 +860,24 @@ fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
     }
 }
 
+fn append_provider_failure(
+    journal: &mut Journal,
+    journal_path: &Path,
+    provider_id: &str,
+    model: &str,
+    error: &ProviderError,
+) -> Result<(), RuntimeError> {
+    journal
+        .append(JournalEventKind::ProviderFailed {
+            failure: ProviderFailure::from_error(provider_id, model, error),
+        })
+        .map_err(|source| RuntimeError::Journal {
+            path: journal_path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
+}
+
 fn authorization_answer() -> crate::domain::AgentAnswer {
     crate::domain::AgentAnswer {
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
@@ -1062,7 +1094,7 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Err(ProviderError {
                 code: ProviderErrorCode::Authentication,
-                message: "injected authentication failure".into(),
+                message: format!("auth\u{202e}{}", "x".repeat(1_000)),
                 retryable: false,
             })
         }
@@ -1241,6 +1273,22 @@ mod tests {
         let summary = summarize_route_trace(&events).unwrap();
         assert_eq!(summary.fallback_attempts, 2);
         assert_eq!(summary.selected_provider_id.as_deref(), Some("failing"));
+        let failures = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ProviderFailed { failure } => Some(failure),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].provider_id, "failing");
+        assert_eq!(
+            failures[0].code,
+            crate::provider::ProviderErrorCode::ProviderUnavailable
+        );
+        assert!(failures[0].retryable);
+        let replay = replay_events(&events).unwrap();
+        assert_eq!(replay.provider_failures.len(), 1);
     }
 
     #[tokio::test]
@@ -1273,17 +1321,31 @@ mod tests {
             .run(request, CancellationToken::new())
             .await
             .unwrap_err();
-        assert!(matches!(
-            error,
-            RuntimeError::Provider {
-                source: ProviderError {
-                    code: ProviderErrorCode::Authentication,
-                    ..
-                },
-                ..
+        let path = match error {
+            RuntimeError::Provider { path, source } => {
+                assert_eq!(source.code, ProviderErrorCode::Authentication);
+                assert!(!source.retryable);
+                path
             }
-        ));
+            other => panic!("expected provider error, got {other:?}"),
+        };
         assert_eq!(failing.calls.load(Ordering::SeqCst), 1);
+        let events = read_events(path).unwrap();
+        let failures = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ProviderFailed { failure } => Some(failure),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].provider_id, "unauthorized");
+        assert_eq!(failures[0].code, ProviderErrorCode::Authentication);
+        assert!(!failures[0].retryable);
+        assert!(failures[0].message.chars().count() <= 512);
+        assert!(!crate::safety::contains_disallowed_control(
+            &failures[0].message
+        ));
     }
 
     #[tokio::test]
