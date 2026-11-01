@@ -221,4 +221,22 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
     assert_eq!(audit["ok"], serde_json::Value::Bool(true));
     assert_eq!(audit["candidate_count"], serde_json::json!(1));
     assert_eq!(audit["findings"], serde_json::json!([]));
+
+    let audit_text = Command::new(binary)
+        .args([
+            "experience",
+            "audit",
+            "--store",
+            &store.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(audit_text.status.success());
+    let audit_text = String::from_utf8_lossy(&audit_text.stdout);
+    assert!(audit_text.contains("experience audit passed"));
+    assert!(audit_text.contains("active=1"));
+    assert!(audit_text.contains("superseded=0"));
+    assert!(audit_text.contains("chains=0"));
+    assert!(audit_text.contains("depth=0"));
+    assert!(audit_text.contains("expired_active=0"));
 }

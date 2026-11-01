@@ -1464,14 +1464,19 @@ async fn handle_experience(command: ExperienceCommand) -> Result<()> {
             let report = ExperienceStore::open(store)?.audit();
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
-            } else if report.ok {
-                println!(
-                    "experience audit passed: {} events, {} candidates",
-                    report.event_count, report.candidate_count
-                );
             } else {
-                println!("experience audit failed:");
-                for finding in report.findings {
+                println!(
+                    "experience audit {}: events={} candidates={} active={} superseded={} chains={} depth={} expired_active={}",
+                    if report.ok { "passed" } else { "failed" },
+                    report.event_count,
+                    report.candidate_count,
+                    report.status_counts.active,
+                    report.status_counts.superseded,
+                    report.supersession_chains,
+                    report.max_supersession_depth,
+                    report.expired_active
+                );
+                for finding in &report.findings {
                     println!("- {:?}: {}", finding.code, finding.message);
                 }
             }

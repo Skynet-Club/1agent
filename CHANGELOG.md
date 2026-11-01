@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.72.0 - 2026-11-02
+
+- Added a concise human-readable experience audit summary.
+- Display event, candidate, active and superseded counts.
+- Display supersession chain count, depth and expired Active count.
+- Preserve the stable JSON audit schema.
+- Added CLI text-output coverage.
+
 ## 0.71.0 - 2026-11-02
 
 - Added experience status counts to audit reports.
