@@ -29,8 +29,8 @@ Status: machine-readable experience audit implemented
 | `event_too_large` serialization | passed |
 | CLI JSON audit | passed |
 | candidate list compatibility | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -38,6 +38,28 @@ Status: machine-readable experience audit implemented
 - A corrupted oversized line is allocated before size rejection.
 - Audit report itself is unsigned.
 - Audit does not query source journals for digest revalidation.
+
+## Verified clean release
+
+```text
+source commit: 66def581cd461395770be078787a8397ceffd915
+git dirty: false
+
+Linux binary:
+d7067564589ed13caab2095a030c471a9a47f91f4509e4ed3b011984895ac871
+
+Windows binary:
+6da85215da7cdc9e48555823b7949b7b2f7d455f140b39007753e0ac764618c3
+
+Linux tar.gz:
+c1a9a9b6ac745da1722b30f59ec323a6dbfce04956a610fc3e611e02b5fe8c87
+
+Windows zip:
+392fa16ed10e80d0792e71ae319b5f9ce2e5b6b7e42266e852014d7f9b0fb3f1
+
+Release manifest:
+fb4f5e4ba3cfda881703c57ad20ce2bcee0c1a5bdc0528ff6641fe63c3588c80
+```
 
 ## Next requirement
 
