@@ -34,7 +34,21 @@ Unsupported versions and invalid summaries fail before output.
 | basis-point overflow | rejected |
 | count inconsistency | rejected |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `db2327f09b880e8a8f79c3a87e601f43ba096890`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `35c1277b445ad440171f50648a2a00cf3847ed008f08d8b0bbad0af0805a622f` |
+| Windows `zip` | `146fa274956936f7f840f719cd2bd3c1082516d2c6f096c16e6415e400467680` |
+| Release manifest | `f01d608cfc64bd5ec469cd29dc0b68f6b1a6c7b72073831b4d7414a5d2482f09` |
+| Linux binary | `5726bf88f9a304ae3ad2a647afb27506416d8c10039bf27f60adf324452a45ba` |
+| Windows binary | `791e247eb50ab1a28424ddafec6ac06f75fae5b882f87cefd49b6e574761e9b5` |
 
 ## Known limitations
 
