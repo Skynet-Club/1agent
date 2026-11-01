@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.40.0 - 2026-11-02
+
+- Added central observation summary/content bounds.
+- Preserved truncation metadata and a general `truncated` marker.
+- Rejected hidden/bidirectional controls across the final observation boundary.
+- Preserved structured observation status and error codes.
+- Added adversarial oversized and unsafe observation coverage.
+
 ## 0.39.0 - 2026-11-02
 
 - Added a bounded JSON Schema subset validator at the central tool boundary.

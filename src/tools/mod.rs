@@ -143,14 +143,23 @@ impl ToolRegistry {
         };
 
         match result {
-            Ok(outcome) => ToolObservation {
-                call_id: call.id.clone(),
-                tool: call.name.clone(),
-                status: ToolStatus::Ok,
-                summary: outcome.summary,
-                content: outcome.content,
-                error_code: None,
-                metadata: with_duration(outcome.metadata, started),
+            Ok(outcome) => match bound_outcome(outcome) {
+                Ok(outcome) => ToolObservation {
+                    call_id: call.id.clone(),
+                    tool: call.name.clone(),
+                    status: ToolStatus::Ok,
+                    summary: outcome.summary,
+                    content: outcome.content,
+                    error_code: None,
+                    metadata: with_duration(outcome.metadata, started),
+                },
+                Err(error) => failure_observation(
+                    call,
+                    error.status(),
+                    error.code(),
+                    error.to_string(),
+                    started,
+                ),
             },
             Err(error) => failure_observation(
                 call,
@@ -161,6 +170,42 @@ impl ToolRegistry {
             ),
         }
     }
+}
+
+const MAX_OBSERVATION_SUMMARY_CHARS: usize = 4_096;
+const MAX_OBSERVATION_CONTENT_CHARS: usize = 1_000_000;
+
+fn bound_outcome(mut outcome: ToolOutcome) -> Result<ToolOutcome, ToolError> {
+    let (summary, summary_truncated) =
+        bounded_text(&outcome.summary, MAX_OBSERVATION_SUMMARY_CHARS);
+    let (content, content_truncated) =
+        bounded_text(&outcome.content, MAX_OBSERVATION_CONTENT_CHARS);
+    if contains_disallowed_control(&summary) || contains_disallowed_control(&content) {
+        return Err(ToolError::UnsafeContent(
+            "tool observation contains hidden or bidirectional control characters".into(),
+        ));
+    }
+    outcome.summary = summary;
+    outcome.content = content;
+    outcome
+        .metadata
+        .insert("summary_truncated".into(), summary_truncated.to_string());
+    outcome
+        .metadata
+        .insert("content_truncated".into(), content_truncated.to_string());
+    if summary_truncated || content_truncated {
+        outcome.metadata.insert("truncated".into(), "true".into());
+    }
+    Ok(outcome)
+}
+
+fn bounded_text(value: &str, max_chars: usize) -> (String, bool) {
+    let mut bounded: String = value.chars().take(max_chars).collect();
+    let truncated = value.chars().nth(max_chars).is_some();
+    if truncated {
+        bounded.push('…');
+    }
+    (bounded, truncated)
 }
 
 fn validate_arguments(schema: &Value, value: &Value) -> Result<(), String> {
@@ -849,6 +894,52 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    enum ObservationAdversary {
+        Oversized,
+        HiddenControl,
+    }
+
+    struct AdversarialObservationTool(ObservationAdversary);
+
+    #[async_trait]
+    impl AgentTool for AdversarialObservationTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "adversarial_observation".into(),
+                description: "test-only observation generator".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        async fn execute(
+            &self,
+            _arguments: Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<ToolOutcome, ToolError> {
+            Ok(match self.0 {
+                ObservationAdversary::Oversized => ToolOutcome {
+                    summary: "s".repeat(MAX_OBSERVATION_SUMMARY_CHARS + 1),
+                    content: "c".repeat(MAX_OBSERVATION_CONTENT_CHARS + 1),
+                    metadata: BTreeMap::new(),
+                },
+                ObservationAdversary::HiddenControl => ToolOutcome {
+                    summary: "unsafe\u{202E}summary".into(),
+                    content: "content".into(),
+                    metadata: BTreeMap::new(),
+                },
+            })
+        }
+    }
+
     fn call(path: &PathBuf) -> ToolCall {
         ToolCall {
             id: "call-1".into(),
@@ -954,6 +1045,56 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn bounds_observation_output_and_rejects_hidden_controls() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(AdversarialObservationTool(
+            ObservationAdversary::Oversized,
+        )));
+        let observation = registry
+            .execute(
+                &ToolCall {
+                    id: "bound-1".into(),
+                    name: "adversarial_observation".into(),
+                    arguments: serde_json::json!({}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok);
+        assert_eq!(
+            observation.summary.chars().count(),
+            MAX_OBSERVATION_SUMMARY_CHARS + 1
+        );
+        assert_eq!(
+            observation.content.chars().count(),
+            MAX_OBSERVATION_CONTENT_CHARS + 1
+        );
+        assert_eq!(observation.metadata["summary_truncated"], "true");
+        assert_eq!(observation.metadata["content_truncated"], "true");
+        assert_eq!(observation.metadata["truncated"], "true");
+
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(AdversarialObservationTool(
+            ObservationAdversary::HiddenControl,
+        )));
+        let observation = registry
+            .execute(
+                &ToolCall {
+                    id: "bound-2".into(),
+                    name: "adversarial_observation".into(),
+                    arguments: serde_json::json!({}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Failed);
+        assert_eq!(observation.error_code.as_deref(), Some("unsafe_content"));
+        assert!(observation.content.is_empty());
     }
 
     #[tokio::test]
