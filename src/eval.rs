@@ -69,6 +69,10 @@ pub struct EvalExpectation {
     #[serde(default)]
     pub min_claims: usize,
     #[serde(default)]
+    pub min_unknowns: usize,
+    #[serde(default)]
+    pub min_flip_conditions: usize,
+    #[serde(default)]
     pub expect_checkpoint: bool,
     #[serde(default)]
     pub tool_status: Option<ToolStatus>,
@@ -92,6 +96,8 @@ pub struct EvalCaseResult {
     pub answer_status: Option<AnswerStatus>,
     pub evidence_count: usize,
     pub claim_count: usize,
+    pub unknown_count: usize,
+    pub flip_condition_count: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
     pub provider_id: Option<String>,
@@ -385,6 +391,20 @@ async fn run_case(
             result.answer.claims.len()
         ));
     }
+    if result.answer.unknowns.len() < case.expect.min_unknowns {
+        issues.push(format!(
+            "expected at least {} unknowns, got {}",
+            case.expect.min_unknowns,
+            result.answer.unknowns.len()
+        ));
+    }
+    if result.answer.flip_conditions.len() < case.expect.min_flip_conditions {
+        issues.push(format!(
+            "expected at least {} flip conditions, got {}",
+            case.expect.min_flip_conditions,
+            result.answer.flip_conditions.len()
+        ));
+    }
     if audit.ok != case.expect.audit_ok {
         issues.push(format!(
             "expected audit_ok={}, got {}",
@@ -428,6 +448,8 @@ async fn run_case(
         answer_status: Some(result.answer.status),
         evidence_count: result.answer.evidence.len(),
         claim_count: result.answer.claims.len(),
+        unknown_count: result.answer.unknowns.len(),
+        flip_condition_count: result.answer.flip_conditions.len(),
         rubric_checks,
         rubric_passed,
         provider_id,
@@ -469,6 +491,8 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         answer_status: None,
         evidence_count: 0,
         claim_count: 0,
+        unknown_count: 0,
+        flip_condition_count: 0,
         rubric_checks: 0,
         rubric_passed: 0,
         provider_id: None,
@@ -576,6 +600,8 @@ mod tests {
                     answer_status: AnswerStatus::Completed,
                     min_evidence: 1,
                     min_claims: 1,
+                    min_unknowns: 0,
+                    min_flip_conditions: 0,
                     expect_checkpoint: true,
                     tool_status: Some(ToolStatus::Ok),
                     tool_error_code: None,
@@ -684,6 +710,8 @@ mod tests {
                         answer_status: AnswerStatus::Completed,
                         min_evidence: 0,
                         min_claims: 1,
+                        min_unknowns: 0,
+                        min_flip_conditions: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,

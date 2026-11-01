@@ -1,6 +1,8 @@
 # Evaluation Suites
 
-V0 evaluation is intentionally offline and deterministic.
+V0 evaluation is intentionally offline and deterministic. The default `core-v2` suite contains
+six cases covering evidence success, authorization boundaries, honest refusal, file failure and
+hidden-control rejection.
 
 | Suite | Evidence |
 |---|---|
@@ -9,5 +11,6 @@ V0 evaluation is intentionally offline and deterministic.
 | Tool safety | Read-root containment, unknown tool handling, UTF-8 byte-limit handling |
 | Provider adapter | Local HTTP fixture verifies OpenAI-compatible request/response translation; ignored in managed sandboxes that forbid loopback binding |
 | End-to-end CLI | Real process run, evidence read, journal audit and replay |
+| Epistemic output | Unknown and flip-condition minimums |
 
 These tests prove contract and runtime integrity, not real-model reasoning quality. Real-model evaluation begins after provider credentials, a gold task set and calibrated human review are available.

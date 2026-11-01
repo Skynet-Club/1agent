@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.43.0 - 2026-11-02
+
+- Added minimum unknown and flip-condition expectations to evaluation cases.
+- Added unknown/flip-condition counts to JSON scorecards.
+- Expanded the core suite from four to six cases.
+- Added missing-file evidence failure coverage.
+- Added zero-width hidden-control rejection distinct from bidirectional controls.
+- Upgraded the suite to `core-v2` with explicit suite version `2`.
+
 ## 0.42.0 - 2026-11-02
 
 - Added compact runtime tool-capability snapshots with schema digest and tool names.
