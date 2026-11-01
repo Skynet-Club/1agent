@@ -17,6 +17,7 @@ appearing ready.
 | Check | Result |
 |---|---|
 | Unit tests | 127 passed |
+| Release-profile tests | 127 unit + all E2E passed |
 | Integration / E2E | passed offline |
 | Core evaluation | 6/6 passed |
 | remote HTTP readiness rejected | passed |
