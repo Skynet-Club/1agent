@@ -6,10 +6,11 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    OpenAiCompatibleProvider, ProviderCandidate, RunBudget, TaskRequest, ToolRegistry,
-    audit_events, default_registry, load_suite, local_manifest, read_events, remote_manifest,
-    replay_events, run_suite_with_providers,
+    HostError, HostRequest, HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget,
+    TaskRequest, ToolRegistry, audit_events, default_registry, load_suite, local_manifest,
+    read_events, remote_manifest, replay_events, run_suite_with_providers,
 };
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -86,6 +87,24 @@ enum Command {
         timeout_seconds: u64,
         #[arg(long)]
         json: bool,
+    },
+    Serve {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long, default_value = "mock")]
+        provider: String,
+        #[arg(long, env = "AGENT_MODEL")]
+        model: Option<String>,
+        #[arg(long, env = "AGENT_BASE_URL")]
+        base_url: Option<String>,
+        #[arg(long, env = "AGENT_API_KEY", hide_env_values = true)]
+        api_key: Option<String>,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long, default_value = ".journal")]
+        journal_dir: PathBuf,
+        #[arg(long, default_value_t = 120)]
+        timeout_seconds: u64,
     },
     Resume {
         #[arg(long)]
@@ -317,6 +336,62 @@ async fn main() -> Result<()> {
             }
             if report.failed > 0 {
                 bail!("evaluation failed");
+            }
+        }
+        Command::Serve {
+            config,
+            provider,
+            model,
+            base_url,
+            api_key,
+            allow_network,
+            journal_dir,
+            timeout_seconds,
+        } => {
+            let timeout = Duration::from_secs(timeout_seconds.max(1));
+            let (candidates, tools) = if let Some(config_path) = config {
+                let config = AgentConfig::load(&config_path)?;
+                (config.build_providers(timeout)?, default_registry())
+            } else {
+                build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
+            };
+            let runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    signal_cancellation.cancel();
+                }
+            });
+            let mut lines = BufReader::new(tokio::io::stdin()).lines();
+            let mut stdout = tokio::io::stdout();
+            while let Some(line) = lines.next_line().await? {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let response = match HostRequest::parse(&line) {
+                    Ok(request) => {
+                        match runtime.run(request.task, cancellation.child_token()).await {
+                            Ok(result) => HostResponse::success(request.request_id, result),
+                            Err(error) => HostResponse::failure(
+                                request.request_id,
+                                HostError {
+                                    code: "run_failed".into(),
+                                    message: error.to_string(),
+                                },
+                            ),
+                        }
+                    }
+                    Err(error) => HostResponse::failure("<unknown>", error),
+                };
+                stdout
+                    .write_all(serde_json::to_string(&response)?.as_bytes())
+                    .await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+                if cancellation.is_cancelled() {
+                    break;
+                }
             }
         }
         Command::Resume {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 - 2026-11-01
+
+- Added versioned JSONL stdio host protocol.
+- Added stable request IDs and structured success/error responses.
+- Added request-size, JSON and protocol-version validation.
+- Added `serve` CLI command with configured providers.
+- Added a real subprocess integration test and auditable host response.
+- Added a documented host request example.
+
 ## 0.7.0 - 2026-11-01
 
 - Added versioned offline evaluation suites.
