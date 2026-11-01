@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.82.0 - 2026-11-02
+
+- Added an explicit three-part verification summary to evaluation reports.
+- Distinguished checked integrity, content binding and authenticity.
+- Marked all current summaries as unauthenticated.
+- Advanced the summary schema to version `3` for required verification metadata.
+- Validated binding consistency and current-summary integrity checks.
+
 ## 0.81.0 - 2026-11-02
 
 - Added canonical SHA-256 digests to evaluation reports.

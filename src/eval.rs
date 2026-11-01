@@ -341,9 +341,42 @@ pub struct EvalReportSummary {
     pub decision_completeness_policy: DecisionCompletenessPolicy,
     #[serde(default)]
     pub report_content_sha256: Option<String>,
+    #[serde(default)]
+    pub verification: EvalReportVerification,
 }
 
-pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 2;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EvalReportVerification {
+    pub integrity_checked: bool,
+    pub content_binding: ContentBindingStatus,
+    pub authenticity: AuthenticityStatus,
+}
+
+impl Default for EvalReportVerification {
+    fn default() -> Self {
+        Self {
+            integrity_checked: false,
+            content_binding: ContentBindingStatus::Unbound,
+            authenticity: AuthenticityStatus::Unauthenticated,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentBindingStatus {
+    Bound,
+    Unbound,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthenticityStatus {
+    Unauthenticated,
+}
+
+pub const REPORT_SUMMARY_SCHEMA_VERSION: u8 = 3;
 
 impl From<&EvalReport> for EvalReportSummary {
     fn from(report: &EvalReport) -> Self {
@@ -362,6 +395,15 @@ impl From<&EvalReport> for EvalReportSummary {
             decision_completeness_floor_passed: report.decision_completeness_floor_passed,
             decision_completeness_policy: report.decision_completeness_policy.clone(),
             report_content_sha256: report.content_sha256.clone(),
+            verification: EvalReportVerification {
+                integrity_checked: true,
+                content_binding: if report.content_sha256.is_some() {
+                    ContentBindingStatus::Bound
+                } else {
+                    ContentBindingStatus::Unbound
+                },
+                authenticity: AuthenticityStatus::Unauthenticated,
+            },
         }
     }
 }
@@ -417,6 +459,19 @@ impl EvalReportSummary {
         if self.decision_completeness_floor_passed != floor_passed {
             return Err(EvalError::InvalidReportSummary(
                 "decision-completeness floor status is inconsistent",
+            ));
+        }
+        if self.schema_version == REPORT_SUMMARY_SCHEMA_VERSION
+            && !self.verification.integrity_checked
+        {
+            return Err(EvalError::InvalidReportSummary(
+                "current summary must record integrity checking",
+            ));
+        }
+        let digest_present = self.report_content_sha256.is_some();
+        if (self.verification.content_binding == ContentBindingStatus::Bound) != digest_present {
+            return Err(EvalError::InvalidReportSummary(
+                "content-binding status does not match report digest",
             ));
         }
         if self
@@ -1548,6 +1603,14 @@ mod tests {
         assert_eq!(json["total"], 1);
         assert!(json.get("cases").is_none());
         assert!(json.get("id").is_none());
+        assert_eq!(
+            summary.verification,
+            EvalReportVerification {
+                integrity_checked: true,
+                content_binding: ContentBindingStatus::Bound,
+                authenticity: AuthenticityStatus::Unauthenticated,
+            }
+        );
 
         let mut legacy = json.clone();
         legacy.as_object_mut().unwrap().remove("schema_version");
@@ -1555,15 +1618,30 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("report_content_sha256");
+        legacy.as_object_mut().unwrap().remove("verification");
         let legacy: EvalReportSummary = serde_json::from_value(legacy).unwrap();
         legacy.validate().unwrap();
         assert!(legacy.report_content_sha256.is_none());
+        assert!(!legacy.verification.integrity_checked);
+
+        let mut no_verification = json.clone();
+        no_verification
+            .as_object_mut()
+            .unwrap()
+            .remove("verification");
+        let no_verification: EvalReportSummary = serde_json::from_value(no_verification).unwrap();
+        assert!(matches!(
+            no_verification.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "current summary must record integrity checking"
+            ))
+        ));
 
         let mut invalid = summary.clone();
         invalid.schema_version = REPORT_SUMMARY_SCHEMA_VERSION + 1;
         assert!(matches!(
             invalid.validate(),
-            Err(EvalError::UnsupportedReportSummaryVersion(3))
+            Err(EvalError::UnsupportedReportSummaryVersion(4))
         ));
 
         let mut invalid = summary.clone();
@@ -1572,6 +1650,24 @@ mod tests {
             invalid.validate(),
             Err(EvalError::InvalidReportSummary(
                 "basis-point values exceed 10000"
+            ))
+        ));
+
+        let mut invalid = summary.clone();
+        invalid.verification.integrity_checked = false;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "current summary must record integrity checking"
+            ))
+        ));
+
+        let mut invalid = summary.clone();
+        invalid.verification.content_binding = ContentBindingStatus::Unbound;
+        assert!(matches!(
+            invalid.validate(),
+            Err(EvalError::InvalidReportSummary(
+                "content-binding status does not match report digest"
             ))
         ));
 
