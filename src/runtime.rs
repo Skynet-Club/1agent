@@ -26,6 +26,7 @@ pub struct ProviderCandidate {
     pub manifest: ProviderManifest,
 }
 
+#[derive(Clone)]
 pub struct AgentRuntime {
     providers: Vec<ProviderCandidate>,
     router: Router,

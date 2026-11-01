@@ -19,6 +19,11 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
             workspace.path().to_path_buf(),
         ),
     };
+    let second_request = HostRequest {
+        protocol_version: HOST_PROTOCOL_VERSION,
+        request_id: "host-2".into(),
+        task: request.task.clone(),
+    };
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
         .args([
@@ -27,6 +32,8 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
             "mock",
             "--journal-dir",
             &workspace.path().join("journal").display().to_string(),
+            "--max-concurrency",
+            "2",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -38,6 +45,12 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
         child.stdin.as_mut().unwrap(),
         "{}",
         serde_json::to_string(&request).unwrap()
+    )
+    .unwrap();
+    writeln!(
+        child.stdin.as_mut().unwrap(),
+        "{}",
+        serde_json::to_string(&second_request).unwrap()
     )
     .unwrap();
     drop(child.stdin.take());
@@ -52,15 +65,26 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
         .split(|byte| *byte == b'\n')
         .filter(|line| !line.is_empty())
         .collect();
-    assert_eq!(lines.len(), 2);
-    let invalid: HostResponse = serde_json::from_slice(lines[0]).unwrap();
+    assert_eq!(lines.len(), 3);
+    let responses: Vec<HostResponse> = lines
+        .into_iter()
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    let invalid = responses.iter().find(|response| !response.ok).unwrap();
     assert!(!invalid.ok);
-    assert_eq!(invalid.error.unwrap().code, "invalid_json");
-    let response: HostResponse = serde_json::from_slice(lines[1]).unwrap();
-    assert!(response.ok);
-    assert_eq!(response.request_id, "host-1");
-    let result = response.result.unwrap();
-    assert_eq!(result.stop_reason, StopReason::Completed);
-    let audit = audit_events(&read_events(&result.journal_path).unwrap());
-    assert!(audit.ok, "{:?}", audit.issues);
+    assert_eq!(invalid.error.as_ref().unwrap().code, "invalid_json");
+    let successful: Vec<_> = responses.iter().filter(|response| response.ok).collect();
+    assert_eq!(successful.len(), 2);
+    let mut ids: Vec<_> = successful
+        .iter()
+        .map(|response| response.request_id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["host-1", "host-2"]);
+    for response in successful {
+        let result = response.result.as_ref().unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let audit = audit_events(&read_events(&result.journal_path).unwrap());
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
 }

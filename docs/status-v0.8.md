@@ -11,7 +11,9 @@ Status: stable stdio host protocol
 - Structured `HostResponse` with either `RunResult` or `HostError`.
 - Maximum request size of 1 MiB.
 - Invalid JSON, unsupported protocol and empty request ids are rejected without crashing the host.
-- One process can reuse one configured AgentRuntime for multiple sequential requests.
+- One process can reuse one configured AgentRuntime for multiple requests.
+- Bounded concurrent dispatch with configurable `--max-concurrency` from 1 to 32.
+- Responses may arrive out of order and are correlated by request id.
 - Ctrl+C cancellation propagates into the active run.
 - Example request at `examples/host_request.json`.
 
@@ -42,6 +44,7 @@ Failure:
 | Unit tests | 41 passed |
 | Real subprocess host request | passed |
 | Invalid JSON followed by a valid request | passed; host survives and continues |
+| Two concurrent requests plus invalid input | passed; all 3 responses correlated correctly |
 | Host result semantic audit | passed |
 | Existing CLI/config/experience/resume/eval suites | passed |
 | Clippy `-D warnings` | passed |
@@ -49,10 +52,10 @@ Failure:
 Release artifacts:
 
 ```text
-Linux binary:   c4755b7ca7b7cb1717cd227120404b38d9aa200482fa445f9e7622d0d4f67580
-Windows binary: 6f279b44fb5b86098fd14cf5ac805459797d9852f6d95a1f1c2f5a13143ccac2
-Linux tar.gz:   450a9d0f883548beebe0ba20367d385a9a5828635ccc18cc37599c7c7e44350d
-Windows zip:    c96490f87508b62f22b0ba618c16701d12d97da4df23999a955515a761844413
+Linux binary:   4161d4bfeee75e1485d05a8e3fe136529b2ab816ee79ca480f6242d89ed505a0
+Windows binary: abbd38115cff5b05dc383a042d038144485e34950f2165f935634ed2c5d85ebe
+Linux tar.gz:   8ff255568d815e83428b0612bc1bcc01d63d629d3e68797422d541e141547c36
+Windows zip:    0b37438c050770c01fd6b32a994857f4df51e0eca5b6b30cd097668473d4744a
 ```
 
 ## Requirement comparison
@@ -64,23 +67,23 @@ Windows zip:    c96490f87508b62f22b0ba618c16701d12d97da4df23999a955515a761844413
 | Request correlation | implemented |
 | Structured errors | implemented |
 | Sequential multi-request host | implemented |
-| Concurrent host requests | pending |
+| Bounded concurrent host requests | implemented |
 | Desktop/terminal adapter | pending |
 | Real-provider quality | unverified, no credentials |
 
 ## Known risks
 
-- The host is sequential and one slow request blocks the next.
-- There is no backpressure or per-request cancellation control beyond global Ctrl+C.
+- Requests beyond the concurrency limit wait inside the process rather than receiving queue-full.
+- There is no per-request cancellation control beyond global Ctrl+C.
 - Stdin/stdout transport is local-only; authentication belongs to future transports.
 - Provider credentials are inherited from the host environment.
 
 ## Next requirement
 
-Add per-request cancellation and concurrent host dispatch with bounded concurrency:
+Add per-request cancellation and queue admission:
 
 1. Add request ids to cancellation controls.
 2. Admit up to a configured number of simultaneous runs.
-3. Return structured queue-full and cancelled errors.
+3. Return structured queue-full and cancelled responses.
 4. Keep journal writes independent and run-scoped.
 5. Test cancellation and two concurrent requests against a deterministic slow provider.

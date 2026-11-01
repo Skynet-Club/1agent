@@ -105,6 +105,8 @@ enum Command {
         journal_dir: PathBuf,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
+        #[arg(long, default_value_t = 4)]
+        max_concurrency: usize,
     },
     Resume {
         #[arg(long)]
@@ -347,6 +349,7 @@ async fn main() -> Result<()> {
             allow_network,
             journal_dir,
             timeout_seconds,
+            max_concurrency,
         } => {
             let timeout = Duration::from_secs(timeout_seconds.max(1));
             let (candidates, tools) = if let Some(config_path) = config {
@@ -355,7 +358,10 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
-            let runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            if max_concurrency == 0 || max_concurrency > 32 {
+                bail!("--max-concurrency must be between 1 and 32");
+            }
+            let runtime = Arc::new(AgentRuntime::new(candidates, tools, journal_dir));
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
             tokio::spawn(async move {
@@ -364,35 +370,50 @@ async fn main() -> Result<()> {
                 }
             });
             let mut lines = BufReader::new(tokio::io::stdin()).lines();
-            let mut stdout = tokio::io::stdout();
+            let stdout = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
+            let mut tasks = tokio::task::JoinSet::new();
             while let Some(line) = lines.next_line().await? {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let response = match HostRequest::parse(&line) {
-                    Ok(request) => {
-                        match runtime.run(request.task, cancellation.child_token()).await {
-                            Ok(result) => HostResponse::success(request.request_id, result),
-                            Err(error) => HostResponse::failure(
-                                request.request_id,
-                                HostError {
-                                    code: "run_failed".into(),
-                                    message: error.to_string(),
-                                },
-                            ),
+                let runtime = runtime.clone();
+                let stdout = stdout.clone();
+                let semaphore = semaphore.clone();
+                let request_cancellation = cancellation.child_token();
+                tasks.spawn(async move {
+                    let _permit = semaphore
+                        .acquire_owned()
+                        .await
+                        .expect("host semaphore cannot be closed");
+                    let response = match HostRequest::parse(&line) {
+                        Ok(request) => {
+                            match runtime.run(request.task, request_cancellation).await {
+                                Ok(result) => HostResponse::success(request.request_id, result),
+                                Err(error) => HostResponse::failure(
+                                    request.request_id,
+                                    HostError {
+                                        code: "run_failed".into(),
+                                        message: error.to_string(),
+                                    },
+                                ),
+                            }
                         }
-                    }
-                    Err(error) => HostResponse::failure("<unknown>", error),
-                };
-                stdout
-                    .write_all(serde_json::to_string(&response)?.as_bytes())
-                    .await?;
-                stdout.write_all(b"\n").await?;
-                stdout.flush().await?;
+                        Err(error) => HostResponse::failure("<unknown>", error),
+                    };
+                    let mut stdout = stdout.lock().await;
+                    stdout
+                        .write_all(serde_json::to_string(&response).unwrap().as_bytes())
+                        .await
+                        .unwrap();
+                    stdout.write_all(b"\n").await.unwrap();
+                    stdout.flush().await.unwrap();
+                });
                 if cancellation.is_cancelled() {
                     break;
                 }
             }
+            while tasks.join_next().await.is_some() {}
         }
         Command::Resume {
             journal,
