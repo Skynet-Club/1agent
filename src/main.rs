@@ -9,8 +9,8 @@ use first_principles_agent::{
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
-    OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError, TaskRequest,
-    ToolRegistry, audit_events, create_goldset_manifest, default_registry,
+    OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, RunBudget, RuntimeError,
+    TaskRequest, ToolRegistry, audit_events, create_goldset_manifest, default_registry,
     evaluate_experience_suite, load_suite, local_manifest, read_events, remote_manifest,
     replay_events, run_suite_with_providers, scan_history, verify_goldset_manifest,
 };
@@ -292,6 +292,12 @@ enum AnnotateCommand {
         approval_key_env: String,
         #[arg(long)]
         approval_registry: PathBuf,
+        #[arg(long)]
+        registry_snapshot: PathBuf,
+        #[arg(long)]
+        registry_key_env: String,
+        #[arg(long, default_value_t = 1)]
+        min_registry_version: u64,
         #[arg(long, default_value_t = 600)]
         min_kappa_millis: i32,
         #[arg(long, default_value_t = 20)]
@@ -364,6 +370,28 @@ enum ApprovalCommand {
         key_id: String,
         #[arg(long)]
         reason: String,
+    },
+    Snapshot {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        approver: String,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        key_env: String,
+    },
+    VerifySnapshot {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        snapshot: PathBuf,
+        #[arg(long)]
+        key_env: String,
+        #[arg(long, default_value_t = 1)]
+        min_version: u64,
     },
     Verify {
         #[arg(long)]
@@ -944,6 +972,9 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             approval,
             approval_key_env,
             approval_registry,
+            registry_snapshot,
+            registry_key_env,
+            min_registry_version,
             min_kappa_millis,
             min_samples,
             json,
@@ -954,11 +985,18 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             )
             .with_context(|| format!("invalid approval envelope {}", approval.display()))?;
             let approval_key = read_secret_env(&approval_key_env)?;
-            ApprovalKeyRegistry::load(&approval_registry)?.verify_approval(
-                &envelope,
-                &goldset,
-                &approval_key,
+            let registry = ApprovalKeyRegistry::load(&approval_registry)?;
+            let snapshot: RegistrySnapshot = serde_json::from_str(
+                &std::fs::read_to_string(&registry_snapshot)
+                    .with_context(|| format!("cannot read {}", registry_snapshot.display()))?,
             )?;
+            snapshot.verify(
+                &registry,
+                &approval_registry,
+                &read_secret_env(&registry_key_env)?,
+                min_registry_version,
+            )?;
+            registry.verify_approval(&envelope, &goldset, &approval_key)?;
             let manifest: GoldSetManifest = serde_json::from_str(
                 &std::fs::read_to_string(&goldset)
                     .with_context(|| format!("cannot read {}", goldset.display()))?,
@@ -1107,6 +1145,46 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
             registry.transition(&key_id, ApprovalKeyStatus::Revoked, reason)?;
             registry.save(&path)?;
             println!("key revoked");
+        }
+        ApprovalCommand::Snapshot {
+            registry,
+            output,
+            approver,
+            key_id,
+            key_env,
+        } => {
+            let registry_value = ApprovalKeyRegistry::load(&registry)?;
+            registry_value.require_active(&key_id)?;
+            let snapshot = registry_value.sign_snapshot(
+                &registry,
+                approver,
+                key_id,
+                &read_secret_env(&key_env)?,
+            )?;
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output, serde_json::to_vec_pretty(&snapshot)?)?;
+            println!("{}", output.display());
+        }
+        ApprovalCommand::VerifySnapshot {
+            registry,
+            snapshot,
+            key_env,
+            min_version,
+        } => {
+            let registry_value = ApprovalKeyRegistry::load(&registry)?;
+            let snapshot: RegistrySnapshot = serde_json::from_str(
+                &std::fs::read_to_string(&snapshot)
+                    .with_context(|| format!("cannot read {}", snapshot.display()))?,
+            )?;
+            snapshot.verify(
+                &registry_value,
+                &registry,
+                &read_secret_env(&key_env)?,
+                min_version,
+            )?;
+            println!("registry snapshot verified");
         }
     }
     Ok(())

@@ -11,6 +11,7 @@ pub enum ArtifactKind {
     GoldSet,
     Experience,
     EvaluationReport,
+    ApprovalRegistry,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,7 +48,21 @@ pub struct ApprovalKeyRecord {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalKeyRegistry {
+    #[serde(default)]
+    pub version: u64,
     pub keys: Vec<ApprovalKeyRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrySnapshot {
+    pub snapshot_version: u32,
+    pub registry_version: u64,
+    pub registry_sha256: String,
+    pub approved_unix_ms: u128,
+    pub approver: String,
+    pub key_id: String,
+    pub mac_sha256: String,
 }
 
 impl ApprovalKeyRegistry {
@@ -72,6 +87,7 @@ impl ApprovalKeyRegistry {
             changed_unix_ms: now_unix_ms(),
             reason: String::new(),
         });
+        self.version += 1;
         Ok(())
     }
 
@@ -92,6 +108,7 @@ impl ApprovalKeyRegistry {
         record.status = status;
         record.changed_unix_ms = now_unix_ms();
         record.reason = reason;
+        self.version += 1;
         Ok(())
     }
 
@@ -125,6 +142,83 @@ impl ApprovalKeyRegistry {
         } else {
             Err(ApprovalError::KeyNotActive)
         }
+    }
+
+    pub fn sign_snapshot(
+        &self,
+        registry_path: impl AsRef<Path>,
+        approver: String,
+        key_id: String,
+        key: &[u8],
+    ) -> Result<RegistrySnapshot, ApprovalError> {
+        validate_text(&approver)?;
+        validate_text(&key_id)?;
+        if key.len() < 16 {
+            return Err(ApprovalError::WeakKey);
+        }
+        let bytes = std::fs::read(registry_path)?;
+        let mut snapshot = RegistrySnapshot {
+            snapshot_version: 1,
+            registry_version: self.version,
+            registry_sha256: hex::encode(Sha256::digest(&bytes)),
+            approved_unix_ms: now_unix_ms(),
+            approver,
+            key_id,
+            mac_sha256: String::new(),
+        };
+        snapshot.mac_sha256 = snapshot.compute_mac(key)?;
+        Ok(snapshot)
+    }
+}
+
+impl RegistrySnapshot {
+    pub fn verify(
+        &self,
+        registry: &ApprovalKeyRegistry,
+        registry_path: impl AsRef<Path>,
+        key: &[u8],
+        minimum_registry_version: u64,
+    ) -> Result<(), ApprovalError> {
+        if self.snapshot_version != 1 {
+            return Err(ApprovalError::UnsupportedVersion);
+        }
+        if registry.version < minimum_registry_version
+            || self.registry_version < minimum_registry_version
+        {
+            return Err(ApprovalError::RegistryRollback);
+        }
+        if self.registry_version != registry.version {
+            return Err(ApprovalError::RegistryVersionMismatch);
+        }
+        let bytes = std::fs::read(registry_path)?;
+        if hex::encode(Sha256::digest(&bytes)) != self.registry_sha256 {
+            return Err(ApprovalError::ArtifactChanged);
+        }
+        let key = hmac::Key::new(hmac::HMAC_SHA256, key);
+        hmac::verify(
+            &key,
+            self.mac_material()?.as_bytes(),
+            &hex::decode(&self.mac_sha256).map_err(|_| ApprovalError::InvalidMac)?,
+        )
+        .map_err(|_| ApprovalError::InvalidMac)
+    }
+
+    fn compute_mac(&self, key: &[u8]) -> Result<String, ApprovalError> {
+        let key = hmac::Key::new(hmac::HMAC_SHA256, key);
+        Ok(hex::encode(
+            hmac::sign(&key, self.mac_material()?.as_bytes()).as_ref(),
+        ))
+    }
+
+    fn mac_material(&self) -> Result<String, ApprovalError> {
+        Ok(serde_json::to_string(&(
+            self.snapshot_version,
+            self.registry_version,
+            &self.registry_sha256,
+            self.approved_unix_ms,
+            &self.approver,
+            &self.key_id,
+        ))?)
     }
 }
 
@@ -237,6 +331,10 @@ pub enum ApprovalError {
     KeyRevoked,
     #[error("approval key is not active")]
     KeyNotActive,
+    #[error("registry snapshot is below the trusted minimum version")]
+    RegistryRollback,
+    #[error("registry snapshot version does not match registry")]
+    RegistryVersionMismatch,
 }
 
 #[cfg(test)]
@@ -329,6 +427,29 @@ mod tests {
         assert!(matches!(
             registry.verify_approval(&envelope, &artifact, &key()),
             Err(ApprovalError::KeyRevoked)
+        ));
+    }
+
+    #[test]
+    fn signed_registry_snapshot_detects_change_and_rollback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("key-1".into()).unwrap();
+        registry.save(&path).unwrap();
+        let snapshot = registry
+            .sign_snapshot(&path, "admin".into(), "admin-key".into(), &key())
+            .unwrap();
+        snapshot.verify(&registry, &path, &key(), 1).unwrap();
+        assert!(matches!(
+            snapshot.verify(&registry, &path, &key(), 2),
+            Err(ApprovalError::RegistryRollback)
+        ));
+        registry.add_active("key-2".into()).unwrap();
+        registry.save(&path).unwrap();
+        assert!(matches!(
+            snapshot.verify(&registry, &path, &key(), 1),
+            Err(ApprovalError::ArtifactChanged | ApprovalError::RegistryVersionMismatch)
         ));
     }
 }

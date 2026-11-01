@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0 - 2026-11-02
+
+- Added signed approval-registry snapshots.
+- Bound registry SHA-256, monotonic version, approver and admin key id.
+- Added `approval snapshot/verify-snapshot`.
+- Added trusted minimum registry version checks.
+- Rejected registry rollback and post-snapshot mutation.
+- Required snapshot validation in calibration when a registry is used.
+
 ## 0.15.0 - 2026-11-02
 
 - Added approval key registry with active/retired/revoked states.
