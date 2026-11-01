@@ -22,14 +22,36 @@ Status: versioned answer contract implemented
 | Version included in serialization | passed |
 | Version included in journal audit | passed |
 | Unit tests | 92 passed |
-| Core evaluation | pending |
-| Clean-source package gate | pending |
+| Core evaluation | 6/6 passed |
+| Clean-source package gate | passed |
 
 ## Compatibility
 
 Unversioned answers from earlier journals remain readable; their in-memory version is 1.
 Nothing infers compatibility for later contract versions. A future version must be implemented
 and tested explicitly rather than accepted through permissive decoding.
+
+## Verified clean release
+
+```text
+source commit: e0a3d3d958ce06926fca13835dfc76ec387f5817
+git dirty: false
+
+Linux binary:
+e06b05103a206d6041a12877be0536b03f8d04100dbcc838f08a54938d755f39
+
+Windows binary:
+f156a4fbd861581dc150806da7c5a8b396765d7af91c58b69f7ab7d06a95c5b0
+
+Linux tar.gz:
+09fea19414a4e949aaad658a9def41179a6aeeae2ef58811a96481fccd3e5159
+
+Windows zip:
+c55ae662f763b694fa64d02ed8c9fb01fd915e68a92aac2a122f4f8c08794bc2
+
+Release manifest:
+0b361153869a4411707d68f5fbc38d943cc24b2eb60f795ec2b17ced7716460c
+```
 
 ## Known limitations
 
