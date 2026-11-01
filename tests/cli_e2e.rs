@@ -1,6 +1,8 @@
 use std::process::Command;
 
-use first_principles_agent::{JournalAudit, ReplayState, RunResult, StopReason};
+use first_principles_agent::{
+    DecisionCompletenessFloorSource, EvalReport, JournalAudit, ReplayState, RunResult, StopReason,
+};
 
 #[test]
 fn cli_run_audit_and_replay_form_a_complete_flywheel() {
@@ -77,4 +79,25 @@ fn cli_run_audit_and_replay_form_a_complete_flywheel() {
     assert_eq!(replay.stop_reason, Some(StopReason::Completed));
     assert_eq!(replay.tool_calls.len(), 1);
     assert_eq!(replay.observations.len(), 1);
+}
+
+#[test]
+fn cli_eval_reports_versioned_completeness_policy() {
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let suite = format!("{}/evals/core.json", env!("CARGO_MANIFEST_DIR"));
+    let output = Command::new(binary)
+        .args(["eval", "--suite", &suite, "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: EvalReport = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report.decision_completeness_policy.version, 1);
+    assert_eq!(
+        report.decision_completeness_policy.floor_source,
+        DecisionCompletenessFloorSource::Default
+    );
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.76.0 - 2026-11-02
+
+- Added decision-completeness policy version `1` to evaluation reports.
+- Recorded whether the effective floor came from suite defaults or explicit configuration.
+- Decoded reports without policy metadata as legacy policy version `0`.
+- Rejected unknown floor-source metadata.
+- Added unit and CLI end-to-end coverage for policy provenance.
+
 ## 0.75.0 - 2026-11-02
 
 - Added optional `min_decision_completeness_bps` to evaluation suites.

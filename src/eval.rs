@@ -181,6 +181,42 @@ pub struct DecisionCompletenessAggregate {
     pub completed_with_high_impact_assumptions: usize,
 }
 
+pub const DECISION_COMPLETENESS_POLICY_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionCompletenessPolicy {
+    pub version: u8,
+    pub floor_source: DecisionCompletenessFloorSource,
+}
+
+impl Default for DecisionCompletenessPolicy {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            floor_source: DecisionCompletenessFloorSource::Legacy,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionCompletenessFloorSource {
+    Legacy,
+    Default,
+    Explicit,
+}
+
+impl DecisionCompletenessFloorSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Legacy => "legacy",
+            Self::Default => "default",
+            Self::Explicit => "explicit",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EvalReport {
@@ -196,6 +232,8 @@ pub struct EvalReport {
     pub decision_completeness: DecisionCompletenessAggregate,
     pub min_decision_completeness_bps: u16,
     pub decision_completeness_floor_passed: bool,
+    #[serde(default)]
+    pub decision_completeness_policy: DecisionCompletenessPolicy,
     pub cases: Vec<EvalCaseResult>,
 }
 
@@ -356,6 +394,7 @@ pub async fn run_suite_with_learning(
         ensure_runnable_model_quality(&suite)?;
     }
     let min_decision_completeness_bps = effective_decision_completeness_floor(&suite);
+    let decision_completeness_policy = decision_completeness_policy(&suite);
     let mut results = Vec::new();
     for case in suite.cases {
         results.push(
@@ -391,6 +430,7 @@ pub async fn run_suite_with_learning(
         decision_completeness,
         min_decision_completeness_bps,
         decision_completeness_floor_passed,
+        decision_completeness_policy,
         cases: results,
     })
 }
@@ -877,6 +917,17 @@ fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
         })
 }
 
+fn decision_completeness_policy(suite: &EvalSuite) -> DecisionCompletenessPolicy {
+    DecisionCompletenessPolicy {
+        version: DECISION_COMPLETENESS_POLICY_VERSION,
+        floor_source: if suite.min_decision_completeness_bps.is_some() {
+            DecisionCompletenessFloorSource::Explicit
+        } else {
+            DecisionCompletenessFloorSource::Default
+        },
+    }
+}
+
 fn validate_decision_completeness_floor(suite: &EvalSuite) -> Result<(), EvalError> {
     if suite
         .min_decision_completeness_bps
@@ -1146,6 +1197,24 @@ mod tests {
         .unwrap();
         assert_eq!(report.passed, 1);
         assert_eq!(report.hard_gate_failures, 0);
+        assert_eq!(
+            report.decision_completeness_policy,
+            DecisionCompletenessPolicy {
+                version: DECISION_COMPLETENESS_POLICY_VERSION,
+                floor_source: DecisionCompletenessFloorSource::Default,
+            }
+        );
+
+        let mut legacy_report = serde_json::to_value(&report).unwrap();
+        let _ = legacy_report
+            .as_object_mut()
+            .unwrap()
+            .remove("decision_completeness_policy");
+        let decoded: EvalReport = serde_json::from_value(legacy_report).unwrap();
+        assert_eq!(
+            decoded.decision_completeness_policy,
+            DecisionCompletenessPolicy::default()
+        );
     }
 
     #[tokio::test]
@@ -1356,16 +1425,36 @@ mod tests {
             cases: Vec::new(),
         };
         assert_eq!(effective_decision_completeness_floor(&suite), 0);
+        assert_eq!(
+            decision_completeness_policy(&suite),
+            DecisionCompletenessPolicy {
+                version: DECISION_COMPLETENESS_POLICY_VERSION,
+                floor_source: DecisionCompletenessFloorSource::Default,
+            }
+        );
         suite.kind = EvalSuiteKind::ModelQuality;
         assert_eq!(effective_decision_completeness_floor(&suite), 10_000);
         suite.min_decision_completeness_bps = Some(9_000);
         assert_eq!(effective_decision_completeness_floor(&suite), 9_000);
+        assert_eq!(
+            decision_completeness_policy(&suite).floor_source,
+            DecisionCompletenessFloorSource::Explicit
+        );
         validate_decision_completeness_floor(&suite).unwrap();
         suite.min_decision_completeness_bps = Some(10_001);
         assert!(matches!(
             validate_decision_completeness_floor(&suite),
             Err(EvalError::InvalidDecisionCompletenessFloor)
         ));
+    }
+
+    #[test]
+    fn report_policy_metadata_rejects_unknown_floor_source() {
+        let invalid = serde_json::json!({
+            "version": 1,
+            "floor_source": "environment"
+        });
+        assert!(serde_json::from_value::<DecisionCompletenessPolicy>(invalid).is_err());
     }
 
     #[tokio::test]
