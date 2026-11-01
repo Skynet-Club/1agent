@@ -35,8 +35,8 @@ depend on high-impact assumptions.
 | completed high-impact assumption counted | passed |
 | valid conditional rollup | passed |
 | human-readable decision metrics | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -44,6 +44,28 @@ depend on high-impact assumptions.
 - Legacy answer v1 may appear incomplete under current decision metrics.
 - Counts are per case and not yet aggregated across the suite.
 - No separate minimum bound-flip expectation exists in suite JSON.
+
+## Verified clean release
+
+```text
+source commit: 031af0284a1453ccb09c67986831d89bb03141c8
+git dirty: false
+
+Linux binary:
+c2636c86256c3112c37e06b9f3a6ef775f7ce72efaadc1e0c405375ad370ad8d
+
+Windows binary:
+ba04f8e94716108924951dd0b41838e6f1c894975295280441cd3cc1e3c961bf
+
+Linux tar.gz:
+5ef0c0834f2f027fa2fc0e4ee040c01249cde7f425670c1a5e97bbb6ce219c4e
+
+Windows zip:
+6619d96b3983c8204ce1888a107dbe3c2f4f382c6412c51184d5d40a76afdfd7
+
+Release manifest:
+9cd6819e30d04eee6c02f667a5a8a1d771e75e25b536a192864d1dfb3f255836
+```
 
 ## Next requirement
 
