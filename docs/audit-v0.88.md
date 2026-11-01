@@ -24,6 +24,7 @@ Date: 2026-11-02
 | Linux/Windows archive reproducibility | passed |
 | Release manifest and Linux provenance | passed |
 | Relative Markdown links | passed |
+| Obsidian YAML and section numbering | passed |
 | Historical manifests v0.71–v0.88 | all verified |
 
 ## Implemented requirement areas
