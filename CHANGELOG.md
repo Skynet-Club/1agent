@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.0 - 2026-11-02
+
+- Added external trust-anchor manifests.
+- Added `approval anchor`.
+- Added `--anchor` verification for snapshot chains.
+- Bound anchor to first snapshot digest, operator and authorized key ids.
+- Required calibration snapshot chains to start at the trusted anchor.
+- Added alternate-history and unauthorized-key tests.
+
 ## 0.17.0 - 2026-11-02
 
 - Added previous-snapshot digest links and snapshot self-digests.

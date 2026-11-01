@@ -69,6 +69,16 @@ pub struct RegistrySnapshot {
     pub snapshot_sha256: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustAnchorManifest {
+    pub anchor_version: u32,
+    pub first_snapshot_sha256: String,
+    pub operator: String,
+    pub admin_key_ids: Vec<String>,
+    pub created_unix_ms: u128,
+}
+
 impl ApprovalKeyRegistry {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ApprovalError> {
         let content = std::fs::read_to_string(path)?;
@@ -295,6 +305,60 @@ pub fn verify_snapshot_chain(
     Ok(())
 }
 
+pub fn create_trust_anchor(
+    first_snapshot: &RegistrySnapshot,
+    operator: String,
+    admin_key_ids: Vec<String>,
+) -> Result<TrustAnchorManifest, ApprovalError> {
+    validate_text(&operator)?;
+    if admin_key_ids.is_empty() {
+        return Err(ApprovalError::InvalidApproval);
+    }
+    for key_id in &admin_key_ids {
+        validate_text(key_id)?;
+    }
+    if !admin_key_ids.contains(&first_snapshot.key_id) {
+        return Err(ApprovalError::AnchorKeyMismatch);
+    }
+    Ok(TrustAnchorManifest {
+        anchor_version: 1,
+        first_snapshot_sha256: first_snapshot.snapshot_sha256.clone(),
+        operator,
+        admin_key_ids,
+        created_unix_ms: now_unix_ms(),
+    })
+}
+
+pub fn verify_snapshot_chain_with_anchor(
+    snapshots: &[RegistrySnapshot],
+    anchor: &TrustAnchorManifest,
+    registry: &ApprovalKeyRegistry,
+    registry_path: impl AsRef<Path>,
+    key: &[u8],
+    minimum_registry_version: u64,
+) -> Result<(), ApprovalError> {
+    if anchor.anchor_version != 1 || anchor.admin_key_ids.is_empty() {
+        return Err(ApprovalError::InvalidApproval);
+    }
+    let first = snapshots.first().ok_or(ApprovalError::EmptySnapshotChain)?;
+    if first.snapshot_sha256 != anchor.first_snapshot_sha256 {
+        return Err(ApprovalError::TrustAnchorMismatch);
+    }
+    if snapshots
+        .iter()
+        .any(|snapshot| !anchor.admin_key_ids.contains(&snapshot.key_id))
+    {
+        return Err(ApprovalError::AnchorKeyMismatch);
+    }
+    verify_snapshot_chain(
+        snapshots,
+        registry,
+        registry_path,
+        key,
+        minimum_registry_version,
+    )
+}
+
 impl ApprovalEnvelope {
     pub fn sign(
         artifact_path: impl AsRef<Path>,
@@ -416,6 +480,10 @@ pub enum ApprovalError {
     SnapshotChainOrder,
     #[error("registry snapshot chain forked")]
     SnapshotChainFork,
+    #[error("snapshot chain does not start at the trusted anchor")]
+    TrustAnchorMismatch,
+    #[error("snapshot key is not authorized by the trust anchor")]
+    AnchorKeyMismatch,
 }
 
 #[cfg(test)]
@@ -578,6 +646,52 @@ mod tests {
         assert!(matches!(
             verify_snapshot_chain(&[first, second_fork], &registry, &path, &key(), 1),
             Err(ApprovalError::InvalidSnapshotDigest | ApprovalError::SnapshotChainFork)
+        ));
+    }
+
+    #[test]
+    fn trust_anchor_rejects_alternate_history_and_unauthorized_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("key-1".into()).unwrap();
+        registry.save(&path).unwrap();
+        let first = registry
+            .sign_snapshot(&path, "admin".into(), "key-1".into(), &key(), None)
+            .unwrap();
+        let anchor = create_trust_anchor(
+            &first,
+            "operator".into(),
+            vec!["key-1".into(), "key-2".into()],
+        )
+        .unwrap();
+        verify_snapshot_chain_with_anchor(
+            std::slice::from_ref(&first),
+            &anchor,
+            &registry,
+            &path,
+            &key(),
+            1,
+        )
+        .unwrap();
+        let mut alternate = first.clone();
+        alternate.snapshot_sha256 = "a".repeat(64);
+        assert!(matches!(
+            verify_snapshot_chain_with_anchor(&[alternate], &anchor, &registry, &path, &key(), 1),
+            Err(ApprovalError::TrustAnchorMismatch)
+        ));
+        let mut unauthorized = first;
+        unauthorized.key_id = "rogue".into();
+        assert!(matches!(
+            verify_snapshot_chain_with_anchor(
+                &[unauthorized],
+                &anchor,
+                &registry,
+                &path,
+                &key(),
+                1
+            ),
+            Err(ApprovalError::AnchorKeyMismatch | ApprovalError::InvalidSnapshotDigest)
         ));
     }
 }

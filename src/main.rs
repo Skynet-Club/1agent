@@ -10,10 +10,10 @@ use first_principles_agent::{
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
     OpenAiCompatibleProvider, ProviderCandidate, RegistrySnapshot, RunBudget, RuntimeError,
-    TaskRequest, ToolRegistry, audit_events, create_goldset_manifest, default_registry,
-    evaluate_experience_suite, load_suite, local_manifest, read_events, remote_manifest,
-    replay_events, run_suite_with_providers, scan_history, verify_goldset_manifest,
-    verify_snapshot_chain,
+    TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events, create_goldset_manifest,
+    create_trust_anchor, default_registry, evaluate_experience_suite, load_suite, local_manifest,
+    read_events, remote_manifest, replay_events, run_suite_with_providers, scan_history,
+    verify_goldset_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -299,6 +299,8 @@ enum AnnotateCommand {
         registry_key_env: String,
         #[arg(long, default_value_t = 1)]
         min_registry_version: u64,
+        #[arg(long)]
+        trust_anchor: PathBuf,
         #[arg(long, default_value_t = 600)]
         min_kappa_millis: i32,
         #[arg(long, default_value_t = 20)]
@@ -405,6 +407,18 @@ enum ApprovalCommand {
         key_env: String,
         #[arg(long, default_value_t = 1)]
         min_version: u64,
+        #[arg(long)]
+        anchor: Option<PathBuf>,
+    },
+    Anchor {
+        #[arg(long)]
+        snapshot: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        operator: String,
+        #[arg(long)]
+        key_id: Vec<String>,
     },
     Verify {
         #[arg(long)]
@@ -988,6 +1002,7 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             registry_snapshot,
             registry_key_env,
             min_registry_version,
+            trust_anchor,
             min_kappa_millis,
             min_samples,
             json,
@@ -1009,8 +1024,13 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
                 })
                 .collect::<Result<Vec<_>>>()?;
             let registry_key = read_secret_env(&registry_key_env)?;
-            verify_snapshot_chain(
+            let anchor: TrustAnchorManifest = serde_json::from_str(
+                &std::fs::read_to_string(&trust_anchor)
+                    .with_context(|| format!("cannot read {}", trust_anchor.display()))?,
+            )?;
+            verify_snapshot_chain_with_anchor(
                 &snapshots,
+                &anchor,
                 &registry,
                 &approval_registry,
                 &registry_key,
@@ -1221,6 +1241,7 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
             snapshot,
             key_env,
             min_version,
+            anchor,
         } => {
             let registry_value = ApprovalKeyRegistry::load(&registry)?;
             let snapshots = snapshot
@@ -1232,14 +1253,41 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
                         .with_context(|| format!("invalid snapshot {}", path.display()))
                 })
                 .collect::<Result<Vec<_>>>()?;
-            verify_snapshot_chain(
-                &snapshots,
-                &registry_value,
-                &registry,
-                &read_secret_env(&key_env)?,
-                min_version,
-            )?;
+            let key = read_secret_env(&key_env)?;
+            if let Some(anchor) = anchor {
+                let anchor: TrustAnchorManifest = serde_json::from_str(
+                    &std::fs::read_to_string(&anchor)
+                        .with_context(|| format!("cannot read {}", anchor.display()))?,
+                )?;
+                verify_snapshot_chain_with_anchor(
+                    &snapshots,
+                    &anchor,
+                    &registry_value,
+                    &registry,
+                    &key,
+                    min_version,
+                )?;
+            } else {
+                verify_snapshot_chain(&snapshots, &registry_value, &registry, &key, min_version)?;
+            }
             println!("registry snapshot chain verified");
+        }
+        ApprovalCommand::Anchor {
+            snapshot,
+            output,
+            operator,
+            key_id,
+        } => {
+            let snapshot: RegistrySnapshot = serde_json::from_str(
+                &std::fs::read_to_string(&snapshot)
+                    .with_context(|| format!("cannot read {}", snapshot.display()))?,
+            )?;
+            let anchor = create_trust_anchor(&snapshot, operator, key_id)?;
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output, serde_json::to_vec_pretty(&anchor)?)?;
+            println!("{}", output.display());
         }
     }
     Ok(())

@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.17.0` is an executable V0 vertical slice:
+Version `0.18.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -35,10 +35,11 @@ Version `0.17.0` is an executable V0 vertical slice:
 - approval-key rotation and revocation;
 - signed approval-registry snapshots with rollback floors;
 - hash-chained registry snapshot history;
+- external trust anchors for registry history;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.17.md`](docs/status-v0.17.md).
+[`docs/status-v0.18.md`](docs/status-v0.18.md).
 
 Current V0 assumptions:
 
