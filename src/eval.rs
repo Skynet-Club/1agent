@@ -106,6 +106,8 @@ pub struct EvalExpectation {
     #[serde(default)]
     pub min_high_impact_assumptions: usize,
     #[serde(default)]
+    pub min_unresolved_conflicts: usize,
+    #[serde(default)]
     pub expect_checkpoint: bool,
     #[serde(default)]
     pub tool_status: Option<ToolStatus>,
@@ -136,6 +138,8 @@ pub struct EvalCaseResult {
     pub low_impact_assumption_count: usize,
     pub medium_impact_assumption_count: usize,
     pub high_impact_assumption_count: usize,
+    pub conflict_count: usize,
+    pub unresolved_conflict_count: usize,
     pub flip_condition_count: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
@@ -484,6 +488,18 @@ async fn run_case(
             case.expect.min_high_impact_assumptions, high_impact_assumptions
         ));
     }
+    let unresolved_conflicts = result
+        .answer
+        .conflicts
+        .iter()
+        .filter(|conflict| conflict.status == crate::domain::ConflictStatus::Unresolved)
+        .count();
+    if unresolved_conflicts < case.expect.min_unresolved_conflicts {
+        issues.push(format!(
+            "expected at least {} unresolved conflicts, got {}",
+            case.expect.min_unresolved_conflicts, unresolved_conflicts
+        ));
+    }
     if audit.ok != case.expect.audit_ok {
         issues.push(format!(
             "expected audit_ok={}, got {}",
@@ -554,6 +570,8 @@ async fn run_case(
             .filter(|assumption| assumption.impact == crate::domain::ImpactLevel::Medium)
             .count(),
         high_impact_assumption_count: high_impact_assumptions,
+        conflict_count: result.answer.conflicts.len(),
+        unresolved_conflict_count: unresolved_conflicts,
         flip_condition_count: result.answer.flip_conditions.len(),
         rubric_checks,
         rubric_passed,
@@ -603,6 +621,8 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         low_impact_assumption_count: 0,
         medium_impact_assumption_count: 0,
         high_impact_assumption_count: 0,
+        conflict_count: 0,
+        unresolved_conflict_count: 0,
         flip_condition_count: 0,
         rubric_checks: 0,
         rubric_passed: 0,
@@ -799,6 +819,7 @@ mod tests {
                     assumptions: Vec::new(),
                     constraints: Vec::new(),
                     unknowns: Vec::new(),
+                    conflicts: Vec::new(),
                     flip_conditions: Vec::new(),
                     action_receipts: Vec::new(),
                 }
@@ -810,23 +831,32 @@ mod tests {
                 AgentAnswer {
                     status: AnswerStatus::Conditional,
                     conclusion: "sources conflict; result is conditional".into(),
-                    claims: vec![Claim {
-                        id: "claim-conflict".into(),
-                        text: "source A and source B disagree".into(),
-                        status: ClaimStatus::Conflicting,
-                        sources: vec!["source-a".into(), "source-b".into()],
-                        scope: Some("fixture conflict".into()),
-                    }],
+                    claims: vec![
+                        Claim {
+                            id: "claim-a".into(),
+                            text: "source A reports one value".into(),
+                            status: ClaimStatus::Verified,
+                            sources: vec!["source-a".into()],
+                            scope: Some("fixture conflict".into()),
+                        },
+                        Claim {
+                            id: "claim-b".into(),
+                            text: "source B reports another value".into(),
+                            status: ClaimStatus::Verified,
+                            sources: vec!["source-b".into()],
+                            scope: Some("fixture conflict".into()),
+                        },
+                    ],
                     evidence: vec![
                         crate::domain::Evidence {
                             source: "source-a".into(),
                             statement: "source A reports one value".into(),
-                            claim_ids: vec!["claim-conflict".into()],
+                            claim_ids: vec!["claim-a".into()],
                         },
                         crate::domain::Evidence {
                             source: "source-b".into(),
                             statement: "source B reports another value".into(),
-                            claim_ids: vec!["claim-conflict".into()],
+                            claim_ids: vec!["claim-b".into()],
                         },
                     ],
                     assumptions: Vec::new(),
@@ -836,6 +866,13 @@ mod tests {
                         impact: crate::domain::ImpactLevel::High,
                         why_it_matters: Some("it flips the conclusion".into()),
                         reduction_method: Some("obtain timestamps".into()),
+                    }],
+                    conflicts: vec![crate::domain::ConflictRecord {
+                        id: "conflict-1".into(),
+                        claim_ids: ["claim-a".into(), "claim-b".into()],
+                        status: crate::domain::ConflictStatus::Unresolved,
+                        resolution: None,
+                        resolution_sources: Vec::new(),
                     }],
                     flip_conditions: vec![crate::domain::FlipCondition {
                         if_observed: "source B is newer".into(),
@@ -858,6 +895,7 @@ mod tests {
                     assumptions: vec!["current cost estimate holds".into()],
                     constraints: Vec::new(),
                     unknowns: Vec::new(),
+                    conflicts: Vec::new(),
                     flip_conditions: vec![crate::domain::FlipCondition {
                         if_observed: "option B becomes cheaper".into(),
                         then: "switch to option B".into(),
@@ -902,6 +940,7 @@ mod tests {
                     min_flip_conditions: 0,
                     min_high_impact_unknowns: 0,
                     min_high_impact_assumptions: 0,
+                    min_unresolved_conflicts: 0,
                     expect_checkpoint: true,
                     tool_status: Some(ToolStatus::Ok),
                     tool_error_code: None,
@@ -935,7 +974,7 @@ mod tests {
                         required_conclusion_terms: vec!["conflict".into()],
                         forbidden_conclusion_terms: Vec::new(),
                         required_sources: vec!["source-a".into(), "source-b".into()],
-                        required_claim_statuses: vec![ClaimStatus::Conflicting],
+                        required_claim_statuses: vec![ClaimStatus::Verified],
                     }),
                     expect: EvalExpectation {
                         stop_reason: StopReason::Completed,
@@ -946,6 +985,7 @@ mod tests {
                         min_flip_conditions: 1,
                         min_high_impact_unknowns: 1,
                         min_high_impact_assumptions: 0,
+                        min_unresolved_conflicts: 1,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
@@ -967,6 +1007,7 @@ mod tests {
                         min_flip_conditions: 1,
                         min_high_impact_unknowns: 0,
                         min_high_impact_assumptions: 0,
+                        min_unresolved_conflicts: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,
@@ -997,6 +1038,7 @@ mod tests {
                         min_flip_conditions: 0,
                         min_high_impact_unknowns: 0,
                         min_high_impact_assumptions: 0,
+                        min_unresolved_conflicts: 0,
                         expect_checkpoint: true,
                         tool_status: Some(ToolStatus::Ok),
                         tool_error_code: None,
@@ -1095,6 +1137,7 @@ mod tests {
                     assumptions: Vec::new(),
                     constraints: Vec::new(),
                     unknowns: Vec::new(),
+                    conflicts: Vec::new(),
                     flip_conditions: Vec::new(),
                     action_receipts: Vec::new(),
                 }
@@ -1107,6 +1150,7 @@ mod tests {
                     assumptions: Vec::new(),
                     constraints: Vec::new(),
                     unknowns: Vec::new(),
+                    conflicts: Vec::new(),
                     flip_conditions: Vec::new(),
                     action_receipts: Vec::new(),
                 }
@@ -1149,6 +1193,7 @@ mod tests {
                         min_flip_conditions: 0,
                         min_high_impact_unknowns: 0,
                         min_high_impact_assumptions: 0,
+                        min_unresolved_conflicts: 0,
                         expect_checkpoint: false,
                         tool_status: None,
                         tool_error_code: None,

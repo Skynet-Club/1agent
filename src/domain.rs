@@ -204,6 +204,25 @@ pub struct AssumptionItem {
     pub verification_method: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictStatus {
+    Unresolved,
+    Resolved,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ConflictRecord {
+    pub id: String,
+    pub claim_ids: [String; 2],
+    pub status: ConflictStatus,
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default)]
+    pub resolution_sources: Vec<String>,
+}
+
 impl<'de> Deserialize<'de> for AssumptionItem {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -278,6 +297,8 @@ pub struct AgentAnswer {
     pub constraints: Vec<String>,
     #[serde(default)]
     pub unknowns: Vec<UnknownItem>,
+    #[serde(default)]
+    pub conflicts: Vec<ConflictRecord>,
     #[serde(default)]
     pub flip_conditions: Vec<FlipCondition>,
     #[serde(default)]
@@ -376,6 +397,77 @@ impl AgentAnswer {
                 );
             }
         }
+        let conflict_ids = self
+            .conflicts
+            .iter()
+            .map(|conflict| conflict.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        if conflict_ids.len() != self.conflicts.len() {
+            return Err(AnswerValidationError::DuplicateConflictId);
+        }
+        for conflict in &self.conflicts {
+            if conflict.id.trim().is_empty()
+                || conflict.claim_ids[0] == conflict.claim_ids[1]
+                || conflict
+                    .claim_ids
+                    .iter()
+                    .any(|claim_id| !claim_ids.contains(claim_id.as_str()))
+            {
+                return Err(AnswerValidationError::InvalidConflictClaimReference(
+                    conflict.id.clone(),
+                ));
+            }
+            match conflict.status {
+                ConflictStatus::Unresolved => {
+                    if conflict.resolution.is_some() || !conflict.resolution_sources.is_empty() {
+                        return Err(AnswerValidationError::UnresolvedConflictHasResolution(
+                            conflict.id.clone(),
+                        ));
+                    }
+                }
+                ConflictStatus::Resolved => {
+                    if conflict
+                        .resolution
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or_default()
+                        .is_empty()
+                        || !conflict
+                            .resolution_sources
+                            .iter()
+                            .any(|source| !source.trim().is_empty())
+                    {
+                        return Err(AnswerValidationError::ResolvedConflictWithoutEvidence(
+                            conflict.id.clone(),
+                        ));
+                    }
+                    if conflict.claim_ids.iter().any(|claim_id| {
+                        self.claims
+                            .iter()
+                            .find(|claim| claim.id == *claim_id)
+                            .is_some_and(|claim| claim.status == ClaimStatus::Conflicting)
+                    }) {
+                        return Err(AnswerValidationError::ResolvedConflictStillMarked(
+                            conflict.id.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+        for claim in self
+            .claims
+            .iter()
+            .filter(|claim| claim.status == ClaimStatus::Conflicting)
+        {
+            if !self.conflicts.iter().any(|conflict| {
+                conflict.status == ConflictStatus::Unresolved
+                    && conflict.claim_ids.contains(&claim.id)
+            }) {
+                return Err(AnswerValidationError::ConflictingClaimWithoutOpenConflict(
+                    claim.id.clone(),
+                ));
+            }
+        }
         for evidence in &self.evidence {
             if evidence.source.trim().is_empty() {
                 return Err(AnswerValidationError::EmptyEvidenceSource);
@@ -454,6 +546,18 @@ pub enum AnswerValidationError {
     EmptyAssumptionDescription,
     #[error("high-impact assumption '{0}' requires a verification method")]
     HighImpactAssumptionWithoutVerification(String),
+    #[error("answer contains duplicate conflict ids")]
+    DuplicateConflictId,
+    #[error("conflict '{0}' has invalid or duplicate claim references")]
+    InvalidConflictClaimReference(String),
+    #[error("unresolved conflict '{0}' must not carry resolution evidence")]
+    UnresolvedConflictHasResolution(String),
+    #[error("resolved conflict '{0}' requires a resolution and source")]
+    ResolvedConflictWithoutEvidence(String),
+    #[error("resolved conflict '{0}' still contains a conflicting claim")]
+    ResolvedConflictStillMarked(String),
+    #[error("conflicting claim '{0}' has no open conflict record")]
+    ConflictingClaimWithoutOpenConflict(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -730,6 +834,7 @@ mod tests {
             assumptions: Vec::new(),
             constraints: Vec::new(),
             unknowns: Vec::new(),
+            conflicts: Vec::new(),
             flip_conditions: Vec::new(),
             action_receipts: vec!["deleted file".into()],
         };
@@ -755,6 +860,7 @@ mod tests {
             assumptions: Vec::new(),
             constraints: Vec::new(),
             unknowns: Vec::new(),
+            conflicts: Vec::new(),
             flip_conditions: Vec::new(),
             action_receipts: Vec::new(),
         };
@@ -801,6 +907,7 @@ mod tests {
             assumptions: Vec::new(),
             constraints: Vec::new(),
             unknowns: Vec::new(),
+            conflicts: Vec::new(),
             flip_conditions: Vec::new(),
             action_receipts: Vec::new(),
         };
@@ -862,6 +969,7 @@ mod tests {
             assumptions: Vec::new(),
             constraints: Vec::new(),
             unknowns: Vec::new(),
+            conflicts: Vec::new(),
             flip_conditions: Vec::new(),
             action_receipts: Vec::new(),
         };
@@ -899,6 +1007,7 @@ mod tests {
                 why_it_matters: Some("it can flip the decision".into()),
                 reduction_method: None,
             }],
+            conflicts: Vec::new(),
             flip_conditions: Vec::new(),
             action_receipts: Vec::new(),
         };
@@ -942,5 +1051,59 @@ mod tests {
         );
         answer.assumptions[0].verification_method = Some("verify against current data".into());
         answer.validate(&request).unwrap();
+    }
+
+    #[test]
+    fn conflicts_require_two_sides_and_explicit_resolution_state() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let claims = vec![
+            Claim {
+                id: "claim-a".into(),
+                text: "claim A".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["source-a".into()],
+                scope: None,
+            },
+            Claim {
+                id: "claim-b".into(),
+                text: "claim B".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["source-b".into()],
+                scope: None,
+            },
+        ];
+        let mut answer = AgentAnswer {
+            status: AnswerStatus::Conditional,
+            conclusion: "conflict".into(),
+            claims,
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: vec![ConflictRecord {
+                id: "conflict-1".into(),
+                claim_ids: ["claim-a".into(), "claim-b".into()],
+                status: ConflictStatus::Unresolved,
+                resolution: None,
+                resolution_sources: Vec::new(),
+            }],
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        answer.validate(&request).unwrap();
+        answer.conflicts[0].status = ConflictStatus::Resolved;
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ResolvedConflictWithoutEvidence(_))
+        ));
+
+        answer.conflicts[0].resolution = Some("source-c resolves the conflict".into());
+        answer.conflicts[0].resolution_sources = vec!["source-c".into()];
+        answer.claims[0].status = ClaimStatus::Conflicting;
+        answer.claims[0].sources = vec!["source-a".into(), "source-b".into()];
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ResolvedConflictStillMarked(_))
+        ));
     }
 }

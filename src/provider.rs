@@ -132,6 +132,7 @@ Return only one JSON object matching this shape:
   "assumptions": [{"description":"string","impact":"low|medium|high","verification_method":"string|null"}],
   "constraints": ["string"],
   "unknowns": [{"description":"string","why_it_matters":"string|null","reduction_method":"string|null"}],
+  "conflicts": [{"id":"string","claim_ids":["string","string"],"status":"unresolved|resolved","resolution":"string|null","resolution_sources":["string"]}],
   "flip_conditions": [{"if_observed":"string","then":"string"}],
   "action_receipts": ["string"]
 }
@@ -493,6 +494,7 @@ impl ModelProvider for DeterministicProvider {
                         reduction_method: None,
                     }]
                 },
+                conflicts: Vec::new(),
                 flip_conditions: if observation.status == ToolStatus::Ok {
                     vec![FlipCondition {
                         if_observed: "证据文件与任务约束冲突".into(),
@@ -567,6 +569,7 @@ impl ModelProvider for DeterministicProvider {
                 why_it_matters: Some("离线确定性 Provider 只能验证运行时链路，不能替代真实推理。".into()),
                 reduction_method: Some("配置 OpenAI-compatible Provider".into()),
             }],
+            conflicts: Vec::new(),
             flip_conditions: vec![FlipCondition {
                 if_observed: "配置并验证可用推理 Provider".into(),
                 then: "应重新运行任务并基于其证据输出结论".into(),
@@ -1041,6 +1044,7 @@ mod tests {
                         assumptions: Vec::new(),
                         constraints: Vec::new(),
                         unknowns: Vec::new(),
+                        conflicts: Vec::new(),
                         flip_conditions: Vec::new(),
                         action_receipts: Vec::new(),
                     },

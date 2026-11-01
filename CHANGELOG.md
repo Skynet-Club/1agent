@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.50.0 - 2026-11-02
+
+- Added explicit conflict records with two claim sides.
+- Added unresolved and resolved conflict states.
+- Required resolved conflicts to include resolution text and source evidence.
+- Rejected resolved conflicts that still contain conflicting claims.
+- Required every conflicting claim to have an open unresolved conflict.
+- Added unresolved-conflict minimums and counts to evaluation scorecards.
+- Updated provider contract and scripted conflict fixture.
+
 ## 0.49.0 - 2026-11-02
 
 - Upgraded assumptions to structured records with description, impact and verification method.

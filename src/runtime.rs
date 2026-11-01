@@ -860,6 +860,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
             why_it_matters: Some("没有授权就无法安全执行副作用动作".into()),
             reduction_method: Some("由用户明确授权具体动作、范围和回滚条件".into()),
         }],
+        conflicts: Vec::new(),
         flip_conditions: vec![FlipCondition {
             if_observed: "用户授权具体低风险动作及其作用范围".into(),
             then: "可以进入受控执行流程".into(),
@@ -882,6 +883,7 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
             why_it_matters: Some("预算停止时不能把部分工作报告为成功".into()),
             reduction_method: Some("提高预算或缩小任务范围后重新运行".into()),
         }],
+        conflicts: Vec::new(),
         flip_conditions: vec![FlipCondition {
             if_observed: "在更高预算下完成外部验证".into(),
             then: "应重新评估是否形成结论".into(),

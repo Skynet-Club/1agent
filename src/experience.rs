@@ -748,6 +748,7 @@ mod tests {
                     assumptions: Vec::new(),
                     constraints: Vec::new(),
                     unknowns: Vec::new(),
+                    conflicts: Vec::new(),
                     flip_conditions: Vec::new(),
                     action_receipts: Vec::new(),
                 },
