@@ -114,7 +114,7 @@ Real-model reasoning quality and full cross-platform support are not yet verifie
 [`docs/status-v0.90.md`](docs/status-v0.90.md).
 The evidence plan required before expanding autonomy is in
 [`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
-The latest cross-requirement audit is in [`docs/audit-v0.89.md`](docs/audit-v0.89.md).
+The latest cross-requirement audit is in [`docs/audit-v0.90.md`](docs/audit-v0.90.md).
 The documentation index is [`docs/documentation-map.md`](docs/documentation-map.md).
 Supported behavior, explicit non-goals and claim boundaries are in
 [`docs/product-boundary.md`](docs/product-boundary.md).
