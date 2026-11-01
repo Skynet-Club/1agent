@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 - 2026-11-02
+
+- Added `annotate add/list/agreement`.
+- Added supported/unsupported/needs-evidence labels with evidence sources and notes.
+- Added duplicate case/annotator protection and hidden-control rejection.
+- Added pair observed/expected agreement and kappa measurement.
+- Added insufficient-data and disagreement tests.
+
 ## 0.10.0 - 2026-11-02
 
 - Added `experience evaluate` for automated baseline-vs-shadow held-out evaluation.

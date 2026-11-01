@@ -1,3 +1,4 @@
+pub mod annotation;
 pub mod config;
 pub mod context;
 pub mod domain;
@@ -11,6 +12,7 @@ pub mod runtime;
 pub mod safety;
 pub mod tools;
 
+pub use annotation::*;
 pub use config::*;
 pub use context::*;
 pub use domain::*;

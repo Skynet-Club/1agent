@@ -1,6 +1,6 @@
 [package]
 name = "first-principles-agent"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2024"
 description = "Evidence-accountable, provider-neutral decision agent"
 license = "MIT"

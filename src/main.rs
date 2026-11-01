@@ -5,12 +5,12 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
-    AgentConfig, AgentRuntime, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    ExperienceVerificationInput, HostCommand, HostError, HostRegistry, HostRequestState,
-    HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError,
-    TaskRequest, ToolRegistry, audit_events, default_registry, evaluate_experience_suite,
-    load_suite, local_manifest, read_events, remote_manifest, replay_events,
-    run_suite_with_providers, scan_history,
+    AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
+    DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
+    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
+    ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
+    default_registry, evaluate_experience_suite, load_suite, local_manifest, read_events,
+    remote_manifest, replay_events, run_suite_with_providers, scan_history,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -123,6 +123,10 @@ enum Command {
         limit: usize,
         #[arg(long)]
         json: bool,
+    },
+    Annotate {
+        #[command(subcommand)]
+        command: AnnotateCommand,
     },
     Resume {
         #[arg(long)]
@@ -237,6 +241,34 @@ enum ExperienceCommand {
     },
     List {
         #[arg(long, default_value = ".experience")]
+        store: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum AnnotateCommand {
+    Add {
+        #[arg(long, default_value = ".annotations")]
+        store: PathBuf,
+        #[arg(long)]
+        case_id: String,
+        #[arg(long)]
+        annotator: String,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        evidence_source: Vec<String>,
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    Agreement {
+        #[arg(long, default_value = ".annotations")]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    List {
+        #[arg(long, default_value = ".annotations")]
         store: PathBuf,
     },
 }
@@ -606,6 +638,9 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::Annotate { command } => {
+            handle_annotations(command)?;
+        }
         Command::Resume {
             journal,
             config,
@@ -749,6 +784,64 @@ async fn handle_experience(command: ExperienceCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn handle_annotations(command: AnnotateCommand) -> Result<()> {
+    match command {
+        AnnotateCommand::Add {
+            store,
+            case_id,
+            annotator,
+            label,
+            evidence_source,
+            note,
+        } => {
+            let label = parse_annotation_label(&label)?;
+            let mut annotations = AnnotationStore::open(store)?;
+            annotations.add(AnnotationRecord {
+                case_id: case_id.clone(),
+                annotator_id: annotator,
+                label,
+                evidence_sources: evidence_source,
+                note,
+                created_unix_ms: 0,
+            })?;
+            println!("annotation saved for {case_id}");
+        }
+        AnnotateCommand::Agreement { store, json } => {
+            let report = AnnotationStore::open(store)?.agreement()?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "annotations={} eligible_cases={} observed={}bps kappa={:.3} enough_data={}",
+                    report.annotations,
+                    report.eligible_cases,
+                    report.observed_agreement_bps,
+                    report.kappa_millis as f64 / 1_000.0,
+                    report.enough_data
+                );
+            }
+        }
+        AnnotateCommand::List { store } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&AnnotationStore::open(store)?.records()?)?
+            );
+        }
+    }
+    Ok(())
+}
+
+fn parse_annotation_label(value: &str) -> Result<AnnotationLabel> {
+    match value {
+        "supported" => Ok(AnnotationLabel::Supported),
+        "unsupported" => Ok(AnnotationLabel::Unsupported),
+        "needs_evidence" | "needs-evidence" => Ok(AnnotationLabel::NeedsEvidence),
+        other => bail!(
+            "invalid annotation label '{other}'; use supported, unsupported or needs_evidence"
+        ),
+    }
 }
 
 fn load_request(task: Option<String>, input: Option<PathBuf>) -> Result<TaskRequest> {
