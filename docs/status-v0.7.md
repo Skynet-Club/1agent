@@ -51,12 +51,14 @@ sha256: 2e629b681b7d74253a83216cb0d9f8b613083d200a95d7dfdb6bc87295433858
 
 | Check | Result |
 |---|---|
-| Unit tests | 36 passed |
+| Unit tests | 39 passed |
 | Core evaluation suite | 4/4 passed |
 | CLI e2e/config/experience/resume | passed |
 | Clippy `-D warnings` | passed |
 | Linux release build | passed |
 | Windows GNU release build | passed; PE32+ x86-64 artifact produced |
+| Search result limit/truncation | passed |
+| Tool timeout as structured failure | passed |
 
 ## Requirement comparison
 
@@ -66,7 +68,7 @@ sha256: 2e629b681b7d74253a83216cb0d9f8b613083d200a95d7dfdb6bc87295433858
 | Isolated workspaces | implemented |
 | Hard gates | implemented |
 | JSON/human report | implemented |
-| Real-provider opt-in suite | pending |
+| Real-provider opt-in suite | configuration implemented; live execution blocked by missing credentials |
 | Human gold quality scoring | pending |
 | Provider/model/latency/usage metrics | implemented in case reports |
 
@@ -79,10 +81,16 @@ sha256: 2e629b681b7d74253a83216cb0d9f8b613083d200a95d7dfdb6bc87295433858
 
 ## Next requirement
 
-Add opt-in provider evaluation and richer hard-gate cases:
+Complete live-provider evaluation and richer hard-gate cases:
 
 1. Separate deterministic contract suite from real-provider quality suite.
 2. Require explicit network and model configuration for live evaluation.
 3. Add source-conflict, tool-timeout, prompt-injection and checkpoint cases.
 4. Record provider, model, latency and usage per case.
 5. Preserve deterministic results as the release gate.
+
+Current blockers:
+
+- no DeepSeek, Kimi, Qwen, OpenAI or other provider credential is present;
+- no local Ollama service is installed/running;
+- real-model quality and provider costs therefore remain unverified.

@@ -845,4 +845,90 @@ mod tests {
         assert_eq!(observation.status, ToolStatus::PermissionDenied);
         assert_eq!(observation.error_code.as_deref(), Some("permission_denied"));
     }
+
+    #[tokio::test]
+    async fn search_honors_result_limit_and_reports_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("matches.txt"),
+            "needle one\nneedle two\nneedle three\n",
+        )
+        .unwrap();
+        let permissions = PermissionSet {
+            read_roots: vec![dir.path().to_path_buf()],
+            allow_network: false,
+            allow_write: false,
+        };
+        let observation = default_registry()
+            .execute(
+                &ToolCall {
+                    id: "search-limit".into(),
+                    name: "search_files".into(),
+                    arguments: serde_json::json!({
+                        "query": "needle",
+                        "max_results": 2
+                    }),
+                },
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await;
+        let summary: SearchSummary = serde_json::from_str(&observation.content).unwrap();
+        assert_eq!(summary.hits.len(), 2);
+        assert!(summary.truncated);
+    }
+
+    struct SlowTool;
+
+    #[async_trait]
+    impl AgentTool for SlowTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "slow".into(),
+                description: "test-only slow tool".into(),
+                parameters: serde_json::json!({"type":"object"}),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn timeout(&self) -> Duration {
+            Duration::from_millis(1)
+        }
+
+        async fn execute(
+            &self,
+            _arguments: Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<ToolOutcome, ToolError> {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok(ToolOutcome {
+                summary: "late".into(),
+                content: "too late".into(),
+                metadata: BTreeMap::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_timeout_is_structured_and_not_reported_as_success() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(SlowTool));
+        let observation = registry
+            .execute(
+                &ToolCall {
+                    id: "slow-call".into(),
+                    name: "slow".into(),
+                    arguments: serde_json::json!({}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::TimedOut);
+        assert_eq!(observation.error_code.as_deref(), Some("timed_out"));
+    }
 }
