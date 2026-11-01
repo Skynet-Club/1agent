@@ -1244,6 +1244,7 @@ mod tests {
             scope: "repository decisions".into(),
             source_run_id: uuid::Uuid::new_v4(),
             evidence_event_seqs: vec![1],
+            evidence_sha256: String::new(),
             sensitive: false,
             applicable_modes: vec![crate::domain::CognitiveMode::DecisionAnalysis],
             expires_at_unix_ms: None,

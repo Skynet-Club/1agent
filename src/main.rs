@@ -249,6 +249,8 @@ enum ExperienceCommand {
         id: Uuid,
         #[arg(long)]
         actor: String,
+        #[arg(long)]
+        journal: Option<PathBuf>,
     },
     Verify {
         #[arg(long, default_value = ".experience")]
@@ -279,6 +281,8 @@ enum ExperienceCommand {
         id: Uuid,
         #[arg(long)]
         actor: String,
+        #[arg(long)]
+        journal: Option<PathBuf>,
     },
     Reject {
         #[arg(long, default_value = ".experience")]
@@ -295,6 +299,8 @@ enum ExperienceCommand {
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
+        #[arg(long)]
+        journal: Option<PathBuf>,
     },
     Degrade {
         #[arg(long, default_value = ".experience")]
@@ -1333,8 +1339,22 @@ async fn handle_experience(command: ExperienceCommand) -> Result<()> {
             let candidate = experience.propose(spec, &source_events)?;
             println!("{}", serde_json::to_string_pretty(&candidate)?);
         }
-        ExperienceCommand::Review { store, id, actor } => {
-            ExperienceStore::open(store)?.review(id, &actor)?;
+        ExperienceCommand::Review {
+            store,
+            id,
+            actor,
+            journal,
+        } => {
+            let source_events = journal
+                .as_ref()
+                .map(read_events)
+                .transpose()
+                .with_context(|| "cannot read experience source journal")?;
+            ExperienceStore::open(store)?.review_with_source(
+                id,
+                &actor,
+                source_events.as_deref(),
+            )?;
             println!("candidate {id}: reviewed");
         }
         ExperienceCommand::Verify { store, id, input } => {
@@ -1386,8 +1406,22 @@ async fn handle_experience(command: ExperienceCommand) -> Result<()> {
                 report.learned.hard_gate_failures
             );
         }
-        ExperienceCommand::Approve { store, id, actor } => {
-            ExperienceStore::open(store)?.approve(id, &actor)?;
+        ExperienceCommand::Approve {
+            store,
+            id,
+            actor,
+            journal,
+        } => {
+            let source_events = journal
+                .as_ref()
+                .map(read_events)
+                .transpose()
+                .with_context(|| "cannot read experience source journal")?;
+            ExperienceStore::open(store)?.approve_with_source(
+                id,
+                &actor,
+                source_events.as_deref(),
+            )?;
             println!("candidate {id}: approved");
         }
         ExperienceCommand::Reject {
@@ -1399,8 +1433,13 @@ async fn handle_experience(command: ExperienceCommand) -> Result<()> {
             ExperienceStore::open(store)?.reject(id, &actor, &reason)?;
             println!("candidate {id}: rejected");
         }
-        ExperienceCommand::Activate { store, id } => {
-            ExperienceStore::open(store)?.activate(id)?;
+        ExperienceCommand::Activate { store, id, journal } => {
+            let source_events = journal
+                .as_ref()
+                .map(read_events)
+                .transpose()
+                .with_context(|| "cannot read experience source journal")?;
+            ExperienceStore::open(store)?.activate_with_source(id, source_events.as_deref())?;
             println!("candidate {id}: active");
         }
         ExperienceCommand::Degrade { store, id, reason } => {

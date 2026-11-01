@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.65.0 - 2026-11-02
+
+- Added a canonical digest over referenced experience evidence events.
+- Stored the evidence digest on candidates.
+- Required duplicate evidence sequences to be rejected.
+- Required source events for review, approval and activation of digest-bound candidates.
+- Revalidated source audit, run identity and event-content digest.
+- Added `--journal` to experience review, approve and activate.
+- Preserved legacy candidates with no evidence digest.
+- Added rewritten-source detection and CLI coverage.
+
 ## 0.64.0 - 2026-11-02
 
 - Added the `superseded` experience status.

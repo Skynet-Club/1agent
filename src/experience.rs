@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::domain::CognitiveMode;
@@ -98,6 +99,8 @@ pub struct ExperienceCandidate {
     pub scope: String,
     pub source_run_id: Uuid,
     pub evidence_event_seqs: Vec<u64>,
+    #[serde(default)]
+    pub evidence_sha256: String,
     pub sensitive: bool,
     pub applicable_modes: Vec<CognitiveMode>,
     pub expires_at_unix_ms: Option<u128>,
@@ -315,11 +318,17 @@ impl ExperienceStore {
             .ok_or(ExperienceError::NoEvidence)?;
         let known_seqs: std::collections::BTreeSet<_> =
             source_events.iter().map(|event| event.seq).collect();
+        let unique_evidence_seqs: std::collections::BTreeSet<_> =
+            spec.evidence_event_seqs.iter().copied().collect();
+        if unique_evidence_seqs.len() != spec.evidence_event_seqs.len() {
+            return Err(ExperienceError::DuplicateEvidenceSeq);
+        }
         for seq in &spec.evidence_event_seqs {
             if !known_seqs.contains(seq) {
                 return Err(ExperienceError::UnknownEvidenceSeq(*seq));
             }
         }
+        let evidence_sha256 = evidence_digest(source_events, &spec.evidence_event_seqs)?;
 
         let timestamp = now_unix_ms();
         if spec
@@ -345,6 +354,7 @@ impl ExperienceStore {
             scope: spec.scope,
             source_run_id,
             evidence_event_seqs: spec.evidence_event_seqs,
+            evidence_sha256,
             sensitive: spec.sensitive,
             applicable_modes: spec.applicable_modes,
             expires_at_unix_ms: spec.expires_at_unix_ms,
@@ -361,6 +371,17 @@ impl ExperienceStore {
     }
 
     pub fn review(&mut self, id: Uuid, actor: &str) -> Result<(), ExperienceError> {
+        self.review_with_source(id, actor, None)
+    }
+
+    pub fn review_with_source(
+        &mut self,
+        id: Uuid,
+        actor: &str,
+        source_events: Option<&[JournalEvent]>,
+    ) -> Result<(), ExperienceError> {
+        let candidate = self.get(id)?;
+        validate_evidence_source(&candidate, source_events)?;
         self.transition(id, &[ExperienceStatus::Draft], |_| {
             Ok(ExperienceEventKind::Reviewed {
                 id,
@@ -370,6 +391,17 @@ impl ExperienceStore {
     }
 
     pub fn approve(&mut self, id: Uuid, actor: &str) -> Result<(), ExperienceError> {
+        self.approve_with_source(id, actor, None)
+    }
+
+    pub fn approve_with_source(
+        &mut self,
+        id: Uuid,
+        actor: &str,
+        source_events: Option<&[JournalEvent]>,
+    ) -> Result<(), ExperienceError> {
+        let candidate = self.get(id)?;
+        validate_evidence_source(&candidate, source_events)?;
         self.transition(id, &[ExperienceStatus::Verified], |_| {
             Ok(ExperienceEventKind::Approved {
                 id,
@@ -465,6 +497,14 @@ impl ExperienceStore {
     }
 
     pub fn activate(&mut self, id: Uuid) -> Result<(), ExperienceError> {
+        self.activate_with_source(id, None)
+    }
+
+    pub fn activate_with_source(
+        &mut self,
+        id: Uuid,
+        source_events: Option<&[JournalEvent]>,
+    ) -> Result<(), ExperienceError> {
         let candidates = self.candidates()?;
         let candidate = candidates
             .get(&id)
@@ -475,6 +515,7 @@ impl ExperienceStore {
                 allowed_from: vec![ExperienceStatus::Approved],
             });
         }
+        validate_evidence_source(candidate, source_events)?;
         if candidate
             .expires_at_unix_ms
             .is_some_and(|expires_at| expires_at <= now_unix_ms())
@@ -688,6 +729,30 @@ fn select_applicable(
     selected
 }
 
+fn evidence_digest(
+    source_events: &[JournalEvent],
+    evidence_event_seqs: &[u64],
+) -> Result<String, ExperienceError> {
+    let events_by_seq = source_events
+        .iter()
+        .map(|event| (event.seq, event))
+        .collect::<BTreeMap<_, _>>();
+    let mut ordered = evidence_event_seqs.to_vec();
+    ordered.sort_unstable();
+    let mut hasher = Sha256::new();
+    hasher.update(b"1agent-experience-evidence-v1\0");
+    for seq in ordered {
+        let event = events_by_seq
+            .get(&seq)
+            .ok_or(ExperienceError::UnknownEvidenceSeq(seq))?;
+        let bytes = serde_json::to_vec(event)?;
+        hasher.update(seq.to_be_bytes());
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
 fn all_modes() -> Vec<CognitiveMode> {
     vec![
         CognitiveMode::DirectAnswer,
@@ -718,6 +783,28 @@ fn supersession_target<'a>(
         return Err(ExperienceError::SupersededExperienceNotActive(previous_id));
     }
     Ok(previous)
+}
+
+fn validate_evidence_source(
+    candidate: &ExperienceCandidate,
+    source_events: Option<&[JournalEvent]>,
+) -> Result<(), ExperienceError> {
+    if candidate.evidence_sha256.is_empty() {
+        return Ok(());
+    }
+    let source_events = source_events.ok_or(ExperienceError::MissingSourceEvidence)?;
+    let audit = audit_events(source_events);
+    if !audit.ok {
+        return Err(ExperienceError::UnauditedSource(audit.issues));
+    }
+    if source_events.first().map(|event| event.run_id) != Some(candidate.source_run_id) {
+        return Err(ExperienceError::SourceRunMismatch);
+    }
+    let actual = evidence_digest(source_events, &candidate.evidence_event_seqs)?;
+    if actual != candidate.evidence_sha256 {
+        return Err(ExperienceError::EvidenceDigestMismatch);
+    }
+    Ok(())
 }
 
 fn transition<F>(
@@ -779,8 +866,16 @@ pub enum ExperienceError {
     UnauditedSource(Vec<String>),
     #[error("at least one evidence event is required")]
     NoEvidence,
+    #[error("experience evidence sequences must be unique")]
+    DuplicateEvidenceSeq,
     #[error("evidence event sequence {0} does not exist in source run")]
     UnknownEvidenceSeq(u64),
+    #[error("source events are required to validate bound experience evidence")]
+    MissingSourceEvidence,
+    #[error("source run does not match the candidate")]
+    SourceRunMismatch,
+    #[error("source evidence digest does not match the candidate")]
+    EvidenceDigestMismatch,
     #[error("candidate {0} not found")]
     CandidateNotFound(Uuid),
     #[error("duplicate candidate id")]
@@ -917,11 +1012,15 @@ mod tests {
         }
     }
 
-    fn approve_and_activate(store: &mut ExperienceStore, id: Uuid) {
-        store.review(id, "reviewer").unwrap();
+    fn approve_and_activate(store: &mut ExperienceStore, id: Uuid, source_events: &[JournalEvent]) {
+        store
+            .review_with_source(id, "reviewer", Some(source_events))
+            .unwrap();
         store.verify(id, verification()).unwrap();
-        store.approve(id, "owner").unwrap();
-        store.activate(id).unwrap();
+        store
+            .approve_with_source(id, "owner", Some(source_events))
+            .unwrap();
+        store.activate_with_source(id, Some(source_events)).unwrap();
     }
 
     #[test]
@@ -935,10 +1034,16 @@ mod tests {
             store.activate(candidate.id),
             Err(ExperienceError::InvalidTransition { .. })
         ));
-        store.review(candidate.id, "reviewer").unwrap();
+        store
+            .review_with_source(candidate.id, "reviewer", Some(&events))
+            .unwrap();
         store.verify(candidate.id, verification()).unwrap();
-        store.approve(candidate.id, "owner").unwrap();
-        store.activate(candidate.id).unwrap();
+        store
+            .approve_with_source(candidate.id, "owner", Some(&events))
+            .unwrap();
+        store
+            .activate_with_source(candidate.id, Some(&events))
+            .unwrap();
         let candidates = store.candidates().unwrap();
         assert_eq!(candidates[&candidate.id].status, ExperienceStatus::Active);
     }
@@ -957,15 +1062,55 @@ mod tests {
     }
 
     #[test]
+    fn rewritten_source_evidence_is_rejected_after_proposal() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let candidate = store.propose(spec(), &events).unwrap();
+        assert_eq!(candidate.evidence_sha256.len(), 64);
+        assert!(matches!(
+            store.review(candidate.id, "reviewer"),
+            Err(ExperienceError::MissingSourceEvidence)
+        ));
+
+        let mut rewritten = events.clone();
+        let observation = rewritten
+            .iter_mut()
+            .find_map(|event| match &mut event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation),
+                _ => None,
+            })
+            .unwrap();
+        observation.content = "rewritten fact".into();
+        let mut journal = String::new();
+        for event in rewritten {
+            journal.push_str(&serde_json::to_string(&event).unwrap());
+            journal.push('\n');
+        }
+        std::fs::write(dir.path().join("run.jsonl"), journal).unwrap();
+        let rewritten = crate::journal::read_events(dir.path().join("run.jsonl")).unwrap();
+        assert!(matches!(
+            store.review_with_source(candidate.id, "reviewer", Some(&rewritten)),
+            Err(ExperienceError::EvidenceDigestMismatch)
+        ));
+    }
+
+    #[test]
     fn active_candidate_can_be_degraded_and_rolled_back() {
         let dir = tempfile::tempdir().unwrap();
         let events = source_events(dir.path());
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let candidate = store.propose(spec(), &events).unwrap();
-        store.review(candidate.id, "reviewer").unwrap();
+        store
+            .review_with_source(candidate.id, "reviewer", Some(&events))
+            .unwrap();
         store.verify(candidate.id, verification()).unwrap();
-        store.approve(candidate.id, "owner").unwrap();
-        store.activate(candidate.id).unwrap();
+        store
+            .approve_with_source(candidate.id, "owner", Some(&events))
+            .unwrap();
+        store
+            .activate_with_source(candidate.id, Some(&events))
+            .unwrap();
         store.degrade(candidate.id, "held-out regression").unwrap();
         store
             .rollback(candidate.id, "reverted after regression")
@@ -983,15 +1128,19 @@ mod tests {
         let events = source_events(dir.path());
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let first = store.propose(spec(), &events).unwrap();
-        approve_and_activate(&mut store, first.id);
+        approve_and_activate(&mut store, first.id, &events);
         let mut second_spec = spec();
         second_spec.title = "Competing guidance".into();
         let second = store.propose(second_spec, &events).unwrap();
-        store.review(second.id, "reviewer").unwrap();
+        store
+            .review_with_source(second.id, "reviewer", Some(&events))
+            .unwrap();
         store.verify(second.id, verification()).unwrap();
-        store.approve(second.id, "owner").unwrap();
+        store
+            .approve_with_source(second.id, "owner", Some(&events))
+            .unwrap();
         assert!(matches!(
-            store.activate(second.id),
+            store.activate_with_source(second.id, Some(&events)),
             Err(ExperienceError::ActiveExperienceConflict)
         ));
     }
@@ -1002,13 +1151,13 @@ mod tests {
         let events = source_events(dir.path());
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let first = store.propose(spec(), &events).unwrap();
-        approve_and_activate(&mut store, first.id);
+        approve_and_activate(&mut store, first.id, &events);
         let mut replacement_spec = spec();
         replacement_spec.title = "Read evidence and timestamp it".into();
         replacement_spec.supersedes = Some(first.id);
         let replacement = store.propose(replacement_spec, &events).unwrap();
         assert_eq!(replacement.version, first.version + 1);
-        approve_and_activate(&mut store, replacement.id);
+        approve_and_activate(&mut store, replacement.id, &events);
 
         let candidates = store.candidates().unwrap();
         assert_eq!(candidates[&first.id].status, ExperienceStatus::Superseded);
@@ -1040,7 +1189,7 @@ mod tests {
         let events = source_events(dir.path());
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let first = store.propose(spec(), &events).unwrap();
-        approve_and_activate(&mut store, first.id);
+        approve_and_activate(&mut store, first.id, &events);
 
         let mut wrong_kind = spec();
         wrong_kind.kind = ExperienceKind::Memory;
@@ -1074,12 +1223,16 @@ mod tests {
         let mut short_lived = spec();
         short_lived.expires_at_unix_ms = Some(now_unix_ms().saturating_add(500));
         let candidate = store.propose(short_lived, &events).unwrap();
-        store.review(candidate.id, "reviewer").unwrap();
+        store
+            .review_with_source(candidate.id, "reviewer", Some(&events))
+            .unwrap();
         store.verify(candidate.id, verification()).unwrap();
-        store.approve(candidate.id, "owner").unwrap();
+        store
+            .approve_with_source(candidate.id, "owner", Some(&events))
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(600));
         assert!(matches!(
-            store.activate(candidate.id),
+            store.activate_with_source(candidate.id, Some(&events)),
             Err(ExperienceError::ExpiredCandidate(id)) if id == candidate.id
         ));
     }
@@ -1103,10 +1256,16 @@ mod tests {
         let events = source_events(dir.path());
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let active = store.propose(spec(), &events).unwrap();
-        store.review(active.id, "reviewer").unwrap();
+        store
+            .review_with_source(active.id, "reviewer", Some(&events))
+            .unwrap();
         store.verify(active.id, verification()).unwrap();
-        store.approve(active.id, "owner").unwrap();
-        store.activate(active.id).unwrap();
+        store
+            .approve_with_source(active.id, "owner", Some(&events))
+            .unwrap();
+        store
+            .activate_with_source(active.id, Some(&events))
+            .unwrap();
         let mut draft = spec();
         draft.title = "Draft only".into();
         draft.scope = "repository decisions".into();
@@ -1115,10 +1274,16 @@ mod tests {
         wrong_scope.title = "Wrong scope".into();
         wrong_scope.scope = "finance".into();
         let wrong_scope = store.propose(wrong_scope, &events).unwrap();
-        store.review(wrong_scope.id, "reviewer").unwrap();
+        store
+            .review_with_source(wrong_scope.id, "reviewer", Some(&events))
+            .unwrap();
         store.verify(wrong_scope.id, verification()).unwrap();
-        store.approve(wrong_scope.id, "owner").unwrap();
-        store.activate(wrong_scope.id).unwrap();
+        store
+            .approve_with_source(wrong_scope.id, "owner", Some(&events))
+            .unwrap();
+        store
+            .activate_with_source(wrong_scope.id, Some(&events))
+            .unwrap();
 
         let retrieved = store
             .retrieve_active(
@@ -1138,7 +1303,9 @@ mod tests {
         let events = source_events(dir.path());
         let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
         let candidate = store.propose(spec(), &events).unwrap();
-        store.review(candidate.id, "reviewer").unwrap();
+        store
+            .review_with_source(candidate.id, "reviewer", Some(&events))
+            .unwrap();
         let mut leaked = verification();
         leaked.evaluation_group = leaked.training_group.clone();
         assert!(matches!(

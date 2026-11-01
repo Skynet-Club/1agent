@@ -91,6 +91,8 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
             &candidate.id.to_string(),
             "--actor",
             "test-owner",
+            "--journal",
+            &run.journal_path.display().to_string(),
         ])
         .output()
         .unwrap();
@@ -147,6 +149,8 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
             &candidate.id.to_string(),
             "--actor",
             "test-owner",
+            "--journal",
+            &run.journal_path.display().to_string(),
         ])
         .output()
         .unwrap();
@@ -163,6 +167,8 @@ fn experience_candidate_cannot_activate_without_review_and_approval() {
             &store.display().to_string(),
             "--id",
             &candidate.id.to_string(),
+            "--journal",
+            &run.journal_path.display().to_string(),
         ])
         .output()
         .unwrap();

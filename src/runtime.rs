@@ -1736,7 +1736,9 @@ mod tests {
                 &source_events,
             )
             .unwrap();
-        store.review(active.id, "reviewer").unwrap();
+        store
+            .review_with_source(active.id, "reviewer", Some(&source_events))
+            .unwrap();
         store
             .verify(
                 active.id,
@@ -1756,8 +1758,12 @@ mod tests {
                 },
             )
             .unwrap();
-        store.approve(active.id, "owner").unwrap();
-        store.activate(active.id).unwrap();
+        store
+            .approve_with_source(active.id, "owner", Some(&source_events))
+            .unwrap();
+        store
+            .activate_with_source(active.id, Some(&source_events))
+            .unwrap();
         store
             .propose(
                 ExperienceCandidateSpec {
