@@ -33,6 +33,7 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    writeln!(child.stdin.as_mut().unwrap(), "{{not-json").unwrap();
     writeln!(
         child.stdin.as_mut().unwrap(),
         "{}",
@@ -46,7 +47,16 @@ fn stdio_host_protocol_runs_and_returns_auditable_result() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let response: HostResponse = serde_json::from_slice(&output.stdout).unwrap();
+    let lines: Vec<_> = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    let invalid: HostResponse = serde_json::from_slice(lines[0]).unwrap();
+    assert!(!invalid.ok);
+    assert_eq!(invalid.error.unwrap().code, "invalid_json");
+    let response: HostResponse = serde_json::from_slice(lines[1]).unwrap();
     assert!(response.ok);
     assert_eq!(response.request_id, "host-1");
     let result = response.result.unwrap();

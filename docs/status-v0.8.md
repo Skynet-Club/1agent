@@ -41,6 +41,7 @@ Failure:
 |---|---|
 | Unit tests | 41 passed |
 | Real subprocess host request | passed |
+| Invalid JSON followed by a valid request | passed; host survives and continues |
 | Host result semantic audit | passed |
 | Existing CLI/config/experience/resume/eval suites | passed |
 | Clippy `-D warnings` | passed |
