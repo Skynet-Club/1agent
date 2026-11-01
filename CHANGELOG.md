@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.0 - 2026-11-02
+
+- Added explicit development and production release verification policies.
+- Production requires release approval, registry key state, a signing key environment variable,
+  an ordered registry snapshot chain and an external trust anchor.
+- Added registry chain options to `release verify`.
+- Rejected production-only options outside production mode.
+- Re-checked the manifest and all artifacts after approval and chain verification.
+- Verified production policy with a real CLI snapshot-chain and retired-key scenario.
+
 ## 0.24.0 - 2026-11-02
 
 - Added `release_manifest` to the approval artifact taxonomy.

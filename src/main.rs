@@ -497,6 +497,16 @@ enum ReleaseCommand {
         key_env: Option<String>,
         #[arg(long)]
         registry: Option<PathBuf>,
+        #[arg(long)]
+        production: bool,
+        #[arg(long)]
+        registry_key_env: Option<String>,
+        #[arg(long)]
+        registry_snapshot: Vec<PathBuf>,
+        #[arg(long)]
+        trust_anchor: Option<PathBuf>,
+        #[arg(long, default_value_t = 1)]
+        min_registry_version: u64,
     },
 }
 
@@ -1470,6 +1480,11 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
             approval,
             key_env,
             registry,
+            production,
+            registry_key_env,
+            registry_snapshot,
+            trust_anchor,
+            min_registry_version,
         } => {
             let content = std::fs::read_to_string(&manifest)
                 .with_context(|| format!("cannot read {}", manifest.display()))?;
@@ -1479,24 +1494,86 @@ fn handle_release(command: ReleaseCommand) -> Result<()> {
                 .parent()
                 .context("release manifest must have a parent directory")?;
             verify_release_manifest(&manifest_value, parent)?;
+            if !production
+                && (registry_key_env.is_some()
+                    || !registry_snapshot.is_empty()
+                    || trust_anchor.is_some())
+            {
+                bail!("registry chain options require --production");
+            }
+            if production
+                && (approval.is_none()
+                    || key_env.is_none()
+                    || registry.is_none()
+                    || registry_key_env.is_none()
+                    || registry_snapshot.is_empty()
+                    || trust_anchor.is_none())
+            {
+                bail!(
+                    "production release requires --approval, --key-env, --registry, \
+                     --registry-key-env, at least one --registry-snapshot and --trust-anchor"
+                );
+            }
             match (approval, key_env, registry) {
                 (Some(approval), Some(key_env), Some(registry)) => {
                     let envelope: ApprovalEnvelope = serde_json::from_str(
                         &std::fs::read_to_string(&approval)
                             .with_context(|| format!("cannot read {}", approval.display()))?,
                     )?;
-                    let registry = ApprovalKeyRegistry::load(registry)?;
+                    let registry_path = registry;
+                    let registry = ApprovalKeyRegistry::load(&registry_path)?;
                     verify_release_approval(
                         &manifest,
                         &envelope,
                         &read_secret_env(&key_env)?,
                         &registry,
                     )?;
+                    if production {
+                        let snapshots = registry_snapshot
+                            .iter()
+                            .map(|path| {
+                                let content = std::fs::read_to_string(path)
+                                    .with_context(|| format!("cannot read {}", path.display()))?;
+                                serde_json::from_str::<RegistrySnapshot>(&content).with_context(
+                                    || format!("invalid registry snapshot {}", path.display()),
+                                )
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+                        let anchor: TrustAnchorManifest = serde_json::from_str(
+                            &std::fs::read_to_string(
+                                trust_anchor.as_ref().expect("validated above"),
+                            )
+                            .with_context(|| {
+                                format!(
+                                    "cannot read {}",
+                                    trust_anchor.as_ref().expect("validated above").display()
+                                )
+                            })?,
+                        )?;
+                        verify_snapshot_chain_with_anchor(
+                            &snapshots,
+                            &anchor,
+                            &registry,
+                            &registry_path,
+                            &read_secret_env(
+                                registry_key_env.as_deref().expect("validated above"),
+                            )?,
+                            min_registry_version,
+                        )?;
+                    }
                 }
                 (None, None, None) => {}
                 _ => bail!("--approval, --key-env and --registry must be provided together"),
             }
-            println!("release manifest verified");
+            if content != std::fs::read_to_string(&manifest)? {
+                bail!("release manifest changed during verification");
+            }
+            verify_release_manifest(&manifest_value, parent)?;
+            if production {
+                println!("release manifest verified (production policy)");
+            } else {
+                println!("release manifest verified (development policy)");
+            }
         }
     }
     Ok(())

@@ -33,10 +33,22 @@ CLI host
 first-principles-agent CLI
   -> AgentRuntime
     -> deterministic mode inference
-    -> static Router
+    -> static capability router
     -> DeterministicProvider or OpenAiCompatibleProvider
-    -> ToolRegistry / ReadFileTool
+    -> read-only file/search tools
+    -> context budget and durable checkpoints
     -> Journal / JSONL
+    -> replay, semantic audit and offline evaluation
+    -> experience lifecycle and held-out promotion gates
+    -> stdio host protocol
+
+release pipeline
+  -> two isolated builds per target
+  -> normalized package tree
+  -> deterministic tar.gz and zip
+  -> build provenance and complete SHA256SUMS
+  -> external release manifest
+  -> optional approval and production snapshot-chain verification
 ```
 
 The V0 runtime runs in the CLI process. Application boundaries are defined so that an
@@ -61,6 +73,8 @@ events or provider/tool contracts.
 - Execute-mode requests stop at `needs_authorization` without calling a provider.
 - Provider network access requires explicit `--allow-network`.
 - API keys are read from an environment variable or hidden CLI option and are not journaled.
+- Release verification fails closed on dirty source, missing artifact roles, digest drift,
+  incomplete checksums, invalid approval kind, revoked keys or unanchored registry history.
 
 ## V0 limitations
 
@@ -69,9 +83,9 @@ events or provider/tool contracts.
 - Streaming model output.
 - Multi-agent orchestration.
 - Modifying Skynet Terminal.
-- Provider fallback beyond capability routing.
-- Long-term memory, skill promotion and context compaction.
-- macOS and Windows build/runtime verification.
+- Asymmetric release signatures; current approval is HMAC-based.
+- Cross-machine hermetic toolchain reconstruction.
+- macOS verification and Windows runtime execution.
 
 ## Cross-platform rules
 

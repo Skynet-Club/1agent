@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.24.0` is an executable V0 vertical slice:
+Version `0.25.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -42,10 +42,11 @@ Version `0.24.0` is an executable V0 vertical slice:
 - byte-identical Linux tar.gz and Windows zip archives during consecutive packages;
 - fail-closed external release manifests binding source, toolchain and seven artifacts;
 - optional HMAC approval for release manifests with registry key-state enforcement;
+- explicit development and production release policies with anchored registry history;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.24.md`](docs/status-v0.24.md).
+[`docs/status-v0.25.md`](docs/status-v0.25.md).
 
 Current V0 assumptions:
 
@@ -98,7 +99,7 @@ cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline
 ./scripts/verify.sh
 ./scripts/verify-reproducible-package.sh
-cargo run --offline -- release verify --manifest dist/1agent-0.24.0-release.json
+cargo run --offline -- release verify --manifest dist/1agent-0.25.0-release.json
 ```
 
 A signed release check additionally requires the approval envelope, key environment variable and
@@ -106,11 +107,15 @@ key registry:
 
 ```bash
 cargo run --offline -- release verify \
-  --manifest dist/1agent-0.24.0-release.json \
-  --approval dist/1agent-0.24.0-release.approval.json \
+  --manifest dist/1agent-0.25.0-release.json \
+  --approval dist/1agent-0.25.0-release.approval.json \
   --key-env RELEASE_APPROVAL_KEY \
   --registry approval-registry.json
 ```
+
+A production check additionally requires `--production`, a registry signing key, one or more
+ordered registry snapshots and an external trust anchor. It fails before accepting an unsigned
+release or an unanchored key history.
 
 The package reproducibility gate performs four complete builds and compares both archives
 and the manifest byte-for-byte. It also extracts both archives, verifies their checksums and
