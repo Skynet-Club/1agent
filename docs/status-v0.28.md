@@ -30,6 +30,29 @@ Status: opt-in live provider conformance probing implemented
 | Live loopback HTTP bind | blocked by managed sandbox |
 | Unit tests | 70 passed |
 | Core evaluation rubric | 4/4 passed, 0 hard-gate failures |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: 0b9a44b24ae277920a78bfd8d8813d093891ccfb
+git dirty: false
+
+Linux binary:
+1e6d4e2777c6544356179c800434d3c3c3f2b88fc54ba7974379f34cfa14b71a
+
+Windows binary:
+e9260109fb32a303bd670407d2d1fcad4a90bd75de11ec1f684b508e11d89bc3
+
+Linux tar.gz:
+c1b3fe03f2c5a60b96a369a1b08af1656ca35b900f5027ba086b4d78038ff6bf
+
+Windows zip:
+2940a6eea50e62d7b6cb9813267493f2060e5dfbc74e8b39fb5802836a044311
+
+Release manifest:
+6e958bfd2a412d7e379534ed6be1fab5fd7bdc4041098f1d97201543a2bad1a5
+```
 
 ## Known limitations
 
