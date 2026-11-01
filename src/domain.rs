@@ -417,6 +417,8 @@ pub struct RuntimeCheckpoint {
     pub route_policy_sources: Option<crate::router::RoutePolicySources>,
     #[serde(default)]
     pub route_objective: Option<crate::router::RouteObjective>,
+    #[serde(default)]
+    pub tool_capabilities_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -568,5 +570,6 @@ mod tests {
         assert_eq!(checkpoint.route_plan_sha256, None);
         assert_eq!(checkpoint.route_policy_sources, None);
         assert_eq!(checkpoint.route_objective, None);
+        assert_eq!(checkpoint.tool_capabilities_sha256, None);
     }
 }

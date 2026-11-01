@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
@@ -38,6 +39,14 @@ pub struct ToolCapability {
     pub requires_write: bool,
     pub timeout_ms: u64,
     pub status: ToolCapabilityStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolCapabilitySnapshot {
+    pub schema_version: u32,
+    pub sha256: String,
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -132,6 +141,19 @@ impl ToolRegistry {
             .collect::<Vec<_>>();
         capabilities.sort_by(|left, right| left.name.cmp(&right.name));
         capabilities
+    }
+
+    pub fn capability_snapshot(&self) -> Result<ToolCapabilitySnapshot, String> {
+        let capabilities = self.capabilities();
+        let bytes = serde_json::to_vec(&capabilities).map_err(|error| error.to_string())?;
+        Ok(ToolCapabilitySnapshot {
+            schema_version: 1,
+            sha256: hex::encode(Sha256::digest(bytes)),
+            tools: capabilities
+                .into_iter()
+                .map(|capability| capability.name)
+                .collect(),
+        })
     }
 
     pub async fn execute(

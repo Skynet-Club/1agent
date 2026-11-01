@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.42.0 - 2026-11-02
+
+- Added compact runtime tool-capability snapshots with schema digest and tool names.
+- Journaled the snapshot before execution.
+- Bound checkpoints to the snapshot digest.
+- Rejected resume when tool schemas or capability metadata change.
+- Preserved legacy checkpoints without a snapshot.
+- Exposed the tool snapshot digest through resume status.
+- Added replay and changed-registry resume coverage.
+
 ## 0.41.0 - 2026-11-02
 
 - Added `tools --json` for host-visible capability inspection.

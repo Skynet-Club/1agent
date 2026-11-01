@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.41.0` is an executable V0 vertical slice:
+Version `0.42.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -59,10 +59,11 @@ Version `0.41.0` is an executable V0 vertical slice:
 - bounded JSON Schema validation before every tool execution;
 - bounded and control-safe tool observations at the registry boundary;
 - host-visible tool capability and schema inspection through the runtime registry;
+- tool-capability snapshots bound to journal and checkpoints;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.41.md`](docs/status-v0.41.md).
+[`docs/status-v0.42.md`](docs/status-v0.42.md).
 
 Current V0 assumptions:
 

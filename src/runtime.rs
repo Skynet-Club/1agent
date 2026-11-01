@@ -180,6 +180,30 @@ impl AgentRuntime {
             }
         }
 
+        let tool_capabilities =
+            self.tools
+                .capability_snapshot()
+                .map_err(|message| RuntimeError::ToolCapabilities {
+                    path: journal_path.clone(),
+                    message,
+                })?;
+        if let Some(prefix) = &resume
+            && let Some(expected) = &prefix.checkpoint.tool_capabilities_sha256
+            && expected != &tool_capabilities.sha256
+        {
+            return Err(RuntimeError::Resume(
+                "tool capabilities changed since checkpoint".into(),
+            ));
+        }
+        journal
+            .append(JournalEventKind::ToolCapabilitiesAdvertised {
+                snapshot: tool_capabilities.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+
         if cancellation.is_cancelled() {
             journal
                 .append(JournalEventKind::RunStopped {
@@ -717,6 +741,7 @@ impl AgentRuntime {
                                 route_plan_sha256: Some(route_plan_digest.clone()),
                                 route_policy_sources: Some(route_policy_sources.clone()),
                                 route_objective: Some(route_request.objective),
+                                tool_capabilities_sha256: Some(tool_capabilities.sha256.clone()),
                             },
                         })
                         .map_err(|source| RuntimeError::Journal {
@@ -928,6 +953,8 @@ pub enum RuntimeError {
     Resume(String),
     #[error("route plan failed: {message}; journal: {path}")]
     RoutePlan { path: PathBuf, message: String },
+    #[error("tool capability snapshot failed: {message}; journal: {path}")]
+    ToolCapabilities { path: PathBuf, message: String },
     #[error("experience loading failed: {0}")]
     Experience(String),
 }
@@ -940,6 +967,7 @@ impl RuntimeError {
             | Self::NoRoute { path, .. }
             | Self::InvalidOutput { path, .. }
             | Self::RoutePlan { path, .. }
+            | Self::ToolCapabilities { path, .. }
             | Self::Cancelled { path } => path,
             Self::Resume(_) => Path::new(""),
             Self::Experience(_) => Path::new(""),
@@ -973,7 +1001,7 @@ mod tests {
     };
     use crate::journal::{audit_events, read_events, replay_events, summarize_route_trace};
     use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
-    use crate::tools::default_registry;
+    use crate::tools::{EchoTool, default_registry};
     use async_trait::async_trait;
 
     struct RetryableFailureProvider;
@@ -1055,6 +1083,13 @@ mod tests {
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.route_plan.as_ref(), Some(plan));
         assert_eq!(replay.route_policy_sources.as_ref(), Some(sources));
+        assert_eq!(
+            replay
+                .tool_capabilities
+                .as_ref()
+                .map(|value| value.tools.len()),
+            Some(2)
+        );
         let summary = summarize_route_trace(&events).unwrap();
         assert_eq!(summary.candidates, 1);
         assert_eq!(summary.rejected, 0);
@@ -1214,6 +1249,7 @@ mod tests {
             .unwrap();
         assert!(checkpoint.route_plan_sha256.is_some());
         assert!(checkpoint.route_policy_sources.is_some());
+        assert!(checkpoint.tool_capabilities_sha256.is_some());
         let interrupted_path = workspace.path().join("interrupted.jsonl");
         let mut interrupted = Journal::create(&interrupted_path, Uuid::new_v4()).unwrap();
         for event in &events[..=checkpoint_index] {
@@ -1229,6 +1265,23 @@ mod tests {
             Err(RuntimeError::Resume(message))
                 if message.contains("route objective changed")
                     || message.contains("route plan or policy changed")
+        ));
+        let mut changed_tools = default_registry();
+        changed_tools.register(Arc::new(EchoTool));
+        let changed_capabilities = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            changed_tools,
+            workspace.path().join(".changed-journal"),
+        );
+        assert!(matches!(
+            changed_capabilities
+                .resume(&interrupted_path, CancellationToken::new())
+                .await,
+            Err(RuntimeError::Resume(message))
+                if message.contains("tool capabilities changed")
         ));
         let resumed = runtime
             .resume(&interrupted_path, CancellationToken::new())

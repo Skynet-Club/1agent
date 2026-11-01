@@ -1278,6 +1278,7 @@ async fn main() -> Result<()> {
                 "route_plan_sha256": checkpoint.route_plan_sha256,
                 "route_policy_sources": checkpoint.route_policy_sources,
                 "route_objective": checkpoint.route_objective,
+                "tool_capabilities_sha256": checkpoint.tool_capabilities_sha256,
             });
             if json {
                 println!("{}", serde_json::to_string_pretty(&value)?);

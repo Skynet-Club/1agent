@@ -11,6 +11,7 @@ use crate::domain::{
     RuntimeCheckpoint, StopReason, TaskRequest, ToolCall, ToolObservation,
 };
 use crate::router::{RouteObjective, RoutePlan, RoutePolicySources};
+use crate::tools::ToolCapabilitySnapshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +47,9 @@ pub enum JournalEventKind {
     RoutePlanned {
         plan: RoutePlan,
         sources: RoutePolicySources,
+    },
+    ToolCapabilitiesAdvertised {
+        snapshot: ToolCapabilitySnapshot,
     },
     ModelRequested {
         request: ModelRequest,
@@ -147,6 +151,7 @@ pub struct ReplayState {
     pub model: Option<String>,
     pub route_plan: Option<RoutePlan>,
     pub route_policy_sources: Option<RoutePolicySources>,
+    pub tool_capabilities: Option<ToolCapabilitySnapshot>,
     pub answer: Option<AgentAnswer>,
     pub stop_reason: Option<StopReason>,
     pub tool_calls: Vec<ToolCall>,
@@ -529,6 +534,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         model: None,
         route_plan: None,
         route_policy_sources: None,
+        tool_capabilities: None,
         answer: None,
         stop_reason: None,
         tool_calls: Vec::new(),
@@ -564,6 +570,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::RoutePlanned { plan, sources } => {
                 state.route_plan = Some(plan.clone());
                 state.route_policy_sources = Some(sources.clone());
+            }
+            JournalEventKind::ToolCapabilitiesAdvertised { snapshot } => {
+                state.tool_capabilities = Some(snapshot.clone());
             }
             JournalEventKind::ToolCalled { call } => state.tool_calls.push(call.clone()),
             JournalEventKind::ToolObserved { observation } => {
