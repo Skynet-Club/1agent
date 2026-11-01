@@ -128,7 +128,7 @@ Return only one JSON object matching this shape:
   "status": "completed" | "conditional" | "needs_evidence" | "needs_authorization" | "failed",
   "conclusion": "string",
   "claims": [{"id":"string","text":"string","status":"verified|user_asserted|derived|assumed|model_prior|conflicting|unknown","sources":["string"],"scope":"string|null"}],
-  "evidence": [{"source":"string","statement":"string","claim_ids":["string"]}],
+  "evidence": [{"source":"string","statement":"string","observed_unix_ms":0,"expires_unix_ms":0,"claim_ids":["string"]}],
   "assumptions": [{"description":"string","impact":"low|medium|high","verification_method":"string|null"}],
   "constraints": ["string"],
   "unknowns": [{"description":"string","why_it_matters":"string|null","reduction_method":"string|null"}],
@@ -450,6 +450,8 @@ impl ModelProvider for DeterministicProvider {
                         .cloned()
                         .unwrap_or_else(|| observation.tool.clone()),
                     statement: observation.summary.clone(),
+                    observed_unix_ms: None,
+                    expires_unix_ms: None,
                     claim_ids: vec!["claim-1".into()],
                 }]
             } else {

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -23,6 +24,8 @@ pub struct TaskRequest {
     #[serde(default)]
     pub success_criteria: Vec<String>,
     #[serde(default)]
+    pub evidence_max_age_ms: Option<u64>,
+    #[serde(default)]
     pub experience_scope: Option<String>,
     #[serde(default)]
     pub permissions: PermissionSet,
@@ -40,6 +43,7 @@ impl TaskRequest {
             unknowns: Vec::new(),
             decision_criteria: Vec::new(),
             success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
             experience_scope: None,
             permissions: PermissionSet {
                 read_roots: vec![read_root],
@@ -186,6 +190,10 @@ pub enum StopReason {
 pub struct Evidence {
     pub source: String,
     pub statement: String,
+    #[serde(default)]
+    pub observed_unix_ms: Option<u128>,
+    #[serde(default)]
+    pub expires_unix_ms: Option<u128>,
     #[serde(default)]
     pub claim_ids: Vec<String>,
 }
@@ -511,6 +519,12 @@ impl AgentAnswer {
                 return Err(AnswerValidationError::EvidenceWithoutClaim);
             }
             let mut seen_claims = std::collections::BTreeSet::new();
+            if let (Some(observed), Some(expires)) =
+                (evidence.observed_unix_ms, evidence.expires_unix_ms)
+                && expires <= observed
+            {
+                return Err(AnswerValidationError::InvalidEvidenceWindow);
+            }
             for claim_id in &evidence.claim_ids {
                 if !seen_claims.insert(claim_id.as_str()) {
                     return Err(AnswerValidationError::DuplicateEvidenceClaimReference(
@@ -532,6 +546,29 @@ impl AgentAnswer {
                         evidence_source: evidence.source.clone(),
                         claim_id: claim_id.clone(),
                     });
+                }
+                if claim.status == ClaimStatus::Verified {
+                    if evidence
+                        .expires_unix_ms
+                        .is_some_and(|expires| expires <= now_unix_ms())
+                    {
+                        return Err(AnswerValidationError::ExpiredVerifiedEvidence(
+                            evidence.source.clone(),
+                        ));
+                    }
+                    if let Some(max_age_ms) = request.evidence_max_age_ms {
+                        let Some(observed) = evidence.observed_unix_ms else {
+                            return Err(AnswerValidationError::MissingEvidenceTimestamp(
+                                evidence.source.clone(),
+                            ));
+                        };
+                        let age_ms = now_unix_ms().saturating_sub(observed);
+                        if age_ms > u128::from(max_age_ms) {
+                            return Err(AnswerValidationError::StaleEvidenceForPolicy(
+                                evidence.source.clone(),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -592,6 +629,14 @@ pub enum AnswerValidationError {
     ConflictingClaimWithoutOpenConflict(String),
     #[error("conflict '{0}' uses an undeclared resolution source")]
     ResolutionSourceNotDeclared(String),
+    #[error("evidence expiration must be later than observation")]
+    InvalidEvidenceWindow,
+    #[error("expired evidence '{0}' cannot support a verified claim")]
+    ExpiredVerifiedEvidence(String),
+    #[error("evidence '{0}' has no observation timestamp under freshness policy")]
+    MissingEvidenceTimestamp(String),
+    #[error("evidence '{0}' exceeds the task freshness limit")]
+    StaleEvidenceForPolicy(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -837,6 +882,13 @@ pub fn infer_mode(request: &TaskRequest) -> CognitiveMode {
     CognitiveMode::DirectAnswer
 }
 
+fn now_unix_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
@@ -889,6 +941,8 @@ mod tests {
             evidence: vec![Evidence {
                 source: "fixture".into(),
                 statement: "verified".into(),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
                 claim_ids: vec!["missing".into()],
             }],
             assumptions: Vec::new(),
@@ -998,6 +1052,8 @@ mod tests {
             evidence: vec![Evidence {
                 source: "source-a".into(),
                 statement: "evidence".into(),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
                 claim_ids: vec!["claim-1".into(), "claim-1".into()],
             }],
             assumptions: Vec::new(),
@@ -1145,5 +1201,57 @@ mod tests {
             answer.validate(&request),
             Err(AnswerValidationError::ResolvedConflictStillMarked(_))
         ));
+    }
+
+    #[test]
+    fn evidence_freshness_blocks_stale_and_untimed_verified_claims() {
+        let now = now_unix_ms();
+        let mut request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        request.evidence_max_age_ms = Some(1_000);
+        let mut answer = AgentAnswer {
+            status: AnswerStatus::Completed,
+            conclusion: "answer".into(),
+            claims: vec![Claim {
+                id: "claim-1".into(),
+                text: "fresh claim".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["source-a".into()],
+                scope: None,
+            }],
+            evidence: vec![Evidence {
+                source: "source-a".into(),
+                statement: "evidence".into(),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids: vec!["claim-1".into()],
+            }],
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::MissingEvidenceTimestamp(_))
+        ));
+
+        answer.evidence[0].observed_unix_ms = Some(now.saturating_sub(2_000));
+        answer.evidence[0].expires_unix_ms = Some(now + 10_000);
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::StaleEvidenceForPolicy(_))
+        ));
+
+        answer.evidence[0].observed_unix_ms = Some(now.saturating_sub(100));
+        answer.evidence[0].expires_unix_ms = Some(now.saturating_sub(1));
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ExpiredVerifiedEvidence(_))
+        ));
+
+        answer.evidence[0].expires_unix_ms = Some(now + 10_000);
+        answer.validate(&request).unwrap();
     }
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.52.0 - 2026-11-02
+
+- Added optional observation and expiration timestamps to evidence.
+- Rejected expired evidence supporting verified claims.
+- Added task-level maximum evidence age policy.
+- Required observation timestamps when a freshness policy is active.
+- Added `--evidence-max-age-ms` for run tasks.
+- Added stale evidence counts to JSON scorecards.
+- Added freshness window, stale and missing-timestamp tests.
+
 ## 0.51.0 - 2026-11-02
 
 - Bound conflict resolution sources to declared claim provenance.

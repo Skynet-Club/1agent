@@ -922,6 +922,8 @@ mod tests {
                         evidence: vec![crate::domain::Evidence {
                             source: "fixture".into(),
                             statement: "unsupported".into(),
+                            observed_unix_ms: None,
+                            expires_unix_ms: None,
                             claim_ids: vec!["missing".into()],
                         }],
                         assumptions: Vec::new(),

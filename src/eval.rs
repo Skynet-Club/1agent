@@ -140,6 +140,7 @@ pub struct EvalCaseResult {
     pub high_impact_assumption_count: usize,
     pub conflict_count: usize,
     pub unresolved_conflict_count: usize,
+    pub stale_evidence_count: usize,
     pub flip_condition_count: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
@@ -572,6 +573,20 @@ async fn run_case(
         high_impact_assumption_count: high_impact_assumptions,
         conflict_count: result.answer.conflicts.len(),
         unresolved_conflict_count: unresolved_conflicts,
+        stale_evidence_count: result
+            .answer
+            .evidence
+            .iter()
+            .filter(|evidence| {
+                evidence.expires_unix_ms.is_some_and(|expires| {
+                    expires
+                        <= std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis()
+                })
+            })
+            .count(),
         flip_condition_count: result.answer.flip_conditions.len(),
         rubric_checks,
         rubric_passed,
@@ -623,6 +638,7 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         high_impact_assumption_count: 0,
         conflict_count: 0,
         unresolved_conflict_count: 0,
+        stale_evidence_count: 0,
         flip_condition_count: 0,
         rubric_checks: 0,
         rubric_passed: 0,
@@ -814,6 +830,8 @@ mod tests {
                     evidence: vec![crate::domain::Evidence {
                         source: "evidence.txt".into(),
                         statement: observation.summary,
+                        observed_unix_ms: None,
+                        expires_unix_ms: None,
                         claim_ids: vec!["claim-observed".into()],
                     }],
                     assumptions: Vec::new(),
@@ -851,11 +869,15 @@ mod tests {
                         crate::domain::Evidence {
                             source: "source-a".into(),
                             statement: "source A reports one value".into(),
+                            observed_unix_ms: None,
+                            expires_unix_ms: None,
                             claim_ids: vec!["claim-a".into()],
                         },
                         crate::domain::Evidence {
                             source: "source-b".into(),
                             statement: "source B reports another value".into(),
+                            observed_unix_ms: None,
+                            expires_unix_ms: None,
                             claim_ids: vec!["claim-b".into()],
                         },
                     ],

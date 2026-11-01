@@ -1059,6 +1059,7 @@ mod tests {
             unknowns: Vec::new(),
             decision_criteria: vec!["verified cost".into()],
             success_criteria: vec!["cite evidence".into()],
+            evidence_max_age_ms: None,
             experience_scope: None,
             permissions: PermissionSet {
                 read_roots: vec![workspace.path().to_path_buf()],
@@ -1164,6 +1165,7 @@ mod tests {
             unknowns: Vec::new(),
             decision_criteria: Vec::new(),
             success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
             experience_scope: None,
             permissions: PermissionSet {
                 read_roots: vec![workspace.path().to_path_buf()],
@@ -1227,6 +1229,7 @@ mod tests {
             unknowns: Vec::new(),
             decision_criteria: Vec::new(),
             success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
             experience_scope: None,
             permissions: PermissionSet {
                 read_roots: vec![workspace.path().to_path_buf()],
@@ -1327,6 +1330,7 @@ mod tests {
             unknowns: Vec::new(),
             decision_criteria: vec!["verified cost".into()],
             success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
             experience_scope: Some("repository decisions".into()),
             permissions: PermissionSet {
                 read_roots: vec![workspace.path().to_path_buf()],

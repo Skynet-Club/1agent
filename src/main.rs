@@ -79,6 +79,8 @@ enum Command {
         #[arg(long)]
         max_unit_cost_micros_per_k: Option<u64>,
         #[arg(long)]
+        evidence_max_age_ms: Option<u64>,
+        #[arg(long)]
         route_objective: Option<String>,
         #[arg(long)]
         json: bool,
@@ -586,6 +588,7 @@ async fn main() -> Result<()> {
             max_context_chars,
             max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k,
+            evidence_max_age_ms,
             route_objective,
             json,
         } => {
@@ -617,6 +620,9 @@ async fn main() -> Result<()> {
                 max_unit_cost_micros_per_k: effective_unit_cost_budget,
             };
             request.permissions.allow_network = allow_network;
+            if evidence_max_age_ms.is_some() {
+                request.evidence_max_age_ms = evidence_max_age_ms;
+            }
             if experience_scope.is_some() {
                 request.experience_scope = experience_scope;
             }
