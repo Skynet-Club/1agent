@@ -32,8 +32,8 @@ Status: atomic experience supersession implemented
 | expired proposal | rejected |
 | expired activation | rejected |
 | rollback preserves prior history | passed |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -41,6 +41,28 @@ Status: atomic experience supersession implemented
 - Supersession is linear rather than a branching DAG.
 - An expired Active record remains stored until explicitly rolled back or superseded.
 - Source evidence is bound by run ID and event sequence, not a journal digest.
+
+## Verified clean release
+
+```text
+source commit: 2d2e8863de3170a8b0d94c083de7744aff0827f1
+git dirty: false
+
+Linux binary:
+14cb60913d776859b5b1899658c4319a4299cf628229f580e0c70b71dac3a37a
+
+Windows binary:
+7123fc27f2337affb7273108f4f72a2cae2ba18cf6c067b107e8abb39e460d63
+
+Linux tar.gz:
+273c22bf29264fa625870af2c576dfc9069ec98afc7d6d51c8c8ff9f9fb1c80f
+
+Windows zip:
+8b2ed944a8726d1753d5f036037891078e7a83e5640a6aafb42cedd7bf4567a0
+
+Release manifest:
+8061b62acd629b4d56f7a77befe1468b96d90902881690abe0c48d1d6efb6d0b
+```
 
 ## Next requirement
 
