@@ -114,6 +114,8 @@ The evidence plan required before expanding autonomy is in
 The latest cross-requirement audit is in [`docs/audit-v0.86.md`](docs/audit-v0.86.md).
 Supported behavior, explicit non-goals and claim boundaries are in
 [`docs/product-boundary.md`](docs/product-boundary.md).
+Canonical task, model, journal, answer and evaluation contracts are in
+[`docs/io-contracts.md`](docs/io-contracts.md).
 
 Current V0 assumptions:
 
