@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 - 2026-11-02
+
+- Added approval key registry with active/retired/revoked states.
+- Added `approval key-add`, `key-retire` and `key-revoke`.
+- Retired keys verify historical approvals but cannot sign new ones.
+- Revoked keys cannot verify approvals.
+- Calibration requires registry-based approval verification.
+- Added key-rotation and revocation tests.
+
 ## 0.14.0 - 2026-11-02
 
 - Added detached HMAC-SHA256 approval envelopes.

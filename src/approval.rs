@@ -26,6 +26,108 @@ pub struct ApprovalEnvelope {
     pub mac_sha256: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalKeyStatus {
+    Active,
+    Retired,
+    Revoked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalKeyRecord {
+    pub key_id: String,
+    pub status: ApprovalKeyStatus,
+    pub changed_unix_ms: u128,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalKeyRegistry {
+    pub keys: Vec<ApprovalKeyRecord>,
+}
+
+impl ApprovalKeyRegistry {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, ApprovalError> {
+        let content = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&content)?)
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ApprovalError> {
+        std::fs::write(path, serde_json::to_vec_pretty(self)?)?;
+        Ok(())
+    }
+
+    pub fn add_active(&mut self, key_id: String) -> Result<(), ApprovalError> {
+        validate_text(&key_id)?;
+        if self.keys.iter().any(|record| record.key_id == key_id) {
+            return Err(ApprovalError::DuplicateKey);
+        }
+        self.keys.push(ApprovalKeyRecord {
+            key_id,
+            status: ApprovalKeyStatus::Active,
+            changed_unix_ms: now_unix_ms(),
+            reason: String::new(),
+        });
+        Ok(())
+    }
+
+    pub fn transition(
+        &mut self,
+        key_id: &str,
+        status: ApprovalKeyStatus,
+        reason: String,
+    ) -> Result<(), ApprovalError> {
+        let record = self
+            .keys
+            .iter_mut()
+            .find(|record| record.key_id == key_id)
+            .ok_or(ApprovalError::UnknownKey)?;
+        if record.status == ApprovalKeyStatus::Revoked {
+            return Err(ApprovalError::KeyRevoked);
+        }
+        record.status = status;
+        record.changed_unix_ms = now_unix_ms();
+        record.reason = reason;
+        Ok(())
+    }
+
+    pub fn verify_approval(
+        &self,
+        approval: &ApprovalEnvelope,
+        artifact_path: impl AsRef<Path>,
+        key: &[u8],
+    ) -> Result<(), ApprovalError> {
+        let record = self
+            .keys
+            .iter()
+            .find(|record| record.key_id == approval.key_id)
+            .ok_or(ApprovalError::UnknownKey)?;
+        match record.status {
+            ApprovalKeyStatus::Active | ApprovalKeyStatus::Retired => {
+                approval.verify(artifact_path, key)
+            }
+            ApprovalKeyStatus::Revoked => Err(ApprovalError::KeyRevoked),
+        }
+    }
+
+    pub fn require_active(&self, key_id: &str) -> Result<(), ApprovalError> {
+        let record = self
+            .keys
+            .iter()
+            .find(|record| record.key_id == key_id)
+            .ok_or(ApprovalError::UnknownKey)?;
+        if record.status == ApprovalKeyStatus::Active {
+            Ok(())
+        } else {
+            Err(ApprovalError::KeyNotActive)
+        }
+    }
+}
+
 impl ApprovalEnvelope {
     pub fn sign(
         artifact_path: impl AsRef<Path>,
@@ -127,6 +229,14 @@ pub enum ApprovalError {
     ArtifactChanged,
     #[error("approval MAC is invalid")]
     InvalidMac,
+    #[error("approval key id already exists")]
+    DuplicateKey,
+    #[error("approval key id is unknown")]
+    UnknownKey,
+    #[error("approval key is revoked")]
+    KeyRevoked,
+    #[error("approval key is not active")]
+    KeyNotActive,
 }
 
 #[cfg(test)]
@@ -165,6 +275,60 @@ mod tests {
         assert!(matches!(
             tampered.verify(&artifact, &key()),
             Err(ApprovalError::InvalidMac)
+        ));
+    }
+
+    #[test]
+    fn retired_keys_verify_existing_approvals_but_cannot_sign_new_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact = dir.path().join("artifact.json");
+        std::fs::write(&artifact, b"{\"a\":1}").unwrap();
+        let envelope = ApprovalEnvelope::sign(
+            &artifact,
+            ArtifactKind::GoldSet,
+            "reviewer".into(),
+            "calibration".into(),
+            "key-1".into(),
+            &key(),
+        )
+        .unwrap();
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("key-1".into()).unwrap();
+        registry.require_active("key-1").unwrap();
+        registry
+            .transition("key-1", ApprovalKeyStatus::Retired, "rotated".into())
+            .unwrap();
+        registry
+            .verify_approval(&envelope, &artifact, &key())
+            .unwrap();
+        assert!(matches!(
+            registry.require_active("key-1"),
+            Err(ApprovalError::KeyNotActive)
+        ));
+    }
+
+    #[test]
+    fn revoked_keys_cannot_verify_approvals() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact = dir.path().join("artifact.json");
+        std::fs::write(&artifact, b"{\"a\":1}").unwrap();
+        let envelope = ApprovalEnvelope::sign(
+            &artifact,
+            ArtifactKind::GoldSet,
+            "reviewer".into(),
+            "calibration".into(),
+            "key-1".into(),
+            &key(),
+        )
+        .unwrap();
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("key-1".into()).unwrap();
+        registry
+            .transition("key-1", ApprovalKeyStatus::Revoked, "compromised".into())
+            .unwrap();
+        assert!(matches!(
+            registry.verify_approval(&envelope, &artifact, &key()),
+            Err(ApprovalError::KeyRevoked)
         ));
     }
 }

@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.14.0` is an executable V0 vertical slice:
+Version `0.15.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -32,10 +32,11 @@ Version `0.14.0` is an executable V0 vertical slice:
 - opt-in calibration analysis gated by reliability and sample count;
 - frozen gold-set manifests with reviewer cohorts, redaction policy and batches;
 - HMAC approval envelopes bound to artifact digests;
+- approval-key rotation and revocation;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.14.md`](docs/status-v0.14.md).
+[`docs/status-v0.15.md`](docs/status-v0.15.md).
 
 Current V0 assumptions:
 

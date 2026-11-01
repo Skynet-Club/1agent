@@ -6,13 +6,13 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
-    ApprovalEnvelope, ArtifactKind, CalibrationPrediction, DeterministicProvider,
-    ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
-    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
-    ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
-    create_goldset_manifest, default_registry, evaluate_experience_suite, load_suite,
-    local_manifest, read_events, remote_manifest, replay_events, run_suite_with_providers,
-    scan_history, verify_goldset_manifest,
+    ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, CalibrationPrediction,
+    DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
+    GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
+    OpenAiCompatibleProvider, ProviderCandidate, RunBudget, RuntimeError, TaskRequest,
+    ToolRegistry, audit_events, create_goldset_manifest, default_registry,
+    evaluate_experience_suite, load_suite, local_manifest, read_events, remote_manifest,
+    replay_events, run_suite_with_providers, scan_history, verify_goldset_manifest,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -290,6 +290,8 @@ enum AnnotateCommand {
         approval: PathBuf,
         #[arg(long)]
         approval_key_env: String,
+        #[arg(long)]
+        approval_registry: PathBuf,
         #[arg(long, default_value_t = 600)]
         min_kappa_millis: i32,
         #[arg(long, default_value_t = 20)]
@@ -337,7 +339,31 @@ enum ApprovalCommand {
         #[arg(long)]
         key_env: String,
         #[arg(long)]
+        registry: Option<PathBuf>,
+        #[arg(long)]
         output: PathBuf,
+    },
+    KeyAdd {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        key_id: String,
+    },
+    KeyRetire {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        reason: String,
+    },
+    KeyRevoke {
+        #[arg(long)]
+        registry: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        reason: String,
     },
     Verify {
         #[arg(long)]
@@ -346,6 +372,8 @@ enum ApprovalCommand {
         envelope: PathBuf,
         #[arg(long)]
         key_env: String,
+        #[arg(long)]
+        registry: Option<PathBuf>,
     },
 }
 
@@ -915,6 +943,7 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             suite,
             approval,
             approval_key_env,
+            approval_registry,
             min_kappa_millis,
             min_samples,
             json,
@@ -925,7 +954,11 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             )
             .with_context(|| format!("invalid approval envelope {}", approval.display()))?;
             let approval_key = read_secret_env(&approval_key_env)?;
-            envelope.verify(&goldset, &approval_key)?;
+            ApprovalKeyRegistry::load(&approval_registry)?.verify_approval(
+                &envelope,
+                &goldset,
+                &approval_key,
+            )?;
             let manifest: GoldSetManifest = serde_json::from_str(
                 &std::fs::read_to_string(&goldset)
                     .with_context(|| format!("cannot read {}", goldset.display()))?,
@@ -1007,6 +1040,7 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
             purpose,
             key_id,
             key_env,
+            registry,
             output,
         } => {
             let artifact_kind = match artifact_kind.as_str() {
@@ -1016,6 +1050,9 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
                 other => bail!("unsupported artifact kind '{other}'"),
             };
             let key = read_secret_env(&key_env)?;
+            if let Some(registry) = registry {
+                ApprovalKeyRegistry::load(registry)?.require_active(&key_id)?;
+            }
             let envelope =
                 ApprovalEnvelope::sign(&artifact, artifact_kind, approver, purpose, key_id, &key)?;
             if let Some(parent) = output.parent() {
@@ -1028,14 +1065,48 @@ fn handle_approval(command: ApprovalCommand) -> Result<()> {
             artifact,
             envelope,
             key_env,
+            registry,
         } => {
             let envelope: ApprovalEnvelope = serde_json::from_str(
                 &std::fs::read_to_string(&envelope)
                     .with_context(|| format!("cannot read {}", envelope.display()))?,
             )?;
             let key = read_secret_env(&key_env)?;
-            envelope.verify(&artifact, &key)?;
+            if let Some(registry) = registry {
+                ApprovalKeyRegistry::load(registry)?.verify_approval(&envelope, &artifact, &key)?;
+            } else {
+                envelope.verify(&artifact, &key)?;
+            }
             println!("approval verified");
+        }
+        ApprovalCommand::KeyAdd { registry, key_id } => {
+            let path = registry;
+            let mut registry = ApprovalKeyRegistry::load(&path).unwrap_or_default();
+            registry.add_active(key_id)?;
+            registry.save(&path)?;
+            println!("key registered");
+        }
+        ApprovalCommand::KeyRetire {
+            registry,
+            key_id,
+            reason,
+        } => {
+            let path = registry;
+            let mut registry = ApprovalKeyRegistry::load(&path)?;
+            registry.transition(&key_id, ApprovalKeyStatus::Retired, reason)?;
+            registry.save(&path)?;
+            println!("key retired");
+        }
+        ApprovalCommand::KeyRevoke {
+            registry,
+            key_id,
+            reason,
+        } => {
+            let path = registry;
+            let mut registry = ApprovalKeyRegistry::load(&path)?;
+            registry.transition(&key_id, ApprovalKeyStatus::Revoked, reason)?;
+            registry.save(&path)?;
+            println!("key revoked");
         }
     }
     Ok(())
