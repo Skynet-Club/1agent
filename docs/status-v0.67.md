@@ -28,8 +28,8 @@ Status: experience-store replay hardened
 | version increment replay | checked |
 | active-scope replay | checked |
 | legacy digest-free candidate | accepted |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -37,6 +37,28 @@ Status: experience-store replay hardened
 - Operators with filesystem access can rewrite and consistently re-hash all derived state.
 - Legacy digest-free candidates cannot prove source integrity.
 - Source journals are external to the experience store.
+
+## Verified clean release
+
+```text
+source commit: fbbeaa9cfb229a8a3e13243ca29b3fb096bebd88
+git dirty: false
+
+Linux binary:
+c93814fceab663a8472a6f1d518ff338d34704b035a965b72262d86f16bac322
+
+Windows binary:
+fbd77633475b30bb166662b7d2863ac59b1dff08de50a0c0928804fc78289f8f
+
+Linux tar.gz:
+a3dd28257c99101b8cbdbc1a013d12d6db70f9b17ed4b69fe942fdec2a1ac257
+
+Windows zip:
+3f8a1937c536267fc2932c3dfb917edf9772b7ffe4c398ef5bf6b2f5030591a3
+
+Release manifest:
+bfb336bfb01f6625d7fe0838bbeb6d5e0b6775a55dda42722429cecb4f5ea84b
+```
 
 ## Next requirement
 
