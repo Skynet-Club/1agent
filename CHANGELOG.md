@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.55.0 - 2026-11-02
+
+- Added stable machine-readable journal audit finding codes.
+- Associated findings with event indexes where a concrete event exists.
+- Preserved the existing human-readable audit `issues` list.
+- Covered unsupported protocol state, incomplete decisions, duplicate answers and
+  unpaired tool calls with stable codes.
+- Made audit findings readable when decoding older audit reports.
+
 ## 0.54.0 - 2026-11-02
 
 - Upgraded new answers to schema version 2 while retaining version 1 validation.

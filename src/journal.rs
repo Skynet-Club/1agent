@@ -132,14 +132,46 @@ impl Journal {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+pub struct JournalAuditFinding {
+    pub code: AuditFindingCode,
+    pub event_index: Option<usize>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditFindingCode {
+    UnsupportedProtocolVersion,
+    NonSequentialEvent,
+    RunIdChanged,
+    DuplicateRunStart,
+    DuplicateToolCall,
+    DuplicateToolObservation,
+    RouteSelectionOutsidePlan,
+    DuplicateRunStop,
+    DuplicateAnswer,
+    EmptyJournal,
+    FirstEventNotRunStarted,
+    UnpairedToolCall,
+    MissingRunStop,
+    AnswerValidationFailed,
+    StopReasonMismatch,
+    MissingAnswerForStop,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct JournalAudit {
     pub ok: bool,
     pub event_count: usize,
     pub run_id: Option<Uuid>,
     pub terminal_reason: Option<StopReason>,
+    #[serde(default)]
     pub answer_schema_version: Option<u32>,
     pub unresolved_tool_calls: Vec<String>,
     pub issues: Vec<String>,
+    #[serde(default)]
+    pub findings: Vec<JournalAuditFinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -383,30 +415,44 @@ pub fn read_events(path: impl AsRef<Path>) -> Result<Vec<JournalEvent>, JournalR
 }
 
 pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
-    let mut issues = Vec::new();
+    let mut findings = Vec::new();
     let run_id = events.first().map(|event| event.run_id);
-    let mut observed_calls = std::collections::BTreeSet::new();
+    let mut observed_calls = std::collections::BTreeMap::new();
     let mut answered_calls = std::collections::BTreeSet::new();
     let mut terminal_reason = None;
+    let mut stop_event_index = None;
     let mut request = None;
     let mut answer = None;
+    let mut answer_event_index = None;
     let mut current_route_plan: Option<RoutePlan> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
-            issues.push(format!(
-                "event {index}: unsupported schema version {}",
-                event.schema_version
-            ));
+            push_audit_finding(
+                &mut findings,
+                AuditFindingCode::UnsupportedProtocolVersion,
+                Some(index),
+                format!(
+                    "event {index}: unsupported schema version {}",
+                    event.schema_version
+                ),
+            );
         }
         if event.seq != index as u64 {
-            issues.push(format!(
-                "event {index}: expected seq {index}, got {}",
-                event.seq
-            ));
+            push_audit_finding(
+                &mut findings,
+                AuditFindingCode::NonSequentialEvent,
+                Some(index),
+                format!("event {index}: expected seq {index}, got {}", event.seq),
+            );
         }
         if Some(event.run_id) != run_id {
-            issues.push(format!("event {index}: run_id changed"));
+            push_audit_finding(
+                &mut findings,
+                AuditFindingCode::RunIdChanged,
+                Some(index),
+                format!("event {index}: run_id changed"),
+            );
         }
         match &event.event {
             JournalEventKind::RunStarted {
@@ -418,20 +464,35 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                 ..
             } => {
                 if request.replace(started_request.clone()).is_some() {
-                    issues.push(format!("event {index}: duplicate run start"));
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::DuplicateRunStart,
+                        Some(index),
+                        format!("event {index}: duplicate run start"),
+                    );
                 }
             }
             JournalEventKind::ToolCalled { call } => {
-                if !observed_calls.insert(call.id.clone()) {
-                    issues.push(format!("event {index}: duplicate tool call {}", call.id));
+                if observed_calls.insert(call.id.clone(), index).is_some() {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::DuplicateToolCall,
+                        Some(index),
+                        format!("event {index}: duplicate tool call {}", call.id),
+                    );
                 }
             }
             JournalEventKind::ToolObserved { observation } => {
                 if !answered_calls.insert(observation.call_id.clone()) {
-                    issues.push(format!(
-                        "event {index}: duplicate observation for {}",
-                        observation.call_id
-                    ));
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::DuplicateToolObservation,
+                        Some(index),
+                        format!(
+                            "event {index}: duplicate observation for {}",
+                            observation.call_id
+                        ),
+                    );
                 }
             }
             JournalEventKind::RoutePlanned { plan, .. } => {
@@ -446,27 +507,49 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                             && candidate.manifest.model == *model
                     })
                 {
-                    issues.push(format!(
-                        "event {index}: selected route {provider_id}/{model} is not in the route plan"
-                    ));
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::RouteSelectionOutsidePlan,
+                        Some(index),
+                        format!(
+                            "event {index}: selected route {provider_id}/{model} is not in the route plan"
+                        ),
+                    );
                 }
             }
-            JournalEventKind::RunStopped { reason }
-                if terminal_reason.replace(*reason).is_some() =>
-            {
-                issues.push(format!("event {index}: duplicate run stop"));
+            JournalEventKind::RunStopped { reason } => {
+                stop_event_index = Some(index);
+                if terminal_reason.replace(*reason).is_some() {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::DuplicateRunStop,
+                        Some(index),
+                        format!("event {index}: duplicate run stop"),
+                    );
+                }
             }
-            JournalEventKind::AnswerProduced { answer: produced }
-                if answer.replace(produced.clone()).is_some() =>
-            {
-                issues.push(format!("event {index}: duplicate answer"));
+            JournalEventKind::AnswerProduced { answer: produced } => {
+                answer_event_index = Some(index);
+                if answer.replace(produced.clone()).is_some() {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::DuplicateAnswer,
+                        Some(index),
+                        format!("event {index}: duplicate answer"),
+                    );
+                }
             }
             _ => {}
         }
     }
 
     if events.is_empty() {
-        issues.push("journal is empty".into());
+        push_audit_finding(
+            &mut findings,
+            AuditFindingCode::EmptyJournal,
+            None,
+            "journal is empty".into(),
+        );
     }
     if !events.is_empty()
         && !matches!(
@@ -474,23 +557,44 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
             Some(JournalEventKind::RunStarted { .. } | JournalEventKind::ResumeStarted { .. })
         )
     {
-        issues.push("first event is not run_started".into());
+        push_audit_finding(
+            &mut findings,
+            AuditFindingCode::FirstEventNotRunStarted,
+            Some(0),
+            "first event is not run_started".into(),
+        );
     }
 
     let unresolved_tool_calls = observed_calls
-        .difference(&answered_calls)
+        .keys()
+        .filter(|call_id| !answered_calls.contains(*call_id))
         .cloned()
         .collect();
     for call_id in &unresolved_tool_calls {
-        issues.push(format!("tool call {call_id} has no observation"));
+        push_audit_finding(
+            &mut findings,
+            AuditFindingCode::UnpairedToolCall,
+            observed_calls.get(call_id).copied(),
+            format!("tool call {call_id} has no observation"),
+        );
     }
     if !events.is_empty() && terminal_reason.is_none() {
-        issues.push("journal has no run stop event".into());
+        push_audit_finding(
+            &mut findings,
+            AuditFindingCode::MissingRunStop,
+            None,
+            "journal has no run stop event".into(),
+        );
     }
     if let (Some(request), Some(answer)) = (&request, &answer)
         && let Err(error) = answer.validate(request)
     {
-        issues.push(format!("answer validation failed: {error}"));
+        push_audit_finding(
+            &mut findings,
+            AuditFindingCode::AnswerValidationFailed,
+            answer_event_index,
+            format!("answer validation failed: {error}"),
+        );
     }
     match (terminal_reason, answer.as_ref().map(|answer| answer.status)) {
         (Some(StopReason::Completed), Some(crate::domain::AnswerStatus::Completed))
@@ -501,26 +605,52 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
             Some(crate::domain::AnswerStatus::NeedsAuthorization),
         )
         | (Some(StopReason::InvalidOutput), Some(crate::domain::AnswerStatus::Failed)) => {}
-        (Some(reason), Some(status)) => issues.push(format!(
-            "stop reason {reason:?} does not match answer status {status:?}"
-        )),
+        (Some(reason), Some(status)) => push_audit_finding(
+            &mut findings,
+            AuditFindingCode::StopReasonMismatch,
+            stop_event_index,
+            format!("stop reason {reason:?} does not match answer status {status:?}"),
+        ),
         (Some(StopReason::Completed), None)
         | (Some(StopReason::NeedsEvidence), None)
         | (Some(StopReason::NeedsAuthorization), None) => {
-            issues.push("successful or user-action stop has no answer".into());
+            push_audit_finding(
+                &mut findings,
+                AuditFindingCode::MissingAnswerForStop,
+                stop_event_index,
+                "successful or user-action stop has no answer".into(),
+            );
         }
         _ => {}
     }
 
+    let issues = findings
+        .iter()
+        .map(|finding| finding.message.clone())
+        .collect::<Vec<_>>();
     JournalAudit {
-        ok: issues.is_empty(),
+        ok: findings.is_empty(),
         event_count: events.len(),
         run_id,
         terminal_reason,
         answer_schema_version: answer.as_ref().map(|answer| answer.schema_version),
         unresolved_tool_calls,
         issues,
+        findings,
     }
+}
+
+fn push_audit_finding(
+    findings: &mut Vec<JournalAuditFinding>,
+    code: AuditFindingCode,
+    event_index: Option<usize>,
+    message: String,
+) {
+    findings.push(JournalAuditFinding {
+        code,
+        event_index,
+        message,
+    });
 }
 
 pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
@@ -899,6 +1029,10 @@ mod tests {
                 .iter()
                 .any(|issue| issue.contains("is not in the route plan"))
         );
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::RouteSelectionOutsidePlan
+                && finding.event_index == Some(2)
+        }));
     }
 
     #[test]
@@ -961,6 +1095,10 @@ mod tests {
                 .iter()
                 .any(|issue| issue.contains("unknown claim id 'missing'"))
         );
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::AnswerValidationFailed
+                && finding.event_index == Some(1)
+        }));
     }
 
     #[test]
@@ -1060,6 +1198,10 @@ mod tests {
                 .iter()
                 .any(|issue| issue.contains("unsupported answer schema version"))
         );
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::AnswerValidationFailed
+                && finding.event_index == Some(1)
+        }));
     }
 
     #[test]
@@ -1105,6 +1247,79 @@ mod tests {
                 .iter()
                 .any(|issue| issue.contains("conditional answer requires"))
         );
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::AnswerValidationFailed
+                && finding.event_index == Some(1)
+        }));
+    }
+
+    #[test]
+    fn audit_findings_have_stable_codes_and_event_indexes() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ToolCalled {
+                    call: ToolCall {
+                        id: "call-1".into(),
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({"path": "x"}),
+                    },
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::AnswerProduced { answer: answer() },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 3,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::AnswerProduced { answer: answer() },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 4,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::Completed,
+                },
+            },
+        ];
+
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::DuplicateAnswer && finding.event_index == Some(3)
+        }));
+        assert!(audit.findings.iter().any(|finding| {
+            finding.code == AuditFindingCode::UnpairedToolCall && finding.event_index == Some(1)
+        }));
+        let json = serde_json::to_value(&audit).unwrap();
+        assert!(json["findings"].as_array().is_some_and(|findings| {
+            findings
+                .iter()
+                .any(|finding| finding["code"] == "duplicate_answer" && finding["event_index"] == 3)
+        }));
     }
 
     #[test]

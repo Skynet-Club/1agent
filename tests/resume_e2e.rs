@@ -120,4 +120,5 @@ fn cli_resumes_interrupted_journal_from_last_checkpoint() {
     );
     let audit: JournalAudit = serde_json::from_slice(&audit_output.stdout).unwrap();
     assert!(audit.ok, "{:?}", audit.issues);
+    assert!(audit.findings.is_empty());
 }

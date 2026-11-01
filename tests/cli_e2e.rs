@@ -58,6 +58,7 @@ fn cli_run_audit_and_replay_form_a_complete_flywheel() {
     );
     let audit: JournalAudit = serde_json::from_slice(&audit_output.stdout).unwrap();
     assert!(audit.ok, "{:?}", audit.issues);
+    assert!(audit.findings.is_empty());
 
     let replay_output = Command::new(binary)
         .args([
