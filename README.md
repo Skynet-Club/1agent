@@ -118,6 +118,8 @@ Canonical task, model, journal, answer and evaluation contracts are in
 [`docs/io-contracts.md`](docs/io-contracts.md).
 Provider capability filtering, ranking and fallback semantics are in
 [`docs/model-routing.md`](docs/model-routing.md).
+Evaluation suite types, metrics and promotion gates are in
+[`docs/evaluation.md`](docs/evaluation.md).
 
 Current V0 assumptions:
 
