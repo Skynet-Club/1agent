@@ -72,6 +72,8 @@ enum Command {
         max_tool_calls: usize,
         #[arg(long, default_value_t = 4)]
         max_provider_attempts: usize,
+        #[arg(long, default_value_t = 50)]
+        provider_retry_backoff_ms: u64,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
         #[arg(long, default_value_t = 100_000)]
@@ -587,6 +589,7 @@ async fn main() -> Result<()> {
             max_steps,
             max_tool_calls,
             max_provider_attempts,
+            provider_retry_backoff_ms,
             timeout_seconds,
             max_context_chars,
             max_provider_p95_latency_ms,
@@ -618,6 +621,7 @@ async fn main() -> Result<()> {
                 max_steps,
                 max_tool_calls,
                 max_provider_attempts,
+                provider_retry_backoff_ms,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
                 max_context_chars,
                 max_provider_p95_latency_ms: effective_latency_budget,

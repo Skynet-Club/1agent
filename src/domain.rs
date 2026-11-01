@@ -98,6 +98,8 @@ pub struct RunBudget {
     pub max_tool_calls: usize,
     #[serde(default = "default_max_provider_attempts")]
     pub max_provider_attempts: usize,
+    #[serde(default = "default_provider_retry_backoff_ms")]
+    pub provider_retry_backoff_ms: u64,
     pub timeout_ms: u64,
     #[serde(default = "default_max_context_chars")]
     pub max_context_chars: usize,
@@ -113,6 +115,7 @@ impl Default for RunBudget {
             max_steps: 6,
             max_tool_calls: 8,
             max_provider_attempts: 4,
+            provider_retry_backoff_ms: 50,
             timeout_ms: 120_000,
             max_context_chars: 100_000,
             max_provider_p95_latency_ms: None,
@@ -127,6 +130,10 @@ fn default_max_context_chars() -> usize {
 
 fn default_max_provider_attempts() -> usize {
     4
+}
+
+fn default_provider_retry_backoff_ms() -> u64 {
+    50
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]

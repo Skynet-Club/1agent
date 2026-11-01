@@ -24,6 +24,8 @@ use crate::router::{
 };
 use crate::tools::ToolRegistry;
 
+const MAX_PROVIDER_RETRY_BACKOFF_MS: u64 = 1_000;
+
 #[derive(Clone)]
 pub struct ProviderCandidate {
     pub provider: Arc<dyn ModelProvider>,
@@ -595,6 +597,69 @@ impl AgentRuntime {
                         )?;
                         unavailable_routes.insert(route_key);
                         last_retryable_error = Some(source);
+                        let next_route = routes.iter().skip(attempt + 1).find(|route| {
+                            !unavailable_routes.contains(&ProviderRouteKey {
+                                provider_id: route.manifest.provider_id.clone(),
+                                model: route.manifest.model.clone(),
+                            })
+                        });
+                        if let Some(next_route) = next_route
+                            && provider_attempts_used < max_provider_attempts
+                        {
+                            let delay_ms = provider_retry_backoff_ms(
+                                request.budget.provider_retry_backoff_ms,
+                                attempt + 1,
+                            );
+                            let delay = Duration::from_millis(delay_ms);
+                            let Some(remaining) = remaining_budget(
+                                started_at,
+                                request.budget.timeout_ms,
+                                initial_elapsed,
+                            ) else {
+                                return finish_with_answer(
+                                    &mut journal,
+                                    run_id,
+                                    journal_path,
+                                    budget_answer("retry backoff exhausted run time"),
+                                    StopReason::BudgetExhausted,
+                                );
+                            };
+                            if remaining <= delay {
+                                return finish_with_answer(
+                                    &mut journal,
+                                    run_id,
+                                    journal_path,
+                                    budget_answer("retry backoff exceeds remaining run time"),
+                                    StopReason::BudgetExhausted,
+                                );
+                            }
+                            journal
+                                .append(JournalEventKind::ProviderRetryScheduled {
+                                    delay_ms,
+                                    next_provider_id: next_route.manifest.provider_id.clone(),
+                                    next_model: next_route.manifest.model.clone(),
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            tokio::select! {
+                                _ = cancellation.cancelled() => {
+                                    journal
+                                        .append(JournalEventKind::RunStopped {
+                                            reason: StopReason::Cancelled,
+                                        })
+                                        .map_err(|source| RuntimeError::Journal {
+                                            path: journal_path.clone(),
+                                            source,
+                                        })?;
+                                    return Err(RuntimeError::Cancelled {
+                                        path: journal_path.clone(),
+                                    });
+                                }
+                                _ = tokio::time::sleep(delay) => {}
+                            }
+                        }
                     }
                     Ok(Err(source))
                         if source.code == crate::provider::ProviderErrorCode::Cancelled =>
@@ -879,6 +944,14 @@ fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
     }
 }
 
+fn provider_retry_backoff_ms(base_ms: u64, retry_number: usize) -> u64 {
+    let exponent = retry_number.saturating_sub(1).min(5) as u32;
+    base_ms
+        .min(MAX_PROVIDER_RETRY_BACKOFF_MS)
+        .saturating_mul(1_u64 << exponent)
+        .min(MAX_PROVIDER_RETRY_BACKOFF_MS)
+}
+
 fn append_provider_failure(
     journal: &mut Journal,
     journal_path: &Path,
@@ -1154,7 +1227,6 @@ mod tests {
             },
             budget: RunBudget::default(),
         };
-
         let result = runtime
             .run(request, CancellationToken::new())
             .await
@@ -1240,7 +1312,7 @@ mod tests {
             default_registry(),
             workspace.path().join(".journal"),
         );
-        let request = TaskRequest {
+        let mut request = TaskRequest {
             objective: format!(
                 "Compare options using @read-file:\"{}\"",
                 evidence.display()
@@ -1260,6 +1332,7 @@ mod tests {
             },
             budget: RunBudget::default(),
         };
+        request.budget.provider_retry_backoff_ms = 0;
         let result = runtime
             .run(request, CancellationToken::new())
             .await
@@ -1313,6 +1386,11 @@ mod tests {
         assert!(failures[0].retryable);
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.provider_failures.len(), 1);
+        assert_eq!(replay.retry_delays_ms, vec![0]);
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ProviderRetryScheduled { delay_ms: 0, .. }
+        )));
     }
 
     #[tokio::test]
@@ -1417,6 +1495,59 @@ mod tests {
         assert!(!crate::safety::contains_disallowed_control(
             &failures[0].message
         ));
+    }
+
+    #[tokio::test]
+    async fn retry_backoff_is_bounded_deterministic_and_cancellable() {
+        assert_eq!(provider_retry_backoff_ms(0, 1), 0);
+        assert_eq!(provider_retry_backoff_ms(50, 1), 50);
+        assert_eq!(provider_retry_backoff_ms(50, 2), 100);
+        assert_eq!(provider_retry_backoff_ms(50, 20), 1_000);
+        assert_eq!(provider_retry_backoff_ms(5_000, 1), 1_000);
+
+        let workspace = tempfile::tempdir().unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("Compare A and B", workspace.path().into());
+        request.budget.provider_retry_backoff_ms = 1_000;
+        let cancellation = CancellationToken::new();
+        let signal = cancellation.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            signal.cancel();
+        });
+
+        let error = runtime
+            .run(request, cancellation)
+            .await
+            .expect_err("backoff should be cancelled");
+        let path = match error {
+            RuntimeError::Cancelled { path } => path,
+            other => panic!("expected cancellation, got {other:?}"),
+        };
+        let events = read_events(path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ProviderRetryScheduled { delay_ms: 1000, .. }
+        )));
+        assert_eq!(summarize_route_trace(&events).unwrap().provider_failures, 1);
+        assert!(audit_events(&events).ok);
     }
 
     #[tokio::test]

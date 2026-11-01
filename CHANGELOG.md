@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.61.0 - 2026-11-02
+
+- Added deterministic exponential backoff between retryable provider failures.
+- Added `provider_retry_backoff_ms` with legacy default `50`.
+- Added `--provider-retry-backoff-ms`.
+- Capped delay at 1 second and supported explicit zero-delay operation.
+- Check remaining run time before scheduling or sleeping.
+- Journal and replay provider retry delay decisions.
+- Make backoff cancellation-responsive.
+- Added boundary, cancellation and zero-delay tests.
+
 ## 0.60.0 - 2026-11-02
 
 - Added provider failure count and unique stable codes to route traces.

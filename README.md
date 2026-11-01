@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.60.0` is an executable V0 vertical slice:
+Version `0.61.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -78,10 +78,11 @@ Version `0.60.0` is an executable V0 vertical slice:
 - endpoint-free transport errors with explicit fallback semantics;
 - journaled provider failures with replay and contradiction audit;
 - provider failure summaries and a checkpointed per-run attempt budget;
+- deterministic bounded provider retry backoff with journaled delay decisions;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.60.md`](docs/status-v0.60.md).
+[`docs/status-v0.61.md`](docs/status-v0.61.md).
 
 Current V0 assumptions:
 

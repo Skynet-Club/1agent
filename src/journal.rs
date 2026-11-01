@@ -102,6 +102,11 @@ pub enum JournalEventKind {
     ProviderFailed {
         failure: ProviderFailure,
     },
+    ProviderRetryScheduled {
+        delay_ms: u64,
+        next_provider_id: String,
+        next_model: String,
+    },
     ToolCalled {
         call: ToolCall,
     },
@@ -231,6 +236,8 @@ pub struct ReplayState {
     pub model: Option<String>,
     #[serde(default)]
     pub provider_failures: Vec<ProviderFailure>,
+    #[serde(default)]
+    pub retry_delays_ms: Vec<u64>,
     pub route_plan: Option<RoutePlan>,
     pub route_policy_sources: Option<RoutePolicySources>,
     pub tool_capabilities: Option<ToolCapabilitySnapshot>,
@@ -763,6 +770,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         provider_id: None,
         model: None,
         provider_failures: Vec::new(),
+        retry_delays_ms: Vec::new(),
         route_plan: None,
         route_policy_sources: None,
         tool_capabilities: None,
@@ -800,6 +808,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             }
             JournalEventKind::ProviderFailed { failure } => {
                 state.provider_failures.push(failure.clone());
+            }
+            JournalEventKind::ProviderRetryScheduled { delay_ms, .. } => {
+                state.retry_delays_ms.push(*delay_ms);
             }
             JournalEventKind::RoutePlanned { plan, sources } => {
                 state.route_plan = Some(plan.clone());
