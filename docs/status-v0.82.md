@@ -37,7 +37,21 @@ Compact summaries now include:
 | mismatched binding status | rejected |
 | legacy summary | accepted |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
+
+## Release artifacts
+
+Source commit: `d2546c54814ef3985d718a619989b24e88580961`
+
+Clean-source artifacts were rebuilt after the feature commit. SHA-256:
+
+| Artifact | SHA-256 |
+|---|---|
+| Linux `tar.gz` | `5608ce937795d2e9961397516e5cedd022da7a438701da5aefcd3e0dded20f83` |
+| Windows `zip` | `323bf6c306aa48df972e156008beb54d12df3b11dd4f12a904cf00ccb5344782` |
+| Release manifest | `d924eb33c357a28dacdbbb2f2b1093ce4259964321e64401f6d00e83c849445f` |
+| Linux binary | `58c4781eb5b1c5cb02524c8ef2c3f04f7545d2eddcce34c0e0a679a1cdec55c6` |
+| Windows binary | `146c377e299c0ccc3b6e986f955bf5d39341d6ef7d0c1b9ae2889d271739ef71` |
 
 ## Known limitations
 
