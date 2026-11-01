@@ -96,6 +96,8 @@ pub struct PermissionSet {
 pub struct RunBudget {
     pub max_steps: usize,
     pub max_tool_calls: usize,
+    #[serde(default = "default_max_provider_attempts")]
+    pub max_provider_attempts: usize,
     pub timeout_ms: u64,
     #[serde(default = "default_max_context_chars")]
     pub max_context_chars: usize,
@@ -110,6 +112,7 @@ impl Default for RunBudget {
         Self {
             max_steps: 6,
             max_tool_calls: 8,
+            max_provider_attempts: 4,
             timeout_ms: 120_000,
             max_context_chars: 100_000,
             max_provider_p95_latency_ms: None,
@@ -120,6 +123,10 @@ impl Default for RunBudget {
 
 fn default_max_context_chars() -> usize {
     100_000
+}
+
+fn default_max_provider_attempts() -> usize {
+    4
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -887,6 +894,8 @@ pub struct RuntimeCheckpoint {
     pub mode: CognitiveMode,
     pub messages: Vec<ModelMessage>,
     pub tool_calls_used: usize,
+    #[serde(default)]
+    pub provider_attempts_used: usize,
     pub unavailable_routes: Vec<ProviderRouteKey>,
     pub next_step: usize,
     pub elapsed_ms: u64,

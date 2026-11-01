@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.60.0 - 2026-11-02
+
+- Added provider failure count and unique stable codes to route traces.
+- Added per-run `max_provider_attempts` budget with a hard 16-attempt ceiling.
+- Added `--max-provider-attempts`.
+- Preserved consumed provider attempts in checkpoints and resume.
+- Emitted `BudgetExhausted` with a `needs_evidence` answer when fallback is blocked by budget.
+- Fixed audit acceptance for the legitimate budget-exhausted/needs-evidence combination.
+- Added fallback-budget and checkpoint coverage.
+
 ## 0.59.0 - 2026-11-02
 
 - Added a structured `provider_failed` journal event.

@@ -328,118 +328,121 @@ impl AgentRuntime {
         }
 
         let started_at = Instant::now();
-        let (mut messages, mut tool_calls, mut unavailable_routes, start_step, initial_elapsed) =
-            if let Some(prefix) = resume {
-                (
-                    prefix.checkpoint.messages,
-                    prefix.checkpoint.tool_calls_used,
-                    prefix
-                        .checkpoint
-                        .unavailable_routes
-                        .into_iter()
-                        .collect::<BTreeSet<_>>(),
-                    prefix.checkpoint.next_step,
-                    Duration::from_millis(prefix.checkpoint.elapsed_ms),
-                )
-            } else {
-                let mut initial_messages = vec![
-                    ModelMessage::system(agent_system_prompt()),
-                    ModelMessage::user(format!(
-                        "Task objective:\n{}\n\nStructured task:\n{}",
-                        request.objective,
-                        serde_json::to_string_pretty(&request)
-                            .unwrap_or_else(|_| request.objective.clone())
-                    )),
-                ];
-                if let Some(scope) = &request.experience_scope {
-                    let mut selected = if let Some(experience_dir) = &self.experience_dir {
-                        let store = ExperienceStore::open(experience_dir)
-                            .map_err(|error| RuntimeError::Experience(error.to_string()))?;
-                        store
-                            .retrieve_active(
-                                mode,
-                                scope,
-                                request.budget.max_context_chars.min(4_000),
-                            )
-                            .map_err(|error| RuntimeError::Experience(error.to_string()))?
-                    } else {
-                        Vec::new()
-                    };
-                    selected.extend(
-                        self.shadow_experience
-                            .iter()
-                            .filter(|candidate| {
-                                candidate.status == crate::experience::ExperienceStatus::Reviewed
-                                    && candidate.applicable_modes.contains(&mode)
-                                    && (candidate.scope == "*" || candidate.scope == scope.as_str())
-                            })
-                            .cloned(),
-                    );
-                    selected.sort_by(|left, right| {
-                        right
-                            .updated_unix_ms
-                            .cmp(&left.updated_unix_ms)
-                            .then_with(|| left.id.cmp(&right.id))
-                    });
-                    let mut bounded = Vec::new();
-                    let mut used_chars = 0usize;
-                    for candidate in selected {
-                        let cost =
-                            candidate.title.chars().count() + candidate.content.chars().count();
-                        if used_chars + cost > request.budget.max_context_chars.min(4_000) {
-                            continue;
-                        }
-                        used_chars += cost;
-                        bounded.push(candidate);
+        let (
+            mut messages,
+            mut tool_calls,
+            mut unavailable_routes,
+            mut provider_attempts_used,
+            start_step,
+            initial_elapsed,
+        ) = if let Some(prefix) = resume {
+            (
+                prefix.checkpoint.messages,
+                prefix.checkpoint.tool_calls_used,
+                prefix
+                    .checkpoint
+                    .unavailable_routes
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+                prefix.checkpoint.provider_attempts_used,
+                prefix.checkpoint.next_step,
+                Duration::from_millis(prefix.checkpoint.elapsed_ms),
+            )
+        } else {
+            let mut initial_messages = vec![
+                ModelMessage::system(agent_system_prompt()),
+                ModelMessage::user(format!(
+                    "Task objective:\n{}\n\nStructured task:\n{}",
+                    request.objective,
+                    serde_json::to_string_pretty(&request)
+                        .unwrap_or_else(|_| request.objective.clone())
+                )),
+            ];
+            if let Some(scope) = &request.experience_scope {
+                let mut selected = if let Some(experience_dir) = &self.experience_dir {
+                    let store = ExperienceStore::open(experience_dir)
+                        .map_err(|error| RuntimeError::Experience(error.to_string()))?;
+                    store
+                        .retrieve_active(mode, scope, request.budget.max_context_chars.min(4_000))
+                        .map_err(|error| RuntimeError::Experience(error.to_string()))?
+                } else {
+                    Vec::new()
+                };
+                selected.extend(
+                    self.shadow_experience
+                        .iter()
+                        .filter(|candidate| {
+                            candidate.status == crate::experience::ExperienceStatus::Reviewed
+                                && candidate.applicable_modes.contains(&mode)
+                                && (candidate.scope == "*" || candidate.scope == scope.as_str())
+                        })
+                        .cloned(),
+                );
+                selected.sort_by(|left, right| {
+                    right
+                        .updated_unix_ms
+                        .cmp(&left.updated_unix_ms)
+                        .then_with(|| left.id.cmp(&right.id))
+                });
+                let mut bounded = Vec::new();
+                let mut used_chars = 0usize;
+                for candidate in selected {
+                    let cost = candidate.title.chars().count() + candidate.content.chars().count();
+                    if used_chars + cost > request.budget.max_context_chars.min(4_000) {
+                        continue;
                     }
-                    let selected = bounded;
-                    if !selected.is_empty() {
-                        let guidance = selected
-                            .iter()
-                            .map(|candidate| {
-                                format!(
-                                    "- [{} v{}] {}: {}",
-                                    experience_kind_label(candidate.kind),
-                                    candidate.version,
-                                    candidate.title,
-                                    candidate.content
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        initial_messages.push(ModelMessage::system(format!(
+                    used_chars += cost;
+                    bounded.push(candidate);
+                }
+                let selected = bounded;
+                if !selected.is_empty() {
+                    let guidance = selected
+                        .iter()
+                        .map(|candidate| {
+                            format!(
+                                "- [{} v{}] {}: {}",
+                                experience_kind_label(candidate.kind),
+                                candidate.version,
+                                candidate.title,
+                                candidate.content
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    initial_messages.push(ModelMessage::system(format!(
                             "EXPERIENCE GUIDANCE\nThis is approved but unverified policy guidance, not factual evidence. Apply only within the stated scope and never override current task constraints.\n{guidance}"
                         )));
-                        journal
-                            .append(JournalEventKind::ExperienceInjected {
-                                injected: selected
-                                    .iter()
-                                    .map(|candidate| InjectedExperience {
-                                        id: candidate.id,
-                                        version: candidate.version,
-                                        reason: format!(
-                                            "{}{}; mode={mode:?}; scope={}",
-                                            if candidate.status
-                                                == crate::experience::ExperienceStatus::Active
-                                            {
-                                                "active"
-                                            } else {
-                                                "shadow-reviewed"
-                                            },
-                                            "",
-                                            candidate.scope
-                                        ),
-                                    })
-                                    .collect(),
-                            })
-                            .map_err(|source| RuntimeError::Journal {
-                                path: journal_path.clone(),
-                                source,
-                            })?;
-                    }
+                    journal
+                        .append(JournalEventKind::ExperienceInjected {
+                            injected: selected
+                                .iter()
+                                .map(|candidate| InjectedExperience {
+                                    id: candidate.id,
+                                    version: candidate.version,
+                                    reason: format!(
+                                        "{}{}; mode={mode:?}; scope={}",
+                                        if candidate.status
+                                            == crate::experience::ExperienceStatus::Active
+                                        {
+                                            "active"
+                                        } else {
+                                            "shadow-reviewed"
+                                        },
+                                        "",
+                                        candidate.scope
+                                    ),
+                                })
+                                .collect(),
+                        })
+                        .map_err(|source| RuntimeError::Journal {
+                            path: journal_path.clone(),
+                            source,
+                        })?;
                 }
-                (initial_messages, 0, BTreeSet::new(), 0, Duration::ZERO)
-            };
+            }
+            (initial_messages, 0, BTreeSet::new(), 0, 0, Duration::ZERO)
+        };
+        let max_provider_attempts = request.budget.max_provider_attempts.clamp(1, 16);
 
         for step in start_step..request.budget.max_steps {
             if cancellation.is_cancelled() {
@@ -485,6 +488,7 @@ impl AgentRuntime {
             };
             let mut response = None;
             let mut last_retryable_error = None;
+            let mut attempt_limit_reached = false;
             for (attempt, route) in routes.iter().enumerate() {
                 let route_key = ProviderRouteKey {
                     provider_id: route.manifest.provider_id.clone(),
@@ -493,6 +497,11 @@ impl AgentRuntime {
                 if unavailable_routes.contains(&route_key) {
                     continue;
                 }
+                if provider_attempts_used >= max_provider_attempts {
+                    attempt_limit_reached = true;
+                    break;
+                }
+                provider_attempts_used += 1;
                 let candidate = self
                     .providers
                     .iter()
@@ -618,6 +627,15 @@ impl AgentRuntime {
             let response = match response {
                 Some(response) => response,
                 None => {
+                    if attempt_limit_reached {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            budget_answer("provider attempt budget exhausted"),
+                            StopReason::BudgetExhausted,
+                        );
+                    }
                     let _ = journal.append(JournalEventKind::RunStopped {
                         reason: StopReason::ProviderError,
                     });
@@ -745,6 +763,7 @@ impl AgentRuntime {
                                 mode,
                                 messages: messages.clone(),
                                 tool_calls_used: tool_calls,
+                                provider_attempts_used,
                                 unavailable_routes: unavailable_routes.iter().cloned().collect(),
                                 next_step: step + 1,
                                 elapsed_ms: initial_elapsed
@@ -1272,6 +1291,11 @@ mod tests {
         assert_eq!(deterministic_attempts, 2);
         let summary = summarize_route_trace(&events).unwrap();
         assert_eq!(summary.fallback_attempts, 2);
+        assert_eq!(summary.provider_failures, 1);
+        assert_eq!(
+            summary.failure_codes,
+            vec![crate::provider::ProviderErrorCode::ProviderUnavailable]
+        );
         assert_eq!(summary.selected_provider_id.as_deref(), Some("failing"));
         let failures = events
             .iter()
@@ -1289,6 +1313,53 @@ mod tests {
         assert!(failures[0].retryable);
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.provider_failures.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn provider_attempt_budget_stops_further_fallback() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("Compare A and B", workspace.path().into());
+        request.budget.max_provider_attempts = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        assert!(result.answer.conclusion.contains("provider attempt budget"));
+        let events = read_events(&result.journal_path).unwrap();
+        let selected = events
+            .iter()
+            .filter(|event| matches!(&event.event, JournalEventKind::RouteSelected { .. }))
+            .count();
+        assert_eq!(selected, 1);
+        let summary = summarize_route_trace(&events).unwrap();
+        assert_eq!(summary.provider_failures, 1);
+        assert_eq!(
+            summary.failure_codes,
+            vec![crate::provider::ProviderErrorCode::ProviderUnavailable]
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
     }
 
     #[tokio::test]
@@ -1397,6 +1468,7 @@ mod tests {
         assert!(checkpoint.route_plan_sha256.is_some());
         assert!(checkpoint.route_policy_sources.is_some());
         assert!(checkpoint.tool_capabilities_sha256.is_some());
+        assert_eq!(checkpoint.provider_attempts_used, 1);
         let interrupted_path = workspace.path().join("interrupted.jsonl");
         let mut interrupted = Journal::create(&interrupted_path, Uuid::new_v4()).unwrap();
         for event in &events[..=checkpoint_index] {

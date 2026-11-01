@@ -70,6 +70,8 @@ enum Command {
         max_steps: usize,
         #[arg(long, default_value_t = 8)]
         max_tool_calls: usize,
+        #[arg(long, default_value_t = 4)]
+        max_provider_attempts: usize,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
         #[arg(long, default_value_t = 100_000)]
@@ -584,6 +586,7 @@ async fn main() -> Result<()> {
             experience_scope,
             max_steps,
             max_tool_calls,
+            max_provider_attempts,
             timeout_seconds,
             max_context_chars,
             max_provider_p95_latency_ms,
@@ -614,6 +617,7 @@ async fn main() -> Result<()> {
             request.budget = RunBudget {
                 max_steps,
                 max_tool_calls,
+                max_provider_attempts,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
                 max_context_chars,
                 max_provider_p95_latency_ms: effective_latency_budget,

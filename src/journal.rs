@@ -253,6 +253,8 @@ pub struct RouteTraceSummary {
     pub selected_model: Option<String>,
     pub selection_reason: Option<String>,
     pub fallback_attempts: usize,
+    pub provider_failures: usize,
+    pub failure_codes: Vec<ProviderErrorCode>,
     pub policy_sources: RoutePolicySources,
 }
 
@@ -270,6 +272,10 @@ impl RouteTraceSummary {
             output.push_str(&format!("\n路由原因：{}", bounded_chars(reason, 240)));
         }
         output.push_str(&format!(
+            "\nProvider failures：count={} codes={:?}",
+            self.provider_failures, self.failure_codes
+        ));
+        output.push_str(&format!(
             "\n策略来源：objective={:?} latency={:?} unit_cost={:?}",
             self.policy_sources.objective,
             self.policy_sources.latency_budget,
@@ -284,6 +290,8 @@ pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummar
     let mut selected = None;
     let mut sources = None;
     let mut fallback_attempts = 0;
+    let mut provider_failures = 0;
+    let mut failure_codes = Vec::new();
     let mut first_attempt_phase = true;
     for event in events {
         match &event.event {
@@ -308,6 +316,12 @@ pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummar
             JournalEventKind::ModelResponded { .. } => {
                 first_attempt_phase = false;
             }
+            JournalEventKind::ProviderFailed { failure } => {
+                provider_failures += 1;
+                if !failure_codes.contains(&failure.code) {
+                    failure_codes.push(failure.code);
+                }
+            }
             _ => {}
         }
     }
@@ -322,6 +336,8 @@ pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummar
         selected_model: selected.map(|value| value.1.clone()),
         selection_reason: selected.map(|value| value.2.clone()),
         fallback_attempts,
+        provider_failures,
+        failure_codes,
         policy_sources: sources,
     })
 }
@@ -681,6 +697,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
         (Some(StopReason::Completed), Some(crate::domain::AnswerStatus::Completed))
         | (Some(StopReason::Completed), Some(crate::domain::AnswerStatus::Conditional))
         | (Some(StopReason::NeedsEvidence), Some(crate::domain::AnswerStatus::NeedsEvidence))
+        | (Some(StopReason::BudgetExhausted), Some(crate::domain::AnswerStatus::NeedsEvidence))
         | (
             Some(StopReason::NeedsAuthorization),
             Some(crate::domain::AnswerStatus::NeedsAuthorization),
