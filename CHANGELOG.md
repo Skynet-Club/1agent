@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0 - 2026-11-02
+
+- Added detached HMAC-SHA256 approval envelopes.
+- Bound approvals to artifact SHA-256, approver, purpose, timestamp and key id.
+- Added `approval sign/verify`.
+- Required signed gold-set approval for calibration.
+- Added artifact-change and MAC-tampering tests.
+- Kept unsigned artifacts development-only.
+
 ## 0.13.0 - 2026-11-02
 
 - Added frozen gold-set manifest creation and verification.

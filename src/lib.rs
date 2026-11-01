@@ -1,4 +1,5 @@
 pub mod annotation;
+pub mod approval;
 pub mod config;
 pub mod context;
 pub mod domain;
@@ -13,6 +14,7 @@ pub mod safety;
 pub mod tools;
 
 pub use annotation::*;
+pub use approval::*;
 pub use config::*;
 pub use context::*;
 pub use domain::*;

@@ -6,13 +6,13 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
     AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
-    CalibrationPrediction, DeterministicProvider, ExperienceCandidateSpec, ExperienceStore,
-    ExperienceVerificationInput, GoldSetManifest, HostCommand, HostError, HostRegistry,
-    HostRequestState, HostResponse, OpenAiCompatibleProvider, ProviderCandidate, RunBudget,
-    RuntimeError, TaskRequest, ToolRegistry, audit_events, create_goldset_manifest,
-    default_registry, evaluate_experience_suite, load_suite, local_manifest, read_events,
-    remote_manifest, replay_events, run_suite_with_providers, scan_history,
-    verify_goldset_manifest,
+    ApprovalEnvelope, ArtifactKind, CalibrationPrediction, DeterministicProvider,
+    ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
+    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
+    ProviderCandidate, RunBudget, RuntimeError, TaskRequest, ToolRegistry, audit_events,
+    create_goldset_manifest, default_registry, evaluate_experience_suite, load_suite,
+    local_manifest, read_events, remote_manifest, replay_events, run_suite_with_providers,
+    scan_history, verify_goldset_manifest,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -129,6 +129,10 @@ enum Command {
     Annotate {
         #[command(subcommand)]
         command: AnnotateCommand,
+    },
+    Approval {
+        #[command(subcommand)]
+        command: ApprovalCommand,
     },
     Resume {
         #[arg(long)]
@@ -282,6 +286,10 @@ enum AnnotateCommand {
         goldset: PathBuf,
         #[arg(long)]
         suite: PathBuf,
+        #[arg(long)]
+        approval: PathBuf,
+        #[arg(long)]
+        approval_key_env: String,
         #[arg(long, default_value_t = 600)]
         min_kappa_millis: i32,
         #[arg(long, default_value_t = 20)]
@@ -310,6 +318,34 @@ enum AnnotateCommand {
         manifest: PathBuf,
         #[arg(long)]
         suite: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApprovalCommand {
+    Sign {
+        #[arg(long)]
+        artifact: PathBuf,
+        #[arg(long)]
+        artifact_kind: String,
+        #[arg(long)]
+        approver: String,
+        #[arg(long)]
+        purpose: String,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        key_env: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    Verify {
+        #[arg(long)]
+        artifact: PathBuf,
+        #[arg(long)]
+        envelope: PathBuf,
+        #[arg(long)]
+        key_env: String,
     },
 }
 
@@ -681,6 +717,9 @@ async fn main() -> Result<()> {
         Command::Annotate { command } => {
             handle_annotations(command)?;
         }
+        Command::Approval { command } => {
+            handle_approval(command)?;
+        }
         Command::Resume {
             journal,
             config,
@@ -874,10 +913,19 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
             predictions,
             goldset,
             suite,
+            approval,
+            approval_key_env,
             min_kappa_millis,
             min_samples,
             json,
         } => {
+            let envelope: ApprovalEnvelope = serde_json::from_str(
+                &std::fs::read_to_string(&approval)
+                    .with_context(|| format!("cannot read {}", approval.display()))?,
+            )
+            .with_context(|| format!("invalid approval envelope {}", approval.display()))?;
+            let approval_key = read_secret_env(&approval_key_env)?;
+            envelope.verify(&goldset, &approval_key)?;
             let manifest: GoldSetManifest = serde_json::from_str(
                 &std::fs::read_to_string(&goldset)
                     .with_context(|| format!("cannot read {}", goldset.display()))?,
@@ -948,6 +996,55 @@ fn handle_annotations(command: AnnotateCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn handle_approval(command: ApprovalCommand) -> Result<()> {
+    match command {
+        ApprovalCommand::Sign {
+            artifact,
+            artifact_kind,
+            approver,
+            purpose,
+            key_id,
+            key_env,
+            output,
+        } => {
+            let artifact_kind = match artifact_kind.as_str() {
+                "gold_set" | "gold-set" => ArtifactKind::GoldSet,
+                "experience" => ArtifactKind::Experience,
+                "evaluation_report" | "evaluation-report" => ArtifactKind::EvaluationReport,
+                other => bail!("unsupported artifact kind '{other}'"),
+            };
+            let key = read_secret_env(&key_env)?;
+            let envelope =
+                ApprovalEnvelope::sign(&artifact, artifact_kind, approver, purpose, key_id, &key)?;
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output, serde_json::to_vec_pretty(&envelope)?)?;
+            println!("{}", output.display());
+        }
+        ApprovalCommand::Verify {
+            artifact,
+            envelope,
+            key_env,
+        } => {
+            let envelope: ApprovalEnvelope = serde_json::from_str(
+                &std::fs::read_to_string(&envelope)
+                    .with_context(|| format!("cannot read {}", envelope.display()))?,
+            )?;
+            let key = read_secret_env(&key_env)?;
+            envelope.verify(&artifact, &key)?;
+            println!("approval verified");
+        }
+    }
+    Ok(())
+}
+
+fn read_secret_env(name: &str) -> Result<Vec<u8>> {
+    let value = std::env::var(name)
+        .with_context(|| format!("required approval key environment variable {name} is missing"))?;
+    Ok(value.into_bytes())
 }
 
 fn parse_annotation_label(value: &str) -> Result<AnnotationLabel> {
