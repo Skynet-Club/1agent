@@ -31,8 +31,8 @@ Status: provider failures journaled and audited
 | Hidden-control replacement | passed |
 | Unselected-route failure audit | rejected |
 | Success-then-failure audit | rejected |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -41,6 +41,28 @@ Status: provider failures journaled and audited
 - The journal does not yet record retry backoff or global retry budget.
 - Provider failures are not summarized in the human-readable route trace.
 - HTTP identity mismatch remains a separate invalid-output path.
+
+## Verified clean release
+
+```text
+source commit: ddf15422dc415d1e90dc7eace3c5f54e80c1092d
+git dirty: false
+
+Linux binary:
+4851eaf203052fd0567b195286df2da62d8bb3c52f38ebb7a0e317860e8b2dce
+
+Windows binary:
+c85c14c93f4f56259201265b2fea7f876c7fc0b140480cd0fda2168bc3ec71ae
+
+Linux tar.gz:
+1a191b61e92c4d3fa1c8b8bb6f47d19974ea18c516bd7a82d37e5d720f7f0aa5
+
+Windows zip:
+91b6abd4f8e10bb6892fea34bd4c19e3184be0a37156eb94dbb631bdc5b81c91
+
+Release manifest:
+1af8154f1f8ab984f12b6452d9b7f8b506ef246114a254976838bd8e3409c912
+```
 
 ## Next requirement
 
