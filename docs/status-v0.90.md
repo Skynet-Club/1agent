@@ -45,6 +45,11 @@ Clean-source artifacts were rebuilt after the feature commit. SHA-256:
 - Placeholder credentials are used only in memory for configuration validation.
 - Actual credentials remain environment-owned.
 
+## Packaged binary smoke
+
+`dist/1agent-0.90.0/linux-x86_64/1agent` reported version `0.90.0`, ran the core suite at 6/6,
+and inspected its generated report through the compact summary path.
+
 ## Next requirement
 
 Return to live-provider and target-host evidence collection.
