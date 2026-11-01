@@ -27,6 +27,7 @@ Date: 2026-11-02
 | Packaged Linux binary smoke | passed |
 | Git object integrity | passed |
 | Locked dependency metadata | passed |
+| Rust API documentation build | passed |
 
 The packaged binary reported `1agent 0.90.0`, executed the six-case core suite at 6/6, and
 re-inspected its content-bound, integrity-checked, unauthenticated report summary successfully.
