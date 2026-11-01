@@ -25,6 +25,7 @@ Date: 2026-11-02
 | Release manifest and Linux provenance | passed |
 | Relative Markdown links | passed |
 | Obsidian YAML and section numbering | passed |
+| Status evidence fields v0.73–v0.88 | complete |
 | Historical manifests v0.71–v0.88 | all verified |
 
 ## Implemented requirement areas
