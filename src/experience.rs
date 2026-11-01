@@ -29,6 +29,7 @@ pub enum ExperienceStatus {
     Approved,
     Rejected,
     Active,
+    Superseded,
     Degraded,
     RolledBack,
 }
@@ -142,6 +143,8 @@ enum ExperienceEventKind {
     },
     Activated {
         id: Uuid,
+        #[serde(default)]
+        supersedes: Option<Uuid>,
     },
     Degraded {
         id: Uuid,
@@ -179,7 +182,7 @@ impl ExperienceStore {
                 | ExperienceEventKind::Verified { id, .. }
                 | ExperienceEventKind::Approved { id, .. }
                 | ExperienceEventKind::Rejected { id, .. }
-                | ExperienceEventKind::Activated { id }
+                | ExperienceEventKind::Activated { id, .. }
                 | ExperienceEventKind::Degraded { id, .. }
                 | ExperienceEventKind::RolledBack { id, .. } => *id,
             };
@@ -230,7 +233,31 @@ impl ExperienceStore {
                         |candidate| candidate.status = ExperienceStatus::Rejected,
                     )?;
                 }
-                ExperienceEventKind::Activated { id } => {
+                ExperienceEventKind::Activated { id, supersedes } => {
+                    let candidate = candidates
+                        .get(&id)
+                        .ok_or(ExperienceError::CandidateNotFound(id))?
+                        .clone();
+                    if candidate.supersedes != supersedes {
+                        return Err(ExperienceError::SupersessionMismatch(id));
+                    }
+                    if let Some(previous_id) = supersedes {
+                        let previous = candidates
+                            .get(&previous_id)
+                            .ok_or(ExperienceError::SupersededExperienceNotFound(previous_id))?;
+                        if previous.kind != candidate.kind {
+                            return Err(ExperienceError::SupersessionKindMismatch(previous_id));
+                        }
+                        if previous.scope != candidate.scope {
+                            return Err(ExperienceError::SupersessionScopeMismatch(previous_id));
+                        }
+                        transition(
+                            &mut candidates,
+                            previous_id,
+                            &[ExperienceStatus::Active],
+                            |previous| previous.status = ExperienceStatus::Superseded,
+                        )?;
+                    }
                     transition(
                         &mut candidates,
                         id,
@@ -295,9 +322,23 @@ impl ExperienceStore {
         }
 
         let timestamp = now_unix_ms();
+        if spec
+            .expires_at_unix_ms
+            .is_some_and(|expires_at| expires_at <= timestamp)
+        {
+            return Err(ExperienceError::ExpiredSpecification);
+        }
+        let candidates = self.candidates()?;
+        let version = if let Some(previous_id) = spec.supersedes {
+            supersession_target(&candidates, previous_id, spec.kind, &spec.scope)?
+                .version
+                .saturating_add(1)
+        } else {
+            1
+        };
         let candidate = ExperienceCandidate {
             id: Uuid::new_v4(),
-            version: 1,
+            version,
             kind: spec.kind,
             title: spec.title,
             content: spec.content,
@@ -424,8 +465,49 @@ impl ExperienceStore {
     }
 
     pub fn activate(&mut self, id: Uuid) -> Result<(), ExperienceError> {
-        self.transition(id, &[ExperienceStatus::Approved], |_| {
-            Ok(ExperienceEventKind::Activated { id })
+        let candidates = self.candidates()?;
+        let candidate = candidates
+            .get(&id)
+            .ok_or(ExperienceError::CandidateNotFound(id))?;
+        if candidate.status != ExperienceStatus::Approved {
+            return Err(ExperienceError::InvalidTransition {
+                from: candidate.status,
+                allowed_from: vec![ExperienceStatus::Approved],
+            });
+        }
+        if candidate
+            .expires_at_unix_ms
+            .is_some_and(|expires_at| expires_at <= now_unix_ms())
+        {
+            return Err(ExperienceError::ExpiredCandidate(id));
+        }
+        if let Some(previous_id) = candidate.supersedes {
+            let previous =
+                supersession_target(&candidates, previous_id, candidate.kind, &candidate.scope)?;
+            if candidate.version != previous.version.saturating_add(1) {
+                return Err(ExperienceError::SupersessionVersionMismatch {
+                    previous: previous.version,
+                    candidate: candidate.version,
+                });
+            }
+            if candidates.values().any(|other| {
+                other.id != previous_id
+                    && other.status == ExperienceStatus::Active
+                    && other.kind == candidate.kind
+                    && other.scope == candidate.scope
+            }) {
+                return Err(ExperienceError::ActiveExperienceConflict);
+            }
+        } else if candidates.values().any(|other| {
+            other.status == ExperienceStatus::Active
+                && other.kind == candidate.kind
+                && other.scope == candidate.scope
+        }) {
+            return Err(ExperienceError::ActiveExperienceConflict);
+        }
+        self.append(ExperienceEventKind::Activated {
+            id,
+            supersedes: candidate.supersedes,
         })
     }
 
@@ -617,6 +699,27 @@ fn all_modes() -> Vec<CognitiveMode> {
     ]
 }
 
+fn supersession_target<'a>(
+    candidates: &'a BTreeMap<Uuid, ExperienceCandidate>,
+    previous_id: Uuid,
+    kind: ExperienceKind,
+    scope: &str,
+) -> Result<&'a ExperienceCandidate, ExperienceError> {
+    let previous = candidates
+        .get(&previous_id)
+        .ok_or(ExperienceError::SupersededExperienceNotFound(previous_id))?;
+    if previous.kind != kind {
+        return Err(ExperienceError::SupersessionKindMismatch(previous_id));
+    }
+    if previous.scope != scope {
+        return Err(ExperienceError::SupersessionScopeMismatch(previous_id));
+    }
+    if previous.status != ExperienceStatus::Active {
+        return Err(ExperienceError::SupersededExperienceNotActive(previous_id));
+    }
+    Ok(previous)
+}
+
 fn transition<F>(
     candidates: &mut BTreeMap<Uuid, ExperienceCandidate>,
     id: Uuid,
@@ -693,6 +796,24 @@ pub enum ExperienceError {
     InvalidVerification(String),
     #[error("candidate verification failed held-out transfer gates")]
     VerificationFailed,
+    #[error("experience expiration must be in the future")]
+    ExpiredSpecification,
+    #[error("expired experience {0} cannot be activated")]
+    ExpiredCandidate(Uuid),
+    #[error("superseded experience {0} not found")]
+    SupersededExperienceNotFound(Uuid),
+    #[error("superseded experience {0} has a different kind")]
+    SupersessionKindMismatch(Uuid),
+    #[error("superseded experience {0} has a different scope")]
+    SupersessionScopeMismatch(Uuid),
+    #[error("superseded experience {0} is not active")]
+    SupersededExperienceNotActive(Uuid),
+    #[error("activation event supersession does not match candidate {0}")]
+    SupersessionMismatch(Uuid),
+    #[error("superseding candidate version must be {previous}, got {candidate}")]
+    SupersessionVersionMismatch { previous: u32, candidate: u32 },
+    #[error("another active experience already exists for this kind and scope")]
+    ActiveExperienceConflict,
     #[error("unsupported experience schema version {0}")]
     UnsupportedSchema(u32),
     #[error("invalid event sequence: expected {expected}, got {actual}")]
@@ -796,6 +917,13 @@ mod tests {
         }
     }
 
+    fn approve_and_activate(store: &mut ExperienceStore, id: Uuid) {
+        store.review(id, "reviewer").unwrap();
+        store.verify(id, verification()).unwrap();
+        store.approve(id, "owner").unwrap();
+        store.activate(id).unwrap();
+    }
+
     #[test]
     fn candidate_requires_review_and_approval_before_activation() {
         let dir = tempfile::tempdir().unwrap();
@@ -847,6 +975,113 @@ mod tests {
             candidates[&candidate.id].status,
             ExperienceStatus::RolledBack
         );
+    }
+
+    #[test]
+    fn activation_rejects_competing_active_experience() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let first = store.propose(spec(), &events).unwrap();
+        approve_and_activate(&mut store, first.id);
+        let mut second_spec = spec();
+        second_spec.title = "Competing guidance".into();
+        let second = store.propose(second_spec, &events).unwrap();
+        store.review(second.id, "reviewer").unwrap();
+        store.verify(second.id, verification()).unwrap();
+        store.approve(second.id, "owner").unwrap();
+        assert!(matches!(
+            store.activate(second.id),
+            Err(ExperienceError::ActiveExperienceConflict)
+        ));
+    }
+
+    #[test]
+    fn supersession_replaces_prior_active_experience_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let first = store.propose(spec(), &events).unwrap();
+        approve_and_activate(&mut store, first.id);
+        let mut replacement_spec = spec();
+        replacement_spec.title = "Read evidence and timestamp it".into();
+        replacement_spec.supersedes = Some(first.id);
+        let replacement = store.propose(replacement_spec, &events).unwrap();
+        assert_eq!(replacement.version, first.version + 1);
+        approve_and_activate(&mut store, replacement.id);
+
+        let candidates = store.candidates().unwrap();
+        assert_eq!(candidates[&first.id].status, ExperienceStatus::Superseded);
+        assert_eq!(candidates[&replacement.id].status, ExperienceStatus::Active);
+        let active = store
+            .retrieve_active(
+                CognitiveMode::EvidenceResearch,
+                "repository decisions",
+                1_000,
+            )
+            .unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, replacement.id);
+
+        store
+            .rollback(replacement.id, "replacement regressed")
+            .unwrap();
+        let candidates = store.candidates().unwrap();
+        assert_eq!(candidates[&first.id].status, ExperienceStatus::Superseded);
+        assert_eq!(
+            candidates[&replacement.id].status,
+            ExperienceStatus::RolledBack
+        );
+    }
+
+    #[test]
+    fn supersession_requires_matching_active_kind_and_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let first = store.propose(spec(), &events).unwrap();
+        approve_and_activate(&mut store, first.id);
+
+        let mut wrong_kind = spec();
+        wrong_kind.kind = ExperienceKind::Memory;
+        wrong_kind.supersedes = Some(first.id);
+        assert!(matches!(
+            store.propose(wrong_kind, &events),
+            Err(ExperienceError::SupersessionKindMismatch(id)) if id == first.id
+        ));
+
+        let mut wrong_scope = spec();
+        wrong_scope.scope = "finance".into();
+        wrong_scope.supersedes = Some(first.id);
+        assert!(matches!(
+            store.propose(wrong_scope, &events),
+            Err(ExperienceError::SupersessionScopeMismatch(id)) if id == first.id
+        ));
+    }
+
+    #[test]
+    fn expired_experience_cannot_be_proposed_or_activated() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+        let mut expired_spec = spec();
+        expired_spec.expires_at_unix_ms = Some(now_unix_ms().saturating_sub(1));
+        assert!(matches!(
+            store.propose(expired_spec, &events),
+            Err(ExperienceError::ExpiredSpecification)
+        ));
+
+        let mut short_lived = spec();
+        short_lived.expires_at_unix_ms = Some(now_unix_ms().saturating_add(500));
+        let candidate = store.propose(short_lived, &events).unwrap();
+        store.review(candidate.id, "reviewer").unwrap();
+        store.verify(candidate.id, verification()).unwrap();
+        store.approve(candidate.id, "owner").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(matches!(
+            store.activate(candidate.id),
+            Err(ExperienceError::ExpiredCandidate(id)) if id == candidate.id
+        ));
     }
 
     #[test]

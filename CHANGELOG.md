@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.64.0 - 2026-11-02
+
+- Added the `superseded` experience status.
+- Required superseded candidates to match the prior active kind and scope.
+- Incremented experience version from the superseded candidate.
+- Atomically transitioned prior Active to Superseded during activation.
+- Rejected competing Active candidates in the same kind and scope.
+- Rejected expired proposal and activation.
+- Preserved superseded status after replacement rollback.
+- Added supersession, conflict and expiration tests.
+
 ## 0.63.0 - 2026-11-02
 
 - Added replayable retry timing outcomes with requested and elapsed duration.
