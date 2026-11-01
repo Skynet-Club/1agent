@@ -29,8 +29,8 @@ Limits apply before proposal persistence and again during experience-store repla
 | duplicate modes | rejected |
 | empty modes | rejected |
 | normal candidate | accepted |
-| Clippy `-D warnings` | pending |
-| Clean-source package gate | pending |
+| Clippy `-D warnings` | passed |
+| Clean-source package gate | passed |
 
 ## Known limitations
 
@@ -38,6 +38,28 @@ Limits apply before proposal persistence and again during experience-store repla
 - Existing oversized legacy candidates will fail closed on replay.
 - Limits are code constants, not per-scope configuration.
 - Verification evidence text and review reasons have separate existing checks.
+
+## Verified clean release
+
+```text
+source commit: ebaa2e9ba7e94c12a8b381c632cd0c9f970cd993
+git dirty: false
+
+Linux binary:
+87d5c0eedea38877d7e150a20e859d4a886e07ff4658e27b379baaa7aca1d89d
+
+Windows binary:
+69d0b2e08899e11ad10b0c9acf30d52b08c62e317bd16cd364dba1fe03860009
+
+Linux tar.gz:
+b4ced617d0a6081a4426a4e8ea958d51b06d3d5b34a6abfbb0baa2efed63dc49
+
+Windows zip:
+1f4f236ecd8c22fcb46f832d3e3133121ae53f1e22619b554f6b526485d6c910
+
+Release manifest:
+b99eb1a217047a57c594c9a1c81865000742551c8a0b3dc2962168417d277f71
+```
 
 ## Next requirement
 
