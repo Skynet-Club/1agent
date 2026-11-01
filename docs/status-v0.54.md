@@ -30,7 +30,7 @@ Status: decision completeness implemented
 | Valid unknown-bound flip | accepted |
 | Journal audit of incomplete v2 answer | rejected |
 | Clippy `-D warnings` | passed |
-| Clean-source package gate | pending |
+| Clean-source package gate | passed |
 
 ## Compatibility
 
@@ -44,6 +44,28 @@ auditable under the semantics with which they were created.
   IDs before they can be referenced directly.
 - The validator checks referential integrity, not whether a human believes the flip is plausible.
 - Historical v1 journals are read-only in practice; no migration rewrites them to v2.
+
+## Verified clean release
+
+```text
+source commit: da7019e4b3908e278ebd23092f492018a6a00687
+git dirty: false
+
+Linux binary:
+eacdd729b706aaa14a135a817822b765e7866ae3f6726e89dba02782fd40f9e2
+
+Windows binary:
+57bd7fd6402d443f28e736c134c17e9817a7b62113fdbbd152f52b9153744b19
+
+Linux tar.gz:
+b955d834aa92fe0334d04fc6d612d55d25bf4e4ec356de2cab9fd8b246b9a33f
+
+Windows zip:
+4b5a564d0da9173ba74fbf75b4c1dbd22b207b065a21b1d8aa9fb80f057baa22
+
+Release manifest:
+e984a645a08cc6492e5844b1edc722b5f1b32162208d4a184b7c7b06549591da
+```
 
 ## Next requirement
 
