@@ -10,8 +10,8 @@ use first_principles_agent::{
     DeterministicProvider, ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput,
     GoldSetManifest, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
     OpenAiCompatibleProvider, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RunBudget,
-    RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
+    ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective,
+    RunBudget, RuntimeError, TaskRequest, ToolRegistry, TrustAnchorManifest, audit_events,
     build_release_verification_report, collect_provenance, collect_release_manifest,
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
     load_suite, local_manifest, probe_provider, probe_provider_tools, read_events,
@@ -72,6 +72,8 @@ enum Command {
         timeout_seconds: u64,
         #[arg(long, default_value_t = 100_000)]
         max_context_chars: usize,
+        #[arg(long, default_value = "quality")]
+        route_objective: String,
         #[arg(long)]
         json: bool,
     },
@@ -179,6 +181,8 @@ enum Command {
         journal_dir: PathBuf,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
+        #[arg(long, default_value = "quality")]
+        route_objective: String,
         #[arg(long)]
         json: bool,
     },
@@ -546,6 +550,7 @@ async fn main() -> Result<()> {
             max_tool_calls,
             timeout_seconds,
             max_context_chars,
+            route_objective,
             json,
         } => {
             let mut request = load_request(task, input)?;
@@ -575,7 +580,8 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
-            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
+                .with_route_objective(parse_route_objective(&route_objective)?);
             if let Some(experience_dir) = experience_dir {
                 runtime = runtime.with_experience_dir(experience_dir);
             }
@@ -1045,6 +1051,7 @@ async fn main() -> Result<()> {
             allow_network,
             journal_dir,
             timeout_seconds,
+            route_objective,
             json,
         } => {
             let timeout = Duration::from_secs(timeout_seconds.max(1));
@@ -1054,7 +1061,8 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
-            let runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            let runtime = AgentRuntime::new(candidates, tools, journal_dir)
+                .with_route_objective(parse_route_objective(&route_objective)?);
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
             tokio::spawn(async move {
@@ -1793,6 +1801,18 @@ fn parse_annotation_label(value: &str) -> Result<AnnotationLabel> {
         other => bail!(
             "invalid annotation label '{other}'; use supported, unsupported or needs_evidence"
         ),
+    }
+}
+
+fn parse_route_objective(value: &str) -> Result<RouteObjective> {
+    match value {
+        "quality" => Ok(RouteObjective::Quality),
+        "balanced" => Ok(RouteObjective::Balanced),
+        "latency" => Ok(RouteObjective::Latency),
+        "cost" => Ok(RouteObjective::Cost),
+        other => {
+            bail!("unsupported route objective '{other}'; use quality, balanced, latency or cost")
+        }
     }
 }
 

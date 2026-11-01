@@ -10,6 +10,16 @@ pub enum PrivacyClass {
     Remote,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteObjective {
+    #[default]
+    Quality,
+    Balanced,
+    Latency,
+    Cost,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderManifest {
@@ -34,6 +44,8 @@ pub struct RouteRequest {
     pub requires_tools: bool,
     pub requires_structured_output: bool,
     pub allow_remote: bool,
+    #[serde(default)]
+    pub objective: RouteObjective,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,22 +82,73 @@ impl Router {
             })
             .collect();
 
-        candidates.sort_by_key(|manifest| {
-            (
-                std::cmp::Reverse(manifest.quality_score),
-                manifest.input_cost_micros_per_k + manifest.output_cost_micros_per_k,
-                manifest.p95_latency_ms,
-                manifest.provider_id.clone(),
-                manifest.model.clone(),
-            )
-        });
+        match request.objective {
+            RouteObjective::Quality => candidates.sort_by_key(|manifest| {
+                (
+                    std::cmp::Reverse(manifest.quality_score),
+                    total_cost(manifest),
+                    manifest.p95_latency_ms,
+                    manifest.provider_id.clone(),
+                    manifest.model.clone(),
+                )
+            }),
+            RouteObjective::Latency => candidates.sort_by_key(|manifest| {
+                (
+                    manifest.p95_latency_ms,
+                    std::cmp::Reverse(manifest.quality_score),
+                    total_cost(manifest),
+                    manifest.provider_id.clone(),
+                    manifest.model.clone(),
+                )
+            }),
+            RouteObjective::Cost => candidates.sort_by_key(|manifest| {
+                (
+                    total_cost(manifest),
+                    std::cmp::Reverse(manifest.quality_score),
+                    manifest.p95_latency_ms,
+                    manifest.provider_id.clone(),
+                    manifest.model.clone(),
+                )
+            }),
+            RouteObjective::Balanced => {
+                let quality = rank_by(&candidates, |left, right| {
+                    right
+                        .quality_score
+                        .cmp(&left.quality_score)
+                        .then_with(|| left.provider_id.cmp(&right.provider_id))
+                        .then_with(|| left.model.cmp(&right.model))
+                });
+                let cost = rank_by(&candidates, |left, right| {
+                    total_cost(left)
+                        .cmp(&total_cost(right))
+                        .then_with(|| left.provider_id.cmp(&right.provider_id))
+                        .then_with(|| left.model.cmp(&right.model))
+                });
+                let latency = rank_by(&candidates, |left, right| {
+                    left.p95_latency_ms
+                        .cmp(&right.p95_latency_ms)
+                        .then_with(|| left.provider_id.cmp(&right.provider_id))
+                        .then_with(|| left.model.cmp(&right.model))
+                });
+                candidates.sort_by_key(|manifest| {
+                    let key = (manifest.provider_id.clone(), manifest.model.clone());
+                    (
+                        quality[&key] + cost[&key] + latency[&key],
+                        std::cmp::Reverse(manifest.quality_score),
+                        manifest.provider_id.clone(),
+                        manifest.model.clone(),
+                    )
+                });
+            }
+        }
 
         candidates
             .into_iter()
             .map(|manifest| RouteDecision {
                 manifest: manifest.clone(),
                 reason: format!(
-                    "quality-first candidate for {:?}, risk {:?}, tools={}, structured={}, remote={}",
+                    "{:?}-first candidate for {:?}, risk {:?}, tools={}, structured={}, remote={}",
+                    request.objective,
                     request.mode,
                     request.risk,
                     request.requires_tools,
@@ -95,6 +158,25 @@ impl Router {
             })
             .collect()
     }
+}
+
+fn total_cost(manifest: &ProviderManifest) -> u64 {
+    manifest
+        .input_cost_micros_per_k
+        .saturating_add(manifest.output_cost_micros_per_k)
+}
+
+fn rank_by(
+    candidates: &[&ProviderManifest],
+    compare: impl Fn(&ProviderManifest, &ProviderManifest) -> std::cmp::Ordering,
+) -> std::collections::HashMap<(String, String), usize> {
+    let mut ranked = candidates.to_vec();
+    ranked.sort_by(|left, right| compare(left, right));
+    ranked
+        .into_iter()
+        .enumerate()
+        .map(|(rank, manifest)| ((manifest.provider_id.clone(), manifest.model.clone()), rank))
+        .collect()
 }
 
 #[cfg(test)]
@@ -139,6 +221,7 @@ mod tests {
                 requires_tools: true,
                 requires_structured_output: true,
                 allow_remote: false,
+                objective: RouteObjective::Quality,
             })
             .unwrap();
         assert_eq!(decision.manifest.provider_id, "local");
@@ -153,6 +236,7 @@ mod tests {
             requires_tools: true,
             requires_structured_output: true,
             allow_remote: false,
+            objective: RouteObjective::Quality,
         });
         assert!(decision.is_none());
     }
@@ -169,9 +253,45 @@ mod tests {
             requires_tools: true,
             requires_structured_output: true,
             allow_remote: false,
+            objective: RouteObjective::Quality,
         });
         assert_eq!(ranked.len(), 2);
         assert_eq!(ranked[0].manifest.provider_id, "high");
         assert_eq!(ranked[1].manifest.provider_id, "low");
+    }
+
+    #[test]
+    fn route_objective_changes_ranking_but_not_hard_filters() {
+        let mut quality = manifest("quality", PrivacyClass::Local, true, 100);
+        quality.input_cost_micros_per_k = 80;
+        quality.output_cost_micros_per_k = 20;
+        quality.p95_latency_ms = 100;
+        let mut balanced = manifest("balanced", PrivacyClass::Local, true, 90);
+        balanced.input_cost_micros_per_k = 10;
+        balanced.output_cost_micros_per_k = 0;
+        balanced.p95_latency_ms = 50;
+        let mut latency = manifest("latency", PrivacyClass::Local, true, 80);
+        latency.input_cost_micros_per_k = 40;
+        latency.output_cost_micros_per_k = 10;
+        latency.p95_latency_ms = 10;
+        let router = Router::new(vec![quality, balanced, latency]);
+        let route = |objective| {
+            router
+                .route(&RouteRequest {
+                    mode: CognitiveMode::EvidenceResearch,
+                    risk: RiskLevel::Low,
+                    requires_tools: true,
+                    requires_structured_output: true,
+                    allow_remote: false,
+                    objective,
+                })
+                .unwrap()
+                .manifest
+                .provider_id
+        };
+        assert_eq!(route(RouteObjective::Quality), "quality");
+        assert_eq!(route(RouteObjective::Balanced), "balanced");
+        assert_eq!(route(RouteObjective::Latency), "latency");
+        assert_eq!(route(RouteObjective::Cost), "balanced");
     }
 }

@@ -17,7 +17,7 @@ use crate::journal::{
     Journal, JournalEventKind, ResumablePrefix, find_resumable_prefix, read_events,
 };
 use crate::provider::{ModelProvider, ProviderError, agent_system_prompt};
-use crate::router::{PrivacyClass, ProviderManifest, RouteRequest, Router};
+use crate::router::{PrivacyClass, ProviderManifest, RouteObjective, RouteRequest, Router};
 use crate::tools::ToolRegistry;
 
 #[derive(Clone)]
@@ -34,6 +34,7 @@ pub struct AgentRuntime {
     journal_dir: PathBuf,
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
+    route_objective: RouteObjective,
 }
 
 impl AgentRuntime {
@@ -55,7 +56,13 @@ impl AgentRuntime {
             journal_dir: journal_dir.into(),
             experience_dir: None,
             shadow_experience: Vec::new(),
+            route_objective: RouteObjective::Quality,
         }
+    }
+
+    pub fn with_route_objective(mut self, objective: RouteObjective) -> Self {
+        self.route_objective = objective;
+        self
     }
 
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
@@ -203,6 +210,7 @@ impl AgentRuntime {
             requires_tools: !tool_specs.is_empty(),
             requires_structured_output: true,
             allow_remote: request.permissions.allow_network,
+            objective: self.route_objective,
         };
         let routes = self.router.rank(&route_request);
         if routes.is_empty() {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.30.0 - 2026-11-02
+
+- Added quality, balanced, latency and cost route objectives.
+- Kept mode, risk, privacy, tool and structured-output checks as hard filters.
+- Added deterministic objective-specific ordering and tie-breaking.
+- Added `--route-objective` to run and resume commands.
+- Recorded the selected objective in route-selection reasons.
+- Added coverage proving objective changes ranking while hard filters remain enforced.
+
 ## 0.29.0 - 2026-11-02
 
 - Added an inert echo tool for provider tool-calling conformance.
