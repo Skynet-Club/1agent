@@ -23,6 +23,6 @@ Date: 2026-11-02
 
 ## Current audits and release evidence
 
-- [`audit-v0.88.md`](audit-v0.88.md): current cross-requirement audit.
-- [`status-v0.88.md`](status-v0.88.md): current release evidence.
+- [`audit-v0.89.md`](audit-v0.89.md): current cross-requirement audit.
+- [`status-v0.89.md`](status-v0.89.md): current release evidence.
 - Historical `status-v0.*.md` files preserve incremental implementation evidence.
