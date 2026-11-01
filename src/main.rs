@@ -17,9 +17,9 @@ use first_principles_agent::{
     create_goldset_manifest, create_trust_anchor, default_registry, evaluate_experience_suite,
     find_resumable_prefix, infer_mode, load_suite, local_manifest, probe_provider,
     probe_provider_tools, read_events, rebuild_and_compare, remote_manifest, replay_events,
-    risk_for_mode, run_suite_with_providers, scan_history, verify_goldset_manifest,
-    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor,
+    risk_for_mode, run_suite_with_providers, scan_history, summarize_route_trace,
+    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
+    verify_snapshot_chain, verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -656,6 +656,7 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!("{}", render_answer(&result));
+                print_route_trace(&result.journal_path)?;
                 println!("\n运行日志：{}", result.journal_path.display());
             }
         }
@@ -1234,6 +1235,7 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!("{}", render_answer(&result));
+                print_route_trace(&result.journal_path)?;
                 println!("\n运行日志：{}", result.journal_path.display());
             }
         }
@@ -2135,6 +2137,31 @@ fn render_answer(result: &first_principles_agent::RunResult) -> String {
         }
     }
     output
+}
+
+fn print_route_trace(journal_path: &std::path::Path) -> Result<()> {
+    let events = read_events(journal_path)?;
+    if let Some(summary) = summarize_route_trace(&events) {
+        println!(
+            "\n路由：mode={:?} objective={:?} candidates={} rejected={}",
+            summary.mode, summary.objective, summary.candidates, summary.rejected
+        );
+        if let (Some(provider_id), Some(model)) =
+            (summary.selected_provider_id, summary.selected_model)
+        {
+            println!("路由选择：{provider_id}/{model}");
+        }
+        if let Some(reason) = summary.selection_reason {
+            println!("路由原因：{reason}");
+        }
+        println!(
+            "策略来源：objective={:?} latency={:?} unit_cost={:?}",
+            summary.policy_sources.objective,
+            summary.policy_sources.latency_budget,
+            summary.policy_sources.unit_cost_budget
+        );
+    }
+    Ok(())
 }
 
 fn answer_status_label(status: first_principles_agent::AnswerStatus) -> &'static str {

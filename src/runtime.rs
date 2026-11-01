@@ -971,7 +971,7 @@ mod tests {
     use crate::experience::{
         ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
     };
-    use crate::journal::{audit_events, read_events, replay_events};
+    use crate::journal::{audit_events, read_events, replay_events, summarize_route_trace};
     use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
     use crate::tools::default_registry;
     use async_trait::async_trait;
@@ -1055,6 +1055,13 @@ mod tests {
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.route_plan.as_ref(), Some(plan));
         assert_eq!(replay.route_policy_sources.as_ref(), Some(sources));
+        let summary = summarize_route_trace(&events).unwrap();
+        assert_eq!(summary.candidates, 1);
+        assert_eq!(summary.rejected, 0);
+        assert_eq!(
+            summary.selected_provider_id.as_deref(),
+            Some("deterministic")
+        );
     }
 
     #[tokio::test]

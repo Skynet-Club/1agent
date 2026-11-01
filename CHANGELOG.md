@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.36.0 - 2026-11-02
+
+- Added concise route summaries to non-JSON run and resume output.
+- Displayed mode, objective, candidate/rejection counts, first selected route and its reason.
+- Displayed policy-source attribution.
+- Kept full plans in JSON journal/replay output.
+- Ensured traces omit endpoints, credentials and prompt content.
+- Added route-trace summary coverage.
+
 ## 0.35.0 - 2026-11-02
 
 - Added `resume-status` for inspecting checkpoint route metadata without resuming.

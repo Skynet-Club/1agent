@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.35.0` is an executable V0 vertical slice:
+Version `0.36.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -53,10 +53,11 @@ Version `0.35.0` is an executable V0 vertical slice:
 - journaled route plans with effective value sources, rejection reasons and replay;
 - checkpoint-bound route-plan digests with hard rejection of changed resume policy;
 - route-aware resume status and automatic recovery of the checkpoint objective;
+- concise human-readable route traces without endpoint or credential disclosure;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.35.md`](docs/status-v0.35.md).
+[`docs/status-v0.36.md`](docs/status-v0.36.md).
 
 Current V0 assumptions:
 

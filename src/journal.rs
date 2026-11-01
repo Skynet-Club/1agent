@@ -10,7 +10,7 @@ use crate::domain::{
     AgentAnswer, CognitiveMode, InjectedExperience, ModelRequest, ModelResponse, PROTOCOL_VERSION,
     RuntimeCheckpoint, StopReason, TaskRequest, ToolCall, ToolObservation,
 };
-use crate::router::{RoutePlan, RoutePolicySources};
+use crate::router::{RouteObjective, RoutePlan, RoutePolicySources};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -153,6 +153,56 @@ pub struct ReplayState {
     pub observations: Vec<ToolObservation>,
     pub checkpoint: Option<RuntimeCheckpoint>,
     pub client_request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RouteTraceSummary {
+    pub mode: CognitiveMode,
+    pub objective: RouteObjective,
+    pub candidates: usize,
+    pub rejected: usize,
+    pub selected_provider_id: Option<String>,
+    pub selected_model: Option<String>,
+    pub selection_reason: Option<String>,
+    pub policy_sources: RoutePolicySources,
+}
+
+pub fn summarize_route_trace(events: &[JournalEvent]) -> Option<RouteTraceSummary> {
+    let mut route_plan = None;
+    let mut selected = None;
+    let mut sources = None;
+    for event in events {
+        match &event.event {
+            JournalEventKind::RoutePlanned {
+                plan,
+                sources: value,
+            } => {
+                route_plan = Some(plan);
+                sources = Some(value);
+            }
+            JournalEventKind::RouteSelected {
+                provider_id,
+                model,
+                reason,
+            } if selected.is_none() => {
+                selected = Some((provider_id, model, reason));
+            }
+            _ => {}
+        }
+    }
+    let plan = route_plan?;
+    let sources = sources?.clone();
+    Some(RouteTraceSummary {
+        mode: plan.request.mode,
+        objective: plan.request.objective,
+        candidates: plan.ranked.len(),
+        rejected: plan.rejected.len(),
+        selected_provider_id: selected.map(|value| value.0.clone()),
+        selected_model: selected.map(|value| value.1.clone()),
+        selection_reason: selected.map(|value| value.2.clone()),
+        policy_sources: sources,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
