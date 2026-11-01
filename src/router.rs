@@ -46,6 +46,10 @@ pub struct RouteRequest {
     pub allow_remote: bool,
     #[serde(default)]
     pub objective: RouteObjective,
+    #[serde(default)]
+    pub max_provider_p95_latency_ms: Option<u64>,
+    #[serde(default)]
+    pub max_unit_cost_micros_per_k: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -63,6 +67,8 @@ pub enum RouteRejectionReason {
     ToolsUnsupported,
     StructuredOutputUnsupported,
     RemoteDisallowed,
+    ProviderP95LatencyExceeded,
+    UnitCostExceeded,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -226,6 +232,18 @@ fn rejection_reasons(
     if !request.allow_remote && manifest.privacy == PrivacyClass::Remote {
         reasons.push(RouteRejectionReason::RemoteDisallowed);
     }
+    if request
+        .max_provider_p95_latency_ms
+        .is_some_and(|limit| manifest.p95_latency_ms > limit)
+    {
+        reasons.push(RouteRejectionReason::ProviderP95LatencyExceeded);
+    }
+    if request
+        .max_unit_cost_micros_per_k
+        .is_some_and(|limit| total_cost(manifest) > limit)
+    {
+        reasons.push(RouteRejectionReason::UnitCostExceeded);
+    }
     reasons
 }
 
@@ -291,6 +309,8 @@ mod tests {
                 requires_structured_output: true,
                 allow_remote: false,
                 objective: RouteObjective::Quality,
+                max_provider_p95_latency_ms: None,
+                max_unit_cost_micros_per_k: None,
             })
             .unwrap();
         assert_eq!(decision.manifest.provider_id, "local");
@@ -306,6 +326,8 @@ mod tests {
             requires_structured_output: true,
             allow_remote: false,
             objective: RouteObjective::Quality,
+            max_provider_p95_latency_ms: None,
+            max_unit_cost_micros_per_k: None,
         });
         assert!(decision.is_none());
     }
@@ -323,6 +345,8 @@ mod tests {
             requires_structured_output: true,
             allow_remote: false,
             objective: RouteObjective::Quality,
+            max_provider_p95_latency_ms: None,
+            max_unit_cost_micros_per_k: None,
         });
         assert_eq!(ranked.len(), 2);
         assert_eq!(ranked[0].manifest.provider_id, "high");
@@ -353,6 +377,8 @@ mod tests {
                     requires_structured_output: true,
                     allow_remote: false,
                     objective,
+                    max_provider_p95_latency_ms: None,
+                    max_unit_cost_micros_per_k: None,
                 })
                 .unwrap()
                 .manifest

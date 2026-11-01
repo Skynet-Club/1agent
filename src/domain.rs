@@ -80,6 +80,10 @@ pub struct RunBudget {
     pub timeout_ms: u64,
     #[serde(default = "default_max_context_chars")]
     pub max_context_chars: usize,
+    #[serde(default)]
+    pub max_provider_p95_latency_ms: Option<u64>,
+    #[serde(default)]
+    pub max_unit_cost_micros_per_k: Option<u64>,
 }
 
 impl Default for RunBudget {
@@ -89,6 +93,8 @@ impl Default for RunBudget {
             max_tool_calls: 8,
             timeout_ms: 120_000,
             max_context_chars: 100_000,
+            max_provider_p95_latency_ms: None,
+            max_unit_cost_micros_per_k: None,
         }
     }
 }

@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.31.0` is an executable V0 vertical slice:
+Version `0.32.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -49,10 +49,11 @@ Version `0.31.0` is an executable V0 vertical slice:
 - inert echo-tool conformance without filesystem, process or network authority;
 - explicit quality, balanced, latency and cost routing objectives over hard capability filters;
 - offline route plans with ranked candidates, rejection reasons and credential readiness;
+- provider p95-latency and unit-cost limits as hard route constraints;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.31.md`](docs/status-v0.31.md).
+[`docs/status-v0.32.md`](docs/status-v0.32.md).
 
 Current V0 assumptions:
 
@@ -69,7 +70,9 @@ cargo run --offline -- run --task "Compare A and B"
 cargo run --offline -- run --task "Compare A and B" --route-objective balanced
 cargo run --offline -- route-plan \
   --config configs/example.json \
-  --task "Compare A and B" --json
+  --task "Compare A and B" \
+  --max-provider-p95-latency-ms 3000 \
+  --max-unit-cost-micros-per-k 20 --json
 cargo run --offline -- audit --journal .journal/run.jsonl
 cargo run --offline -- replay --journal .journal/run.jsonl
 cargo run --offline -- eval --suite evals/core.json

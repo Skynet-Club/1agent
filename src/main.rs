@@ -72,6 +72,10 @@ enum Command {
         timeout_seconds: u64,
         #[arg(long, default_value_t = 100_000)]
         max_context_chars: usize,
+        #[arg(long)]
+        max_provider_p95_latency_ms: Option<u64>,
+        #[arg(long)]
+        max_unit_cost_micros_per_k: Option<u64>,
         #[arg(long, default_value = "quality")]
         route_objective: String,
         #[arg(long)]
@@ -144,6 +148,10 @@ enum Command {
         config: PathBuf,
         #[arg(long)]
         allow_network: bool,
+        #[arg(long)]
+        max_provider_p95_latency_ms: Option<u64>,
+        #[arg(long)]
+        max_unit_cost_micros_per_k: Option<u64>,
         #[arg(long, default_value = "quality")]
         route_objective: String,
         #[arg(long)]
@@ -564,6 +572,8 @@ async fn main() -> Result<()> {
             max_tool_calls,
             timeout_seconds,
             max_context_chars,
+            max_provider_p95_latency_ms,
+            max_unit_cost_micros_per_k,
             route_objective,
             json,
         } => {
@@ -573,6 +583,8 @@ async fn main() -> Result<()> {
                 max_tool_calls,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
                 max_context_chars,
+                max_provider_p95_latency_ms,
+                max_unit_cost_micros_per_k,
             };
             request.permissions.allow_network = allow_network;
             if experience_scope.is_some() {
@@ -1020,10 +1032,18 @@ async fn main() -> Result<()> {
             input,
             config,
             allow_network,
+            max_provider_p95_latency_ms,
+            max_unit_cost_micros_per_k,
             route_objective,
             json,
         } => {
-            let request = load_request(task, input)?;
+            let mut request = load_request(task, input)?;
+            if max_provider_p95_latency_ms.is_some() {
+                request.budget.max_provider_p95_latency_ms = max_provider_p95_latency_ms;
+            }
+            if max_unit_cost_micros_per_k.is_some() {
+                request.budget.max_unit_cost_micros_per_k = max_unit_cost_micros_per_k;
+            }
             let config = AgentConfig::load(config)?;
             let manifests = config.manifests()?;
             let readiness = config.inspect_readiness()?;
@@ -1036,6 +1056,8 @@ async fn main() -> Result<()> {
                 requires_structured_output: true,
                 allow_remote: allow_network,
                 objective,
+                max_provider_p95_latency_ms: request.budget.max_provider_p95_latency_ms,
+                max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
             });
             let value = serde_json::json!({
                 "schema_version": 1,

@@ -211,6 +211,8 @@ impl AgentRuntime {
             requires_structured_output: true,
             allow_remote: request.permissions.allow_network,
             objective: self.route_objective,
+            max_provider_p95_latency_ms: request.budget.max_provider_p95_latency_ms,
+            max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
         };
         let routes = self.router.rank(&route_request);
         if routes.is_empty() {

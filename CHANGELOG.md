@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.0 - 2026-11-02
+
+- Added provider p95 latency and unit-cost limits to run budgets.
+- Added matching hard-filter rejection reasons to route plans and runtime routing.
+- Added CLI overrides for both limits on `run` and `route-plan`.
+- Journaled effective limits through the initial task request.
+- Added end-to-end coverage proving over-budget candidates are excluded with both reasons.
+
 ## 0.31.0 - 2026-11-02
 
 - Added `route-plan` for offline provider selection inspection.
