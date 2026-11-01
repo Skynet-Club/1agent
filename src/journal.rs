@@ -987,7 +987,7 @@ mod tests {
                     "type": "answer_produced",
                     "data": {
                         "answer": {
-                            "status": "completed",
+                            "status": "conditional",
                             "conclusion": "legacy answer"
                         }
                     }
@@ -1007,7 +1007,7 @@ mod tests {
         assert!(audit.ok, "{:?}", audit.issues);
         assert_eq!(
             audit.answer_schema_version,
-            Some(crate::domain::ANSWER_SCHEMA_VERSION)
+            Some(crate::domain::LEGACY_ANSWER_SCHEMA_VERSION)
         );
     }
 
@@ -1059,6 +1059,51 @@ mod tests {
                 .issues
                 .iter()
                 .any(|issue| issue.contains("unsupported answer schema version"))
+        );
+    }
+
+    #[test]
+    fn audit_rejects_incomplete_current_answer_decision() {
+        let run_id = Uuid::new_v4();
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let mut incomplete = answer();
+        incomplete.status = AnswerStatus::Conditional;
+        let events = vec![
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStarted {
+                    request,
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 1,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::AnswerProduced { answer: incomplete },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 2,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::RunStopped {
+                    reason: StopReason::Completed,
+                },
+            },
+        ];
+
+        let audit = audit_events(&events);
+        assert!(!audit.ok);
+        assert!(
+            audit
+                .issues
+                .iter()
+                .any(|issue| issue.contains("conditional answer requires"))
         );
     }
 

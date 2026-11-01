@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const ANSWER_SCHEMA_VERSION: u32 = 1;
+pub const LEGACY_ANSWER_SCHEMA_VERSION: u32 = 1;
+pub const ANSWER_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -59,6 +60,8 @@ impl TaskRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct UnknownItem {
+    #[serde(default)]
+    pub id: String,
     pub description: String,
     #[serde(default)]
     pub impact: ImpactLevel,
@@ -204,6 +207,8 @@ pub struct Evidence {
 pub struct FlipCondition {
     pub if_observed: String,
     pub then: String,
+    #[serde(default)]
+    pub target_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -320,7 +325,10 @@ pub struct AgentAnswer {
 
 impl AgentAnswer {
     pub fn validate(&self, request: &TaskRequest) -> Result<(), AnswerValidationError> {
-        if self.schema_version != ANSWER_SCHEMA_VERSION {
+        if !matches!(
+            self.schema_version,
+            LEGACY_ANSWER_SCHEMA_VERSION | ANSWER_SCHEMA_VERSION
+        ) {
             return Err(AnswerValidationError::UnsupportedAnswerVersion);
         }
         if self.conclusion.trim().is_empty() {
@@ -332,8 +340,17 @@ impl AgentAnswer {
         }
         let claim_ids: std::collections::BTreeSet<_> =
             self.claims.iter().map(|claim| claim.id.as_str()).collect();
+        let unknown_ids = self
+            .unknowns
+            .iter()
+            .map(|unknown| unknown.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
         if claim_ids.len() != self.claims.len() {
             return Err(AnswerValidationError::DuplicateClaimId);
+        }
+        if self.schema_version == ANSWER_SCHEMA_VERSION && unknown_ids.len() != self.unknowns.len()
+        {
+            return Err(AnswerValidationError::DuplicateUnknownId);
         }
         for claim in &self.claims {
             match claim.status {
@@ -378,6 +395,9 @@ impl AgentAnswer {
             }
         }
         for unknown in &self.unknowns {
+            if self.schema_version == ANSWER_SCHEMA_VERSION && unknown.id.trim().is_empty() {
+                return Err(AnswerValidationError::UnknownWithoutId);
+            }
             if unknown.description.trim().is_empty() {
                 return Err(AnswerValidationError::EmptyUnknownDescription);
             }
@@ -411,6 +431,44 @@ impl AgentAnswer {
                         assumption.description.clone(),
                     ),
                 );
+            }
+        }
+        if self.schema_version == ANSWER_SCHEMA_VERSION {
+            if self.status == AnswerStatus::Conditional && self.flip_conditions.is_empty() {
+                return Err(AnswerValidationError::ConditionalWithoutFlipCondition);
+            }
+            if self.status == AnswerStatus::Completed
+                && self
+                    .assumptions
+                    .iter()
+                    .any(|assumption| assumption.impact == ImpactLevel::High)
+            {
+                return Err(AnswerValidationError::CompletedWithHighImpactAssumption);
+            }
+            for flip_condition in &self.flip_conditions {
+                if flip_condition.if_observed.trim().is_empty()
+                    || flip_condition.then.trim().is_empty()
+                {
+                    return Err(AnswerValidationError::EmptyFlipCondition);
+                }
+                if flip_condition.target_ids.is_empty() {
+                    return Err(AnswerValidationError::FlipConditionWithoutTarget);
+                }
+                let mut targets = std::collections::BTreeSet::new();
+                for target_id in &flip_condition.target_ids {
+                    if !targets.insert(target_id.as_str()) {
+                        return Err(AnswerValidationError::DuplicateFlipConditionTarget(
+                            target_id.clone(),
+                        ));
+                    }
+                    if !claim_ids.contains(target_id.as_str())
+                        && !unknown_ids.contains(target_id.as_str())
+                    {
+                        return Err(AnswerValidationError::UnknownFlipConditionTarget(
+                            target_id.clone(),
+                        ));
+                    }
+                }
             }
         }
         let conflict_ids = self
@@ -592,6 +650,10 @@ pub enum AnswerValidationError {
     UnauthorizedActionReceipt,
     #[error("answer contains duplicate claim ids")]
     DuplicateClaimId,
+    #[error("answer contains duplicate unknown ids")]
+    DuplicateUnknownId,
+    #[error("unknown item must have a non-empty id")]
+    UnknownWithoutId,
     #[error("evidence references unknown claim id '{0}'")]
     UnknownClaimReference(String),
     #[error("verified claim '{0}' has no source")]
@@ -623,6 +685,18 @@ pub enum AnswerValidationError {
     EmptyAssumptionDescription,
     #[error("high-impact assumption '{0}' requires a verification method")]
     HighImpactAssumptionWithoutVerification(String),
+    #[error("conditional answer requires at least one flip condition")]
+    ConditionalWithoutFlipCondition,
+    #[error("completed answer cannot rely on a high-impact assumption")]
+    CompletedWithHighImpactAssumption,
+    #[error("flip condition must have a non-empty observation and consequence")]
+    EmptyFlipCondition,
+    #[error("flip condition must reference at least one claim or unknown")]
+    FlipConditionWithoutTarget,
+    #[error("flip condition contains duplicate target id '{0}'")]
+    DuplicateFlipConditionTarget(String),
+    #[error("flip condition references undeclared target id '{0}'")]
+    UnknownFlipConditionTarget(String),
     #[error("answer contains duplicate conflict ids")]
     DuplicateConflictId,
     #[error("conflict '{0}' has invalid or duplicate claim references")]
@@ -648,7 +722,7 @@ pub enum AnswerValidationError {
 }
 
 fn default_answer_schema_version() -> u32 {
-    ANSWER_SCHEMA_VERSION
+    LEGACY_ANSWER_SCHEMA_VERSION
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -930,10 +1004,10 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(answer.schema_version, ANSWER_SCHEMA_VERSION);
+        assert_eq!(answer.schema_version, LEGACY_ANSWER_SCHEMA_VERSION);
         answer.validate(&request).unwrap();
         let serialized = serde_json::to_value(answer).unwrap();
-        assert_eq!(serialized["schema_version"], ANSWER_SCHEMA_VERSION);
+        assert_eq!(serialized["schema_version"], LEGACY_ANSWER_SCHEMA_VERSION);
     }
 
     #[test]
@@ -952,6 +1026,58 @@ mod tests {
         );
         answer.schema_version = ANSWER_SCHEMA_VERSION;
         answer.validate(&request).unwrap();
+    }
+
+    #[test]
+    fn decision_completeness_requires_and_binds_flip_conditions() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let mut answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+            "schema_version": ANSWER_SCHEMA_VERSION,
+            "status": "conditional",
+            "conclusion": "use A if cost remains lower",
+            "claims": [],
+            "evidence": [],
+            "assumptions": [],
+            "constraints": [],
+            "unknowns": [{
+                "id": "current-cost",
+                "description": "future cost of A",
+                "impact": "high",
+                "reduction_method": "obtain a current quote"
+            }],
+            "flip_conditions": [{
+                "if_observed": "B becomes cheaper",
+                "then": "switch to B",
+                "target_ids": ["current-cost"]
+            }]
+        }))
+        .unwrap();
+        answer.validate(&request).unwrap();
+
+        answer.flip_conditions[0].target_ids = vec!["missing".into()];
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::UnknownFlipConditionTarget(
+                "missing".into()
+            ))
+        );
+
+        answer.flip_conditions.clear();
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::ConditionalWithoutFlipCondition)
+        );
+
+        answer.status = AnswerStatus::Completed;
+        answer.assumptions = vec![AssumptionItem {
+            description: "current cost holds".into(),
+            impact: ImpactLevel::High,
+            verification_method: Some("refresh the quote".into()),
+        }];
+        assert_eq!(
+            answer.validate(&request),
+            Err(AnswerValidationError::CompletedWithHighImpactAssumption)
+        );
     }
 
     #[test]
@@ -1142,6 +1268,7 @@ mod tests {
             assumptions: Vec::new(),
             constraints: Vec::new(),
             unknowns: vec![UnknownItem {
+                id: "critical-input".into(),
                 description: "critical missing input".into(),
                 impact: ImpactLevel::High,
                 why_it_matters: Some("it can flip the decision".into()),
@@ -1164,14 +1291,23 @@ mod tests {
     #[test]
     fn assumptions_are_structured_and_high_impact_requires_verification() {
         let mut answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+            "schema_version": ANSWER_SCHEMA_VERSION,
             "status": "conditional",
             "conclusion": "conditional",
             "claims": [],
             "evidence": [],
             "assumptions": ["legacy assumption"],
             "constraints": [],
-            "unknowns": [],
-            "flip_conditions": [],
+            "unknowns": [{
+                "id": "assumption-check",
+                "description": "whether the assumption holds",
+                "impact": "medium"
+            }],
+            "flip_conditions": [{
+                "if_observed": "current data invalidates the assumption",
+                "then": "stop relying on the conditional conclusion",
+                "target_ids": ["assumption-check"]
+            }],
             "action_receipts": []
         }))
         .unwrap();
@@ -1229,7 +1365,11 @@ mod tests {
                 resolution_sources: Vec::new(),
                 resolution_claim_ids: Vec::new(),
             }],
-            flip_conditions: Vec::new(),
+            flip_conditions: vec![FlipCondition {
+                if_observed: "new evidence resolves the conflict".into(),
+                then: "prefer the better-supported claim".into(),
+                target_ids: vec!["claim-a".into()],
+            }],
             action_receipts: Vec::new(),
         };
         answer.validate(&request).unwrap();

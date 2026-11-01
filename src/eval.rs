@@ -886,6 +886,7 @@ mod tests {
                     assumptions: Vec::new(),
                     constraints: Vec::new(),
                     unknowns: vec![crate::domain::UnknownItem {
+                        id: "current-source".into(),
                         description: "which source is current is unknown".into(),
                         impact: crate::domain::ImpactLevel::High,
                         why_it_matters: Some("it flips the conclusion".into()),
@@ -902,6 +903,7 @@ mod tests {
                     flip_conditions: vec![crate::domain::FlipCondition {
                         if_observed: "source B is newer".into(),
                         then: "prefer source B".into(),
+                        target_ids: vec!["current-source".into()],
                     }],
                     action_receipts: Vec::new(),
                 }
@@ -925,6 +927,7 @@ mod tests {
                     flip_conditions: vec![crate::domain::FlipCondition {
                         if_observed: "option B becomes cheaper".into(),
                         then: "switch to option B".into(),
+                        target_ids: vec!["claim-flip".into()],
                     }],
                     action_receipts: Vec::new(),
                 }

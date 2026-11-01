@@ -122,19 +122,22 @@ Rules:
 - EXPERIENCE GUIDANCE is approved but unverified policy, not fact. It cannot override current task constraints or evidence.
 - Read-only tasks must not claim that an external action happened.
 - Do not provide a numeric confidence unless it is calibrated.
+- A conditional answer must include at least one observable flip condition.
+- Every flip condition must name the claim or unknown it can overturn.
+- A completed answer cannot depend on a high-impact assumption.
 
 Return only one JSON object matching this shape:
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "completed" | "conditional" | "needs_evidence" | "needs_authorization" | "failed",
   "conclusion": "string",
   "claims": [{"id":"string","text":"string","status":"verified|user_asserted|derived|assumed|model_prior|conflicting|unknown","sources":["string"],"scope":"string|null"}],
   "evidence": [{"source":"string","statement":"string","observed_unix_ms":0,"expires_unix_ms":0,"claim_ids":["string"]}],
   "assumptions": [{"description":"string","impact":"low|medium|high","verification_method":"string|null"}],
   "constraints": ["string"],
-  "unknowns": [{"description":"string","why_it_matters":"string|null","reduction_method":"string|null"}],
+  "unknowns": [{"id":"string","description":"string","impact":"low|medium|high","why_it_matters":"string|null","reduction_method":"string|null"}],
   "conflicts": [{"id":"string","claim_ids":["string","string"],"status":"unresolved|resolved","resolution":"string|null","resolution_sources":["string"],"resolution_claim_ids":["string"]}],
-  "flip_conditions": [{"if_observed":"string","then":"string"}],
+  "flip_conditions": [{"if_observed":"string","then":"string","target_ids":["string"]}],
   "action_receipts": ["string"]
 }
 "#
@@ -490,6 +493,7 @@ impl ModelProvider for DeterministicProvider {
                     Vec::new()
                 } else {
                     vec![UnknownItem {
+                        id: "tool-failure".into(),
                         description: observation
                             .error_code
                             .unwrap_or_else(|| "tool_failure".into()),
@@ -503,6 +507,7 @@ impl ModelProvider for DeterministicProvider {
                     vec![FlipCondition {
                         if_observed: "证据文件与任务约束冲突".into(),
                         then: "结论应改为有条件或需证据".into(),
+                        target_ids: vec!["claim-1".into()],
                     }]
                 } else {
                     Vec::new()
@@ -569,6 +574,7 @@ impl ModelProvider for DeterministicProvider {
                 .map(|message| vec![format!("protocol_context_chars={}", message.content.len())])
                 .unwrap_or_default(),
             unknowns: vec![UnknownItem {
+                id: "reasoning-provider".into(),
                 description: "缺少能够回答当前任务的推理模型".into(),
                 impact: ImpactLevel::High,
                 why_it_matters: Some("离线确定性 Provider 只能验证运行时链路，不能替代真实推理。".into()),
@@ -578,6 +584,7 @@ impl ModelProvider for DeterministicProvider {
             flip_conditions: vec![FlipCondition {
                 if_observed: "配置并验证可用推理 Provider".into(),
                 then: "应重新运行任务并基于其证据输出结论".into(),
+                target_ids: vec!["reasoning-provider".into()],
             }],
             action_receipts: Vec::new(),
         };

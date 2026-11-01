@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.54.0 - 2026-11-02
+
+- Upgraded new answers to schema version 2 while retaining version 1 validation.
+- Added stable IDs to unknowns in the current answer contract.
+- Required conditional answers to include at least one flip condition.
+- Rejected completed answers that depend on high-impact assumptions.
+- Bound flip conditions to declared claims or unknowns.
+- Rejected empty, duplicate or dangling flip-condition targets.
+- Preserved legacy unversioned answers as version 1 with their original semantics.
+- Added domain, journal audit and provider contract coverage.
+
 ## 0.53.0 - 2026-11-02
 
 - Added an explicit schema version to structured agent answers.

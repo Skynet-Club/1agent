@@ -856,6 +856,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
         assumptions: Vec::new(),
         constraints: vec!["allow_write=false".into()],
         unknowns: vec![UnknownItem {
+            id: "authorization-scope".into(),
             description: "缺少明确的写入权限和审批范围".into(),
             impact: ImpactLevel::High,
             why_it_matters: Some("没有授权就无法安全执行副作用动作".into()),
@@ -865,6 +866,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
         flip_conditions: vec![FlipCondition {
             if_observed: "用户授权具体低风险动作及其作用范围".into(),
             then: "可以进入受控执行流程".into(),
+            target_ids: vec!["authorization-scope".into()],
         }],
         action_receipts: Vec::new(),
     }
@@ -880,6 +882,7 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
         assumptions: Vec::new(),
         constraints: vec![reason.into()],
         unknowns: vec![UnknownItem {
+            id: "budget-verification".into(),
             description: "任务尚未完成验证".into(),
             impact: ImpactLevel::High,
             why_it_matters: Some("预算停止时不能把部分工作报告为成功".into()),
@@ -889,6 +892,7 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
         flip_conditions: vec![FlipCondition {
             if_observed: "在更高预算下完成外部验证".into(),
             then: "应重新评估是否形成结论".into(),
+            target_ids: vec!["budget-verification".into()],
         }],
         action_receipts: Vec::new(),
     }
