@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.68.0 - 2026-11-02
+
+- Capped experience title at 200 characters.
+- Capped experience content at 4,000 characters.
+- Capped experience scope at 200 characters.
+- Capped evidence references at 32 per proposal.
+- Required non-empty, unique applicable cognitive modes.
+- Applied the same bounds during proposal and experience replay.
+- Added boundary and invalid-shape coverage.
+
 ## 0.67.0 - 2026-11-02
 
 - Reject proposed experience events that are not unverified drafts.

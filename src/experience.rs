@@ -13,6 +13,11 @@ use crate::domain::PROTOCOL_VERSION;
 use crate::journal::{JournalEvent, JournalEventKind, audit_events};
 use crate::safety::contains_disallowed_control;
 
+const MAX_EXPERIENCE_TITLE_CHARS: usize = 200;
+const MAX_EXPERIENCE_CONTENT_CHARS: usize = 4_000;
+const MAX_EXPERIENCE_SCOPE_CHARS: usize = 200;
+const MAX_EVIDENCE_REFERENCES: usize = 32;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExperienceKind {
@@ -333,6 +338,13 @@ impl ExperienceStore {
         validate_text(&spec.title)?;
         validate_text(&spec.content)?;
         validate_text(&spec.scope)?;
+        validate_candidate_shape(
+            &spec.title,
+            &spec.content,
+            &spec.scope,
+            spec.evidence_event_seqs.len(),
+            &spec.applicable_modes,
+        )?;
 
         let source_run_id = source_events
             .first()
@@ -779,12 +791,48 @@ fn validate_proposed_candidate(candidate: &ExperienceCandidate) -> Result<(), Ex
     {
         return Err(ExperienceError::InvalidEvidenceDigest);
     }
-    if candidate.applicable_modes.is_empty() {
-        return Err(ExperienceError::EmptyApplicableModes);
-    }
     validate_text(&candidate.title)?;
     validate_text(&candidate.content)?;
     validate_text(&candidate.scope)?;
+    validate_candidate_shape(
+        &candidate.title,
+        &candidate.content,
+        &candidate.scope,
+        candidate.evidence_event_seqs.len(),
+        &candidate.applicable_modes,
+    )?;
+    Ok(())
+}
+
+fn validate_candidate_shape(
+    title: &str,
+    content: &str,
+    scope: &str,
+    evidence_references: usize,
+    modes: &[CognitiveMode],
+) -> Result<(), ExperienceError> {
+    if title.chars().count() > MAX_EXPERIENCE_TITLE_CHARS {
+        return Err(ExperienceError::TextTooLong("title"));
+    }
+    if content.chars().count() > MAX_EXPERIENCE_CONTENT_CHARS {
+        return Err(ExperienceError::TextTooLong("content"));
+    }
+    if scope.chars().count() > MAX_EXPERIENCE_SCOPE_CHARS {
+        return Err(ExperienceError::TextTooLong("scope"));
+    }
+    if evidence_references > MAX_EVIDENCE_REFERENCES {
+        return Err(ExperienceError::TooManyEvidenceReferences);
+    }
+    if modes.is_empty() {
+        return Err(ExperienceError::EmptyApplicableModes);
+    }
+    let unique_modes = modes
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    if unique_modes.len() != modes.len() {
+        return Err(ExperienceError::DuplicateApplicableMode);
+    }
     Ok(())
 }
 
@@ -967,6 +1015,12 @@ pub enum ExperienceError {
     },
     #[error("invalid text: {0}")]
     InvalidText(&'static str),
+    #[error("experience {0} exceeds the maximum length")]
+    TextTooLong(&'static str),
+    #[error("experience proposal has too many evidence references")]
+    TooManyEvidenceReferences,
+    #[error("experience proposal repeats an applicable mode")]
+    DuplicateApplicableMode,
     #[error("invalid verification: {0}")]
     InvalidVerification(String),
     #[error("candidate verification failed held-out transfer gates")]
@@ -1399,6 +1453,56 @@ mod tests {
         assert!(matches!(
             store.propose(candidate, &events),
             Err(ExperienceError::InvalidText(_))
+        ));
+    }
+
+    #[test]
+    fn experience_candidate_shape_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = source_events(dir.path());
+        let mut store = ExperienceStore::open(dir.path().join("experience")).unwrap();
+
+        let mut oversized_title = spec();
+        oversized_title.title = "x".repeat(MAX_EXPERIENCE_TITLE_CHARS + 1);
+        assert!(matches!(
+            store.propose(oversized_title, &events),
+            Err(ExperienceError::TextTooLong("title"))
+        ));
+
+        let mut oversized_content = spec();
+        oversized_content.content = "x".repeat(MAX_EXPERIENCE_CONTENT_CHARS + 1);
+        assert!(matches!(
+            store.propose(oversized_content, &events),
+            Err(ExperienceError::TextTooLong("content"))
+        ));
+
+        let mut oversized_scope = spec();
+        oversized_scope.scope = "x".repeat(MAX_EXPERIENCE_SCOPE_CHARS + 1);
+        assert!(matches!(
+            store.propose(oversized_scope, &events),
+            Err(ExperienceError::TextTooLong("scope"))
+        ));
+
+        let mut too_many_refs = spec();
+        too_many_refs.evidence_event_seqs = vec![2; MAX_EVIDENCE_REFERENCES + 1];
+        assert!(matches!(
+            store.propose(too_many_refs, &events),
+            Err(ExperienceError::TooManyEvidenceReferences)
+        ));
+
+        let mut duplicate_modes = spec();
+        duplicate_modes.applicable_modes =
+            vec![CognitiveMode::DirectAnswer, CognitiveMode::DirectAnswer];
+        assert!(matches!(
+            store.propose(duplicate_modes, &events),
+            Err(ExperienceError::DuplicateApplicableMode)
+        ));
+
+        let mut no_modes = spec();
+        no_modes.applicable_modes.clear();
+        assert!(matches!(
+            store.propose(no_modes, &events),
+            Err(ExperienceError::EmptyApplicableModes)
         ));
     }
 
