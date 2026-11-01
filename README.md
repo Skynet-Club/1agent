@@ -116,6 +116,8 @@ Supported behavior, explicit non-goals and claim boundaries are in
 [`docs/product-boundary.md`](docs/product-boundary.md).
 Canonical task, model, journal, answer and evaluation contracts are in
 [`docs/io-contracts.md`](docs/io-contracts.md).
+Provider capability filtering, ranking and fallback semantics are in
+[`docs/model-routing.md`](docs/model-routing.md).
 
 Current V0 assumptions:
 
