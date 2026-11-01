@@ -24,6 +24,29 @@ Status: explicit evaluation suite kinds implemented
 | legacy default | unspecified |
 | Core evaluation | 6/6 passed |
 | Unit tests | 81 passed |
+| Clean-source package gate | passed |
+
+## Verified clean release
+
+```text
+source commit: b521a302cf73bf09d0640ddba64bc708d0d9723b
+git dirty: false
+
+Linux binary:
+65ac0af82131324a74f18d39e4d899a7624f3a5c2ee359ef07998dce9241f29e
+
+Windows binary:
+51bb5def5227d32d96de0d4c83ac0dffd22aa37b6eaa996487db7f0a05895b28
+
+Linux tar.gz:
+f64b27d19ac64bc651e1eafe889e7518b1c856bf35a64dbf24778e0c30991e2a
+
+Windows zip:
+d88fe7503b6c2b78b2c60c34b6616a745d9e051e1295c600172bef5fb2403821
+
+Release manifest:
+b0d43aa3362a8729cd70d4f34f6be3d9527579bd93c672766b3fd5e637c45e54
+```
 
 ## Evidence boundary
 
