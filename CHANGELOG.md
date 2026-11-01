@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.74.0 - 2026-11-02
+
+- Added suite-level decision-completeness aggregation.
+- Added completion rate in basis points.
+- Aggregated conditional, bound/unbound flip and high-impact gap counts.
+- Added a 100% decision-completeness floor for model-quality suites.
+- Surface floor status in JSON and human-readable evaluation reports.
+- Make CLI evaluation exit non-zero when the floor fails.
+- Preserve contract-fixture behavior.
+
 ## 0.73.0 - 2026-11-02
 
 - Added per-case decision-completeness rollups.

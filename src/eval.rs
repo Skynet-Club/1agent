@@ -165,6 +165,20 @@ pub struct DecisionCompletenessRollup {
     pub ok: bool,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionCompletenessAggregate {
+    pub cases: usize,
+    pub ok_cases: usize,
+    pub completion_rate_bps: u16,
+    pub conditional_answers: usize,
+    pub conditional_with_bound_flip: usize,
+    pub bound_flip_conditions: usize,
+    pub unbound_flip_conditions: usize,
+    pub high_impact_unknowns_without_reduction: usize,
+    pub completed_with_high_impact_assumptions: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EvalReport {
@@ -177,6 +191,9 @@ pub struct EvalReport {
     pub hard_gate_failures: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
+    pub decision_completeness: DecisionCompletenessAggregate,
+    pub min_decision_completeness_bps: u16,
+    pub decision_completeness_floor_passed: bool,
     pub cases: Vec<EvalCaseResult>,
 }
 
@@ -354,6 +371,14 @@ pub async fn run_suite_with_learning(
         .count();
     let rubric_checks = results.iter().map(|result| result.rubric_checks).sum();
     let rubric_passed = results.iter().map(|result| result.rubric_passed).sum();
+    let decision_completeness = aggregate_decision_completeness(&results);
+    let min_decision_completeness_bps = if suite.kind == EvalSuiteKind::ModelQuality {
+        10_000
+    } else {
+        0
+    };
+    let decision_completeness_floor_passed =
+        decision_completeness.completion_rate_bps >= min_decision_completeness_bps;
     Ok(EvalReport {
         suite: suite.name,
         kind: suite.kind,
@@ -364,6 +389,9 @@ pub async fn run_suite_with_learning(
         hard_gate_failures,
         rubric_checks,
         rubric_passed,
+        decision_completeness,
+        min_decision_completeness_bps,
+        decision_completeness_floor_passed,
         cases: results,
     })
 }
@@ -714,6 +742,55 @@ fn summarize_decision_completeness(
         high_impact_unknowns_without_reduction,
         completed_with_high_impact_assumptions,
         ok,
+    }
+}
+
+fn aggregate_decision_completeness(results: &[EvalCaseResult]) -> DecisionCompletenessAggregate {
+    let cases = results.len();
+    let ok_cases = results
+        .iter()
+        .filter(|result| result.decision_completeness.ok)
+        .count();
+    let completion_rate_bps = (ok_cases * 10_000)
+        .checked_div(cases)
+        .unwrap_or(0)
+        .min(10_000) as u16;
+    DecisionCompletenessAggregate {
+        cases,
+        ok_cases,
+        completion_rate_bps,
+        conditional_answers: results
+            .iter()
+            .map(|result| result.decision_completeness.conditional_answers)
+            .sum(),
+        conditional_with_bound_flip: results
+            .iter()
+            .map(|result| result.decision_completeness.conditional_with_bound_flip)
+            .sum(),
+        bound_flip_conditions: results
+            .iter()
+            .map(|result| result.decision_completeness.bound_flip_conditions)
+            .sum(),
+        unbound_flip_conditions: results
+            .iter()
+            .map(|result| result.decision_completeness.unbound_flip_conditions)
+            .sum(),
+        high_impact_unknowns_without_reduction: results
+            .iter()
+            .map(|result| {
+                result
+                    .decision_completeness
+                    .high_impact_unknowns_without_reduction
+            })
+            .sum(),
+        completed_with_high_impact_assumptions: results
+            .iter()
+            .map(|result| {
+                result
+                    .decision_completeness
+                    .completed_with_high_impact_assumptions
+            })
+            .sum(),
     }
 }
 
@@ -1215,6 +1292,17 @@ mod tests {
         let summary = summarize_decision_completeness(&answer);
         assert!(!summary.ok);
         assert_eq!(summary.completed_with_high_impact_assumptions, 1);
+
+        let mut passed_case = failed_case("passed-decision".into(), "fixture".into());
+        passed_case.decision_completeness = DecisionCompletenessRollup {
+            ok: true,
+            ..DecisionCompletenessRollup::default()
+        };
+        let failed_case = failed_case("failed-decision".into(), "fixture".into());
+        let aggregate = aggregate_decision_completeness(&[passed_case, failed_case]);
+        assert_eq!(aggregate.cases, 2);
+        assert_eq!(aggregate.ok_cases, 1);
+        assert_eq!(aggregate.completion_rate_bps, 5_000);
     }
 
     #[test]

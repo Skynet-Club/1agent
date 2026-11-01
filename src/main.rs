@@ -751,6 +751,13 @@ async fn main() -> Result<()> {
                     report.rubric_passed,
                     report.rubric_checks
                 );
+                println!(
+                    "decision completeness: {}/{} cases ({} bps), floor={} bps",
+                    report.decision_completeness.ok_cases,
+                    report.decision_completeness.cases,
+                    report.decision_completeness.completion_rate_bps,
+                    report.min_decision_completeness_bps
+                );
                 for case in &report.cases {
                     println!(
                         "- {}: {}",
@@ -779,6 +786,13 @@ async fn main() -> Result<()> {
             }
             if report.failed > 0 {
                 bail!("evaluation failed");
+            }
+            if !report.decision_completeness_floor_passed {
+                bail!(
+                    "evaluation decision-completeness floor failed: {} < {} bps",
+                    report.decision_completeness.completion_rate_bps,
+                    report.min_decision_completeness_bps
+                );
             }
         }
         Command::Serve {
