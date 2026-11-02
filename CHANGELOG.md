@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.91.0 - 2026-11-02
+
+- Added an interactive `1agent tui` command.
+- Added a fixed topbar that preserves the latest user instruction.
+- Displayed status, cognitive mode, risk, provider identity and run budget.
+- Added `/help`, `/clear`, `/exit` and `/quit`.
+- Cancelled active runs with Ctrl+C while preserving the session.
+- Sanitized terminal-bound input and output against control-sequence injection.
+- Added view-model and executable CLI E2E coverage.
+
 ## 0.90.0 - 2026-11-02
 
 - Made provider readiness evaluate credential-bearing transport rules.

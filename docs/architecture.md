@@ -10,12 +10,16 @@ The runtime must be cross-platform, provider-neutral, recoverable, auditable and
 
 ```text
 CLI host
+  -> interactive terminal UI
   -> application service
     -> agent runtime
       -> model router -> provider adapter
       -> tool pipeline -> read-only tools
       -> run journal -> JSONL store
 ```
+
+The terminal UI is a presentation adapter. It calls the same `AgentRuntime`, answer contract,
+provider router and journal as the one-shot CLI; it does not own or mutate domain state directly.
 
 ## V0 decisions
 

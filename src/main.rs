@@ -13,13 +13,14 @@ use first_principles_agent::{
     PolicyValueSource, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
     ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective,
     RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry,
-    TrustAnchorManifest, audit_events, build_release_verification_report, collect_provenance,
-    collect_release_manifest, create_goldset_manifest, create_trust_anchor, default_registry,
-    evaluate_experience_suite, find_resumable_prefix, infer_mode, load_eval_report, load_suite,
-    local_manifest, probe_provider, probe_provider_tools, read_events, rebuild_and_compare,
-    remote_manifest, replay_events, risk_for_mode, run_suite_with_providers, scan_history,
-    summarize_route_trace, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    TrustAnchorManifest, TuiState, TuiStatus, audit_events, build_release_verification_report,
+    collect_provenance, collect_release_manifest, create_goldset_manifest, create_trust_anchor,
+    default_registry, evaluate_experience_suite, find_resumable_prefix, infer_mode,
+    load_eval_report, load_suite, local_manifest, probe_provider, probe_provider_tools,
+    read_events, rebuild_and_compare, remote_manifest, replay_events, risk_for_mode,
+    run_suite_with_providers, scan_history, summarize_route_trace, verify_goldset_manifest,
+    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -88,6 +89,41 @@ enum Command {
         route_objective: Option<String>,
         #[arg(long)]
         json: bool,
+    },
+    Tui {
+        #[arg(
+            long,
+            conflicts_with_all = ["provider", "model", "base_url", "api_key"]
+        )]
+        config: Option<PathBuf>,
+        #[arg(long, default_value = "mock")]
+        provider: String,
+        #[arg(long, env = "AGENT_MODEL")]
+        model: Option<String>,
+        #[arg(long, env = "AGENT_BASE_URL")]
+        base_url: Option<String>,
+        #[arg(long, env = "AGENT_API_KEY", hide_env_values = true)]
+        api_key: Option<String>,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long)]
+        read_root: Vec<PathBuf>,
+        #[arg(long, default_value = ".journal")]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        experience_dir: Option<PathBuf>,
+        #[arg(long)]
+        experience_scope: Option<String>,
+        #[arg(long, default_value_t = 6)]
+        max_steps: usize,
+        #[arg(long, default_value_t = 8)]
+        max_tool_calls: usize,
+        #[arg(long, default_value_t = 120)]
+        timeout_seconds: u64,
+        #[arg(long, default_value_t = 100_000)]
+        max_context_chars: usize,
+        #[arg(long)]
+        route_objective: Option<String>,
     },
     Audit {
         #[arg(long)]
@@ -707,6 +743,42 @@ async fn main() -> Result<()> {
                 print_route_trace(&result.journal_path)?;
                 println!("\n运行日志：{}", result.journal_path.display());
             }
+        }
+        Command::Tui {
+            config,
+            provider,
+            model,
+            base_url,
+            api_key,
+            allow_network,
+            read_root,
+            journal_dir,
+            experience_dir,
+            experience_scope,
+            max_steps,
+            max_tool_calls,
+            timeout_seconds,
+            max_context_chars,
+            route_objective,
+        } => {
+            run_tui(
+                config,
+                provider,
+                model,
+                base_url,
+                api_key,
+                allow_network,
+                read_root,
+                journal_dir,
+                experience_dir,
+                experience_scope,
+                max_steps,
+                max_tool_calls,
+                timeout_seconds,
+                max_context_chars,
+                route_objective,
+            )
+            .await?;
         }
         Command::Audit { journal, json } => {
             let events = read_events(&journal)
@@ -2333,6 +2405,165 @@ fn build_runtime_parts(
 
 fn canonical_or_original(path: &PathBuf) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.clone())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_tui(
+    config_path: Option<PathBuf>,
+    provider: String,
+    model: Option<String>,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    allow_network: bool,
+    read_root: Vec<PathBuf>,
+    journal_dir: PathBuf,
+    experience_dir: Option<PathBuf>,
+    experience_scope: Option<String>,
+    max_steps: usize,
+    max_tool_calls: usize,
+    timeout_seconds: u64,
+    max_context_chars: usize,
+    route_objective: Option<String>,
+) -> Result<()> {
+    let timeout = Duration::from_secs(timeout_seconds.max(1));
+    let provider_label = if config_path.is_some() {
+        "configured".to_string()
+    } else {
+        format!("{provider}/{}", model.as_deref().unwrap_or("default"))
+    };
+    let (candidates, tools) = if let Some(config_path) = config_path {
+        let config = AgentConfig::load(&config_path)?;
+        (config.build_providers(timeout)?, default_registry())
+    } else {
+        build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
+    };
+    let (objective, objective_source) = resolve_route_objective(route_objective.as_deref())?;
+    let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
+        .with_route_objective(objective)
+        .with_route_policy_sources(RoutePolicySources {
+            objective: objective_source,
+            latency_budget: PolicyValueSource::Unset,
+            unit_cost_budget: PolicyValueSource::Unset,
+        });
+    if let Some(experience_dir) = experience_dir {
+        runtime = runtime.with_experience_dir(experience_dir);
+    }
+
+    let cwd = std::env::current_dir().context("cannot determine current directory")?;
+    let roots = if read_root.is_empty() {
+        vec![cwd.clone()]
+    } else {
+        read_root
+            .iter()
+            .map(canonical_or_original)
+            .collect::<Vec<_>>()
+    };
+    let mut state = TuiState::new(provider_label, max_steps, timeout_seconds.max(1));
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut stdout = tokio::io::stdout();
+    state.info("Type /help for commands. Ctrl+C cancels the active run.");
+
+    loop {
+        let (columns, rows) = terminal_dimensions();
+        stdout
+            .write_all(state.render_screen(columns, rows).as_bytes())
+            .await?;
+        stdout.flush().await?;
+        let Some(line) = lines.next_line().await? else {
+            break;
+        };
+        let instruction = line.trim();
+        if instruction.is_empty() {
+            continue;
+        }
+        match instruction {
+            "/quit" | "/exit" => {
+                state.info("Session ended.");
+                let (columns, rows) = terminal_dimensions();
+                stdout
+                    .write_all(state.render_screen(columns, rows).as_bytes())
+                    .await?;
+                stdout.flush().await?;
+                break;
+            }
+            "/help" => {
+                state.info(
+                    "Commands: /help  /clear  /quit\n\
+                     Enter a task to run it. Ctrl+C cancels the active run.",
+                );
+                continue;
+            }
+            "/clear" => {
+                state.clear();
+                state.info("Conversation cleared.");
+                continue;
+            }
+            _ if instruction.starts_with('/') => {
+                state.info(format!("Unknown command: {instruction}"));
+                continue;
+            }
+            _ => {}
+        }
+
+        let mut request = TaskRequest::from_objective(instruction, cwd.clone());
+        request.permissions.allow_network = allow_network;
+        request.permissions.read_roots = roots.clone();
+        request.experience_scope = experience_scope.clone();
+        request.budget = RunBudget {
+            max_steps,
+            max_tool_calls,
+            max_context_chars,
+            timeout_ms: timeout_seconds.saturating_mul(1_000),
+            ..RunBudget::default()
+        };
+        let mode = infer_mode(&request);
+        let risk = risk_for_mode(mode);
+        state.begin(instruction, mode, risk);
+        let (columns, rows) = terminal_dimensions();
+        stdout
+            .write_all(state.render_screen(columns, rows).as_bytes())
+            .await?;
+        stdout.flush().await?;
+
+        let cancellation = CancellationToken::new();
+        let signal_cancellation = cancellation.clone();
+        let signal = tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                signal_cancellation.cancel();
+            }
+        });
+        let result = runtime.run(request, cancellation).await;
+        signal.abort();
+        match result {
+            Ok(result) => {
+                let output = format!(
+                    "{}\n\nRun journal: {}",
+                    render_answer(&result),
+                    result.journal_path.display()
+                );
+                state.finish(TuiStatus::Completed, output);
+            }
+            Err(RuntimeError::Cancelled { .. }) => {
+                state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
+            }
+            Err(error) => {
+                state.finish(TuiStatus::Failed, format!("Error: {error}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn terminal_dimensions() -> (usize, usize) {
+    let columns = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(100);
+    let rows = std::env::var("LINES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(40);
+    (columns, rows)
 }
 
 async fn write_host_response(

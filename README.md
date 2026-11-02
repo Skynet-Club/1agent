@@ -4,7 +4,7 @@ Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.90.0` is an executable V0 vertical slice:
+Version `0.91.0` is an executable V0 vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -108,10 +108,11 @@ Version `0.90.0` is an executable V0 vertical slice:
 - direct floor-pass labels in human-readable evaluation summaries;
 - HTTPS enforcement for non-loopback provider credentials;
 - readiness preflight consistent with provider credential transport rules;
+- interactive terminal UI with a persistent last-instruction topbar;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.90.md`](docs/status-v0.90.md).
+[`docs/status-v0.91.md`](docs/status-v0.91.md).
 The evidence plan required before expanding autonomy is in
 [`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
 The latest cross-requirement audit is in [`docs/audit-v0.90.md`](docs/audit-v0.90.md).
@@ -142,6 +143,7 @@ Current V0 assumptions:
 
 ```bash
 cargo run --offline -- run --task "Compare A and B"
+cargo run --offline -- tui
 cargo run --offline -- run --task "Compare A and B" --route-objective balanced
 cargo run --offline -- route-plan \
   --config configs/example.json \

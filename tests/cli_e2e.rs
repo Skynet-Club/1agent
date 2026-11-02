@@ -1,4 +1,5 @@
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 use first_principles_agent::{
     AuthenticityStatus, ContentBindingStatus, DecisionCompletenessFloorSource, EvalReport,
@@ -80,6 +81,42 @@ fn cli_run_audit_and_replay_form_a_complete_flywheel() {
     assert_eq!(replay.stop_reason, Some(StopReason::Completed));
     assert_eq!(replay.tool_calls.len(), 1);
     assert_eq!(replay.observations.len(), 1);
+}
+
+#[test]
+fn cli_tui_keeps_last_instruction_in_topbar() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let mut child = Command::new(binary)
+        .args([
+            "tui",
+            "--journal-dir",
+            &workspace.path().join("journal").display().to_string(),
+        ])
+        .env("COLUMNS", "100")
+        .env("LINES", "30")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"/help\nCompare option A and option B\n/quit\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("1·Agent | status=running"));
+    assert!(stdout.contains("You > Compare option A and option B"));
+    assert!(stdout.contains("status=completed"));
+    assert!(stdout.contains("Session ended."));
 }
 
 #[test]

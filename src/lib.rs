@@ -14,6 +14,7 @@ pub mod router;
 pub mod runtime;
 pub mod safety;
 pub mod tools;
+pub mod tui;
 
 pub use annotation::*;
 pub use approval::*;
@@ -31,3 +32,4 @@ pub use router::*;
 pub use runtime::*;
 pub use safety::*;
 pub use tools::*;
+pub use tui::*;
