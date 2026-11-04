@@ -43,7 +43,7 @@ fn reframe_then_receipt_round_trips_through_the_journal() {
             "--input",
             &input.display().to_string(),
             "--accept",
-            "0",
+            "1",
             "--journal-dir",
             &journal_dir_text,
             "--json",
@@ -138,7 +138,7 @@ fn exactly_one_decision_is_required() {
             "--input",
             &input.display().to_string(),
             "--accept",
-            "0",
+            "1",
             "--defer",
             "--journal-dir",
             &journal_dir.display().to_string(),
@@ -164,7 +164,7 @@ fn an_invalid_proposal_is_refused() {
             "--input",
             &input.display().to_string(),
             "--accept",
-            "0",
+            "1",
             "--journal-dir",
             &journal_dir.display().to_string(),
         ])
@@ -196,11 +196,33 @@ fn no_decision_prints_a_menu_and_writes_nothing() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[0] 采纳「穿线」"), "stdout: {stdout}");
-    assert!(stdout.contains("--accept 2"), "every option is actionable");
+    assert!(stdout.contains("[1] 采纳「穿线」"), "stdout: {stdout}");
+    assert!(stdout.contains("--accept 3"), "every option is actionable");
     assert!(stdout.contains("--reject prefer_literal"));
     assert!(
         !journal_dir.exists(),
         "an undecided proposal must not create a journal"
     );
+}
+
+#[test]
+fn choice_numbers_start_at_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = write_proposal(dir.path(), &proposal());
+    let journal_dir = dir.path().join("journal");
+
+    let output = binary()
+        .args([
+            "reframe",
+            "--input",
+            &input.display().to_string(),
+            "--accept",
+            "0",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("start at 1"));
 }

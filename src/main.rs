@@ -2551,6 +2551,9 @@ async fn main() -> Result<()> {
             if substitute.is_some() && accept.is_none() {
                 bail!("--substitute only applies with --accept");
             }
+            if accept == Some(0) || substitute == Some(0) {
+                bail!("choice numbers start at 1");
+            }
             if decided == 0 {
                 // Nothing is decided, so nothing is recorded. A menu is offered
                 // instead: no fork means no menu, and an undecided proposal is
@@ -2572,9 +2575,9 @@ async fn main() -> Result<()> {
             }
 
             let choice = match (accept, reject.as_deref(), defer) {
-                (Some(option_index), _, _) => ReframeChoice::Accepted {
-                    option_index,
-                    substitute_index: substitute,
+                (Some(choice_number), _, _) => ReframeChoice::Accepted {
+                    option_index: choice_number - 1,
+                    substitute_index: substitute.map(|number| number - 1),
                 },
                 (_, Some(reason), _) => ReframeChoice::Rejected {
                     reason: parse_rejected_reason(reason)?,
@@ -4463,13 +4466,14 @@ fn render_choice_menu(proposal: &ReframeProposal, input: &std::path::Path) -> St
     }
     out.push('\n');
     for (index, option) in proposal.options.iter().enumerate() {
+        let number = index + 1;
         out.push_str(&format!(
-            "  [{index}] 采纳「{option}」  → reframe --input {source} --accept {index}\n"
+            "  [{number}] 采纳「{option}」  → reframe --input {source} --accept {number}\n"
         ));
     }
     out.push_str(&format!(
         "  [{}] 都不是，按原方案  → reframe --input {source} --reject prefer_literal\n",
-        proposal.options.len()
+        proposal.options.len() + 1
     ));
     out
 }
