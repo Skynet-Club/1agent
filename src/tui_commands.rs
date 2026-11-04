@@ -557,6 +557,80 @@ pub fn visible_commands(
         .collect()
 }
 
+/// One selectable next step shown at the end of a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextAction {
+    pub id: TuiCommandId,
+    pub name: &'static str,
+    pub label: &'static str,
+    pub default: bool,
+}
+
+/// A menu longer than this stops being a choice and becomes a list.
+pub const MAX_NEXT_ACTIONS: usize = 4;
+
+/// Builds the end-of-turn menu.
+///
+/// `candidates` names the actions the turn actually leaves open. Anything not
+/// available for this host and stage, or not implemented, is dropped rather
+/// than shown, so a menu can never promise a command that would fail. An empty
+/// result means "no fork": the caller must not render a menu at all.
+///
+/// The model may only choose from this list; it never authors an entry. That is
+/// what keeps "next step" options honest.
+pub fn next_actions(
+    host: &HostBinding,
+    stage: CommandStage,
+    candidates: &[TuiCommandId],
+    default: Option<TuiCommandId>,
+) -> Vec<NextAction> {
+    let available = commands_for_surface(host, stage, false)
+        .into_iter()
+        .filter(|spec| spec.implemented)
+        .collect::<Vec<_>>();
+
+    let mut chosen: Vec<TuiCommandSpec> = Vec::new();
+    for id in candidates {
+        if chosen.iter().any(|spec| spec.id == *id) {
+            continue;
+        }
+        if let Some(spec) = available.iter().find(|spec| spec.id == *id) {
+            chosen.push(*spec);
+        }
+        if chosen.len() == MAX_NEXT_ACTIONS {
+            break;
+        }
+    }
+    if chosen.is_empty() {
+        return Vec::new();
+    }
+
+    let default_id = default
+        .filter(|id| chosen.iter().any(|spec| spec.id == *id))
+        .unwrap_or(chosen[0].id);
+
+    let mut actions = Vec::with_capacity(chosen.len());
+    if let Some(spec) = chosen.iter().find(|spec| spec.id == default_id) {
+        actions.push(NextAction {
+            id: spec.id,
+            name: spec.name,
+            label: spec.description,
+            default: true,
+        });
+    }
+    for spec in &chosen {
+        if spec.id != default_id {
+            actions.push(NextAction {
+                id: spec.id,
+                name: spec.name,
+                label: spec.description,
+                default: false,
+            });
+        }
+    }
+    actions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -814,5 +888,142 @@ mod tests {
                 .iter()
                 .all(|command| command.scope == TuiCommandScope::Core)
         );
+    }
+}
+
+#[cfg(test)]
+mod next_action_tests {
+    use super::*;
+    use crate::tui_host::HostKind;
+
+    fn host(kind: HostKind) -> HostBinding {
+        match kind {
+            HostKind::Standalone => HostBinding::standalone(),
+            HostKind::WorkshopMaster => HostBinding::workshop_context(
+                "master",
+                "main-coordinator",
+                "1agent",
+                "term-1790000000000-1234-1",
+            ),
+            HostKind::WorkshopWorker => HostBinding::workshop_context(
+                "worker",
+                "release-verifier",
+                "codex",
+                "term-1790000000000-1234-2",
+            ),
+        }
+    }
+
+    #[test]
+    fn no_candidates_means_no_menu() {
+        let actions = next_actions(&host(HostKind::Standalone), CommandStage::Any, &[], None);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn every_registered_command_is_flagged_implemented() {
+        // `command()` hardcodes `implemented: true`, so today the filter in
+        // next_actions cannot drop anything. This test records that fact: if the
+        // registry ever gains a genuinely unimplemented entry, the menu guarantee
+        // starts depending on the flag being honest, and this assertion will say so.
+        assert!(COMMANDS.iter().all(|spec| spec.implemented));
+    }
+
+    #[test]
+    fn master_commands_are_dropped_for_standalone() {
+        let actions = next_actions(
+            &host(HostKind::Standalone),
+            CommandStage::Running,
+            &[TuiCommandId::Board],
+            None,
+        );
+        assert!(actions.is_empty());
+
+        let actions = next_actions(
+            &host(HostKind::WorkshopMaster),
+            CommandStage::Running,
+            &[TuiCommandId::Board],
+            None,
+        );
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].id, TuiCommandId::Board);
+    }
+
+    #[test]
+    fn stage_filter_applies() {
+        // /board only exists while work is running.
+        let actions = next_actions(
+            &host(HostKind::WorkshopMaster),
+            CommandStage::Framing,
+            &[TuiCommandId::Board],
+            None,
+        );
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn default_is_first_and_marked() {
+        let actions = next_actions(
+            &host(HostKind::Standalone),
+            CommandStage::Any,
+            &[TuiCommandId::Status, TuiCommandId::Journal],
+            Some(TuiCommandId::Journal),
+        );
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].id, TuiCommandId::Journal);
+        assert!(actions[0].default);
+        assert!(!actions[1].default);
+    }
+
+    #[test]
+    fn default_outside_the_candidates_falls_back_to_the_first() {
+        let actions = next_actions(
+            &host(HostKind::Standalone),
+            CommandStage::Any,
+            &[TuiCommandId::Status, TuiCommandId::Journal],
+            Some(TuiCommandId::Quit),
+        );
+        assert_eq!(actions[0].id, TuiCommandId::Status);
+        assert!(actions[0].default);
+    }
+
+    #[test]
+    fn menu_is_capped_and_deduplicated() {
+        let actions = next_actions(
+            &host(HostKind::Standalone),
+            CommandStage::Any,
+            &[
+                TuiCommandId::Help,
+                TuiCommandId::Status,
+                TuiCommandId::Journal,
+                TuiCommandId::Clear,
+                TuiCommandId::Quit,
+                TuiCommandId::Status,
+            ],
+            None,
+        );
+        assert_eq!(actions.len(), MAX_NEXT_ACTIONS);
+        let mut ids = actions.iter().map(|action| action.id).collect::<Vec<_>>();
+        let before = ids.len();
+        ids.sort_by_key(|id| *id as u8 as u32);
+        ids.dedup();
+        assert_eq!(before, ids.len());
+    }
+
+    #[test]
+    fn every_entry_carries_a_real_command_name() {
+        let actions = next_actions(
+            &host(HostKind::Standalone),
+            CommandStage::Any,
+            &[TuiCommandId::Status, TuiCommandId::Journal],
+            None,
+        );
+        for action in actions {
+            assert!(action.name.starts_with('/'));
+            assert!(
+                COMMANDS.iter().any(|spec| spec.id == action.id),
+                "menu entry must exist in the registry"
+            );
+        }
     }
 }
