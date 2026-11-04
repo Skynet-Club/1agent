@@ -5574,6 +5574,60 @@ async fn run_tui_reframe(runtime: &AgentRuntime, state: &mut TuiState, args: &st
     Ok(())
 }
 
+/// Interactive variant: keeps the frame responsive and lets Ctrl+C cancel.
+///
+/// The line-oriented TUI cannot pump keys while a command runs, so it uses the
+/// blocking form above. Returns true when the user asked to quit.
+async fn run_tui_reframe_interactive(
+    runtime: &AgentRuntime,
+    state: &mut TuiState,
+    terminal: &mut TerminalSession,
+    inputs: &mut tokio::sync::mpsc::UnboundedReceiver<TuiInput>,
+    args: &str,
+) -> Result<bool> {
+    let trimmed = args.trim();
+    let instant = trimmed.is_empty() || trimmed.starts_with("accept ") || trimmed == "reject";
+    if instant {
+        run_tui_reframe(runtime, state, trimmed).await?;
+        return Ok(false);
+    }
+
+    state.take_pending_reframe();
+    state.info("正在判断这是目的还是手段…（Ctrl+C 取消）");
+    draw_tui_frame(terminal, state)?;
+
+    let cancellation = CancellationToken::new();
+    let attempt = runtime.reframe(trimmed, &[], &cancellation);
+    tokio::pin!(attempt);
+    let mut ticker = tokio::time::interval(Duration::from_millis(120));
+    let mut quit = false;
+
+    let outcome = loop {
+        tokio::select! {
+            result = &mut attempt => break result.map_err(|error| error.to_string()),
+            _ = ticker.tick() => draw_tui_frame(terminal, state)?,
+            input = inputs.recv() => match input {
+                Some(TuiInput::CtrlC) => cancellation.cancel(),
+                Some(TuiInput::CtrlQ) => {
+                    quit = true;
+                    cancellation.cancel();
+                }
+                Some(_) => {}
+                None => cancellation.cancel(),
+            },
+        }
+    };
+
+    if cancellation.is_cancelled() {
+        state.take_pending_reframe();
+        state.info("已取消这次判断。");
+    } else {
+        apply_reframe_result(state, outcome);
+    }
+    draw_tui_frame(terminal, state)?;
+    Ok(quit)
+}
+
 fn finish_tui_reframe(
     runtime: &AgentRuntime,
     state: &mut TuiState,
@@ -9162,7 +9216,17 @@ async fn run_tui_interactive(
                                 state.info("Conversation cleared.");
                             }
                             TuiCommandId::Reframe => {
-                                run_tui_reframe(&runtime, &mut state, args).await?;
+                                if run_tui_reframe_interactive(
+                                    &runtime,
+                                    &mut state,
+                                    &mut terminal,
+                                    &mut inputs,
+                                    args,
+                                )
+                                .await?
+                                {
+                                    break;
+                                }
                             }
                             TuiCommandId::Evidence => {
                                 display_evidence(&mut state, &session, args);
