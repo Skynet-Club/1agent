@@ -280,3 +280,32 @@ fn task_and_input_are_mutually_exclusive() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn an_end_proposal_gets_no_menu_and_no_pending_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = proposal();
+    value["classification"] = json!("end");
+    value["question"] = json!(null);
+    value["options"] = json!([]);
+    value["substitutes"] = json!([]);
+    let input = write_proposal(dir.path(), &value);
+    let journal_dir = dir.path().join("journal");
+
+    let output = binary()
+        .args([
+            "reframe",
+            "--input",
+            &input.display().to_string(),
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("目的类请求"), "stdout: {stdout}");
+    assert!(!stdout.contains("采纳"), "an end has no accept menu");
+    assert!(!journal_dir.join("pending").exists());
+}

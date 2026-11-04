@@ -13,33 +13,33 @@ use first_principles_agent::{
     ExecutionStatus, ExecutionSubmission, ExecutionTarget, ExperienceCandidateSpec,
     ExperienceStore, ExperienceVerificationInput, GoldSetManifest, HostBinding, HostCommand,
     HostError, HostRegistry, HostRequestState, HostResponse, Journal, JournalEventKind,
-    MasterJournalEventKind, MasterState, MasterStore, ModelMessage, ModelPlanGenerator,
-    ModelProductionPlanGenerator, ModelProvider, ModelRequest, ModelTurn, OpenAiCompatibleProvider,
-    PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan,
-    ProductionPlanningContext, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal,
-    RegistrySnapshot, RejectedReason, ReleasePolicy, ReleasePolicyMode, RiskLevel, RouteObjective,
-    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits,
-    SessionEvent, SessionPreferences, StopReason, TaskRequest, TerminalSession, ToolObservation,
-    ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput,
-    TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput,
-    WorkItemStatus, WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary,
-    audit_events, audit_summary, build_release_verification_report, build_usage_ledger,
-    build_user_message, collect_provenance, collect_release_manifest, commands_for_surface,
-    copy_to_clipboard, create_goldset_manifest, create_trust_anchor, default_registry,
-    epistemic_command_prompt, evaluate_experience_suite, evidence_summary,
-    filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
-    infer_mode, init_agents_file, inspect_artifacts, interactive_terminal_available, list_presets,
-    load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
-    master_audit_summary, master_evidence_summary, master_report, parse_model_output,
-    print_session_banner, probe_provider, probe_provider_tools, prompt_sha256, read_clipboard,
-    read_events, read_master_journal_events, rebuild_and_compare, remote_manifest,
-    render_capability_report, render_receipt, render_usage_ledger, replay_events,
-    replay_master_journal, resolve_input, risk_for_mode, run_capability_suite, run_report,
-    run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
-    summarize_route_trace, terminal_dimensions, trash_preset, triage_goal, verify_goldset_manifest,
-    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor, write_capability_report,
+    MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
+    ModelProductionPlanGenerator, ModelProvider, OpenAiCompatibleProvider, PlanGenerator,
+    PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
+    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
+    REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason,
+    ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
+    RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent,
+    SessionPreferences, StopReason, TaskRequest, TerminalSession, ToolObservation, ToolRegistry,
+    ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput, TuiInputResolution,
+    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
+    WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary, audit_events,
+    audit_summary, build_release_verification_report, build_usage_ledger, build_user_message,
+    collect_provenance, collect_release_manifest, commands_for_surface, copy_to_clipboard,
+    create_goldset_manifest, create_trust_anchor, default_registry, epistemic_command_prompt,
+    evaluate_experience_suite, evidence_summary, filter_capability_manifest_by_runtime,
+    find_resumable_prefix, git_diff, git_worktrees, infer_mode, init_agents_file,
+    inspect_artifacts, interactive_terminal_available, list_presets, load_agent_profiles,
+    load_eval_report, load_preset, load_suite, local_manifest, master_audit_summary,
+    master_evidence_summary, master_report, parse_model_output, print_session_banner,
+    probe_provider, probe_provider_tools, prompt_sha256, read_clipboard, read_events,
+    read_master_journal_events, rebuild_and_compare, remote_manifest, render_capability_report,
+    render_receipt, render_usage_ledger, replay_events, replay_master_journal, resolve_input,
+    risk_for_mode, run_capability_suite, run_report, run_suite_with_providers, save_preset,
+    scan_history, schedule_ready, spawn_input_reader, summarize_route_trace, terminal_dimensions,
+    trash_preset, triage_goal, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -2575,34 +2575,19 @@ async fn main() -> Result<()> {
                         api_key,
                         Duration::from_secs(timeout_seconds),
                     )?;
-                    let request = ModelRequest {
-                        run_id: Uuid::new_v4(),
-                        mode: CognitiveMode::DirectAnswer,
-                        messages: vec![
-                            ModelMessage::system(REFRAME_SYSTEM_PROMPT),
-                            ModelMessage::user(build_user_message(&task, &constraint)),
-                        ],
-                        tools: Vec::new(),
-                    };
-                    let response = provider
-                        .complete(request, &CancellationToken::new())
+                    let text = provider
+                        .complete_text(
+                            REFRAME_SYSTEM_PROMPT,
+                            &build_user_message(&task, &constraint),
+                            &CancellationToken::new(),
+                        )
                         .await?;
-                    // The provider adapter is answer-shaped, so a reframe reply does
-                    // not parse as an AgentAnswer and arrives as InvalidFinal. A raw
-                    // text path in the provider trait is the proper fix.
-                    let text = match response.turn {
-                        ModelTurn::InvalidFinal { content, .. } => content,
-                        ModelTurn::Final { answer } => answer.conclusion,
-                        ModelTurn::ToolCalls { .. } => {
-                            bail!("model returned tool calls for a reframe request")
-                        }
-                    };
                     let proposal = parse_model_output(&text)?.into_proposal(&task)?;
                     proposal.validate()?;
                     (
                         proposal,
                         "openai-compatible".to_string(),
-                        response.model,
+                        model,
                         prompt_sha256(),
                     )
                 }
@@ -2633,6 +2618,21 @@ async fn main() -> Result<()> {
                 bail!("choice numbers start at 1");
             }
             if decided == 0 {
+                // An end has no fork, so it gets no menu and no pending file.
+                if proposal.classification == RequestRole::End {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "pending": false,
+                                "proposal": proposal,
+                            }))?
+                        );
+                    } else {
+                        println!("这是目的类请求，按原请求执行。");
+                    }
+                    return Ok(());
+                }
                 // Nothing is decided, so no journal is written. The proposal is
                 // persisted anyway, because a menu whose numbers cannot be
                 // resolved later is not actionable: re-calling a model would

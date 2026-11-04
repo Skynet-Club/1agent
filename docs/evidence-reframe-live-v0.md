@@ -39,12 +39,19 @@ so the numbers stay valid.
 
 An undecided proposal still writes **no journal**; only the pending file exists.
 
-## 4. Known limitation
+## 4. Two defects found in this pass, both fixed
 
-The provider trait is answer-shaped: `complete()` parses the reply as an
-`AgentAnswer`, so a reframe reply falls through to `InvalidFinal` and the raw
-text has to be recovered from there. It works, it is not the right shape. A raw
-text method on `ModelProvider` is the proper fix and is not done.
+**Answer-shaped provider.** `complete()` parses the reply as an `AgentAnswer`, so
+a reframe reply fell through to `InvalidFinal` and the raw text had to be
+recovered from an error variant. `ModelProvider::complete_text` now exists as a
+separate raw-text path; `complete()` and `complete_text()` share one transport
+method so the rules are not duplicated. Providers that do not implement it
+report `UnsupportedCapability` rather than silently misbehaving.
+
+**A menu for an end request.** A live call classified "connect two rooms without
+visible cable" as an `end` — correctly, the goal was stated — and the CLI still
+printed a menu containing only the reject entry. An `end` now prints one line and
+creates no pending file, because no fork means no menu.
 
 ## 5. What this does not show
 

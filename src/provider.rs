@@ -28,6 +28,7 @@ pub enum ProviderErrorCode {
     ProviderUnavailable,
     Cancelled,
     ResponseTooLarge,
+    UnsupportedCapability,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +67,24 @@ pub trait ModelProvider: Send + Sync {
         request: ModelRequest,
         cancellation: &CancellationToken,
     ) -> Result<ModelResponse, ProviderError>;
+
+    /// Raw text completion, for callers whose reply is not an `AgentAnswer`.
+    ///
+    /// Kept separate from [`ModelProvider::complete`] because that method owns
+    /// answer parsing and repair; forcing a non-answer reply through it turns a
+    /// normal response into an "invalid final" error.
+    async fn complete_text(
+        &self,
+        _system: &str,
+        _user: &str,
+        _cancellation: &CancellationToken,
+    ) -> Result<String, ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorCode::UnsupportedCapability,
+            "provider does not implement raw text completion",
+            false,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -743,6 +762,77 @@ impl OpenAiCompatibleProvider {
             },
         }
     }
+
+    /// One HTTP round trip, returned as raw content. Shared by `complete` and
+    /// `complete_text` so neither owns a second copy of the transport rules.
+    async fn send(
+        &self,
+        messages: Vec<WireMessage>,
+        tools: Vec<WireTool>,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            Option<WireContent>,
+            Option<Vec<WireResponseToolCall>>,
+            Usage,
+        ),
+        ProviderError,
+    > {
+        let body = WireRequest {
+            model: self.model.clone(),
+            messages,
+            tools: (!tools.is_empty()).then_some(tools),
+            temperature: 0.0,
+        };
+        let mut builder = self.client.post(&self.endpoint).json(&body);
+        if let Some(api_key) = &self.api_key {
+            builder = builder.bearer_auth(api_key);
+        }
+
+        let response = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(ProviderError::new(
+                    ProviderErrorCode::Cancelled,
+                    "provider call cancelled",
+                    false,
+                ));
+            }
+            response = builder.send() => response.map_err(|error| {
+                provider_transport_error(error.is_timeout(), error.is_connect())
+            })?,
+        };
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(provider_http_error(status));
+        }
+
+        let body = read_response_body(response, cancellation).await?;
+        let wire: WireResponse = serde_json::from_slice(&body).map_err(|error| {
+            ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                format!("invalid provider response JSON: {error}"),
+                false,
+            )
+        })?;
+        let choice = wire.choices.into_iter().next().ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider returned no choices",
+                false,
+            )
+        })?;
+        let usage = wire
+            .usage
+            .map(|usage| Usage {
+                input_tokens: usage.prompt_tokens,
+                output_tokens: usage.completion_tokens,
+                cost_micros: 0,
+            })
+            .unwrap_or_default();
+
+        Ok((choice.message.content, choice.message.tool_calls, usage))
+    }
 }
 
 #[async_trait]
@@ -801,68 +891,16 @@ impl ModelProvider for OpenAiCompatibleProvider {
                 },
             })
             .collect();
-        let body = WireRequest {
-            model: self.model.clone(),
-            messages,
-            tools: (!tools.is_empty()).then_some(tools),
-            temperature: 0.0,
-        };
-        let mut builder = self.client.post(&self.endpoint).json(&body);
-        if let Some(api_key) = &self.api_key {
-            builder = builder.bearer_auth(api_key);
-        }
-
-        let response = tokio::select! {
-            _ = cancellation.cancelled() => {
-                return Err(ProviderError::new(
-                    ProviderErrorCode::Cancelled,
-                    "provider call cancelled",
-                    false,
-                ));
-            }
-            response = builder.send() => response.map_err(|error| {
-                provider_transport_error(error.is_timeout(), error.is_connect())
-            })?,
-        };
-
-        let status = response.status();
-        if !status.is_success() {
-            return Err(provider_http_error(status));
-        }
-
-        let body = read_response_body(response, cancellation).await?;
-        let wire: WireResponse = serde_json::from_slice(&body).map_err(|error| {
-            ProviderError::new(
-                ProviderErrorCode::InvalidResponse,
-                format!("invalid provider response JSON: {error}"),
-                false,
-            )
-        })?;
-        let choice = wire.choices.into_iter().next().ok_or_else(|| {
-            ProviderError::new(
-                ProviderErrorCode::InvalidResponse,
-                "provider returned no choices",
-                false,
-            )
-        })?;
-        let usage = wire
-            .usage
-            .map(|usage| Usage {
-                input_tokens: usage.prompt_tokens,
-                output_tokens: usage.completion_tokens,
-                cost_micros: 0,
-            })
-            .unwrap_or_default();
-
-        let turn = if let Some(calls) = choice.message.tool_calls {
+        let (content, calls, usage) = self.send(messages, tools, cancellation).await?;
+        let turn = if let Some(calls) = calls {
             let calls = normalize_tool_calls(calls)?;
             if calls.is_empty() {
-                Self::final_turn(normalize_content(choice.message.content)?)
+                Self::final_turn(normalize_content(content)?)
             } else {
                 ModelTurn::ToolCalls { calls }
             }
         } else {
-            Self::final_turn(normalize_content(choice.message.content)?)
+            Self::final_turn(normalize_content(content)?)
         };
 
         Ok(ModelResponse {
@@ -871,6 +909,37 @@ impl ModelProvider for OpenAiCompatibleProvider {
             turn,
             usage,
         })
+    }
+
+    async fn complete_text(
+        &self,
+        system: &str,
+        user: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<String, ProviderError> {
+        let messages = vec![
+            WireMessage {
+                role: "system".into(),
+                content: Some(system.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            WireMessage {
+                role: "user".into(),
+                content: Some(user.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+        let (content, calls, _usage) = self.send(messages, Vec::new(), cancellation).await?;
+        if calls.is_some_and(|calls| !calls.is_empty()) {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidResponse,
+                "provider requested tools for a text-only request",
+                false,
+            ));
+        }
+        normalize_content(content)
     }
 }
 
@@ -1526,5 +1595,20 @@ mod tests {
         assert_eq!(result.input_tokens, 20);
         assert_eq!(result.output_tokens, 10);
         assert_eq!(result.error_code, None);
+    }
+}
+
+#[cfg(test)]
+mod raw_text_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_provider_without_raw_text_reports_unsupported() {
+        let provider = DeterministicProvider::new();
+        let error = provider
+            .complete_text("system", "user", &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ProviderErrorCode::UnsupportedCapability);
     }
 }
