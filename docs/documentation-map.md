@@ -38,6 +38,8 @@ Date: 2026-11-02
   above the threshold, with the remaining failure class and caveats stated.
 - [`output-contract.md`](output-contract.md): the Occam contract for answers — necessity test,
   the four items that must survive brevity, forbidden patterns and four metrics.
+- [`evidence-answer-style-v0.md`](evidence-answer-style-v0.md): pre-change baseline for answer
+  length, restatement and menus, with the corpus limitations stated.
 
 ## Thesis and pre-registration (v0.95 research)
 
