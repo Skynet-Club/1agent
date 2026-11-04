@@ -91,6 +91,46 @@ def main():
             f"{row['要你判断']} | ? | | `{row['case_id']}` |"
         )
     (out / "01-标注表.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # The message text is meant to be pasted into chat or mail as-is. The count is
+    # injected so it cannot drift from the sheet.
+    message = f"""【请帮我看 {len(items)} 条判断，大约 15 分钟】
+
+背景
+我们在做一个会"先问一句再动手"的 AI 助手。
+你说"我要买个电钻"，它会问："打孔是为了穿线，还是挂东西？"
+如果是穿线联网，它就建议你买路由器，而不是电钻。
+
+这个判断对不对，我们说了不算。
+所以想请两个和项目无关的人，各自独立看一眼。
+
+要做的（只有一步）
+1. 打开 01-标注表-A.csv，两人各拿一份（A 和 B）
+2. 每一行已经写好了：原请求、助手做了什么、要你判断什么
+3. 把 label 那一列的 ? 换成下面三个词之一：
+
+   supported       判断为"对"（该问 / 该沉默 / 替代可接受）
+   unsupported     判断为"错"
+   needs_evidence  说不清，两种都成立
+
+4. note 可以留空；填后两个时最好写一句理由
+5. 填完把整份表格发回给我，文件名不用改
+
+三条规则
+- 两个人填完之前不要讨论。讨论后再改，这次测量就作废了。
+- 别填"挺好的"。选不出来就写 needs_evidence，那本身是有用的信息。
+- 案例全是虚构的，不含任何真实客户数据，也不需要懂技术。
+
+小提示
+表格是 UTF-8 编码。如果打开是乱码，用 WPS / 记事本打开时
+手动选 UTF-8 就行。不想用表格的话，同目录的 01-标注表.md
+内容一样，直接在文本编辑器里改 ? 也可以。
+
+时间不够的话，只填前 {len(items) // 2} 条也行，跟我说一声。
+
+谢谢！
+"""
+    (out / "00-说明.txt").write_text(message, encoding="utf-8")
     print(f"{len(items)} rows -> {out}")
 
 
