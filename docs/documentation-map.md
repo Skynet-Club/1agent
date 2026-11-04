@@ -67,6 +67,8 @@ Date: 2026-11-02
 - [`adr/0016-unified-capability-probe-evidence.md`](adr/0016-unified-capability-probe-evidence.md)
 - [`adr/0017-goal-key-result-task-list.md`](adr/0017-goal-key-result-task-list.md)
 - [`adr/0018-deterministic-global-scheduler.md`](adr/0018-deterministic-global-scheduler.md)
+- [`adr/0019-requirement-regression.md`](adr/0019-requirement-regression.md)
+- [`adr/0020-reframe-journal-events.md`](adr/0020-reframe-journal-events.md)
 
 ## Current audits and release evidence
 
