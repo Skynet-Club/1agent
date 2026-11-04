@@ -70,6 +70,8 @@ file: <路径>              → 文件必须存在
 | 试点语料覆盖 7 个任务族，且每例可在 2 问内到达动作 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py fixtures/reframing/pilot-v0.json | ✅ | 设计层校验，不是模型行为 |
 | 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 调参集 10/11；held-out 召回 21/21；但 precision 未达标 |
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
+| 回答不复述请求、不含开场脚手架 | 无 | ❌ | 提示词已有要求，lint 与测试未实现 |
+| 并列方案不超过 3 个且给出默认推荐 | 无 | ❌ | 契约已写，未校验 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |
 

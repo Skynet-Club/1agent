@@ -36,6 +36,8 @@ Date: 2026-11-02
   below the pre-registered threshold, with the failing cases identified.
 - [`evidence-heldout-v2.md`](evidence-heldout-v2.md): second frozen held-out run; precision
   above the threshold, with the remaining failure class and caveats stated.
+- [`output-contract.md`](output-contract.md): the Occam contract for answers — necessity test,
+  the four items that must survive brevity, forbidden patterns and four metrics.
 
 ## Thesis and pre-registration (v0.95 research)
 
