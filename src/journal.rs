@@ -1966,7 +1966,9 @@ mod tests {
 mod reframe_journal_tests {
     use super::*;
     use crate::domain::{AnswerStatus, CognitiveMode};
-    use crate::reframe::{ReframeChoice, ReframeProposal, RejectedReason, RequestRole, StopRule};
+    use crate::reframe::{
+        ReframeChoice, ReframeProposal, RejectedReason, RequestRole, StopRule, StopRuleSource,
+    };
     use std::path::PathBuf;
 
     fn proposal() -> ReframeProposal {
@@ -1984,6 +1986,7 @@ mod reframe_journal_tests {
                 deliverable: true,
                 better_substitute_exists: true,
             },
+            stop_rule_source: StopRuleSource::Asserted,
         }
     }
 

@@ -13,32 +13,33 @@ use first_principles_agent::{
     ExecutionStatus, ExecutionSubmission, ExecutionTarget, ExperienceCandidateSpec,
     ExperienceStore, ExperienceVerificationInput, GoldSetManifest, HostBinding, HostCommand,
     HostError, HostRegistry, HostRequestState, HostResponse, Journal, JournalEventKind,
-    MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
-    ModelProductionPlanGenerator, ModelProvider, OpenAiCompatibleProvider, PlanGenerator,
-    PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
-    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
-    ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason, ReleasePolicy,
-    ReleasePolicyMode, RiskLevel, RouteObjective, RoutePolicySources, RouteRequest, Router,
-    RunBudget, RuntimeError, SchedulerLimits, SessionEvent, SessionPreferences, StopReason,
-    TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals,
-    TrustAnchorManifest, TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession,
-    TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter,
-    add_git_worktree, artifact_expectation, artifacts_summary, audit_events, audit_summary,
-    build_release_verification_report, build_usage_ledger, collect_provenance,
-    collect_release_manifest, commands_for_surface, copy_to_clipboard, create_goldset_manifest,
-    create_trust_anchor, default_registry, epistemic_command_prompt, evaluate_experience_suite,
-    evidence_summary, filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff,
-    git_worktrees, infer_mode, init_agents_file, inspect_artifacts, interactive_terminal_available,
-    list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
-    master_audit_summary, master_evidence_summary, master_report, print_session_banner,
-    probe_provider, probe_provider_tools, read_clipboard, read_events, read_master_journal_events,
-    rebuild_and_compare, remote_manifest, render_capability_report, render_receipt,
-    render_usage_ledger, replay_events, replay_master_journal, resolve_input, risk_for_mode,
-    run_capability_suite, run_report, run_suite_with_providers, save_preset, scan_history,
-    schedule_ready, spawn_input_reader, summarize_route_trace, terminal_dimensions, trash_preset,
-    triage_goal, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
-    write_capability_report,
+    MasterJournalEventKind, MasterState, MasterStore, ModelMessage, ModelPlanGenerator,
+    ModelProductionPlanGenerator, ModelProvider, ModelRequest, ModelTurn, OpenAiCompatibleProvider,
+    PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan,
+    ProductionPlanningContext, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
+    ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal,
+    RegistrySnapshot, RejectedReason, ReleasePolicy, ReleasePolicyMode, RiskLevel, RouteObjective,
+    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits,
+    SessionEvent, SessionPreferences, StopReason, TaskRequest, TerminalSession, ToolObservation,
+    ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput,
+    TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput,
+    WorkItemStatus, WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary,
+    audit_events, audit_summary, build_release_verification_report, build_usage_ledger,
+    build_user_message, collect_provenance, collect_release_manifest, commands_for_surface,
+    copy_to_clipboard, create_goldset_manifest, create_trust_anchor, default_registry,
+    epistemic_command_prompt, evaluate_experience_suite, evidence_summary,
+    filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
+    infer_mode, init_agents_file, inspect_artifacts, interactive_terminal_available, list_presets,
+    load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
+    master_audit_summary, master_evidence_summary, master_report, parse_model_output,
+    print_session_banner, probe_provider, probe_provider_tools, prompt_sha256, read_clipboard,
+    read_events, read_master_journal_events, rebuild_and_compare, remote_manifest,
+    render_capability_report, render_receipt, render_usage_ledger, replay_events,
+    replay_master_journal, resolve_input, risk_for_mode, run_capability_suite, run_report,
+    run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
+    summarize_route_trace, terminal_dimensions, trash_preset, triage_goal, verify_goldset_manifest,
+    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor, write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -318,8 +319,22 @@ enum Command {
         command: ExperienceCommand,
     },
     Reframe {
+        #[arg(long, conflicts_with = "input")]
+        task: Option<String>,
         #[arg(long)]
-        input: PathBuf,
+        input: Option<PathBuf>,
+        #[arg(long)]
+        constraint: Vec<String>,
+        #[arg(long, env = "AGENT_BASE_URL")]
+        base_url: Option<String>,
+        #[arg(long, env = "AGENT_MODEL")]
+        model: Option<String>,
+        #[arg(long, env = "AGENT_API_KEY", hide_env_values = true)]
+        api_key: Option<String>,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long, default_value_t = 60)]
+        timeout_seconds: u64,
         #[arg(long)]
         accept: Option<usize>,
         #[arg(long)]
@@ -2530,7 +2545,14 @@ async fn main() -> Result<()> {
             }
         }
         Command::Reframe {
+            task,
             input,
+            constraint,
+            base_url,
+            model,
+            api_key,
+            allow_network,
+            timeout_seconds,
             accept,
             substitute,
             reject,
@@ -2538,10 +2560,66 @@ async fn main() -> Result<()> {
             journal_dir,
             json,
         } => {
-            let bytes = std::fs::read(&input)?;
-            let proposal: ReframeProposal = serde_json::from_slice(&bytes)
-                .with_context(|| format!("invalid reframe proposal: {}", input.display()))?;
-            proposal.validate()?;
+            let (proposal, provider_id, model_label, prompt_sha) = match (task, input) {
+                (Some(task), None) => {
+                    if !allow_network {
+                        bail!("--allow-network is required to call a provider");
+                    }
+                    let base_url = base_url
+                        .ok_or_else(|| anyhow::anyhow!("--base-url is required with --task"))?;
+                    let model = model.unwrap_or_else(|| "deepseek-flash".to_string());
+                    let provider = OpenAiCompatibleProvider::new(
+                        "reframe",
+                        model.clone(),
+                        &base_url,
+                        api_key,
+                        Duration::from_secs(timeout_seconds),
+                    )?;
+                    let request = ModelRequest {
+                        run_id: Uuid::new_v4(),
+                        mode: CognitiveMode::DirectAnswer,
+                        messages: vec![
+                            ModelMessage::system(REFRAME_SYSTEM_PROMPT),
+                            ModelMessage::user(build_user_message(&task, &constraint)),
+                        ],
+                        tools: Vec::new(),
+                    };
+                    let response = provider
+                        .complete(request, &CancellationToken::new())
+                        .await?;
+                    // The provider adapter is answer-shaped, so a reframe reply does
+                    // not parse as an AgentAnswer and arrives as InvalidFinal. A raw
+                    // text path in the provider trait is the proper fix.
+                    let text = match response.turn {
+                        ModelTurn::InvalidFinal { content, .. } => content,
+                        ModelTurn::Final { answer } => answer.conclusion,
+                        ModelTurn::ToolCalls { .. } => {
+                            bail!("model returned tool calls for a reframe request")
+                        }
+                    };
+                    let proposal = parse_model_output(&text)?.into_proposal(&task)?;
+                    proposal.validate()?;
+                    (
+                        proposal,
+                        "openai-compatible".to_string(),
+                        response.model,
+                        prompt_sha256(),
+                    )
+                }
+                (None, Some(path)) => {
+                    let bytes = std::fs::read(&path)?;
+                    let proposal: ReframeProposal = serde_json::from_slice(&bytes)
+                        .with_context(|| format!("invalid reframe proposal: {}", path.display()))?;
+                    proposal.validate()?;
+                    (
+                        proposal,
+                        "file".to_string(),
+                        path.display().to_string(),
+                        hex::encode(Sha256::digest(&bytes)),
+                    )
+                }
+                _ => bail!("exactly one of --task or --input is required"),
+            };
 
             let decided =
                 usize::from(accept.is_some()) + usize::from(reject.is_some()) + usize::from(defer);
@@ -2555,10 +2633,12 @@ async fn main() -> Result<()> {
                 bail!("choice numbers start at 1");
             }
             if decided == 0 {
-                // Nothing is decided, so nothing is recorded. A menu is offered
-                // instead: no fork means no menu, and an undecided proposal is
-                // exactly a fork.
-                let menu = render_choice_menu(&proposal, &input);
+                // Nothing is decided, so no journal is written. The proposal is
+                // persisted anyway, because a menu whose numbers cannot be
+                // resolved later is not actionable: re-calling a model would
+                // produce different options and different indices.
+                let pending = persist_pending(&proposal, &journal_dir)?;
+                let menu = render_choice_menu(&proposal, &format!("--input {}", pending.display()));
                 if json {
                     println!(
                         "{}",
@@ -2599,9 +2679,9 @@ async fn main() -> Result<()> {
             })?;
             journal.append(JournalEventKind::ReframeProposed {
                 proposal: proposal.clone(),
-                provider_id: "file".into(),
-                model: input.display().to_string(),
-                prompt_sha256: hex::encode(Sha256::digest(&bytes)),
+                provider_id,
+                model: model_label,
+                prompt_sha256: prompt_sha,
             })?;
             let decided_at = now_unix_ms();
             journal.append(JournalEventKind::ReframeDecided {
@@ -4456,8 +4536,15 @@ fn yes_no(value: bool) -> &'static str {
     if value { "是" } else { "否" }
 }
 
-fn render_choice_menu(proposal: &ReframeProposal, input: &std::path::Path) -> String {
-    let source = input.display();
+fn persist_pending(proposal: &ReframeProposal, journal_dir: &std::path::Path) -> Result<PathBuf> {
+    let dir = journal_dir.join("pending");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.json", Uuid::new_v4()));
+    std::fs::write(&path, serde_json::to_vec_pretty(proposal)?)?;
+    Ok(path)
+}
+
+fn render_choice_menu(proposal: &ReframeProposal, source: &str) -> String {
     let mut out = String::new();
     out.push_str("需要你选一个\n");
     out.push_str(&format!("  原请求   {}\n", proposal.stated_request));
@@ -4468,11 +4555,11 @@ fn render_choice_menu(proposal: &ReframeProposal, input: &std::path::Path) -> St
     for (index, option) in proposal.options.iter().enumerate() {
         let number = index + 1;
         out.push_str(&format!(
-            "  [{number}] 采纳「{option}」  → reframe --input {source} --accept {number}\n"
+            "  [{number}] 采纳「{option}」  → reframe {source} --accept {number}\n"
         ));
     }
     out.push_str(&format!(
-        "  [{}] 都不是，按原方案  → reframe --input {source} --reject prefer_literal\n",
+        "  [{}] 都不是，按原方案  → reframe {source} --reject prefer_literal\n",
         proposal.options.len() + 1
     ));
     out

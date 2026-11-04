@@ -199,9 +199,21 @@ fn no_decision_prints_a_menu_and_writes_nothing() {
     assert!(stdout.contains("[1] 采纳「穿线」"), "stdout: {stdout}");
     assert!(stdout.contains("--accept 3"), "every option is actionable");
     assert!(stdout.contains("--reject prefer_literal"));
+    let has_journal = journal_dir.exists()
+        && fs::read_dir(&journal_dir).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "jsonl")
+        });
     assert!(
-        !journal_dir.exists(),
+        !has_journal,
         "an undecided proposal must not create a journal"
+    );
+    assert!(
+        journal_dir.join("pending").is_dir(),
+        "the proposal must be persisted so the menu stays actionable"
     );
 }
 
@@ -225,4 +237,46 @@ fn choice_numbers_start_at_one() {
         .unwrap();
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("start at 1"));
+}
+
+#[test]
+fn task_mode_requires_network_and_a_base_url() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = binary()
+        .args([
+            "reframe",
+            "--task",
+            "我要买个电钻",
+            "--journal-dir",
+            &dir.path().join("journal").display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--allow-network"));
+
+    let output = binary()
+        .args(["reframe", "--task", "我要买个电钻", "--allow-network"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--base-url"));
+}
+
+#[test]
+fn task_and_input_are_mutually_exclusive() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = write_proposal(dir.path(), &proposal());
+    let output = binary()
+        .args([
+            "reframe",
+            "--task",
+            "x",
+            "--input",
+            &input.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
 }

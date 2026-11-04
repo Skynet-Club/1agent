@@ -7,10 +7,20 @@
 //! a transcript.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::safety::contains_disallowed_control;
 
 pub const REFRAME_SCHEMA_VERSION: u32 = 1;
+
+/// The prompt used for every reframe call, shared verbatim with the research
+/// harness (`scripts/reframing/run_pilot.py` reads the same file). The held-out
+/// measurements were made with exactly these bytes; a test pins the hash.
+pub const REFRAME_SYSTEM_PROMPT: &str = include_str!("../prompts/reframe-v3.txt");
+
+/// SHA-256 of [`REFRAME_SYSTEM_PROMPT`] at the time the held-out rounds ran.
+pub const REFRAME_PROMPT_SHA256: &str =
+    "650588186c30dffed4ccc6bf2a9e7e601f8871eff7b2e84a9d7f80aecb069e16";
 pub const MAX_OPTIONS: usize = 3;
 pub const MIN_OPTIONS: usize = 2;
 pub const MAX_HYPOTHESES: usize = 3;
@@ -54,6 +64,17 @@ pub struct StopRule {
     pub better_substitute_exists: bool,
 }
 
+/// Whether the three stop-rule conditions were asserted by a caller or derived
+/// from what the model returned. A derived rule is weaker evidence and must be
+/// readable as such.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StopRuleSource {
+    #[default]
+    Asserted,
+    Derived,
+}
+
 impl StopRule {
     pub fn passes(&self) -> bool {
         self.verifiable && self.deliverable && self.better_substitute_exists
@@ -82,6 +103,8 @@ pub struct ReframeProposal {
     pub substitutes: Vec<String>,
     #[serde(default)]
     pub stop_rule: StopRule,
+    #[serde(default)]
+    pub stop_rule_source: StopRuleSource,
 }
 
 fn default_schema_version() -> u32 {
@@ -126,6 +149,98 @@ pub enum ReframeError {
     OptionOutOfRange(usize),
     #[error("substitute index {0} is outside the proposed substitutes")]
     SubstituteOutOfRange(usize),
+    #[error("model output is not a valid reframe object: {0}")]
+    ModelOutputInvalid(String),
+    #[error("model classification '{0}' is neither means nor end")]
+    ModelClassificationInvalid(String),
+}
+
+/// The shape a model returns. It is deliberately not [`ReframeProposal`]: the
+/// model does not know the verbatim request and must not assert the stop rule.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelProposal {
+    pub classification: String,
+    #[serde(default)]
+    pub question: Option<String>,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub hypotheses: Vec<String>,
+    #[serde(default)]
+    pub substitutes: Vec<String>,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+}
+
+impl ModelProposal {
+    /// Converts a model answer into a proposal, deriving what the model cannot
+    /// know. An `end` keeps no question, options or substitutes.
+    pub fn into_proposal(
+        self,
+        stated_request: impl Into<String>,
+    ) -> Result<ReframeProposal, ReframeError> {
+        let normalized = self.classification.trim().to_ascii_lowercase();
+        let classification = match normalized.as_str() {
+            "means" => RequestRole::Means,
+            "end" => RequestRole::End,
+            other => return Err(ReframeError::ModelClassificationInvalid(other.into())),
+        };
+        let has_substitutes = !self.substitutes.is_empty();
+        let confidence_bps = self
+            .confidence
+            .map(|value| (value.clamp(0.0, 1.0) * 10_000.0).round() as u16);
+        let mut proposal = ReframeProposal {
+            schema_version: REFRAME_SCHEMA_VERSION,
+            stated_request: stated_request.into(),
+            classification,
+            confidence_bps,
+            question: self.question,
+            options: self.options,
+            hypotheses: self.hypotheses,
+            substitutes: self.substitutes,
+            stop_rule: StopRule {
+                verifiable: true,
+                deliverable: has_substitutes,
+                better_substitute_exists: has_substitutes,
+            },
+            stop_rule_source: StopRuleSource::Derived,
+        };
+        if classification == RequestRole::End {
+            proposal.question = None;
+            proposal.options.clear();
+            proposal.substitutes.clear();
+        }
+        Ok(proposal)
+    }
+}
+
+/// Parses model text into a [`ModelProposal`], tolerating a markdown fence.
+pub fn parse_model_output(text: &str) -> Result<ModelProposal, ReframeError> {
+    let trimmed = text.trim();
+    let body = if let Some(rest) = trimmed.strip_prefix("```") {
+        let rest = rest.strip_prefix("json").unwrap_or(rest);
+        rest.trim_end_matches("```").trim()
+    } else {
+        trimmed
+    };
+    serde_json::from_str(body).map_err(|error| ReframeError::ModelOutputInvalid(error.to_string()))
+}
+
+/// The user message sent alongside [`REFRAME_SYSTEM_PROMPT`].
+pub fn build_user_message(request: &str, constraints: &[String]) -> String {
+    let mut out = format!("请求：{request}");
+    if constraints.is_empty() {
+        out.push_str("\n已知约束：无");
+    } else {
+        out.push_str(&format!("\n已知约束：{}", constraints.join("；")));
+    }
+    out
+}
+
+/// SHA-256 of the prompt, for journalling alongside a proposal.
+pub fn prompt_sha256() -> String {
+    hex::encode(Sha256::digest(REFRAME_SYSTEM_PROMPT.as_bytes()))
 }
 
 const YES_NO: &[&str] = &[
@@ -398,6 +513,7 @@ mod tests {
                 deliverable: true,
                 better_substitute_exists: true,
             },
+            stop_rule_source: StopRuleSource::Asserted,
         }
     }
 
@@ -426,6 +542,7 @@ mod tests {
             hypotheses: vec![],
             substitutes: vec!["重写整个文件".into()],
             stop_rule: StopRule::default(),
+            stop_rule_source: StopRuleSource::Asserted,
         };
         assert_eq!(proposal.validate(), Err(ReframeError::EndCarriesSubstitute));
     }
@@ -505,6 +622,7 @@ mod tests {
             hypotheses: vec![],
             substitutes: vec![],
             stop_rule: StopRule::default(),
+            stop_rule_source: StopRuleSource::Asserted,
         }
     }
 
@@ -570,5 +688,85 @@ mod tests {
         assert!(text.contains("我要买个电钻"));
         assert!(text.contains("我就是要原方案"));
         assert!(text.contains("user"));
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+
+    #[test]
+    fn the_prompt_file_is_the_measured_prompt() {
+        assert_eq!(prompt_sha256(), REFRAME_PROMPT_SHA256);
+    }
+
+    #[test]
+    fn model_output_parses_with_and_without_a_fence() {
+        let body = r#"{"classification":"means","question":"穿线还是挂东西？","options":["穿线","挂东西"],"hypotheses":["联网"],"substitutes":["路由器"],"confidence":0.8}"#;
+        let plain = parse_model_output(body).unwrap();
+        assert_eq!(plain.classification, "means");
+        let fenced = parse_model_output(&format!("```json\n{body}\n```")).unwrap();
+        assert_eq!(fenced.options.len(), 2);
+    }
+
+    #[test]
+    fn a_non_json_reply_is_rejected() {
+        assert!(matches!(
+            parse_model_output("我觉得你应该买路由器"),
+            Err(ReframeError::ModelOutputInvalid(_))
+        ));
+    }
+
+    #[test]
+    fn an_unknown_classification_is_rejected() {
+        let parsed = parse_model_output(r#"{"classification":"maybe"}"#).unwrap();
+        assert!(matches!(
+            parsed.into_proposal("买电钻"),
+            Err(ReframeError::ModelClassificationInvalid(_))
+        ));
+    }
+
+    #[test]
+    fn an_end_from_the_model_keeps_no_question_options_or_substitutes() {
+        let parsed = parse_model_output(
+            r#"{"classification":"end","question":"why?","options":["a","b"],"substitutes":["x"]}"#,
+        )
+        .unwrap();
+        let proposal = parsed.into_proposal("把 typo 改掉").unwrap();
+        assert_eq!(proposal.classification, RequestRole::End);
+        assert!(proposal.question.is_none());
+        assert!(proposal.options.is_empty());
+        assert!(proposal.substitutes.is_empty());
+        assert_eq!(proposal.validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_derived_stop_rule_is_marked_as_derived() {
+        let parsed = parse_model_output(
+            r#"{"classification":"means","question":"为什么？","options":["a","b"],"substitutes":["x"]}"#,
+        )
+        .unwrap();
+        let proposal = parsed.into_proposal("买电钻").unwrap();
+        assert_eq!(proposal.stop_rule_source, StopRuleSource::Derived);
+        assert!(proposal.stop_rule.passes());
+        assert_eq!(proposal.validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_means_without_substitutes_fails_the_stop_rule() {
+        let parsed = parse_model_output(
+            r#"{"classification":"means","question":"为什么？","options":["a","b"]}"#,
+        )
+        .unwrap();
+        let proposal = parsed.into_proposal("买电钻").unwrap();
+        assert_eq!(proposal.validate(), Err(ReframeError::StopRuleNotSatisfied));
+    }
+
+    #[test]
+    fn the_user_message_carries_constraints() {
+        let message = build_user_message("我要买个电钻", &["承重墙".into(), "不改结构".into()]);
+        assert!(message.contains("我要买个电钻"));
+        assert!(message.contains("承重墙；不改结构"));
+        assert!(build_user_message("x", &[]).contains("已知约束：无"));
     }
 }
