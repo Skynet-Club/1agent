@@ -71,7 +71,7 @@ file: <路径>              → 文件必须存在
 | 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 调参集 10/11；held-out 召回 21/21；但 precision 未达标 |
 | 产品能自行生成重构提议 | file: docs/evidence-reframe-live-v0.md | ⚠️ | 一次真实调用；提示词与研究脚本同源，哈希已锁 |
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
-| 回答不复述请求、不含开场脚手架 | file: docs/evidence-answer-style-v3.md | ⚠️ | 全新 14 个任务、预注册门槛：散文 p50 292 ≤350，句子 4 ≤8，复述 2/14 ≤4，脚手架 0；单次运行 |
+| 回答不复述请求、不含开场脚手架 | file: docs/evidence-answer-style-v2set.md | ⚠️ | 两套独立 14 任务均达标：散文 p50 292/222，句子 4.0/5.0，复述 2/14、2/14，脚手架 0 |
 | 五条风格法已写入系统提示词 | test: system_prompt_carries_the_occam_style_laws | ✅ | 只证明条款存在，不证明模型遵守 |
 | 输出风格基线已建立 | cmd: python3 scripts/answer_style/baseline.py | ✅ | 19 条可测答案，全部来自加规则之前的提示词 |
 | 并列方案不超过 3 个且给出默认推荐 | 无 | ❌ | 契约已写，未校验 |

@@ -50,6 +50,8 @@ Date: 2026-11-02
   language clause; length improved, wrong-language answers fixed.
 - [`evidence-answer-style-v3.md`](evidence-answer-style-v3.md): a fresh 14-task style set with
   pre-registered targets; all five targets met on one run.
+- [`evidence-answer-style-v2set.md`](evidence-answer-style-v2set.md): a second, unrelated
+  14-task style set; the same five targets hold.
 
 ## Thesis and pre-registration (v0.95 research)
 
