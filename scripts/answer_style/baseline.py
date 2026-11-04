@@ -113,8 +113,21 @@ def measure(row):
     cjk = len(re.findall(r"[\u4e00-\u9fff]", prose))
     latin_words = len(re.findall(r"[A-Za-z][A-Za-z'-]*", prose))
     total = cjk + latin_words * 2
+    answer_share = round(cjk / total, 3) if total else 0.0
+
+    # A language mismatch is relative to the request, not to an assumption that
+    # the user writes Chinese. Ratios are unreliable here: a Chinese request that
+    # names Python, C, Java and Hello can score below half CJK. Use presence
+    # instead. A Chinese request needs a substantially Chinese answer; an English
+    # request needs one that is not mostly Chinese.
+    request_has_cjk = re.search(r"[\u4e00-\u9fff]", row["objective"]) is not None
+    if request_has_cjk:
+        mismatch = cjk < max(5, int(total * 0.15))
+    else:
+        mismatch = cjk > total * 0.3
     return {
-        "cjk_share": round(cjk / total, 3) if total else 0.0,
+        "cjk_share": answer_share,
+        "language_mismatch": mismatch,
         "chars": len(text),
         "prose_chars": len(prose),
         "sentences": len(sentences),
@@ -197,7 +210,7 @@ def main():
         ),
         "real_with_summary_ending": sum(1 for row in real if row["summary_ending"]),
         "real_with_menu": sum(1 for row in real if row["enumerated"] >= 2),
-        "real_latin_dominant": sum(1 for row in real if row["cjk_share"] < 0.5),
+        "real_language_mismatch": sum(1 for row in real if row["language_mismatch"]),
     }
 
     if args.list_objectives:

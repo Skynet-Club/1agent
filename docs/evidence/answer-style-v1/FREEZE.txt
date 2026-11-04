@@ -1,0 +1,8 @@
+Frozen before the first model call.
+generated 2026-11-04T08:42:45Z
+
+72d87834ad80b463706b1f60655009a1896e6df989fdf08615d494f90f431852  fixtures/answer_style/style-v1.json
+
+prompt_sha256 650588186c30dffed4ccc6bf2a9e7e601f8871eff7b2e84a9d7f80aecb069e16
+note: agent_system_prompt also applies; see src/provider.rs
+commit 7b2e17c
