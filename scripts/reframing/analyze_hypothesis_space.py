@@ -26,6 +26,10 @@ from pathlib import Path
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures/reframing/hypothesis-space-v0.json"
 
 
+def fixture_path(argv):
+    return Path(argv[1]).resolve() if len(argv) > 1 else FIXTURE
+
+
 def load(path):
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
@@ -123,7 +127,7 @@ class Case:
 
 
 def main():
-    fixture = load(FIXTURE)
+    fixture = load(fixture_path(sys.argv))
     arity = fixture.get("max_branch_arity", 2)
     errors = []
     for raw in fixture["cases"]:
@@ -177,9 +181,12 @@ def main():
     print(f"mean naive baseline     : {mean_naive:.2f}")
     print(f"efficiency vs naive     : {mean_naive / mean_e:.2f}x" if mean_e else "")
     print()
+    expected = [c["classification_expected"] for c in fixture["cases"]]
+    print(f"means / end       : {expected.count('means')} / {expected.count('end')}")
+    passed = mean_e <= 2.0 and mean_w <= 3
     print("gate: mean expected <= 2.0 ->", "PASS" if mean_e <= 2.0 else "FAIL")
     print("gate: no case exceeds 3 questions ->", "PASS" if mean_w <= 3 else "FAIL")
-    return 0
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
