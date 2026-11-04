@@ -149,6 +149,10 @@ impl AgentRuntime {
             .collect()
     }
 
+    pub fn journal_dir(&self) -> &std::path::Path {
+        &self.journal_dir
+    }
+
     pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
         self.tools.capabilities()
     }
@@ -1434,6 +1438,8 @@ pub enum RuntimeError {
     ToolCapabilities { path: PathBuf, message: String },
     #[error("experience loading failed: {0}")]
     Experience(String),
+    #[error("reframe failed: {0}")]
+    Reframe(String),
 }
 
 impl RuntimeError {
@@ -1448,7 +1454,48 @@ impl RuntimeError {
             | Self::Cancelled { path } => path,
             Self::Resume(_) => Path::new(""),
             Self::Experience(_) => Path::new(""),
+            Self::Reframe(_) => Path::new(""),
         }
+    }
+}
+
+impl AgentRuntime {
+    /// Ask the routed provider for a reframe proposal.
+    ///
+    /// No journal is written here: an undecided proposal is a fork, not a fact.
+    /// The caller records the decision, and that entry then carries both.
+    pub async fn reframe(
+        &self,
+        task: &str,
+        constraints: &[String],
+        cancellation: &CancellationToken,
+    ) -> Result<crate::reframe::ReframeProposal, RuntimeError> {
+        let candidate = match &self.selected_route {
+            Some(key) => self.providers.iter().find(|candidate| {
+                candidate.manifest.provider_id == key.provider_id
+                    && candidate.manifest.model == key.model
+            }),
+            None => self.providers.first(),
+        }
+        .ok_or_else(|| RuntimeError::Reframe("no provider is configured".into()))?;
+
+        let text = candidate
+            .provider
+            .complete_text(
+                crate::reframe::REFRAME_SYSTEM_PROMPT,
+                &crate::reframe::build_user_message(task, constraints),
+                cancellation,
+            )
+            .await
+            .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
+
+        let proposal = crate::reframe::parse_model_output(&text)
+            .and_then(|parsed| parsed.into_proposal(task))
+            .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
+        proposal
+            .validate()
+            .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
+        Ok(proposal)
     }
 }
 
@@ -1481,6 +1528,103 @@ mod tests {
     use crate::tools::{EchoTool, default_registry};
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ReframeStub;
+
+    #[async_trait]
+    impl ModelProvider for ReframeStub {
+        fn id(&self) -> &str {
+            "reframe-stub"
+        }
+        fn model(&self) -> &str {
+            "stub-v1"
+        }
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Err(ProviderError {
+                code: ProviderErrorCode::InvalidResponse,
+                message: "not used by reframe".into(),
+                retryable: false,
+            })
+        }
+        async fn complete_text(
+            &self,
+            _system: &str,
+            user: &str,
+            _cancellation: &CancellationToken,
+        ) -> Result<String, ProviderError> {
+            assert!(user.contains("电钻"), "user message must carry the request");
+            Ok(r#"{"classification":"means","question":"穿线还是挂东西？","options":["穿线","挂东西"],"substitutes":["路由器"],"confidence":0.8}"#.into())
+        }
+    }
+
+    fn reframe_runtime(
+        workspace: &std::path::Path,
+        provider: Arc<dyn ModelProvider>,
+    ) -> AgentRuntime {
+        let mut manifest = local_manifest();
+        manifest.provider_id = provider.id().into();
+        manifest.model = provider.model().into();
+        AgentRuntime::new(
+            vec![ProviderCandidate { provider, manifest }],
+            default_registry(),
+            workspace.join(".journal"),
+        )
+    }
+
+    #[tokio::test]
+    async fn reframe_returns_a_validated_proposal_from_the_provider() {
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = reframe_runtime(workspace.path(), Arc::new(ReframeStub));
+        let proposal = runtime
+            .reframe("我要买个电钻", &[], &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(proposal.classification, crate::reframe::RequestRole::Means);
+        assert_eq!(
+            proposal.stop_rule_source,
+            crate::reframe::StopRuleSource::Derived
+        );
+        assert_eq!(proposal.stated_request, "我要买个电钻");
+        assert_eq!(proposal.validate(), Ok(()));
+    }
+
+    struct NoRawTextProvider;
+
+    #[async_trait]
+    impl ModelProvider for NoRawTextProvider {
+        fn id(&self) -> &str {
+            "no-raw-text"
+        }
+        fn model(&self) -> &str {
+            "v1"
+        }
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Err(ProviderError {
+                code: ProviderErrorCode::InvalidResponse,
+                message: "not used".into(),
+                retryable: false,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn reframe_reports_a_provider_without_raw_text_support() {
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = reframe_runtime(workspace.path(), Arc::new(NoRawTextProvider));
+        let error = runtime
+            .reframe("x", &[], &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, RuntimeError::Reframe(_)), "got {error:?}");
+    }
 
     struct RetryableFailureProvider;
 

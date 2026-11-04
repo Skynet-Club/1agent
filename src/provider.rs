@@ -639,6 +639,17 @@ impl ModelProvider for DeterministicProvider {
             usage: Usage::default(),
         })
     }
+
+    /// A fixed reframe reply, so the offline provider can exercise callers that
+    /// need raw text without pretending to reason.
+    async fn complete_text(
+        &self,
+        _system: &str,
+        _user: &str,
+        _cancellation: &CancellationToken,
+    ) -> Result<String, ProviderError> {
+        Ok(r#"{"classification":"means","question":"你主要打算用它做什么？","options":["家里偶尔用","专业高频使用"],"hypotheses":["轻度使用","长期使用"],"substitutes":["借用或租赁"],"confidence":0.8}"#.into())
+    }
 }
 
 pub struct OpenAiCompatibleProvider {
@@ -1602,10 +1613,32 @@ mod tests {
 mod raw_text_tests {
     use super::*;
 
+    struct NoRawText;
+
+    #[async_trait]
+    impl ModelProvider for NoRawText {
+        fn id(&self) -> &str {
+            "no-raw-text"
+        }
+        fn model(&self) -> &str {
+            "v1"
+        }
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Err(ProviderError {
+                code: ProviderErrorCode::InvalidResponse,
+                message: "not used".into(),
+                retryable: false,
+            })
+        }
+    }
+
     #[tokio::test]
     async fn a_provider_without_raw_text_reports_unsupported() {
-        let provider = DeterministicProvider::new();
-        let error = provider
+        let error = NoRawText
             .complete_text("system", "user", &CancellationToken::new())
             .await
             .unwrap_err();

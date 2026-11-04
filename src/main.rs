@@ -2667,46 +2667,16 @@ async fn main() -> Result<()> {
             };
             choice.validate_against(&proposal)?;
 
-            let run_id = Uuid::new_v4();
-            let journal_path = journal_dir.join(format!("{run_id}.jsonl"));
-            let mut journal = Journal::create(&journal_path, run_id)?;
-            journal.append(JournalEventKind::RunStarted {
-                request: TaskRequest::from_objective(
-                    proposal.stated_request.clone(),
-                    PathBuf::from("."),
-                ),
-                mode: CognitiveMode::DirectAnswer,
-            })?;
-            journal.append(JournalEventKind::ReframeProposed {
-                proposal: proposal.clone(),
-                provider_id,
-                model: model_label,
-                prompt_sha256: prompt_sha,
-            })?;
             let decided_at = now_unix_ms();
-            journal.append(JournalEventKind::ReframeDecided {
-                choice: choice.clone(),
-                actor: "user".into(),
-                decided_at_unix_ms: decided_at,
-            })?;
-            journal.append(JournalEventKind::AnswerProduced {
-                answer: AgentAnswer {
-                    schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
-                    status: AnswerStatus::Completed,
-                    conclusion: format!("已记录：{}", choice.label_zh()),
-                    claims: Vec::new(),
-                    evidence: Vec::new(),
-                    assumptions: Vec::new(),
-                    constraints: Vec::new(),
-                    unknowns: Vec::new(),
-                    conflicts: Vec::new(),
-                    flip_conditions: Vec::new(),
-                    action_receipts: Vec::new(),
-                },
-            })?;
-            journal.append(JournalEventKind::RunStopped {
-                reason: StopReason::Completed,
-            })?;
+            let (run_id, journal_path) = record_reframe_decision(
+                &proposal,
+                &choice,
+                &provider_id,
+                &model_label,
+                &prompt_sha,
+                &journal_dir,
+                decided_at,
+            )?;
 
             let receipt = render_receipt(&proposal, &choice, "user", decided_at);
             if json {
@@ -4537,6 +4507,54 @@ fn yes_no(value: bool) -> &'static str {
     if value { "是" } else { "否" }
 }
 
+fn record_reframe_decision(
+    proposal: &ReframeProposal,
+    choice: &ReframeChoice,
+    provider_id: &str,
+    model: &str,
+    prompt_sha256: &str,
+    journal_dir: &std::path::Path,
+    decided_at_unix_ms: u128,
+) -> Result<(Uuid, PathBuf)> {
+    let run_id = Uuid::new_v4();
+    let journal_path = journal_dir.join(format!("{run_id}.jsonl"));
+    let mut journal = Journal::create(&journal_path, run_id)?;
+    journal.append(JournalEventKind::RunStarted {
+        request: TaskRequest::from_objective(proposal.stated_request.clone(), PathBuf::from(".")),
+        mode: CognitiveMode::DirectAnswer,
+    })?;
+    journal.append(JournalEventKind::ReframeProposed {
+        proposal: proposal.clone(),
+        provider_id: provider_id.to_string(),
+        model: model.to_string(),
+        prompt_sha256: prompt_sha256.to_string(),
+    })?;
+    journal.append(JournalEventKind::ReframeDecided {
+        choice: choice.clone(),
+        actor: "user".into(),
+        decided_at_unix_ms,
+    })?;
+    journal.append(JournalEventKind::AnswerProduced {
+        answer: AgentAnswer {
+            schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Completed,
+            conclusion: format!("已记录：{}", choice.label_zh()),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        },
+    })?;
+    journal.append(JournalEventKind::RunStopped {
+        reason: StopReason::Completed,
+    })?;
+    Ok((run_id, journal_path))
+}
+
 fn persist_pending(proposal: &ReframeProposal, journal_dir: &std::path::Path) -> Result<PathBuf> {
     let dir = journal_dir.join("pending");
     std::fs::create_dir_all(&dir)?;
@@ -4833,6 +4851,10 @@ async fn run_tui_line_mode(
                     }
                     TuiCommandId::Help => {
                         display_tui_help_menu(state);
+                        continue;
+                    }
+                    TuiCommandId::Reframe => {
+                        run_tui_reframe(runtime, state, args).await?;
                         continue;
                     }
                     TuiCommandId::Status => {
@@ -5407,6 +5429,12 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
                 true,
             )]
         }
+        TuiCommandId::Reframe => vec![command_menu_action(
+            "判断一个请求…",
+            "输入你原本想要的东西，先看它是目的还是手段",
+            "/reframe ",
+            true,
+        )],
         TuiCommandId::Timeline => vec![command_menu_action(
             "刷新时间线",
             "重新读取总控和 Session 事件",
@@ -5426,6 +5454,7 @@ fn command_needs_input(command: TuiCommandId) -> bool {
             | TuiCommandId::Respond
             | TuiCommandId::Verify
             | TuiCommandId::Control
+            | TuiCommandId::Reframe
     )
 }
 
@@ -5455,6 +5484,100 @@ fn display_tui_help_menu(state: &mut TuiState) {
             })
             .collect(),
     );
+}
+
+async fn run_tui_reframe(runtime: &AgentRuntime, state: &mut TuiState, args: &str) -> Result<()> {
+    let args = args.trim();
+    if args.is_empty() {
+        state.info("用法：/reframe <你原本想要的东西>");
+        return Ok(());
+    }
+
+    if let Some(rest) = args.strip_prefix("accept ") {
+        let number: usize = rest
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("用法：/reframe accept <编号>"))?;
+        if number == 0 {
+            bail!("编号从 1 开始");
+        }
+        return finish_tui_reframe(
+            runtime,
+            state,
+            ReframeChoice::Accepted {
+                option_index: number - 1,
+                substitute_index: None,
+            },
+        );
+    }
+    if args == "reject" {
+        return finish_tui_reframe(
+            runtime,
+            state,
+            ReframeChoice::Rejected {
+                reason: RejectedReason::PreferLiteral,
+            },
+        );
+    }
+
+    state.info("正在判断这是目的还是手段…");
+    match runtime.reframe(args, &[], &CancellationToken::new()).await {
+        Ok(proposal) if proposal.classification == RequestRole::End => {
+            state.info("这是目的类请求，按原请求执行。");
+        }
+        Ok(proposal) => {
+            let question = proposal.question.clone().unwrap_or_default();
+            let mut items = Vec::new();
+            for (index, option) in proposal.options.iter().enumerate() {
+                items.push(command_menu_action(
+                    &format!("采纳「{option}」"),
+                    "记录这个判断并生成收据",
+                    &format!("/reframe accept {}", index + 1),
+                    false,
+                ));
+            }
+            items.push(command_menu_action(
+                "都不是，按原方案",
+                "拒绝这次重构",
+                "/reframe reject",
+                false,
+            ));
+            state.begin_command_panel("/reframe");
+            state.info(format!(
+                "判断  手段\n追问  {question}\n选项  {}\n\n↑/↓ 选择，Enter 执行，Esc 返回。",
+                proposal.options.join(" / ")
+            ));
+            state.set_command_panel_menu(items);
+            state.set_pending_reframe(proposal);
+        }
+        Err(error) => state.info(format!("重构失败：{error}")),
+    }
+    Ok(())
+}
+
+fn finish_tui_reframe(
+    runtime: &AgentRuntime,
+    state: &mut TuiState,
+    choice: ReframeChoice,
+) -> Result<()> {
+    let Some(proposal) = state.take_pending_reframe() else {
+        state.info("没有待决定的提议。先输入 /reframe <请求>。");
+        return Ok(());
+    };
+    choice.validate_against(&proposal)?;
+    let decided_at = now_unix_ms();
+    let (_, path) = record_reframe_decision(
+        &proposal,
+        &choice,
+        "tui",
+        &state.provider_label.clone(),
+        &prompt_sha256(),
+        runtime.journal_dir(),
+        decided_at,
+    )?;
+    let receipt = render_receipt(&proposal, &choice, "user", decided_at);
+    state.info(format!("{receipt}journal   {}", path.display()));
+    Ok(())
 }
 
 fn display_tui_next_actions(state: &mut TuiState) -> bool {
@@ -9018,6 +9141,9 @@ async fn run_tui_interactive(
                             TuiCommandId::Clear => {
                                 state.clear();
                                 state.info("Conversation cleared.");
+                            }
+                            TuiCommandId::Reframe => {
+                                run_tui_reframe(&runtime, &mut state, args).await?;
                             }
                             TuiCommandId::Evidence => {
                                 display_evidence(&mut state, &session, args);

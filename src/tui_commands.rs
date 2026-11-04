@@ -53,6 +53,7 @@ pub enum TuiCommandId {
     Cost,
     Config,
     Mission,
+    Reframe,
     Triage,
     Plan,
     Approve,
@@ -317,6 +318,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         TuiCommandId::Config,
         "/config",
         "查看和修改 TUI 配置",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Reframe,
+        "/reframe",
+        "判断请求是目的还是手段，必要时追问一次",
         TuiCommandScope::Core,
         CommandStage::Any,
         true,
@@ -846,23 +856,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 24);
+        assert_eq!(standalone.len(), 25);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            26
+            27
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            28
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             29
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            30
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            34
+            35
         );
     }
 
@@ -904,6 +914,7 @@ mod tests {
                 "/copy",
                 "/cost",
                 "/config",
+                "/reframe",
                 "/mission",
                 "/agents"
             ]

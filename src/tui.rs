@@ -166,6 +166,7 @@ pub struct TuiState {
     session_id: Option<String>,
     last_journal_path: Option<PathBuf>,
     last_details: Option<String>,
+    pending_reframe: Option<crate::reframe::ReframeProposal>,
     details_open: bool,
     details_scroll: usize,
     command_panel: Option<CommandPanel>,
@@ -210,6 +211,7 @@ impl TuiState {
             session_id: None,
             last_journal_path: None,
             last_details: None,
+            pending_reframe: None,
             details_open: false,
             details_scroll: 0,
             command_panel: None,
@@ -504,6 +506,19 @@ impl TuiState {
         self.command_panel = None;
         self.command_panel_history.clear();
         self.command_panel_scroll = 0;
+    }
+
+    /// The proposal shown by `/reframe`, waiting for the user's choice.
+    pub fn set_pending_reframe(&mut self, proposal: crate::reframe::ReframeProposal) {
+        self.pending_reframe = Some(proposal);
+    }
+
+    pub fn pending_reframe(&self) -> Option<&crate::reframe::ReframeProposal> {
+        self.pending_reframe.as_ref()
+    }
+
+    pub fn take_pending_reframe(&mut self) -> Option<crate::reframe::ReframeProposal> {
+        self.pending_reframe.take()
     }
 
     pub fn command_panel_open(&self) -> bool {
