@@ -31,15 +31,15 @@ use first_principles_agent::{
     find_resumable_prefix, git_diff, git_worktrees, infer_mode, init_agents_file,
     inspect_artifacts, interactive_terminal_available, list_presets, load_agent_profiles,
     load_eval_report, load_preset, load_suite, local_manifest, master_audit_summary,
-    master_evidence_summary, master_report, parse_model_output, print_session_banner,
+    master_evidence_summary, master_report, next_actions, parse_model_output, print_session_banner,
     probe_provider, probe_provider_tools, prompt_sha256, read_clipboard, read_events,
     read_master_journal_events, rebuild_and_compare, remote_manifest, render_capability_report,
     render_receipt, render_usage_ledger, replay_events, replay_master_journal, resolve_input,
     risk_for_mode, run_capability_suite, run_report, run_suite_with_providers, save_preset,
-    scan_history, schedule_ready, spawn_input_reader, summarize_route_trace, terminal_dimensions,
-    trash_preset, triage_goal, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
-    write_capability_report,
+    scan_history, schedule_ready, spawn_input_reader, stage_next_actions, summarize_route_trace,
+    terminal_dimensions, trash_preset, triage_goal, verify_goldset_manifest, verify_provenance,
+    verify_release_approval, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor, write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -5456,6 +5456,37 @@ fn display_tui_help_menu(state: &mut TuiState) {
     );
 }
 
+fn display_tui_next_actions(state: &mut TuiState) -> bool {
+    let stage = state.command_stage();
+    let host = state.host_binding().clone();
+    let candidates = stage_next_actions(stage);
+    let actions = next_actions(&host, stage, candidates, candidates.first().copied());
+    if actions.is_empty() {
+        return false;
+    }
+    state.begin_command_panel("/next");
+    state.info("下一步\n  ↑/↓ 选择，Enter 执行，Esc 返回对话。");
+    state.set_command_panel_menu(
+        actions
+            .into_iter()
+            .map(|action| {
+                let label = if action.default {
+                    format!("{}（默认）", action.label)
+                } else {
+                    action.label.to_string()
+                };
+                command_menu_action(
+                    action.name,
+                    &label,
+                    action.name,
+                    command_needs_input(action.id),
+                )
+            })
+            .collect(),
+    );
+    true
+}
+
 async fn run_tui_line_epistemic(
     runtime: &mut AgentRuntime,
     state: &mut TuiState,
@@ -9221,6 +9252,9 @@ async fn run_tui_interactive(
                         if quit {
                             break;
                         }
+                        if display_tui_next_actions(&mut state) {
+                            draw_tui_frame(&mut terminal, &mut state)?;
+                        }
                     }
                 }
             }
@@ -11642,5 +11676,18 @@ fn claim_status_label(status: first_principles_agent::ClaimStatus) -> &'static s
         ClaimStatus::ModelPrior => "模型先验",
         ClaimStatus::Conflicting => "冲突",
         ClaimStatus::Unknown => "未知",
+    }
+}
+
+#[cfg(test)]
+mod next_action_panel_tests {
+    use super::*;
+
+    #[test]
+    fn the_next_action_panel_opens_with_a_default_entry() {
+        let mut state = TuiState::new("mock", 6, 120);
+        assert!(display_tui_next_actions(&mut state));
+        assert!(state.command_panel_open());
+        assert!(state.command_panel_menu_open());
     }
 }

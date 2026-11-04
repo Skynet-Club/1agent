@@ -562,6 +562,51 @@ pub struct NextAction {
 /// A menu longer than this stops being a choice and becomes a list.
 pub const MAX_NEXT_ACTIONS: usize = 4;
 
+/// Which commands are worth offering at the end of a turn, by stage.
+///
+/// This is navigation, not advice: the order is the preference order and the
+/// first entry becomes the default. Host and stage filtering still happen in
+/// [`next_actions`], so a standalone session never sees a Master command.
+pub fn stage_next_actions(stage: CommandStage) -> &'static [TuiCommandId] {
+    match stage {
+        CommandStage::Any => &[
+            TuiCommandId::Status,
+            TuiCommandId::Context,
+            TuiCommandId::Tools,
+        ],
+        CommandStage::NoMission => &[
+            TuiCommandId::Frame,
+            TuiCommandId::Evidence,
+            TuiCommandId::Status,
+        ],
+        CommandStage::Framing => &[
+            TuiCommandId::Decide,
+            TuiCommandId::Evidence,
+            TuiCommandId::Report,
+        ],
+        CommandStage::Approval => &[
+            TuiCommandId::Approve,
+            TuiCommandId::Plan,
+            TuiCommandId::Board,
+        ],
+        CommandStage::Running => &[
+            TuiCommandId::Board,
+            TuiCommandId::Watch,
+            TuiCommandId::Attention,
+        ],
+        CommandStage::Verification => &[
+            TuiCommandId::Artifacts,
+            TuiCommandId::Verify,
+            TuiCommandId::Report,
+        ],
+        CommandStage::Delivery => &[
+            TuiCommandId::Export,
+            TuiCommandId::Report,
+            TuiCommandId::Cost,
+        ],
+    }
+}
+
 /// Builds the end-of-turn menu.
 ///
 /// `candidates` names the actions the turn actually leaves open. Anything not
@@ -1001,6 +1046,84 @@ mod next_action_tests {
                 COMMANDS.iter().any(|spec| spec.id == action.id),
                 "menu entry must exist in the registry"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod next_action_stage_tests {
+    use super::*;
+    use crate::tui_host::HostKind;
+
+    const STAGES: [CommandStage; 7] = [
+        CommandStage::Any,
+        CommandStage::NoMission,
+        CommandStage::Framing,
+        CommandStage::Approval,
+        CommandStage::Running,
+        CommandStage::Verification,
+        CommandStage::Delivery,
+    ];
+
+    fn host(kind: HostKind) -> HostBinding {
+        match kind {
+            HostKind::Standalone => HostBinding::standalone(),
+            _ => HostBinding::workshop_context(
+                "master",
+                "main-coordinator",
+                "1agent",
+                "term-1790000000000-1234-1",
+            ),
+        }
+    }
+
+    #[test]
+    fn every_stage_list_names_registered_commands() {
+        for stage in STAGES {
+            let ids = stage_next_actions(stage);
+            assert!(!ids.is_empty(), "{stage:?} has no candidates");
+            for id in ids {
+                assert!(
+                    COMMANDS.iter().any(|spec| spec.id == *id),
+                    "{stage:?} references an unregistered command"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_standalone_session_gets_a_menu_where_it_has_commands() {
+        let standalone = host(HostKind::Standalone);
+        for stage in [CommandStage::Any, CommandStage::NoMission] {
+            let actions = next_actions(&standalone, stage, stage_next_actions(stage), None);
+            assert!(!actions.is_empty(), "{stage:?} produced no menu");
+            assert!(actions[0].default, "the first entry is the default");
+        }
+    }
+
+    #[test]
+    fn a_master_session_gets_a_menu_at_every_stage() {
+        let master = host(HostKind::WorkshopMaster);
+        for stage in STAGES {
+            let actions = next_actions(&master, stage, stage_next_actions(stage), None);
+            assert!(!actions.is_empty(), "{stage:?} produced no menu");
+            assert!(actions[0].default);
+        }
+    }
+
+    #[test]
+    fn a_standalone_session_never_sees_a_master_command_in_the_menu() {
+        let standalone = host(HostKind::Standalone);
+        for stage in STAGES {
+            for action in next_actions(&standalone, stage, stage_next_actions(stage), None) {
+                assert!(action.name.starts_with('/'));
+                assert!(
+                    COMMANDS
+                        .iter()
+                        .any(|spec| spec.id == action.id && spec.scope == TuiCommandScope::Core),
+                    "{stage:?} leaked a master command into standalone"
+                );
+            }
         }
     }
 }
