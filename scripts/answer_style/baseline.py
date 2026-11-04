@@ -140,6 +140,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--journal-dir", default=".journal")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--list-objectives",
+        action="store_true",
+        help="print the distinct real objectives, one JSON string per line",
+    )
     args = parser.parse_args()
 
     rows = load_answers(args.journal_dir)
@@ -186,6 +191,17 @@ def main():
         "real_with_summary_ending": sum(1 for row in real if row["summary_ending"]),
         "real_with_menu": sum(1 for row in real if row["enumerated"] >= 2),
     }
+
+    if args.list_objectives:
+        seen = set()
+        for row in distinct.values():
+            if row["kind"] != "real":
+                continue
+            objective = row["objective"].strip()
+            if objective and objective not in seen:
+                seen.add(objective)
+                print(json.dumps(objective, ensure_ascii=False))
+        return 0
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))

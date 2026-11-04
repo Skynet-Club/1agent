@@ -70,11 +70,12 @@ file: <路径>              → 文件必须存在
 | 试点语料覆盖 7 个任务族，且每例可在 2 问内到达动作 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py fixtures/reframing/pilot-v0.json | ✅ | 设计层校验，不是模型行为 |
 | 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 调参集 10/11；held-out 召回 21/21；但 precision 未达标 |
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
-| 回答不复述请求、不含开场脚手架 | 无 | ❌ | 提示词已有要求，lint 与测试未实现 |
+| 回答不复述请求、不含开场脚手架 | file: docs/evidence-answer-style-v1.md | ⚠️ | 同一批 14 个任务上，复述 >8 字从 4 条降到 1 条；脚手架始终为 0 |
 | 五条风格法已写入系统提示词 | test: system_prompt_carries_the_occam_style_laws | ✅ | 只证明条款存在，不证明模型遵守 |
 | 输出风格基线已建立 | cmd: python3 scripts/answer_style/baseline.py | ✅ | 19 条可测答案，全部来自加规则之前的提示词 |
 | 并列方案不超过 3 个且给出默认推荐 | 无 | ❌ | 契约已写，未校验 |
 | 结尾提供可执行的下一步菜单且有默认项 | 无 | ❌ | 未实现 |
+| 回答语言与请求一致 | 无 | ❌ | 重放中观察到一次中文请求用英文作答 |
 | 菜单项只来自已注册命令 | test: every_entry_carries_a_real_command_name | ✅ | 只证明在注册表内；`implemented` 标志恒为 true，见下方缺陷 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |

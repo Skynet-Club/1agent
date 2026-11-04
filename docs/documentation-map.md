@@ -40,6 +40,8 @@ Date: 2026-11-02
   the four items that must survive brevity, forbidden patterns and four metrics.
 - [`evidence-answer-style-v0.md`](evidence-answer-style-v0.md): pre-change baseline for answer
   length, restatement and menus, with the corpus limitations stated.
+- [`evidence-answer-style-v1.md`](evidence-answer-style-v1.md): paired replay of the same 14
+  tasks; brevity improved, menus and language regressed.
 
 ## Thesis and pre-registration (v0.95 research)
 
