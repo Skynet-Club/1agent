@@ -53,7 +53,9 @@ def drive() -> str:
     drain(3.0)
     os.write(fd, "/reframe 我要买个电钻\r".encode())
     drain(3.0)
-    os.write(fd, "/reframe accept 1\r".encode())
+    # Enter selects the highlighted menu entry, which is how a person accepts;
+    # typing "/reframe accept 1" is the scripting path and is covered by tests.
+    os.write(fd, b"\r")
     drain(3.0)
     os.write(fd, b"\x11")
     drain(2.0)
@@ -77,7 +79,7 @@ def main():
         "proposal shown": "判断手段" in tight,
         "question shown": "你主要打算用它做什么？" in tight,
         "options offered": "采纳「家里偶尔用」" in tight,
-        "decision recorded": "采纳第1项" in tight,
+        "decision recorded by Enter": "采纳第1项" in tight,
         "journal written": ".journal-pty-reframe/" in tight,
     }
     for label, passed in checks.items():
