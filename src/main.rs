@@ -5486,6 +5486,50 @@ fn display_tui_help_menu(state: &mut TuiState) {
     );
 }
 
+/// Applies a reframe result to the interface. Returns true when a panel opened.
+///
+/// A failed attempt clears any pending proposal first: leaving it behind would
+/// let a later `/reframe accept 1` decide on a proposal the user never saw.
+fn apply_reframe_result(state: &mut TuiState, result: Result<ReframeProposal, String>) -> bool {
+    state.take_pending_reframe();
+    match result {
+        Err(message) => {
+            state.info(format!("重构失败：{message}"));
+            false
+        }
+        Ok(proposal) if proposal.classification == RequestRole::End => {
+            state.info("这是目的类请求，按原请求执行。");
+            false
+        }
+        Ok(proposal) => {
+            let question = proposal.question.clone().unwrap_or_default();
+            let mut items = Vec::new();
+            for (index, option) in proposal.options.iter().enumerate() {
+                items.push(command_menu_action(
+                    &format!("采纳「{option}」"),
+                    "记录这个判断并生成收据",
+                    &format!("/reframe accept {}", index + 1),
+                    false,
+                ));
+            }
+            items.push(command_menu_action(
+                "都不是，按原方案",
+                "拒绝这次重构",
+                "/reframe reject",
+                false,
+            ));
+            state.begin_command_panel("/reframe");
+            state.info(format!(
+                "判断  手段\n追问  {question}\n选项  {}\n\n↑/↓ 选择，Enter 执行，Esc 返回。",
+                proposal.options.join(" / ")
+            ));
+            state.set_command_panel_menu(items);
+            state.set_pending_reframe(proposal);
+            true
+        }
+    }
+}
+
 async fn run_tui_reframe(runtime: &AgentRuntime, state: &mut TuiState, args: &str) -> Result<()> {
     let args = args.trim();
     if args.is_empty() {
@@ -5521,37 +5565,12 @@ async fn run_tui_reframe(runtime: &AgentRuntime, state: &mut TuiState, args: &st
     }
 
     state.info("正在判断这是目的还是手段…");
-    match runtime.reframe(args, &[], &CancellationToken::new()).await {
-        Ok(proposal) if proposal.classification == RequestRole::End => {
-            state.info("这是目的类请求，按原请求执行。");
-        }
-        Ok(proposal) => {
-            let question = proposal.question.clone().unwrap_or_default();
-            let mut items = Vec::new();
-            for (index, option) in proposal.options.iter().enumerate() {
-                items.push(command_menu_action(
-                    &format!("采纳「{option}」"),
-                    "记录这个判断并生成收据",
-                    &format!("/reframe accept {}", index + 1),
-                    false,
-                ));
-            }
-            items.push(command_menu_action(
-                "都不是，按原方案",
-                "拒绝这次重构",
-                "/reframe reject",
-                false,
-            ));
-            state.begin_command_panel("/reframe");
-            state.info(format!(
-                "判断  手段\n追问  {question}\n选项  {}\n\n↑/↓ 选择，Enter 执行，Esc 返回。",
-                proposal.options.join(" / ")
-            ));
-            state.set_command_panel_menu(items);
-            state.set_pending_reframe(proposal);
-        }
-        Err(error) => state.info(format!("重构失败：{error}")),
-    }
+    state.take_pending_reframe();
+    let result = runtime
+        .reframe(args, &[], &CancellationToken::new())
+        .await
+        .map_err(|error| error.to_string());
+    apply_reframe_result(state, result);
     Ok(())
 }
 
@@ -11803,6 +11822,68 @@ fn claim_status_label(status: first_principles_agent::ClaimStatus) -> &'static s
         ClaimStatus::ModelPrior => "模型先验",
         ClaimStatus::Conflicting => "冲突",
         ClaimStatus::Unknown => "未知",
+    }
+}
+
+#[cfg(test)]
+mod reframe_failure_tests {
+    use super::*;
+
+    fn proposal(role: RequestRole) -> ReframeProposal {
+        ReframeProposal {
+            schema_version: first_principles_agent::reframe::REFRAME_SCHEMA_VERSION,
+            stated_request: "我要买个电钻".into(),
+            classification: role,
+            confidence_bps: Some(8_000),
+            question: (role == RequestRole::Means).then(|| "做什么用？".to_string()),
+            options: if role == RequestRole::Means {
+                vec!["家里用".into(), "专业用".into()]
+            } else {
+                Vec::new()
+            },
+            hypotheses: Vec::new(),
+            substitutes: if role == RequestRole::Means {
+                vec!["借用".into()]
+            } else {
+                Vec::new()
+            },
+            stop_rule: first_principles_agent::reframe::StopRule {
+                verifiable: true,
+                deliverable: true,
+                better_substitute_exists: true,
+            },
+            stop_rule_source: first_principles_agent::reframe::StopRuleSource::Derived,
+        }
+    }
+
+    #[test]
+    fn a_failed_attempt_clears_the_pending_proposal() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_pending_reframe(proposal(RequestRole::Means));
+        let opened = apply_reframe_result(&mut state, Err("network down".into()));
+        assert!(!opened);
+        assert!(
+            state.pending_reframe().is_none(),
+            "a stale proposal would let a later accept target something the user never saw"
+        );
+    }
+
+    #[test]
+    fn an_end_proposal_clears_the_pending_proposal_and_opens_no_panel() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_pending_reframe(proposal(RequestRole::Means));
+        let opened = apply_reframe_result(&mut state, Ok(proposal(RequestRole::End)));
+        assert!(!opened);
+        assert!(state.pending_reframe().is_none());
+    }
+
+    #[test]
+    fn a_means_proposal_is_kept_and_the_panel_opens() {
+        let mut state = TuiState::new("mock", 6, 120);
+        let opened = apply_reframe_result(&mut state, Ok(proposal(RequestRole::Means)));
+        assert!(opened);
+        assert!(state.pending_reframe().is_some());
+        assert!(state.command_panel_open());
     }
 }
 

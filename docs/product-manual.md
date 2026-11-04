@@ -430,6 +430,10 @@ TUI 里方向键可选、数字键直达；非交互场景（JSON / 宿主协议
   journal .journal/<run>.jsonl
 ```
 
+已知限制：`/reframe` 调用期间界面不响应按键，最长等到 `--timeout-seconds`
+（默认 120 秒）。Ctrl+C 目前不能中断这一次调用；超时后回到会话，提议不会被
+残留，下一次 `/reframe accept` 也不会作用到旧提议上。
+
 需求重构的闭环：
 
 ```bash
