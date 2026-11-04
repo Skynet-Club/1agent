@@ -34,6 +34,8 @@ Date: 2026-11-02
   corpus, including what it does and does not license.
 - [`evidence-heldout-v1.md`](evidence-heldout-v1.md): first frozen held-out run; precision
   below the pre-registered threshold, with the failing cases identified.
+- [`evidence-heldout-v2.md`](evidence-heldout-v2.md): second frozen held-out run; precision
+  above the threshold, with the remaining failure class and caveats stated.
 
 ## Thesis and pre-registration (v0.95 research)
 

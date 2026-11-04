@@ -40,7 +40,7 @@ USD_PER_M_OUTPUT = 1.20
 
 YES_NO = {"是", "否", "不是", "对", "不对", "会", "不会", "有", "没有", "需要", "不需要"}
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 SYSTEM = """You are the requirement-regression step of an assistant called 1-Agent.
 
@@ -53,9 +53,16 @@ Definitions:
 - MEANS: the request names a specific product, tool, skill, purchase, trip, or
   single step, and the goal that thing would serve is NOT stated.
 
-Operational test: ask "what is this for?". If the answer is not already in the
-request, and two different answers would lead to materially different advice,
-the request is a MEANS.
+Operational test. Answer both steps before classifying.
+
+Step 1. What is this for? If the answer is already in the request, it is an END.
+
+Step 2. If the answer is not in the request: would two different answers lead to
+materially different advice? If not - because the request is already fully
+specified, or because the use would not change what you recommend - it is an END.
+
+Only when both conditions hold is it a MEANS. Naming a product or an action is
+not enough on its own.
 
 When the request is a MEANS, do not answer it. Ask exactly ONE question that
 splits the plausible goals into 2 or 3 options. Do not ask a yes/no question.

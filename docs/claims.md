@@ -32,7 +32,7 @@ file: <路径>              → 文件必须存在
 
 | 说法 | 证据 | 状态 | 说明 |
 |---|---|---|---|
-| 默认不重构：绝大多数请求按原样执行 | 无 | ❌ | held-out 实测 end 误判 6/21，precision 0.778 未达 0.80 门槛 |
+| 默认不重构：绝大多数请求按原样执行 | file: docs/evidence/reframing-heldout-v2/summary.json | ⚠️ | v3 在 held-out v2 上 20/21 保持沉默；但 v2 在 held-out v1 上仅 15/21，未达门槛 |
 | 只问一个最值钱的问题 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py | ⚠️ | 设计层证据（8 个构造案例），不是模型行为证据 |
 | 替代方案必须列出新增代价 | 无 | ❌ | 契约字段未实现 |
 | 决定权在用户，只读回答不得产生动作回执 | test: read_only_answer_rejects_action_receipts | ✅ | |
