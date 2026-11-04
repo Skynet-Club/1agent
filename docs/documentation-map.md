@@ -32,6 +32,8 @@ Date: 2026-11-02
   evidence command, or explicitly marked as unproven.
 - [`evidence-v0.96.md`](evidence-v0.96.md): first live-provider pilot on the reframing
   corpus, including what it does and does not license.
+- [`evidence-heldout-v1.md`](evidence-heldout-v1.md): first frozen held-out run; precision
+  below the pre-registered threshold, with the failing cases identified.
 
 ## Thesis and pre-registration (v0.95 research)
 

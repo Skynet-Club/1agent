@@ -1,0 +1,235 @@
+{
+  "name": "reframing-heldout-v1",
+  "schema_version": 1,
+  "execution_status": "frozen",
+  "max_questions_per_case": 3,
+  "max_branch_arity": 3,
+  "frozen_before_run": true,
+  "note": "Held-out set for prompt v2. Frozen by SHA-256 before any run. Do not edit the prompt after the first run; if it fails, record the failure. Domains deliberately differ from fixtures/reframing/pilot-v0.json.",
+  "cases": [
+    {
+      "id": "h-end-translate-01",
+      "family": "END-literal",
+      "near_miss": false,
+      "stated_request": "把这段英文翻译成中文",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "自足请求：动作与产出都已写明，没有未说明的目的。",
+      "hypotheses": [
+        { "id": "H1", "statement": "就是要这段文字的中文版", "prior": 1.0, "action": "直接翻译", "falsifier": "如果翻译是为了给客户提案，这个假设也仍然成立" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h-end-buy-salt-02",
+      "family": "END-near-miss",
+      "near_miss": true,
+      "stated_request": "帮我买包盐",
+      "constraints": ["楼下超市就有"],
+      "classification_expected": "end",
+      "label_reason": "近似手段（也是一次购买），但不存在会改变建议的实质替代：盐的用途不影响买盐这个动作。",
+      "hypotheses": [
+        { "id": "H1", "statement": "就是需要一包盐", "prior": 1.0, "action": "直接买", "falsifier": "如果他要开餐馆需要大量采购，替代方案才会改变" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h-end-ticket-03",
+      "family": "END-goal-stated",
+      "near_miss": false,
+      "stated_request": "订一张明天上午去上海的高铁票",
+      "constraints": ["明天上午到达"],
+      "classification_expected": "end",
+      "label_reason": "目的已写在请求里（明天上午到上海），票只是实现细节，不需要再问用途。",
+      "hypotheses": [
+        { "id": "H1", "statement": "明天上午到上海", "prior": 1.0, "action": "给车次与购票方式", "falsifier": "如果可接受的到达时间更宽松，选择会变，但不需要问目的" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h-end-regex-04",
+      "family": "END-diagnostic",
+      "near_miss": false,
+      "stated_request": "这个正则为什么匹配不到 foo\\d+ ？",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "具体的技术诊断，问题本身即目的。",
+      "hypotheses": [
+        { "id": "H1", "statement": "想弄明白匹配失败的原因", "prior": 1.0, "action": "解释原因并给出修正", "falsifier": "如果真正的目标是批量清洗十万行日志，答案会不同" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h-end-conversion-05",
+      "family": "END-complex",
+      "near_miss": true,
+      "stated_request": "为什么我们的注册转化率上个月掉了 20%？",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "复杂域：原因是事后才能知道的，任何\"你其实想问的是怎么增长\"的重构都是伪确定性。应先取证。",
+      "hypotheses": [
+        { "id": "H1", "statement": "原因未知，需先取证", "prior": 1.0, "action": "不做需求重构，先取三个具体事件", "falsifier": "如果已经能指出单一改动导致，则不需要取证" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": ["事件取证"], "unacceptable_substitutes": ["直接给增长方案"] }
+    },
+    {
+      "id": "h-end-capabilities-06",
+      "family": "END-meta",
+      "near_miss": false,
+      "stated_request": "你能做什么？",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "元问题，自足。",
+      "hypotheses": [
+        { "id": "H1", "statement": "想了解能力范围", "prior": 1.0, "action": "直接说明能力与边界", "falsifier": "如果他在试探能否做某件具体事，会自己说出来" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h-end-rename-07",
+      "family": "END-near-miss",
+      "near_miss": true,
+      "stated_request": "把所有 user_id 重命名成 account_id",
+      "constraints": ["只改标识符，不改数据库列名"],
+      "classification_expected": "end",
+      "label_reason": "近似手段（\"为什么改名\"确实存在），但请求已给出明确范围与边界，追问不会改变执行方式，只会拖延。",
+      "hypotheses": [
+        { "id": "H1", "statement": "就是统一命名", "prior": 1.0, "action": "直接改并列出影响面", "falsifier": "如果改名是为了对外 API 兼容，方案会不同——但那属于执行时的风险提示，不是重构" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h-means-oscilloscope-08",
+      "family": "MEANS-tool",
+      "near_miss": false,
+      "stated_request": "推荐个示波器",
+      "constraints": ["预算三千以内"],
+      "classification_expected": "means",
+      "label_reason": "指名一样工具，用途未说明；不同用途会给出完全不同的推荐。",
+      "hypotheses": [
+        { "id": "H1", "statement": "修自家音响，低频使用", "prior": 0.4, "action": "借或租，或找维修", "falsifier": "如果他长期做电子维修，这个假设就是错的" },
+        { "id": "H2", "statement": "学电子，做教学演示", "prior": 0.35, "action": "入门数字示波器", "falsifier": "如果他要测高频信号，这个假设就是错的" },
+        { "id": "H3", "statement": "工作需要调试信号", "prior": 0.25, "action": "中端机型", "falsifier": "如果是业余爱好，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "你用它主要是修东西、学电子，还是工作需要？", "branches": { "修东西": ["H1"], "学电子": ["H2"], "工作": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H2", "acceptable_substitutes": ["入门数字示波器"], "unacceptable_substitutes": ["三千元专业机型"] }
+    },
+    {
+      "id": "h-means-go-09",
+      "family": "MEANS-skill",
+      "near_miss": false,
+      "stated_request": "我想学 Go",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "指名一项技能，目的未说明。",
+      "hypotheses": [
+        { "id": "H1", "statement": "工作要写服务", "prior": 0.5, "action": "按服务开发路径", "falsifier": "如果工作中用不到 Go，这个假设就是错的" },
+        { "id": "H2", "statement": "想换工作", "prior": 0.3, "action": "按面试考点", "falsifier": "如果他已在职且不跳槽，这个假设就是错的" },
+        { "id": "H3", "statement": "只是听说好用", "prior": 0.2, "action": "先给最小认知地图", "falsifier": "如果他有明确项目，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "学 Go 是为了工作、为了换工作，还是先了解？", "branches": { "工作": ["H1"], "换工作": ["H2"], "先了解": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["按现有服务写一个模块"], "unacceptable_substitutes": ["从语言规范读起的系统教程"] }
+    },
+    {
+      "id": "h-means-proposal-10",
+      "family": "MEANS-artifact",
+      "near_miss": true,
+      "stated_request": "帮我写个方案",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "近似字面（\"写方案\"本身是个动作），但读者与用途完全未说明，三者的写法毫无交集。",
+      "hypotheses": [
+        { "id": "H1", "statement": "给上级审批要资源", "prior": 0.45, "action": "问题-方案-收益-预算", "falsifier": "如果是给客户看，这个假设就是错的" },
+        { "id": "H2", "statement": "给客户提案", "prior": 0.35, "action": "客户痛点与报价", "falsifier": "如果是内部对齐，这个假设就是错的" },
+        { "id": "H3", "statement": "内部对齐分工", "prior": 0.2, "action": "范围与分工", "falsifier": "如果需要审批预算，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这份方案是给上级批资源、给客户提案，还是内部对齐？", "branches": { "批资源": ["H1"], "客户提案": ["H2"], "内部对齐": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["一页问题-方案-收益"], "unacceptable_substitutes": ["通用方案模板"] }
+    },
+    {
+      "id": "h-means-annualparty-11",
+      "family": "MEANS-event",
+      "near_miss": false,
+      "stated_request": "公司要办年会，怎么搞",
+      "constraints": ["预算人均 800", "约 120 人"],
+      "classification_expected": "means",
+      "label_reason": "指名一个活动，目的未说明；奖励、融合、走流程三种目的的方案完全不同。",
+      "hypotheses": [
+        { "id": "H1", "statement": "让跨部门熟悉", "prior": 0.4, "action": "分组互动为主", "falsifier": "如果大家本来就熟，这个假设就是错的" },
+        { "id": "H2", "statement": "奖励与鼓舞士气", "prior": 0.35, "action": "表彰加放松", "falsifier": "如果今年业绩不好，这个假设就是错的" },
+        { "id": "H3", "statement": "走流程", "prior": 0.25, "action": "最小可行方案", "falsifier": "如果老板明确要效果，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这次年会最想达到的是融合、奖励，还是走个流程？", "branches": { "融合": ["H1"], "奖励": ["H2"], "走流程": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["分组任务型下午加晚餐"], "unacceptable_substitutes": ["高价演出加抽奖"] }
+    },
+    {
+      "id": "h-means-hireqa-12",
+      "family": "MEANS-hire",
+      "near_miss": false,
+      "stated_request": "我们要招个测试",
+      "constraints": ["编制一个"],
+      "classification_expected": "means",
+      "label_reason": "指名一个岗位，缺口类型未说明；产能、能力、合规三种缺口的解法不同。",
+      "hypotheses": [
+        { "id": "H1", "statement": "产能不足，测不完", "prior": 0.45, "action": "招人或外包", "falsifier": "如果测试根本没人会做，这个假设就是错的" },
+        { "id": "H2", "statement": "能力缺口，缺自动化", "prior": 0.35, "action": "买工具或培训", "falsifier": "如果只是人手不够，这个假设就是错的" },
+        { "id": "H3", "statement": "合规要求", "prior": 0.2, "action": "先确认合规范围", "falsifier": "如果没有外部合规要求，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "现在的缺口是测不完、做不了，还是合规要求？", "branches": { "测不完": ["H1"], "做不了": ["H2"], "合规": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["外包测试"], "unacceptable_substitutes": ["直接招人而不看缺口"] }
+    },
+    {
+      "id": "h-means-renovate-13",
+      "family": "MEANS-project",
+      "near_miss": false,
+      "stated_request": "客厅要装修，给点建议",
+      "constraints": ["预算十万"],
+      "classification_expected": "means",
+      "label_reason": "指名一个工程，目的未说明；自住、卖房、出租三种目的的投入方式相反。",
+      "hypotheses": [
+        { "id": "H1", "statement": "自己住，要舒服", "prior": 0.45, "action": "舒适与收纳优先", "falsifier": "如果准备卖房，这个假设就是错的" },
+        { "id": "H2", "statement": "准备卖房", "prior": 0.35, "action": "中性化翻新", "falsifier": "如果自己继续住，这个假设就是错的" },
+        { "id": "H3", "statement": "出租", "prior": 0.2, "action": "耐用低成本", "falsifier": "如果是自住，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这套房子是自住、准备卖，还是出租？", "branches": { "自住": ["H1"], "卖房": ["H2"], "出租": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["局部改造加收纳"], "unacceptable_substitutes": ["全屋拆改"] }
+    },
+    {
+      "id": "h-means-chatgpt-14",
+      "family": "MEANS-near-miss",
+      "near_miss": true,
+      "stated_request": "要不要买 ChatGPT Plus",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "近似是非问句，且\"买不买\"看起来是决策本身；但目的是订阅能解决什么，未说明。若顺着答\"要/不要\"就是答错了问题。",
+      "hypotheses": [
+        { "id": "H1", "statement": "写代码与调试", "prior": 0.4, "action": "按编码场景评估，先试免费额度", "falsifier": "如果他不写代码，这个假设就是错的" },
+        { "id": "H2", "statement": "写文案与翻译", "prior": 0.35, "action": "按写作场景评估", "falsifier": "如果他不产出文字，这个假设就是错的" },
+        { "id": "H3", "statement": "只是跟风", "prior": 0.25, "action": "建议先不订阅", "falsifier": "如果他有明确高频用途，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "你想用它主要做写代码、写东西，还是先试试看？", "branches": { "写代码": ["H1"], "写东西": ["H2"], "先试试": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["先用免费额度两周"], "unacceptable_substitutes": ["直接答要或不要"] }
+    }
+  ]
+}

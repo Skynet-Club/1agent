@@ -32,7 +32,7 @@ file: <路径>              → 文件必须存在
 
 | 说法 | 证据 | 状态 | 说明 |
 |---|---|---|---|
-| 默认不重构：绝大多数请求按原样执行 | 无 | ❌ | 评测未建 |
+| 默认不重构：绝大多数请求按原样执行 | 无 | ❌ | held-out 实测 end 误判 6/21，precision 0.778 未达 0.80 门槛 |
 | 只问一个最值钱的问题 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py | ⚠️ | 设计层证据（8 个构造案例），不是模型行为证据 |
 | 替代方案必须列出新增代价 | 无 | ❌ | 契约字段未实现 |
 | 决定权在用户，只读回答不得产生动作回执 | test: read_only_answer_rejects_action_receipts | ✅ | |
@@ -68,7 +68,7 @@ file: <路径>              → 文件必须存在
 | 说法 | 证据 | 状态 | 说明 |
 |---|---|---|---|
 | 试点语料覆盖 7 个任务族，且每例可在 2 问内到达动作 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py fixtures/reframing/pilot-v0.json | ✅ | 设计层校验，不是模型行为 |
-| 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 单模型单次运行；该语料参与过提示词迭代，不是 held-out |
+| 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 调参集 10/11；held-out 召回 21/21；但 precision 未达标 |
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |
