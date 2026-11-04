@@ -21,16 +21,13 @@
 **怎么做**：
 
 ```bash
-cp docs/annotation/reframing-v1/labels-template.csv labels-你的名字.csv
+python3 scripts/reframing/make_label_sheets.py \
+  --items docs/annotation/reframing-v1/items.jsonl \
+  --out ~/下载/1A-标注材料
 ```
 
-打开后是这样，28 行，每行只看一件事：
-
-```csv
-case_id,label,note
-h2-means-nas-08::ask,,
-h2-means-nas-08::substitute,,
-```
+生成的是自包含表格：每行带原请求、助手做了什么、要你判断，`label` 列填一个词。
+标注者不需要看 jsonl，也不需要交叉查文件。
 
 - `<case>::ask`：助手在这个请求上**该不该追问**
 - `<case>::substitute`：助手给的替代方案，**用户会不会接受**

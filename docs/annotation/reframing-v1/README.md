@@ -47,20 +47,26 @@
 
 ## 4. 填写方式
 
+只给标注者一份**自包含**的表格，不要让他去看 jsonl：
+
 ```bash
-cp labels-template.csv labels-a.csv     # 标注者 A
-cp labels-template.csv labels-b.csv     # 标注者 B
+python3 scripts/reframing/make_label_sheets.py \
+  --items docs/annotation/reframing-v1/items.jsonl \
+  --out ~/下载/1A-标注材料
 ```
 
-填三列：`case_id,label,note`。`note` 写一句理由，尤其是 `unsupported` 和 `needs_evidence`。
+生成的 `01-标注表-A.csv`（与 B 相同）每行包含原请求、助手做了什么、要你判断，
+以及一个待填的 `label`。标注者把 `?` 换成三个词之一即可，不需要交叉查文件。
 
-然后导入并计算一致性：
+导入时按表头取列，多余的列和顺序变化都不影响：
 
 ```bash
-./scripts/reframing/import_labels.sh labels-a.csv alice ./annotation-store
-./scripts/reframing/import_labels.sh labels-b.csv bob   ./annotation-store
+python3 scripts/reframing/import_labels.py --sheet labels-A.csv --annotator alice --store ./annotation-store
+python3 scripts/reframing/import_labels.py --sheet labels-B.csv --annotator bob   --store ./annotation-store
 ./target/release/first-principles-agent annotate agreement --store ./annotation-store --json
 ```
+
+`?` 或空白的行会被跳过并计数，所以可以分批交。
 
 ## 5. 两条硬规则
 
