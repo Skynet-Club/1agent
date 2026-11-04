@@ -4204,7 +4204,8 @@ fn run_master_poll(
     let store = MasterStore::new(&state_root, &trace_id)?;
     let mut state = store.load()?;
     let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), false)?
-        .with_artifact_dir(store.trace_dir().join("executions"));
+        .with_artifact_dir(store.trace_dir().join("executions"))
+        .with_goal_context(state.trace_id.clone(), state.plan.goal_id.clone());
     let submissions = state
         .plan
         .work_items

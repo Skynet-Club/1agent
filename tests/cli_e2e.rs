@@ -717,7 +717,15 @@ esac
     );
     write_executable(
         &root.path().join("async-workshop-lease"),
-        "#!/bin/sh\nif [ \"$1\" = request ]; then printf '%s\\n' '{\"ok\":true,\"lease\":{\"lease_id\":\"lease-test\"}}'; else printf '%s\\n' '{\"ok\":true}'; fi\n",
+        r#"#!/bin/sh
+dir=$(dirname "$0")
+printf '%s\n' "$*" >> "$dir/lease-calls.log"
+if [ "$1" = request ]; then
+  printf '%s\n' '{"ok":true,"lease":{"lease_id":"lease-test"}}'
+else
+  printf '%s\n' '{"ok":true}'
+fi
+"#,
     );
     let plan_path = root.path().join("plan.json");
     let agents_path = root.path().join("agents.json");
@@ -857,6 +865,12 @@ esac
     assert_eq!(
         poll["state"]["tasks"]["async-task"]["status"],
         "artifact_ready"
+    );
+    let lease_calls = std::fs::read_to_string(root.path().join("lease-calls.log")).unwrap();
+    assert!(
+        lease_calls.lines().any(|line| line
+            .starts_with("release --conversation trace-async-cli --task async-task --attempt 1")),
+        "poll must release the task lease with the trace conversation: {lease_calls}"
     );
     let verify = Command::new(binary)
         .args([

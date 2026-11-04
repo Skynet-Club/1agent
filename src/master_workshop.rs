@@ -177,7 +177,11 @@ impl WorkshopCliAdapter {
         conversation_id: impl Into<String>,
         goal_id: impl Into<String>,
     ) -> Self {
-        self.conversation_id = Some(conversation_id.into());
+        // The host-provided conversation id is authoritative; the trace id is
+        // only a fallback for CLI-only runs.
+        if self.conversation_id.is_none() {
+            self.conversation_id = Some(conversation_id.into());
+        }
         self.goal_id = Some(goal_id.into());
         self
     }
