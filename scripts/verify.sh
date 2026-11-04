@@ -4,6 +4,13 @@ set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 
+# /tmp on this host is quota-limited: writes fail with EDQUOT at roughly 160 KB
+# even though df reports free space. Tests that write temporary files then fail
+# intermittently, which looks like flakiness. Point temporary files at the
+# workspace cache so verification is deterministic.
+export TMPDIR="$HOME/.cache/1agent-tmp"
+mkdir -p "$TMPDIR"
+
 cargo fmt --check
 cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline

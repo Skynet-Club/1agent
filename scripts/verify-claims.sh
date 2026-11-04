@@ -12,6 +12,11 @@ set -uo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 
+# Same reason as scripts/verify.sh: /tmp is quota-limited on this host, and the
+# evidence runner spawns cargo tests that write temporary files.
+export TMPDIR="$HOME/.cache/1agent-tmp"
+mkdir -p "$TMPDIR"
+
 doc="docs/claims.md"
 run=0
 [[ "${1-}" == "--run" ]] && run=1
