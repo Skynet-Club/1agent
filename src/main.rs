@@ -5,24 +5,26 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
-    AgentConfig, AgentProfile, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
-    ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, AuthenticityStatus,
-    CalibrationPrediction, CapabilityProbeManifest, CognitiveMode, CommandMenuItem, CommandStage,
-    ConversationQueue, DeterministicProvider, EvalReportSummary, EvalReportTrustRequirements,
-    ExecutionObservation, ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
-    ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
-    HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
+    AgentAnswer, AgentConfig, AgentProfile, AgentRuntime, AnnotationLabel, AnnotationRecord,
+    AnnotationStore, AnswerStatus, ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus,
+    ArtifactKind, AuthenticityStatus, CalibrationPrediction, CapabilityProbeManifest,
+    CognitiveMode, CommandMenuItem, CommandStage, ConversationQueue, DeterministicProvider,
+    EvalReportSummary, EvalReportTrustRequirements, ExecutionObservation, ExecutionReceipt,
+    ExecutionStatus, ExecutionSubmission, ExecutionTarget, ExperienceCandidateSpec,
+    ExperienceStore, ExperienceVerificationInput, GoldSetManifest, HostBinding, HostCommand,
+    HostError, HostRegistry, HostRequestState, HostResponse, Journal, JournalEventKind,
     MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
     ModelProductionPlanGenerator, ModelProvider, OpenAiCompatibleProvider, PlanGenerator,
     PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
     ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
-    RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RiskLevel, RouteObjective,
-    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits,
-    SessionEvent, SessionPreferences, TaskRequest, TerminalSession, ToolObservation, ToolRegistry,
-    ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput, TuiInputResolution,
-    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
-    WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary, audit_events,
-    audit_summary, build_release_verification_report, build_usage_ledger, collect_provenance,
+    ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason, ReleasePolicy,
+    ReleasePolicyMode, RiskLevel, RouteObjective, RoutePolicySources, RouteRequest, Router,
+    RunBudget, RuntimeError, SchedulerLimits, SessionEvent, SessionPreferences, StopReason,
+    TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals,
+    TrustAnchorManifest, TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession,
+    TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter,
+    add_git_worktree, artifact_expectation, artifacts_summary, audit_events, audit_summary,
+    build_release_verification_report, build_usage_ledger, collect_provenance,
     collect_release_manifest, commands_for_surface, copy_to_clipboard, create_goldset_manifest,
     create_trust_anchor, default_registry, epistemic_command_prompt, evaluate_experience_suite,
     evidence_summary, filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff,
@@ -30,12 +32,13 @@ use first_principles_agent::{
     list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
     master_audit_summary, master_evidence_summary, master_report, print_session_banner,
     probe_provider, probe_provider_tools, read_clipboard, read_events, read_master_journal_events,
-    rebuild_and_compare, remote_manifest, render_capability_report, render_usage_ledger,
-    replay_events, replay_master_journal, resolve_input, risk_for_mode, run_capability_suite,
-    run_report, run_suite_with_providers, save_preset, scan_history, schedule_ready,
-    spawn_input_reader, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
-    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
-    verify_snapshot_chain, verify_snapshot_chain_with_anchor, write_capability_report,
+    rebuild_and_compare, remote_manifest, render_capability_report, render_receipt,
+    render_usage_ledger, replay_events, replay_master_journal, resolve_input, risk_for_mode,
+    run_capability_suite, run_report, run_suite_with_providers, save_preset, scan_history,
+    schedule_ready, spawn_input_reader, summarize_route_trace, terminal_dimensions, trash_preset,
+    triage_goal, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -313,6 +316,28 @@ enum Command {
     Experience {
         #[command(subcommand)]
         command: ExperienceCommand,
+    },
+    Reframe {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        accept: Option<usize>,
+        #[arg(long)]
+        substitute: Option<usize>,
+        #[arg(long)]
+        reject: Option<String>,
+        #[arg(long)]
+        defer: bool,
+        #[arg(long, default_value = ".journal")]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Receipt {
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -2504,6 +2529,145 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::Reframe {
+            input,
+            accept,
+            substitute,
+            reject,
+            defer,
+            journal_dir,
+            json,
+        } => {
+            let bytes = std::fs::read(&input)?;
+            let proposal: ReframeProposal = serde_json::from_slice(&bytes)
+                .with_context(|| format!("invalid reframe proposal: {}", input.display()))?;
+            proposal.validate()?;
+
+            let decided =
+                usize::from(accept.is_some()) + usize::from(reject.is_some()) + usize::from(defer);
+            if decided > 1 {
+                bail!("exactly one of --accept, --reject or --defer is allowed");
+            }
+            if substitute.is_some() && accept.is_none() {
+                bail!("--substitute only applies with --accept");
+            }
+            if decided == 0 {
+                // Nothing is decided, so nothing is recorded. A menu is offered
+                // instead: no fork means no menu, and an undecided proposal is
+                // exactly a fork.
+                let menu = render_choice_menu(&proposal, &input);
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "pending": true,
+                            "proposal": proposal,
+                            "menu": menu,
+                        }))?
+                    );
+                } else {
+                    print!("{menu}");
+                }
+                return Ok(());
+            }
+
+            let choice = match (accept, reject.as_deref(), defer) {
+                (Some(option_index), _, _) => ReframeChoice::Accepted {
+                    option_index,
+                    substitute_index: substitute,
+                },
+                (_, Some(reason), _) => ReframeChoice::Rejected {
+                    reason: parse_rejected_reason(reason)?,
+                },
+                (_, _, true) => ReframeChoice::Deferred,
+                _ => unreachable!("exactly one decision is required"),
+            };
+            choice.validate_against(&proposal)?;
+
+            let run_id = Uuid::new_v4();
+            let journal_path = journal_dir.join(format!("{run_id}.jsonl"));
+            let mut journal = Journal::create(&journal_path, run_id)?;
+            journal.append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective(
+                    proposal.stated_request.clone(),
+                    PathBuf::from("."),
+                ),
+                mode: CognitiveMode::DirectAnswer,
+            })?;
+            journal.append(JournalEventKind::ReframeProposed {
+                proposal: proposal.clone(),
+                provider_id: "file".into(),
+                model: input.display().to_string(),
+                prompt_sha256: hex::encode(Sha256::digest(&bytes)),
+            })?;
+            let decided_at = now_unix_ms();
+            journal.append(JournalEventKind::ReframeDecided {
+                choice: choice.clone(),
+                actor: "user".into(),
+                decided_at_unix_ms: decided_at,
+            })?;
+            journal.append(JournalEventKind::AnswerProduced {
+                answer: AgentAnswer {
+                    schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
+                    status: AnswerStatus::Completed,
+                    conclusion: format!("已记录：{}", choice.label_zh()),
+                    claims: Vec::new(),
+                    evidence: Vec::new(),
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    conflicts: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                },
+            })?;
+            journal.append(JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })?;
+
+            let receipt = render_receipt(&proposal, &choice, "user", decided_at);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "run_id": run_id,
+                        "journal": journal_path,
+                        "choice": choice,
+                        "receipt": receipt,
+                    }))?
+                );
+            } else {
+                print!("{receipt}");
+                println!("journal   {}", journal_path.display());
+            }
+        }
+        Command::Receipt { journal, json } => {
+            let events = read_events(&journal)?;
+            let state = replay_events(&events).map_err(|error| anyhow::anyhow!(error))?;
+            let proposal = state
+                .reframe_proposal
+                .ok_or_else(|| anyhow::anyhow!("journal contains no reframe proposal"))?;
+            let choice = state
+                .reframe_choice
+                .ok_or_else(|| anyhow::anyhow!("journal contains no reframe decision"))?;
+            let actor = state.reframe_actor.unwrap_or_default();
+            let decided_at = state.reframe_decided_at_unix_ms.unwrap_or(0);
+            let receipt = render_receipt(&proposal, &choice, &actor, decided_at);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "run_id": state.run_id,
+                        "actor": actor,
+                        "decided_at_unix_ms": decided_at,
+                        "choice": choice,
+                        "receipt": receipt,
+                    }))?
+                );
+            } else {
+                print!("{receipt}");
+            }
+        }
         Command::Annotate { command } => {
             handle_annotations(command)?;
         }
@@ -4287,6 +4451,41 @@ fn parse_risk(value: &str) -> Result<RiskLevel> {
 
 fn yes_no(value: bool) -> &'static str {
     if value { "是" } else { "否" }
+}
+
+fn render_choice_menu(proposal: &ReframeProposal, input: &std::path::Path) -> String {
+    let source = input.display();
+    let mut out = String::new();
+    out.push_str("需要你选一个\n");
+    out.push_str(&format!("  原请求   {}\n", proposal.stated_request));
+    if let Some(question) = &proposal.question {
+        out.push_str(&format!("  追问     {question}\n"));
+    }
+    out.push('\n');
+    for (index, option) in proposal.options.iter().enumerate() {
+        out.push_str(&format!(
+            "  [{index}] 采纳「{option}」  → reframe --input {source} --accept {index}\n"
+        ));
+    }
+    out.push_str(&format!(
+        "  [{}] 都不是，按原方案  → reframe --input {source} --reject prefer_literal\n",
+        proposal.options.len()
+    ));
+    out
+}
+
+fn parse_rejected_reason(value: &str) -> Result<RejectedReason> {
+    match value {
+        "cost_transferred" => Ok(RejectedReason::CostTransferred),
+        "constraint_unmet" => Ok(RejectedReason::ConstraintUnmet),
+        "prefer_literal" => Ok(RejectedReason::PreferLiteral),
+        "unverifiable" => Ok(RejectedReason::Unverifiable),
+        "other" => Ok(RejectedReason::Other),
+        _ => bail!(
+            "unknown rejection reason '{value}'; use cost_transferred, constraint_unmet, \
+             prefer_literal, unverifiable or other"
+        ),
+    }
 }
 
 fn now_unix_ms() -> u128 {

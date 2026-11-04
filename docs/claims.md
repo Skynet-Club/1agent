@@ -74,7 +74,8 @@ file: <路径>              → 文件必须存在
 | 五条风格法已写入系统提示词 | test: system_prompt_carries_the_occam_style_laws | ✅ | 只证明条款存在，不证明模型遵守 |
 | 输出风格基线已建立 | cmd: python3 scripts/answer_style/baseline.py | ✅ | 19 条可测答案，全部来自加规则之前的提示词 |
 | 并列方案不超过 3 个且给出默认推荐 | 无 | ❌ | 契约已写，未校验 |
-| 结尾提供可执行的下一步菜单且有默认项 | 无 | ❌ | 未实现 |
+| 未决定时给出可执行的方案菜单 | test: no_decision_prints_a_menu_and_writes_nothing | ✅ | CLI 层；TUI 未接；方案菜单按设计无默认项 |
+| 结尾提供可执行的下一步菜单且有默认项 | 无 | ❌ | 动作菜单未实现 |
 | 回答语言与请求一致 | 无 | ❌ | 重放中观察到一次中文请求用英文作答 |
 | 菜单项只来自已注册命令 | test: every_entry_carries_a_real_command_name | ✅ | 只证明在注册表内；`implemented` 标志恒为 true，见下方缺陷 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |

@@ -334,6 +334,8 @@ mod tests {
             client_request_id: None,
             reframe_proposal: None,
             reframe_choice: None,
+            reframe_actor: None,
+            reframe_decided_at_unix_ms: None,
         };
         replay.answer = Some(AgentAnswer {
             schema_version: LEGACY_ANSWER_SCHEMA_VERSION,

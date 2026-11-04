@@ -409,7 +409,21 @@ TUI 里方向键可选、数字键直达；非交互场景（JSON / 宿主协议
 ### 9.3 查询历史
 
 ```bash
-1agent receipt <id>
+1agent receipt --journal .journal/<run>.jsonl
+```
+
+需求重构的闭环：
+
+```bash
+# 1. 给出提议，不做决定 —— 打印可执行的菜单，不写任何记录
+1agent reframe --input proposal.json
+
+# 2. 做出决定 —— 写 journal，并打印收据
+1agent reframe --input proposal.json --accept 0
+1agent reframe --input proposal.json --reject prefer_literal
+
+# 3. 三个月后 —— 从 journal 重建收据
+1agent receipt --journal .journal/<run>.jsonl
 ```
 
 ---

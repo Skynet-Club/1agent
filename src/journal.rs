@@ -295,6 +295,10 @@ pub struct ReplayState {
     pub reframe_proposal: Option<ReframeProposal>,
     #[serde(default)]
     pub reframe_choice: Option<ReframeChoice>,
+    #[serde(default)]
+    pub reframe_actor: Option<String>,
+    #[serde(default)]
+    pub reframe_decided_at_unix_ms: Option<u128>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -996,6 +1000,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         client_request_id: None,
         reframe_proposal: None,
         reframe_choice: None,
+        reframe_actor: None,
+        reframe_decided_at_unix_ms: None,
     };
 
     for event in events {
@@ -1010,8 +1016,14 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::ReframeProposed { proposal, .. } => {
                 state.reframe_proposal = Some(proposal.clone());
             }
-            JournalEventKind::ReframeDecided { choice, .. } => {
+            JournalEventKind::ReframeDecided {
+                choice,
+                actor,
+                decided_at_unix_ms,
+            } => {
                 state.reframe_choice = Some(choice.clone());
+                state.reframe_actor = Some(actor.clone());
+                state.reframe_decided_at_unix_ms = Some(*decided_at_unix_ms);
             }
             JournalEventKind::ResumeStarted {
                 request,
