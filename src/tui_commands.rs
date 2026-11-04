@@ -93,7 +93,6 @@ pub struct TuiCommandSpec {
     pub stage: CommandStage,
     pub supports_inline_args: bool,
     pub available_during_run: bool,
-    pub implemented: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +100,6 @@ pub enum TuiInputResolution<'a> {
     Task(&'a str),
     Command { spec: TuiCommandSpec, args: &'a str },
     UnavailableMaster(TuiCommandSpec),
-    NotImplemented(TuiCommandSpec),
     UnavailableInStage(TuiCommandSpec),
     UnavailableWhileRunning(TuiCommandSpec),
     UnknownCommand(&'a str),
@@ -478,7 +476,6 @@ const fn command(
         stage,
         supports_inline_args,
         available_during_run,
-        implemented: true,
     }
 }
 
@@ -517,9 +514,6 @@ pub fn resolve_input<'a>(
     if running && !spec.available_during_run {
         return TuiInputResolution::UnavailableWhileRunning(spec);
     }
-    if !spec.implemented {
-        return TuiInputResolution::NotImplemented(spec);
-    }
     TuiInputResolution::Command { spec, args }
 }
 
@@ -552,7 +546,6 @@ pub fn visible_commands(
     }
     commands_for_surface(host, stage, running)
         .into_iter()
-        .filter(|spec| spec.implemented || spec.scope == TuiCommandScope::Master)
         .filter(|spec| spec.name.starts_with(prefix))
         .collect()
 }
@@ -584,10 +577,7 @@ pub fn next_actions(
     candidates: &[TuiCommandId],
     default: Option<TuiCommandId>,
 ) -> Vec<NextAction> {
-    let available = commands_for_surface(host, stage, false)
-        .into_iter()
-        .filter(|spec| spec.implemented)
-        .collect::<Vec<_>>();
+    let available = commands_for_surface(host, stage, false);
 
     let mut chosen: Vec<TuiCommandSpec> = Vec::new();
     for id in candidates {
@@ -740,7 +730,6 @@ mod tests {
                 .iter()
                 .find(|command| command.id == id)
                 .expect("supervision command should be visible in Master mode");
-            assert!(command.implemented);
             assert_eq!(command.scope, TuiCommandScope::Master);
             assert!(matches!(
                 resolve_input(
@@ -775,7 +764,6 @@ mod tests {
                 .iter()
                 .find(|command| command.id == id)
                 .expect("verification command should be visible in Master mode");
-            assert!(command.implemented);
             assert_eq!(command.stage, CommandStage::Running);
             assert!(matches!(
                 resolve_input(
@@ -805,10 +793,8 @@ mod tests {
                 .iter()
                 .find(|command| command.id == id)
                 .expect("phase six command should be registered");
-            assert!(command.implemented);
             assert_eq!(command.scope, TuiCommandScope::Core);
         }
-        assert!(COMMANDS.iter().all(|command| command.implemented));
     }
 
     #[test]
@@ -918,15 +904,6 @@ mod next_action_tests {
     fn no_candidates_means_no_menu() {
         let actions = next_actions(&host(HostKind::Standalone), CommandStage::Any, &[], None);
         assert!(actions.is_empty());
-    }
-
-    #[test]
-    fn every_registered_command_is_flagged_implemented() {
-        // `command()` hardcodes `implemented: true`, so today the filter in
-        // next_actions cannot drop anything. This test records that fact: if the
-        // registry ever gains a genuinely unimplemented entry, the menu guarantee
-        // starts depending on the flag being honest, and this assertion will say so.
-        assert!(COMMANDS.iter().all(|spec| spec.implemented));
     }
 
     #[test]

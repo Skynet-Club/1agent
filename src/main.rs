@@ -4559,16 +4559,6 @@ async fn run_tui_line_mode(
                 ));
                 continue;
             }
-            TuiInputResolution::NotImplemented(spec) => {
-                record_rejected_command(
-                    state,
-                    session,
-                    spec.name,
-                    "not implemented in this development phase",
-                );
-                state.info(format!("{} 已注册，但在当前开发阶段尚未实现。", spec.name));
-                continue;
-            }
             TuiInputResolution::UnavailableInStage(spec) => {
                 record_rejected_command(
                     state,
@@ -5005,10 +4995,7 @@ fn command_needs_input(command: TuiCommandId) -> bool {
 
 fn display_tui_help_menu(state: &mut TuiState) {
     state.begin_command_panel("/help");
-    let commands = commands_for_surface(state.host_binding(), state.command_stage(), false)
-        .into_iter()
-        .filter(|command| command.implemented || state.host_binding().is_workshop_master())
-        .collect::<Vec<_>>();
+    let commands = commands_for_surface(state.host_binding(), state.command_stage(), false);
     state.info(format!(
         "帮助\n\
          当前环境      {}\n\
@@ -5025,11 +5012,7 @@ fn display_tui_help_menu(state: &mut TuiState) {
             .map(|command| {
                 command_menu_action(
                     command.name,
-                    if command.implemented {
-                        command.description
-                    } else {
-                        "开发中"
-                    },
+                    command.description,
                     command.name,
                     command_needs_input(command.id),
                 )
@@ -8696,15 +8679,6 @@ async fn run_tui_interactive(
                             "{} 仅在 Skynet Workshop Master-Agent 上下文可用。",
                             spec.name
                         ));
-                    }
-                    TuiInputResolution::NotImplemented(spec) => {
-                        record_rejected_command(
-                            &mut state,
-                            &mut session,
-                            spec.name,
-                            "not implemented in this development phase",
-                        );
-                        state.info(format!("{} 已注册，但在当前开发阶段尚未实现。", spec.name));
                     }
                     TuiInputResolution::UnavailableInStage(spec) => {
                         record_rejected_command(

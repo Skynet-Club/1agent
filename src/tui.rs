@@ -1951,11 +1951,7 @@ impl TuiState {
                             Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
-                            if command.implemented {
-                                command.description.to_string()
-                            } else {
-                                format!("（开发中）{}", command.description)
-                            },
+                            command.description.to_string(),
                             Style::default().fg(COMMAND_DESCRIPTION),
                         ),
                     ]))
