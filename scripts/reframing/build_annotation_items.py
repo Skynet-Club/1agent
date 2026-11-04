@@ -65,7 +65,12 @@ def main():
                 ),
             }
         )
+        # An end has no substitute by construction, so asking whether "no
+        # substitute is acceptable" is a trivially true question. Only means
+        # proposals get the substitute judgement.
         substitutes = record.get("substitutes") or []
+        if record.get("classification") != "means":
+            continue
         items.append(
             {
                 "case_id": f"{case_id}::substitute",
