@@ -20,4 +20,6 @@ if grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs >/dev/null; then
   exit 1
 fi
 
+./scripts/verify-claims.sh
+
 echo "verification passed"

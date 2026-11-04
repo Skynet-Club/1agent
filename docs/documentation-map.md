@@ -28,6 +28,8 @@ Date: 2026-11-02
 
 - [`product-manual.md`](product-manual.md): the product manual — proposition, drill story,
   five behavior rules, interaction samples, mechanisms, evidence boundaries, terminology.
+- [`claims.md`](claims.md): 说法与证据对照表 — every external claim paired with a rerunnable
+  evidence command, or explicitly marked as unproven.
 
 ## Thesis and pre-registration (v0.95 research)
 
