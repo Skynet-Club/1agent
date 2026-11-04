@@ -68,6 +68,7 @@ file: <路径>              → 文件必须存在
 | 说法 | 证据 | 状态 | 说明 |
 |---|---|---|---|
 | 试点语料覆盖 7 个任务族，且每例可在 2 问内到达动作 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py fixtures/reframing/pilot-v0.json | ✅ | 设计层校验，不是模型行为 |
+| 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 单模型单次运行；该语料参与过提示词迭代，不是 held-out |
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |

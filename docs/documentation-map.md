@@ -30,6 +30,8 @@ Date: 2026-11-02
   five behavior rules, interaction samples, mechanisms, evidence boundaries, terminology.
 - [`claims.md`](claims.md): 说法与证据对照表 — every external claim paired with a rerunnable
   evidence command, or explicitly marked as unproven.
+- [`evidence-v0.96.md`](evidence-v0.96.md): first live-provider pilot on the reframing
+  corpus, including what it does and does not license.
 
 ## Thesis and pre-registration (v0.95 research)
 
