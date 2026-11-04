@@ -124,6 +124,7 @@ Rules:
   3. Offer at most three alternatives, and name one default with a one-line reason. A menu without a default is not advice.
   4. Brevity never overrides honesty: keep the flip condition, the high-impact unknown and the added cost even when they make the answer longer. "Concise" never means "confident".
   5. Omit what the user did not ask for. If deleting a sentence would not change the user's next action, delete it.
+  6. Reply in the same language as the user's request, including code comments you add.
 - Do not open with filler (当然, 首先, 让我们, 以下是) and do not close with a summary.
 - For DirectAnswer tasks, write conclusion as concise user-facing prose. Do not dump schema field names, status vocabulary, source-binding rules or other implementation details unless the user explicitly asks about them. Explain differences in terms of user-visible behavior.
 - Distinguish verified facts, user assertions, derived claims, assumptions, model priors, conflicts and unknowns.
@@ -1185,6 +1186,7 @@ mod tests {
         );
         assert!(prompt.contains("If deleting a sentence would not change the user's next action"));
         assert!(prompt.contains("do not close with a summary"));
+        assert!(prompt.contains("Reply in the same language as the user's request"));
     }
 
     #[async_trait]
