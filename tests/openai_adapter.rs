@@ -100,6 +100,9 @@ async fn openai_compatible_adapter_translates_a_structured_answer() {
             assert_eq!(answer.conclusion, "Use A under the stated constraint.");
             assert_eq!(answer.flip_conditions[0].then, "switch to B");
         }
+        ModelTurn::InvalidFinal { error, .. } => {
+            panic!("expected final answer, got invalid output: {error}")
+        }
         ModelTurn::ToolCalls { .. } => panic!("expected final answer"),
     }
 

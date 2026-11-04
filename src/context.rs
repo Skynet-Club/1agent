@@ -15,8 +15,16 @@ pub fn compact_messages(
     max_chars: usize,
     preserve_recent: usize,
 ) -> (Vec<ModelMessage>, Option<ContextCompaction>) {
+    compact_messages_at(messages, max_chars, preserve_recent)
+}
+
+pub fn compact_messages_at(
+    messages: &[ModelMessage],
+    trigger_chars: usize,
+    preserve_recent: usize,
+) -> (Vec<ModelMessage>, Option<ContextCompaction>) {
     let before_chars = total_chars(messages);
-    if before_chars <= max_chars {
+    if before_chars <= trigger_chars {
         return (messages.to_vec(), None);
     }
 
@@ -129,5 +137,20 @@ mod tests {
         let (compact, stats) = compact_messages(&messages, 10, 2);
         assert!(stats.is_none());
         assert_eq!(compact, messages);
+    }
+
+    #[test]
+    fn auto_compaction_can_trigger_before_the_hard_limit() {
+        let messages = vec![
+            ModelMessage::system("system"),
+            ModelMessage::user("user"),
+            ModelMessage::assistant("", Vec::new()),
+            ModelMessage::tool("call-1", observation(&"x".repeat(5_000)).model_content()),
+            ModelMessage::assistant("recent", Vec::new()),
+        ];
+        let (_, unchanged) = compact_messages_at(&messages, 4_000, 1);
+        assert!(unchanged.is_some());
+        let (_, no_trigger) = compact_messages_at(&messages, 6_000, 1);
+        assert!(no_trigger.is_none());
     }
 }

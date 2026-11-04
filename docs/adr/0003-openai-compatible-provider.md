@@ -16,3 +16,6 @@ Implement one narrow OpenAI-compatible adapter for the first real-provider proof
 - One adapter can validate several providers with different base URLs.
 - Compatibility does not imply capability parity; provider manifests and live tests remain required.
 - Provider-specific extensions such as reasoning fields, caching and streaming require separate adapters or capabilities later.
+- An assistant response that is not valid AgentAnswer JSON is preserved as an adapter-level
+  invalid final turn, allowing the provider-neutral runtime to request a corrected response
+  instead of discarding the original output at the wire boundary.

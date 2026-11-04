@@ -5,23 +5,39 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use first_principles_agent::{
-    AgentConfig, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
+    AgentConfig, AgentProfile, AgentRuntime, AnnotationLabel, AnnotationRecord, AnnotationStore,
     ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus, ArtifactKind, AuthenticityStatus,
-    CalibrationPrediction, DeterministicProvider, EvalReportSummary, EvalReportTrustRequirements,
+    CalibrationPrediction, CapabilityProbeManifest, CognitiveMode, CommandMenuItem, CommandStage,
+    ConversationQueue, DeterministicProvider, EvalReportSummary, EvalReportTrustRequirements,
+    ExecutionObservation, ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
     ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
-    HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, OpenAiCompatibleProvider,
-    PolicyValueSource, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    ProviderToolProbeReport, RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RouteObjective,
-    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, TaskRequest, ToolRegistry,
-    TrustAnchorManifest, TuiState, TuiStatus, audit_events, build_release_verification_report,
-    collect_provenance, collect_release_manifest, create_goldset_manifest, create_trust_anchor,
-    default_registry, evaluate_experience_suite, find_resumable_prefix, infer_mode,
-    load_eval_report, load_suite, local_manifest, probe_provider, probe_provider_tools,
-    read_events, rebuild_and_compare, remote_manifest, replay_events, risk_for_mode,
-    run_suite_with_providers, scan_history, summarize_route_trace, verify_goldset_manifest,
-    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor,
+    HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse,
+    MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
+    ModelProductionPlanGenerator, ModelProvider, OpenAiCompatibleProvider, PlanGenerator,
+    PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
+    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
+    RegistrySnapshot, ReleasePolicy, ReleasePolicyMode, RiskLevel, RouteObjective,
+    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits,
+    SessionEvent, SessionPreferences, TaskRequest, TerminalSession, ToolObservation, ToolRegistry,
+    ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput, TuiInputResolution,
+    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
+    WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary, audit_events,
+    audit_summary, build_release_verification_report, build_usage_ledger, collect_provenance,
+    collect_release_manifest, commands_for_surface, copy_to_clipboard, create_goldset_manifest,
+    create_trust_anchor, default_registry, epistemic_command_prompt, evaluate_experience_suite,
+    evidence_summary, filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff,
+    git_worktrees, infer_mode, init_agents_file, inspect_artifacts, interactive_terminal_available,
+    list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
+    master_audit_summary, master_evidence_summary, master_report, print_session_banner,
+    probe_provider, probe_provider_tools, read_clipboard, read_events, read_master_journal_events,
+    rebuild_and_compare, remote_manifest, render_capability_report, render_usage_ledger,
+    replay_events, replay_master_journal, resolve_input, risk_for_mode, run_capability_suite,
+    run_report, run_suite_with_providers, save_preset, scan_history, schedule_ready,
+    spawn_input_reader, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
+    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
+    verify_snapshot_chain, verify_snapshot_chain_with_anchor, write_capability_report,
 };
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -107,9 +123,13 @@ enum Command {
         #[arg(long)]
         allow_network: bool,
         #[arg(long)]
+        allow_write: bool,
+        #[arg(long)]
         read_root: Vec<PathBuf>,
         #[arg(long, default_value = ".journal")]
         journal_dir: PathBuf,
+        #[arg(long)]
+        session: Option<String>,
         #[arg(long)]
         experience_dir: Option<PathBuf>,
         #[arg(long)]
@@ -118,12 +138,22 @@ enum Command {
         max_steps: usize,
         #[arg(long, default_value_t = 8)]
         max_tool_calls: usize,
+        #[arg(long)]
+        max_provider_attempts: Option<usize>,
+        #[arg(long)]
+        master_agents: Option<PathBuf>,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
         #[arg(long, default_value_t = 100_000)]
         max_context_chars: usize,
         #[arg(long)]
         route_objective: Option<String>,
+    },
+    Master {
+        #[command(subcommand)]
+        command: MasterCommand,
     },
     Audit {
         #[arg(long)]
@@ -283,6 +313,331 @@ enum Command {
     Experience {
         #[command(subcommand)]
         command: ExperienceCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum MasterCommand {
+    Validate {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    ProductionTaskList {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Schedule {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long, default_value_t = 6)]
+        global_active: usize,
+        #[arg(long, default_value_t = 3)]
+        per_conversation: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    Assign {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        agents: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Triage {
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "low")]
+        risk: String,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        external_action: bool,
+        #[arg(long)]
+        requested_items: Option<usize>,
+        #[arg(long)]
+        json: bool,
+    },
+    CapabilityProbe {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long = "runtime")]
+        runtime: Vec<String>,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Plan {
+        #[arg(long)]
+        task: String,
+        #[arg(
+            long,
+            conflicts_with_all = ["provider", "model", "base_url", "api_key"]
+        )]
+        config: Option<PathBuf>,
+        #[arg(long, default_value = "mock")]
+        provider: String,
+        #[arg(long, env = "AGENT_MODEL")]
+        model: Option<String>,
+        #[arg(long, env = "AGENT_BASE_URL")]
+        base_url: Option<String>,
+        #[arg(long, env = "AGENT_API_KEY", hide_env_values = true)]
+        api_key: Option<String>,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long)]
+        risk: Option<String>,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        external_action: bool,
+        #[arg(long)]
+        requested_items: Option<usize>,
+        #[arg(long)]
+        agents: Option<PathBuf>,
+        #[arg(long)]
+        workshop_prefix: Option<String>,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long, default_value = ".master-plans")]
+        planner_journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Init {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        agents: PathBuf,
+        #[arg(long)]
+        workshop_prefix: Option<String>,
+        #[arg(long)]
+        trace_id: Option<String>,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Status {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Approve {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Reject {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Revise {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        agents: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Run {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        runtime_profiles: PathBuf,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
+        #[arg(long)]
+        no_gui: bool,
+        #[arg(long)]
+        detach: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Poll {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Verify {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Retry {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "master")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    ReplanRequest {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "master")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    ReplanApply {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        agents: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Pause {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Resume {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Takeover {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Cancel {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Audit {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Agents {
+        #[arg(long, default_value = "skynet-workshop")]
+        prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Jobs {
+        #[arg(long, default_value = "skynet-workshop")]
+        prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Events {
+        #[arg(long, default_value = "skynet-workshop")]
+        prefix: String,
+        #[arg(long)]
+        since_ms: Option<u128>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -690,6 +1045,7 @@ async fn main() -> Result<()> {
                 provider_retry_backoff_ms,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
                 max_context_chars,
+                auto_compact_percent: 80,
                 max_provider_p95_latency_ms: effective_latency_budget,
                 max_unit_cost_micros_per_k: effective_unit_cost_budget,
             };
@@ -751,12 +1107,17 @@ async fn main() -> Result<()> {
             base_url,
             api_key,
             allow_network,
+            allow_write,
             read_root,
             journal_dir,
+            session,
             experience_dir,
             experience_scope,
             max_steps,
             max_tool_calls,
+            max_provider_attempts,
+            master_agents,
+            workshop_prefix,
             timeout_seconds,
             max_context_chars,
             route_objective,
@@ -768,18 +1129,591 @@ async fn main() -> Result<()> {
                 base_url,
                 api_key,
                 allow_network,
+                allow_write,
                 read_root,
                 journal_dir,
+                session,
                 experience_dir,
                 experience_scope,
                 max_steps,
                 max_tool_calls,
+                max_provider_attempts,
+                master_agents,
+                workshop_prefix,
                 timeout_seconds,
                 max_context_chars,
                 route_objective,
             )
             .await?;
         }
+        Command::Master { command } => match command {
+            MasterCommand::Validate { plan, json } => {
+                let proposal: PlanProposal = serde_json::from_slice(
+                    &std::fs::read(&plan)
+                        .with_context(|| format!("cannot read {}", plan.display()))?,
+                )
+                .with_context(|| format!("invalid plan {}", plan.display()))?;
+                proposal.validate()?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&proposal)?);
+                } else {
+                    println!("{}", proposal.to_markdown());
+                }
+            }
+            MasterCommand::ProductionTaskList {
+                plan,
+                state_root,
+                json,
+            } => {
+                let production: ProductionPlan = read_json_file(&plan, "production-line plan")?;
+                production.validate()?;
+                let snapshot = production
+                    .write_task_list(&state_root)
+                    .map_err(anyhow::Error::msg)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+                } else {
+                    println!(
+                        "任务清单：{}\n计划 SHA-256：{}\n清单 SHA-256：{}",
+                        snapshot.path.display(),
+                        snapshot.plan_sha256,
+                        snapshot.markdown_sha256
+                    );
+                }
+            }
+            MasterCommand::Schedule {
+                input,
+                global_active,
+                per_conversation,
+                json,
+            } => {
+                let conversations: Vec<ConversationQueue> =
+                    read_json_file(&input, "scheduler conversations")?;
+                let decision = schedule_ready(
+                    &conversations,
+                    SchedulerLimits {
+                        global_active,
+                        per_conversation,
+                    },
+                )
+                .map_err(anyhow::Error::msg)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&decision)?);
+                } else {
+                    println!("Starts:");
+                    for item in decision.starts {
+                        println!("  {} · {}", item.stable_id, item.task_id);
+                    }
+                    println!("Waiting:");
+                    for item in decision.waiting {
+                        println!("  {} · {:?}", item.stable_id, item.reason);
+                    }
+                }
+            }
+            MasterCommand::Assign { plan, agents, json } => {
+                let proposal: PlanProposal = serde_json::from_slice(
+                    &std::fs::read(&plan)
+                        .with_context(|| format!("cannot read {}", plan.display()))?,
+                )
+                .with_context(|| format!("invalid plan {}", plan.display()))?;
+                let agents: Vec<AgentProfile> = serde_json::from_slice(
+                    &std::fs::read(&agents)
+                        .with_context(|| format!("cannot read {}", agents.display()))?,
+                )
+                .with_context(|| format!("invalid Agent profiles {}", agents.display()))?;
+                let assignment = proposal.assign(&agents)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&assignment)?);
+                } else {
+                    for item in assignment.assignments {
+                        println!(
+                            "{} -> {} ({})",
+                            item.agent_id, item.runtime, item.selection_reason
+                        );
+                    }
+                }
+            }
+            MasterCommand::Triage {
+                task,
+                risk,
+                write,
+                external_action,
+                requested_items,
+                json,
+            } => {
+                let signals = TriageSignals {
+                    requested_items,
+                    requires_write: write,
+                    requires_external_action: external_action,
+                    risk: parse_risk(&risk)?,
+                };
+                let decision = triage_goal(&task, &signals);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&decision)?);
+                } else {
+                    println!("分诊：{:?}", decision.route);
+                    println!("理由：{}", decision.reason);
+                    println!("需要计划：{}", yes_no(decision.requires_plan));
+                    println!("需要审批：{}", yes_no(decision.requires_user_approval));
+                }
+            }
+            MasterCommand::CapabilityProbe {
+                manifest,
+                runtime,
+                output,
+                json,
+            } => {
+                let manifest: CapabilityProbeManifest =
+                    read_json_file(&manifest, "capability probe manifest")?;
+                let manifest = filter_capability_manifest_by_runtime(manifest, &runtime)
+                    .map_err(anyhow::Error::msg)?;
+                let report = run_capability_suite(&manifest).map_err(anyhow::Error::msg)?;
+                if let Some(output) = output.as_ref() {
+                    write_capability_report(&report, output).map_err(anyhow::Error::msg)?;
+                }
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("{}", render_capability_report(&report));
+                    if let Some(output) = output {
+                        println!("report: {}", output.display());
+                    }
+                }
+            }
+            MasterCommand::Plan {
+                task,
+                config,
+                provider,
+                model,
+                base_url,
+                api_key,
+                allow_network,
+                workspace,
+                risk,
+                write,
+                external_action,
+                requested_items,
+                agents,
+                workshop_prefix,
+                output,
+                planner_journal_dir,
+                json,
+            } => {
+                run_master_plan(
+                    task,
+                    config,
+                    provider,
+                    model,
+                    base_url,
+                    api_key,
+                    allow_network,
+                    workspace,
+                    risk,
+                    write,
+                    external_action,
+                    requested_items,
+                    agents,
+                    workshop_prefix,
+                    output,
+                    planner_journal_dir,
+                    json,
+                )
+                .await?;
+            }
+            MasterCommand::Init {
+                plan,
+                agents,
+                workshop_prefix,
+                trace_id,
+                state_root,
+                json,
+            } => {
+                let mut profile = load_agent_profiles(&agents)?;
+                if let Some(prefix) = workshop_prefix {
+                    profile = WorkshopCliAdapter::new(prefix, Duration::from_secs(30), true)?
+                        .merge_profiles(&profile)?;
+                }
+                let proposal: PlanProposal = read_json_file(&plan, "master plan")?;
+                let assignment = proposal.assign(&profile)?;
+                let trace_id = trace_id.unwrap_or_else(|| proposal.plan_id.clone());
+                let state =
+                    MasterState::initialize(trace_id.clone(), proposal, assignment, now_unix_ms())?;
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                store.initialize(state.clone(), now_unix_ms())?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Status {
+                trace_id,
+                state_root,
+                json,
+            } => {
+                let state = MasterStore::new(&state_root, &trace_id)?.load()?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Approve {
+                trace_id,
+                state_root,
+                actor,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.approve(actor, now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::Approved,
+                    None,
+                    "user",
+                    "plan approved for controlled execution",
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Reject {
+                trace_id,
+                state_root,
+                actor,
+                reason,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.reject_plan(actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::PlanRejected,
+                    None,
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Revise {
+                trace_id,
+                state_root,
+                plan,
+                agents,
+                actor,
+                reason,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                let proposal: PlanProposal = read_json_file(&plan, "revised plan")?;
+                let profiles = load_agent_profiles(&agents)?;
+                let assignment = proposal.assign(&profiles)?;
+                state.revise_plan(proposal, assignment, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::PlanRevised,
+                    None,
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Run {
+                trace_id,
+                state_root,
+                runtime_profiles,
+                workshop_prefix,
+                no_gui,
+                detach,
+                dry_run,
+                json,
+            } => {
+                if detach {
+                    run_master_start(
+                        trace_id,
+                        state_root,
+                        runtime_profiles,
+                        workshop_prefix,
+                        no_gui,
+                        dry_run,
+                        json,
+                    )?;
+                } else {
+                    run_master_ready(
+                        trace_id,
+                        state_root,
+                        runtime_profiles,
+                        workshop_prefix,
+                        no_gui,
+                        dry_run,
+                        json,
+                    )?;
+                }
+            }
+            MasterCommand::Poll {
+                trace_id,
+                state_root,
+                workshop_prefix,
+                json,
+            } => {
+                run_master_poll(trace_id, state_root, workshop_prefix, json)?;
+            }
+            MasterCommand::Verify {
+                trace_id,
+                state_root,
+                input,
+                json,
+            } => {
+                run_master_verify(trace_id, state_root, input, json)?;
+            }
+            MasterCommand::Retry {
+                trace_id,
+                state_root,
+                task,
+                actor,
+                reason,
+                workshop_prefix,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                cancel_active_session_if_any(&state, &task, &workshop_prefix)?;
+                state.request_retry(&task, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::RetryRequested,
+                    Some(task),
+                    "master",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::ReplanRequest {
+                trace_id,
+                state_root,
+                task,
+                actor,
+                reason,
+                workshop_prefix,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                cancel_active_session_if_any(&state, &task, &workshop_prefix)?;
+                let request = state.request_replan(&task, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::ReplanRequested,
+                    Some(task),
+                    "master",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "request": request,
+                            "state": state,
+                        }))?
+                    );
+                } else {
+                    println!("重规划范围：{:?}", request.affected_tasks);
+                    println!("保留已验证任务：{:?}", request.preserved_tasks);
+                }
+            }
+            MasterCommand::ReplanApply {
+                trace_id,
+                state_root,
+                plan,
+                agents,
+                actor,
+                reason,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                let proposal: PlanProposal = read_json_file(&plan, "replacement plan")?;
+                let profiles = load_agent_profiles(&agents)?;
+                let assignment = proposal.assign(&profiles)?;
+                state.apply_replan(proposal, assignment, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::ReplanApplied,
+                    None,
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Pause {
+                trace_id,
+                state_root,
+                actor,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.set_paused(true, actor, now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::Paused,
+                    None,
+                    "user",
+                    "run paused",
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Resume {
+                trace_id,
+                state_root,
+                actor,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.set_paused(false, actor, now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::Resumed,
+                    None,
+                    "user",
+                    "run resumed",
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Takeover {
+                trace_id,
+                state_root,
+                task,
+                actor,
+                reason,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.take_over(&task, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::TakenOver,
+                    Some(task),
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Cancel {
+                trace_id,
+                state_root,
+                task,
+                actor,
+                reason,
+                workshop_prefix,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                let session_id = state
+                    .tasks
+                    .get(&task)
+                    .and_then(|task| task.execution_target.as_ref())
+                    .and_then(|target| target.session_id.clone());
+                if let Some(session_id) = session_id {
+                    WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), true)?
+                        .cancel_session(&session_id)?;
+                }
+                state.cancel_task(&task, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::Cancelled,
+                    Some(task),
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Audit {
+                trace_id,
+                state_root,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let (state, audit) =
+                    replay_master_journal(&store.trace_dir().join("events.jsonl"))?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "audit": audit,
+                            "state": state,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "审计{}：{} 个事件",
+                        if audit.ok { "通过" } else { "失败" },
+                        audit.event_count
+                    );
+                    for issue in &audit.issues {
+                        println!("- {issue}");
+                    }
+                }
+                if !audit.ok {
+                    bail!("master journal audit failed");
+                }
+            }
+            MasterCommand::Agents { prefix, json } => {
+                let agents = WorkshopCliAdapter::new(prefix, Duration::from_secs(30), true)?
+                    .list_agents()?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&agents)?);
+                } else {
+                    for agent in agents {
+                        println!(
+                            "{} · {} · {} · {}{}",
+                            agent.agent_id,
+                            agent.provider,
+                            agent.status,
+                            if agent.stale { "stale" } else { "live" },
+                            agent
+                                .sessions
+                                .first()
+                                .map(|session| format!(" · {session}"))
+                                .unwrap_or_default()
+                        );
+                    }
+                }
+            }
+            MasterCommand::Jobs { prefix, json } => {
+                let jobs =
+                    WorkshopCliAdapter::new(prefix, Duration::from_secs(30), true)?.list_jobs()?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&jobs)?);
+                } else {
+                    for job in jobs {
+                        println!("{} · {} · {} tasks", job.job_id, job.status, job.task_count);
+                    }
+                }
+            }
+            MasterCommand::Events {
+                prefix,
+                since_ms,
+                limit,
+                json,
+            } => {
+                let events = WorkshopCliAdapter::new(prefix, Duration::from_secs(30), true)?
+                    .bounded_events(since_ms, limit)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&events)?);
+                } else {
+                    for event in events {
+                        println!("{}", serde_json::to_string(&event)?);
+                    }
+                }
+            }
+        },
         Command::Audit { journal, json } => {
             let events = read_events(&journal)
                 .with_context(|| format!("cannot read {}", journal.display()))?;
@@ -2408,6 +3342,873 @@ fn canonical_or_original(path: &PathBuf) -> PathBuf {
 }
 
 #[allow(clippy::too_many_arguments)]
+async fn run_master_plan(
+    task: String,
+    config: Option<PathBuf>,
+    provider: String,
+    model: Option<String>,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    allow_network: bool,
+    workspace: Option<PathBuf>,
+    risk: Option<String>,
+    write: bool,
+    external_action: bool,
+    requested_items: Option<usize>,
+    agents: Option<PathBuf>,
+    workshop_prefix: Option<String>,
+    output: Option<PathBuf>,
+    planner_journal_dir: PathBuf,
+    json: bool,
+) -> Result<()> {
+    let signals = TriageSignals {
+        requested_items,
+        requires_write: write,
+        requires_external_action: external_action,
+        risk: parse_risk(risk.as_deref().unwrap_or("low"))?,
+    };
+    let triage = triage_goal(&task, &signals);
+    if !triage.requires_plan {
+        if json {
+            println!("{}", serde_json::to_string_pretty(&triage)?);
+        } else {
+            println!("无需任务计划：{}", triage.reason);
+        }
+        return Ok(());
+    }
+    let workspace = workspace.unwrap_or(std::env::current_dir()?);
+    let workspace = canonical_or_original(&workspace);
+    let mut profiles = if let Some(agents) = agents {
+        load_agent_profiles(&agents)?
+    } else {
+        Vec::new()
+    };
+    if let Some(prefix) = workshop_prefix {
+        profiles = WorkshopCliAdapter::new(prefix, Duration::from_secs(30), true)?
+            .merge_profiles(&profiles)?;
+    }
+    let mut context = PlanningContext::new(task, workspace, &triage)?;
+    context.risk = if signals.requires_write
+        || signals.requires_external_action
+        || signals.risk == RiskLevel::High
+    {
+        RiskLevel::High
+    } else {
+        signals.risk
+    };
+    context.agents = profiles;
+    let timeout = Duration::from_secs(120);
+    let provider: Arc<dyn ModelProvider> = if let Some(config) = config {
+        let candidates = AgentConfig::load(&config)?.build_providers(timeout)?;
+        candidates
+            .first()
+            .map(|candidate| candidate.provider.clone())
+            .context("configured provider list is empty")?
+    } else {
+        build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
+            .0
+            .first()
+            .map(|candidate| candidate.provider.clone())
+            .context("provider list is empty")?
+    };
+    let generator = ModelPlanGenerator::new(provider).with_journal_dir(&planner_journal_dir);
+    let cancellation = CancellationToken::new();
+    let plan = generator.generate(&context, &cancellation).await?;
+    if !json {
+        println!(
+            "规划 Journal：{}",
+            first_principles_agent::planning_journal_path(&planner_journal_dir, &context.plan_id)
+                .display()
+        );
+    }
+    if let Some(path) = output {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut bytes = serde_json::to_vec_pretty(&plan)?;
+        bytes.push(b'\n');
+        std::fs::write(&path, bytes).with_context(|| format!("cannot write {}", path.display()))?;
+        if !json {
+            println!("计划已写入：{}", path.display());
+        }
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+    } else {
+        println!("{}", plan.to_markdown());
+    }
+    Ok(())
+}
+
+fn run_master_ready(
+    trace_id: String,
+    state_root: PathBuf,
+    runtime_profiles: PathBuf,
+    workshop_prefix: String,
+    no_gui: bool,
+    dry_run: bool,
+    json: bool,
+) -> Result<()> {
+    let store = MasterStore::new(&state_root, &trace_id)?;
+    let mut state = store.load()?;
+    if !state.plan.approved {
+        bail!("master plan is not approved; run `master approve` first");
+    }
+    if state.paused {
+        bail!("master run is paused");
+    }
+    let profiles = load_agent_profiles(&runtime_profiles)?;
+    let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?;
+    let profiles = if dry_run {
+        profiles
+    } else {
+        adapter.merge_profiles(&profiles)?
+    };
+    state.advance_ready(now_unix_ms());
+    let ready = state
+        .plan
+        .work_items
+        .iter()
+        .filter(|item| {
+            state.tasks.get(&item.id).is_some_and(|task| {
+                matches!(
+                    task.status,
+                    WorkItemStatus::Ready | WorkItemStatus::Retrying
+                ) && !task.human_takeover
+            })
+        })
+        .take(state.plan.max_parallel.max(1))
+        .cloned()
+        .collect::<Vec<_>>();
+    if ready.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "dispatched": [],
+                    "state": state,
+                }))?
+            );
+        } else {
+            println!("没有可派发的 Ready 任务。");
+        }
+        return Ok(());
+    }
+    if dry_run {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "dry_run": true,
+                    "ready": ready,
+                    "state": state,
+                }))?
+            );
+        } else {
+            for item in ready {
+                let assignment = state
+                    .assignment
+                    .assignments
+                    .iter()
+                    .find(|assignment| assignment.task_id == item.id)
+                    .context("ready task has no assignment")?;
+                println!(
+                    "{} -> {} ({})",
+                    item.id, assignment.agent_id, assignment.selection_reason
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let mut leased = Vec::new();
+    for item in ready {
+        let assignment = state
+            .assignment
+            .assignments
+            .iter()
+            .find(|assignment| assignment.task_id == item.id)
+            .context("ready task has no assignment")?
+            .clone();
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.agent_id == assignment.agent_id)
+            .with_context(|| format!("missing runtime profile for {}", assignment.agent_id))?
+            .clone();
+        let lease = state.lease_task(
+            &item.id,
+            &profile,
+            format!("workshop:{}", assignment.agent_id),
+            item.budget.timeout_ms.saturating_add(30_000),
+            now_unix_ms(),
+        )?;
+        state = store.append(
+            state,
+            MasterJournalEventKind::Leased,
+            Some(item.id.clone()),
+            "master",
+            format!("lease generation {}", lease.generation),
+            now_unix_ms(),
+        )?;
+        state.begin_starting(&item.id, lease.generation, now_unix_ms())?;
+        state = store.append(
+            state,
+            MasterJournalEventKind::Starting,
+            Some(item.id.clone()),
+            "master",
+            format!("lease generation {}", lease.generation),
+            now_unix_ms(),
+        )?;
+        leased.push((item, profile, lease));
+    }
+
+    let adapter_for_threads = adapter.clone();
+    let dispatched = std::thread::scope(|scope| {
+        let handles = leased
+            .into_iter()
+            .map(|(item, profile, lease)| {
+                let adapter = adapter_for_threads.clone();
+                scope.spawn(move || {
+                    let dispatched_at = now_unix_ms();
+                    (
+                        item.clone(),
+                        profile.clone(),
+                        lease.clone(),
+                        adapter.dispatch(
+                            &item,
+                            &profile,
+                            lease.generation,
+                            &lease.idempotency_key,
+                            dispatched_at,
+                        ),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("a Workshop dispatch worker panicked"))
+            })
+            .collect::<Result<Vec<_>>>()
+    })?;
+
+    let mut receipts = Vec::new();
+    for (item, agent, lease, result) in dispatched {
+        let receipt = match result {
+            Ok(receipt) => receipt,
+            Err(error) => ExecutionReceipt {
+                task_id: item.id.clone(),
+                agent_id: agent.agent_id.clone(),
+                lease_generation: lease.generation,
+                idempotency_key: lease.idempotency_key.clone(),
+                execution_target: Default::default(),
+                status: ExecutionStatus::Failed,
+                exit_code: None,
+                artifacts: Vec::new(),
+                result_digest: None,
+                error: Some(error.to_string()),
+                started_unix_ms: now_unix_ms(),
+                finished_unix_ms: now_unix_ms(),
+            },
+        };
+        state.record_receipt(receipt.clone(), now_unix_ms())?;
+        state = store.append(
+            state,
+            MasterJournalEventKind::ReceiptRecorded,
+            Some(item.id.clone()),
+            "workshop",
+            format!(
+                "execution {:?}, session {:?}",
+                receipt.status, receipt.execution_target.session_id
+            ),
+            now_unix_ms(),
+        )?;
+        receipts.push(receipt);
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "receipts": receipts,
+                "state": state,
+            }))?
+        );
+    } else {
+        for receipt in receipts {
+            println!(
+                "{} · {:?} · agent={} · session={}",
+                receipt.task_id,
+                receipt.status,
+                receipt.agent_id,
+                receipt
+                    .execution_target
+                    .session_id
+                    .as_deref()
+                    .unwrap_or("-")
+            );
+            if let Some(error) = receipt.error {
+                println!("  错误：{error}");
+            }
+        }
+        println!("下一步：运行 `master verify` 提交独立验收证据。");
+    }
+    Ok(())
+}
+
+fn run_master_start(
+    trace_id: String,
+    state_root: PathBuf,
+    runtime_profiles: PathBuf,
+    workshop_prefix: String,
+    no_gui: bool,
+    dry_run: bool,
+    json: bool,
+) -> Result<()> {
+    let store = MasterStore::new(&state_root, &trace_id)?;
+    let mut state = store.load()?;
+    if !state.plan.approved {
+        bail!("master plan is not approved; run `master approve` first");
+    }
+    if state.paused {
+        bail!("master run is paused");
+    }
+    let profiles = load_agent_profiles(&runtime_profiles)?;
+    let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?
+        .with_artifact_dir(store.trace_dir().join("executions"));
+    let profiles = adapter.merge_profiles(&profiles)?;
+    state.advance_ready(now_unix_ms());
+    let ready = state
+        .plan
+        .work_items
+        .iter()
+        .filter(|item| {
+            state.tasks.get(&item.id).is_some_and(|task| {
+                matches!(
+                    task.status,
+                    WorkItemStatus::Ready | WorkItemStatus::Retrying
+                ) && !task.human_takeover
+            })
+        })
+        .take(state.plan.max_parallel.max(1))
+        .cloned()
+        .collect::<Vec<_>>();
+    if ready.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "submitted": [],
+                    "state": state,
+                }))?
+            );
+        } else {
+            println!("没有可启动的 Ready 任务。");
+        }
+        return Ok(());
+    }
+    if dry_run {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "dry_run": true,
+                    "ready": ready,
+                    "state": state,
+                }))?
+            );
+        } else {
+            for item in ready {
+                println!("{} · {}", item.id, item.title);
+            }
+        }
+        return Ok(());
+    }
+
+    let mut submitted = Vec::new();
+    for item in ready {
+        let assignment = state
+            .assignment
+            .assignments
+            .iter()
+            .find(|assignment| assignment.task_id == item.id)
+            .context("ready task has no assignment")?
+            .clone();
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.agent_id == assignment.agent_id)
+            .with_context(|| format!("missing runtime profile for {}", assignment.agent_id))?
+            .clone();
+        let lease = state.lease_task(
+            &item.id,
+            &profile,
+            format!("workshop-session:{}", assignment.agent_id),
+            item.budget.timeout_ms.saturating_add(30_000),
+            now_unix_ms(),
+        )?;
+        state = store.append(
+            state,
+            MasterJournalEventKind::Leased,
+            Some(item.id.clone()),
+            "master",
+            format!("lease generation {}", lease.generation),
+            now_unix_ms(),
+        )?;
+        state.begin_starting(&item.id, lease.generation, now_unix_ms())?;
+        state = store.append(
+            state,
+            MasterJournalEventKind::Starting,
+            Some(item.id.clone()),
+            "master",
+            "starting Workshop session",
+            now_unix_ms(),
+        )?;
+        match adapter.start(
+            &item,
+            &profile,
+            lease.generation,
+            &lease.idempotency_key,
+            now_unix_ms(),
+        ) {
+            Ok(submission) => {
+                state.record_submission(submission.clone(), now_unix_ms())?;
+                state = store.append(
+                    state,
+                    MasterJournalEventKind::Submitted,
+                    Some(item.id.clone()),
+                    &profile.agent_id,
+                    format!(
+                        "submitted to session {}",
+                        submission
+                            .execution_target
+                            .session_id
+                            .as_deref()
+                            .unwrap_or("-")
+                    ),
+                    now_unix_ms(),
+                )?;
+                submitted.push(submission);
+            }
+            Err(error) => {
+                let receipt = failed_receipt(&item, &profile, &lease, error.to_string());
+                state.record_receipt(receipt.clone(), now_unix_ms())?;
+                state = store.append(
+                    state,
+                    MasterJournalEventKind::ReceiptRecorded,
+                    Some(item.id),
+                    "workshop",
+                    receipt.error.unwrap_or_else(|| "start failed".into()),
+                    now_unix_ms(),
+                )?;
+            }
+        }
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "submitted": submitted,
+                "state": state,
+            }))?
+        );
+    } else {
+        for submission in submitted {
+            println!(
+                "{} · submitted · agent={} · session={}",
+                submission.task_id,
+                submission.agent_id,
+                submission
+                    .execution_target
+                    .session_id
+                    .as_deref()
+                    .unwrap_or("-")
+            );
+        }
+        println!("下一步：运行 `master poll` 推进督战状态。");
+    }
+    Ok(())
+}
+
+fn run_master_poll(
+    trace_id: String,
+    state_root: PathBuf,
+    workshop_prefix: String,
+    json: bool,
+) -> Result<()> {
+    let store = MasterStore::new(&state_root, &trace_id)?;
+    let mut state = store.load()?;
+    let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), false)?
+        .with_artifact_dir(store.trace_dir().join("executions"));
+    let submissions = state
+        .plan
+        .work_items
+        .iter()
+        .filter_map(|item| {
+            let task = state.tasks.get(&item.id)?;
+            if task.human_takeover
+                || !matches!(
+                    task.status,
+                    WorkItemStatus::Running
+                        | WorkItemStatus::AwaitingInput
+                        | WorkItemStatus::Blocked
+                )
+            {
+                return None;
+            }
+            let lease = task.active_lease.as_ref()?;
+            let target = task.execution_target.clone()?;
+            Some(ExecutionSubmission {
+                task_id: item.id.clone(),
+                agent_id: lease.agent_id.clone(),
+                lease_generation: lease.generation,
+                idempotency_key: lease.idempotency_key.clone(),
+                execution_target: target,
+                submitted_unix_ms: task.submitted_unix_ms.unwrap_or_default(),
+                deadline_unix_ms: task
+                    .submitted_unix_ms
+                    .unwrap_or_default()
+                    .saturating_add(u128::from(item.budget.timeout_ms)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut observed = Vec::new();
+    for submission in submissions {
+        let previous_status = state.tasks.get(&submission.task_id).map(|task| task.status);
+        let observation = adapter
+            .observe_submission(&submission, now_unix_ms())
+            .unwrap_or_else(|error| ExecutionObservation::Blocked {
+                reason: error.to_string(),
+            });
+        let terminal = matches!(observation, ExecutionObservation::Finished { .. });
+        let summary = format!("{observation:?}");
+        state.record_observation(&submission.task_id, observation.clone(), now_unix_ms())?;
+        let next_status = state.tasks.get(&submission.task_id).map(|task| task.status);
+        if terminal || previous_status != next_status {
+            state = store.append(
+                state,
+                if terminal {
+                    MasterJournalEventKind::ReceiptRecorded
+                } else {
+                    MasterJournalEventKind::Observed
+                },
+                Some(submission.task_id.clone()),
+                "workshop",
+                summary.clone(),
+                now_unix_ms(),
+            )?;
+        }
+        observed.push(serde_json::json!({
+            "task_id": submission.task_id,
+            "session_id": submission.execution_target.session_id,
+            "observation": observation,
+        }));
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "observed": observed,
+                "state": state,
+            }))?
+        );
+    } else if observed.is_empty() {
+        println!("没有需要观察的运行中任务。");
+    } else {
+        for item in observed {
+            println!(
+                "{} · {}",
+                item["task_id"].as_str().unwrap_or("-"),
+                item["observation"]["kind"].as_str().unwrap_or("unknown")
+            );
+        }
+    }
+    Ok(())
+}
+
+fn failed_receipt(
+    item: &first_principles_agent::WorkItem,
+    agent: &AgentProfile,
+    lease: &first_principles_agent::TaskLease,
+    error: String,
+) -> ExecutionReceipt {
+    ExecutionReceipt {
+        task_id: item.id.clone(),
+        agent_id: agent.agent_id.clone(),
+        lease_generation: lease.generation,
+        idempotency_key: lease.idempotency_key.clone(),
+        execution_target: ExecutionTarget::default(),
+        status: ExecutionStatus::Failed,
+        exit_code: None,
+        artifacts: Vec::new(),
+        result_digest: None,
+        error: Some(error),
+        started_unix_ms: now_unix_ms(),
+        finished_unix_ms: now_unix_ms(),
+    }
+}
+
+fn cancel_active_session_if_any(
+    state: &MasterState,
+    task_id: &str,
+    workshop_prefix: &str,
+) -> Result<()> {
+    let target = state.tasks.get(task_id).and_then(|task| {
+        task.active_lease
+            .as_ref()
+            .and(task.execution_target.as_ref())
+    });
+    if let Some(session_id) = target.and_then(|target| target.session_id.as_deref()) {
+        WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), false)?
+            .cancel_session(session_id)?;
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerificationSubmission {
+    task_id: String,
+    criteria_results: Vec<first_principles_agent::CriterionResult>,
+    #[serde(default)]
+    test_results: Vec<first_principles_agent::TestResult>,
+    #[serde(default)]
+    evidence: Vec<String>,
+    verified_by: String,
+}
+
+fn run_master_verify(
+    trace_id: String,
+    state_root: PathBuf,
+    input: PathBuf,
+    json: bool,
+) -> Result<()> {
+    let store = MasterStore::new(&state_root, &trace_id)?;
+    let (result, state) = verify_master_task(&store, &input, None).map_err(anyhow::Error::msg)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "verification": result,
+                "state": state,
+            }))?
+        );
+    } else {
+        println!("验收：{:?}", result.status);
+        if let Some(reason) = result.failure_reason {
+            println!("原因：{reason}");
+        }
+    }
+    Ok(())
+}
+
+fn verify_master_task(
+    store: &MasterStore,
+    input: &std::path::Path,
+    expected_task_id: Option<&str>,
+) -> std::result::Result<(first_principles_agent::VerificationResult, MasterState), String> {
+    let mut state = store.load().map_err(|error| error.to_string())?;
+    let submission: VerificationSubmission =
+        read_json_file(input, "verification evidence").map_err(|error| error.to_string())?;
+    if expected_task_id.is_some_and(|task_id| task_id != submission.task_id) {
+        return Err(format!(
+            "验收文件属于任务 {}，不是指定任务 {}",
+            submission.task_id,
+            expected_task_id.unwrap_or("-")
+        ));
+    }
+    let item = state
+        .plan
+        .work_items
+        .iter()
+        .find(|item| item.id == submission.task_id)
+        .ok_or_else(|| format!("未知任务：{}", submission.task_id))?
+        .clone();
+    let assigned_agent = state
+        .assignment
+        .assignments
+        .iter()
+        .find(|assignment| assignment.task_id == submission.task_id)
+        .map(|assignment| assignment.agent_id.as_str())
+        .ok_or_else(|| format!("任务 {} 没有 assignment", submission.task_id))?;
+    if submission.verified_by.trim() == assigned_agent {
+        return Err("验收人不能与执行任务的 Agent 相同。".into());
+    }
+    let expectations = item
+        .expected_artifacts
+        .iter()
+        .map(|artifact| artifact_expectation(artifact))
+        .collect::<Vec<_>>();
+    let artifact_checks =
+        inspect_artifacts(&item.workspace, &expectations).map_err(|error| error.to_string())?;
+    let task = state
+        .tasks
+        .get(&submission.task_id)
+        .ok_or_else(|| "任务状态缺失。".to_string())?;
+    let verified_by = submission.verified_by;
+    let now = now_unix_ms();
+    let result = state
+        .verify(
+            VerificationInput {
+                task_id: submission.task_id.clone(),
+                lease_generation: task.generation,
+                criteria_results: submission.criteria_results,
+                artifact_checks,
+                test_results: submission.test_results,
+                evidence: submission.evidence,
+                verified_by: verified_by.clone(),
+                verified_at_unix_ms: now,
+            },
+            now,
+        )
+        .map_err(|error| error.to_string())?;
+    let kind = if result.status == WorkItemStatus::Verified {
+        MasterJournalEventKind::Verified
+    } else {
+        MasterJournalEventKind::Rejected
+    };
+    state = store
+        .append(
+            state,
+            kind,
+            Some(submission.task_id.clone()),
+            &verified_by,
+            result
+                .failure_reason
+                .clone()
+                .unwrap_or_else(|| "independent verification passed".into()),
+            now,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok((result, state))
+}
+
+fn print_master_state(state: &MasterState, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(state)?);
+        return Ok(());
+    }
+    println!(
+        "{} · approved={} · rejected={} · paused={} · retries={}/1 · replans={}/1",
+        state.trace_id,
+        yes_no(state.plan.approved),
+        yes_no(state.plan_rejected),
+        yes_no(state.paused),
+        state.retry_count,
+        state.replan_count
+    );
+    for item in &state.plan.work_items {
+        let task = state.tasks.get(&item.id).context("task state is missing")?;
+        let assignment = state
+            .assignment
+            .assignments
+            .iter()
+            .find(|assignment| assignment.task_id == item.id);
+        println!(
+            "{} · {:?} · agent={} · attempts={}",
+            item.id,
+            task.status,
+            assignment
+                .map(|value| value.agent_id.as_str())
+                .unwrap_or("-"),
+            task.attempts
+        );
+    }
+    Ok(())
+}
+
+fn read_json_file<T: serde::de::DeserializeOwned>(
+    path: &std::path::Path,
+    label: &str,
+) -> Result<T> {
+    serde_json::from_slice(
+        &std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?,
+    )
+    .with_context(|| format!("invalid {label} JSON in {}", path.display()))
+}
+
+fn parse_risk(value: &str) -> Result<RiskLevel> {
+    match value {
+        "low" => Ok(RiskLevel::Low),
+        "medium" => Ok(RiskLevel::Medium),
+        "high" => Ok(RiskLevel::High),
+        other => bail!("invalid risk '{other}'; expected low, medium or high"),
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "是" } else { "否" }
+}
+
+fn now_unix_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
+fn tui_provider_attempt_budget(configured: Option<usize>, max_steps: usize) -> usize {
+    configured.unwrap_or(max_steps).clamp(1, 16)
+}
+
+struct TuiRunSettings {
+    cwd: PathBuf,
+    roots: Vec<PathBuf>,
+    allow_network: bool,
+    allow_write: bool,
+    experience_scope: Option<String>,
+    max_steps: usize,
+    max_tool_calls: usize,
+    max_provider_attempts: usize,
+    master_agents: Option<PathBuf>,
+    workshop_prefix: String,
+    timeout_seconds: u64,
+    max_context_chars: usize,
+    auto_compact_percent: u8,
+    default_preferences: SessionPreferences,
+    mentions: Vec<PathBuf>,
+    planning_provider: Arc<dyn ModelProvider>,
+}
+
+impl TuiRunSettings {
+    fn request(&self, instruction: &str) -> TaskRequest {
+        self.request_with_known_facts(instruction, Vec::new())
+    }
+
+    fn request_with_known_facts(
+        &self,
+        instruction: &str,
+        mut known_facts: Vec<String>,
+    ) -> TaskRequest {
+        let mut request = TaskRequest::from_objective(instruction, self.cwd.clone());
+        known_facts.extend(
+            self.mentions
+                .iter()
+                .map(|path| format!("Mentioned workspace path: {}", path.display())),
+        );
+        request.known_facts = known_facts;
+        request.permissions.allow_network = self.allow_network;
+        request.permissions.allow_write = self.allow_write;
+        request.permissions.read_roots = self.roots.clone();
+        request.experience_scope = self.experience_scope.clone();
+        request.budget = RunBudget {
+            max_steps: self.max_steps,
+            max_tool_calls: self.max_tool_calls,
+            max_context_chars: self.max_context_chars,
+            auto_compact_percent: self.auto_compact_percent,
+            max_provider_attempts: self.max_provider_attempts,
+            timeout_ms: self.timeout_seconds.saturating_mul(1_000),
+            ..RunBudget::default()
+        };
+        request
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_tui(
     config_path: Option<PathBuf>,
     provider: String,
@@ -2415,16 +4216,61 @@ async fn run_tui(
     base_url: Option<String>,
     api_key: Option<String>,
     allow_network: bool,
+    allow_write: bool,
     read_root: Vec<PathBuf>,
     journal_dir: PathBuf,
+    session: Option<String>,
     experience_dir: Option<PathBuf>,
     experience_scope: Option<String>,
     max_steps: usize,
     max_tool_calls: usize,
+    max_provider_attempts: Option<usize>,
+    master_agents: Option<PathBuf>,
+    workshop_prefix: String,
     timeout_seconds: u64,
     max_context_chars: usize,
     route_objective: Option<String>,
 ) -> Result<()> {
+    let host_binding = HostBinding::from_env();
+    let mut session = TuiSession::open(&journal_dir, session.as_deref())
+        .context("cannot initialize TUI session")?;
+    session.record_event(SessionEvent::Opened {
+        host_kind: host_binding.kind().as_str().into(),
+        agent_id: host_binding.agent_id().map(str::to_string),
+    })?;
+    let cli_preferences = SessionPreferences {
+        max_steps: max_steps.max(1),
+        max_tool_calls: max_tool_calls.max(1),
+        max_provider_attempts: tui_provider_attempt_budget(max_provider_attempts, max_steps),
+        max_context_chars,
+        auto_compact_percent: 80,
+        timeout_seconds,
+    };
+    let preferences = session.preferences().cloned();
+    let max_steps = preferences
+        .as_ref()
+        .map(|preferences| preferences.max_steps)
+        .unwrap_or(max_steps);
+    let max_tool_calls = preferences
+        .as_ref()
+        .map(|preferences| preferences.max_tool_calls)
+        .unwrap_or(max_tool_calls);
+    let max_provider_attempts = preferences
+        .as_ref()
+        .map(|preferences| Some(preferences.max_provider_attempts))
+        .unwrap_or(max_provider_attempts);
+    let max_context_chars = preferences
+        .as_ref()
+        .map(|preferences| preferences.max_context_chars)
+        .unwrap_or(max_context_chars);
+    let auto_compact_percent = preferences
+        .as_ref()
+        .map(|preferences| preferences.auto_compact_percent)
+        .unwrap_or(80);
+    let timeout_seconds = preferences
+        .as_ref()
+        .map(|preferences| preferences.timeout_seconds)
+        .unwrap_or(timeout_seconds);
     let timeout = Duration::from_secs(timeout_seconds.max(1));
     let provider_label = if config_path.is_some() {
         "configured".to_string()
@@ -2437,6 +4283,10 @@ async fn run_tui(
     } else {
         build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
     };
+    let planning_provider = candidates
+        .first()
+        .map(|candidate| candidate.provider.clone())
+        .context("provider list is empty")?;
     let (objective, objective_source) = resolve_route_objective(route_objective.as_deref())?;
     let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
         .with_route_objective(objective)
@@ -2449,7 +4299,12 @@ async fn run_tui(
         runtime = runtime.with_experience_dir(experience_dir);
     }
 
-    let cwd = std::env::current_dir().context("cannot determine current directory")?;
+    let cwd = session
+        .workspace()
+        .and_then(|workspace| std::fs::canonicalize(workspace).ok())
+        .filter(|workspace| workspace.is_dir())
+        .map(Ok)
+        .unwrap_or_else(|| std::env::current_dir().context("cannot determine current directory"))?;
     let roots = if read_root.is_empty() {
         vec![cwd.clone()]
     } else {
@@ -2459,6 +4314,39 @@ async fn run_tui(
             .collect::<Vec<_>>()
     };
     let mut state = TuiState::new(provider_label, max_steps, timeout_seconds.max(1));
+    state.set_host_binding(host_binding);
+    sync_tui_stage(&mut state, &session);
+    let mut settings = TuiRunSettings {
+        cwd,
+        roots,
+        allow_network,
+        allow_write,
+        experience_scope,
+        max_steps,
+        max_tool_calls,
+        max_provider_attempts: tui_provider_attempt_budget(max_provider_attempts, max_steps),
+        master_agents,
+        workshop_prefix,
+        timeout_seconds,
+        max_context_chars,
+        auto_compact_percent,
+        default_preferences: cli_preferences,
+        mentions: session.mentions().to_vec(),
+        planning_provider,
+    };
+    if interactive_terminal_available() {
+        run_tui_interactive(runtime, state, settings, session).await
+    } else {
+        run_tui_line_mode(&mut runtime, &mut state, &mut settings, &mut session).await
+    }
+}
+
+async fn run_tui_line_mode(
+    runtime: &mut AgentRuntime,
+    state: &mut TuiState,
+    settings: &mut TuiRunSettings,
+    session: &mut TuiSession,
+) -> Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
     state.info("Type /help for commands. Ctrl+C cancels the active run.");
@@ -2476,94 +4364,6708 @@ async fn run_tui(
         if instruction.is_empty() {
             continue;
         }
-        match instruction {
-            "/quit" | "/exit" => {
-                state.info("Session ended.");
-                let (columns, rows) = terminal_dimensions();
-                stdout
-                    .write_all(state.render_screen(columns, rows).as_bytes())
-                    .await?;
-                stdout.flush().await?;
-                break;
+        let resolution = resolve_input(
+            instruction,
+            state.host_binding(),
+            state.command_stage(),
+            false,
+        );
+        match resolution {
+            TuiInputResolution::Command { spec, args } => {
+                if let Err(error) = session.record_event(SessionEvent::CommandAccepted {
+                    name: spec.name.into(),
+                    scope: spec.scope.as_str().into(),
+                }) {
+                    state.info(format!("无法写入 session event log：{error}"));
+                    continue;
+                }
+                if spec.id.uses_command_panel() {
+                    state.begin_command_panel(spec.name);
+                    state.set_command_panel_menu(command_menu_actions(spec.id));
+                } else {
+                    state.close_command_panel();
+                }
+                match spec.id {
+                    TuiCommandId::Quit => {
+                        state.info("Session ended.");
+                        let (columns, rows) = terminal_dimensions();
+                        stdout
+                            .write_all(state.render_screen(columns, rows).as_bytes())
+                            .await?;
+                        stdout.flush().await?;
+                        break;
+                    }
+                    TuiCommandId::Help => {
+                        display_tui_help_menu(state);
+                        continue;
+                    }
+                    TuiCommandId::Status => {
+                        display_tui_status(state, session, settings);
+                        continue;
+                    }
+                    TuiCommandId::Clear => {
+                        state.clear();
+                        state.info("Conversation cleared.");
+                        continue;
+                    }
+                    TuiCommandId::Details => {
+                        state.open_details();
+                        continue;
+                    }
+                    TuiCommandId::Journal => {
+                        display_journal_paths(state, session);
+                        continue;
+                    }
+                    TuiCommandId::Evidence => {
+                        display_evidence(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Audit => {
+                        display_audit(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Report => {
+                        display_report(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Frame
+                    | TuiCommandId::Challenge
+                    | TuiCommandId::Decide
+                    | TuiCommandId::Postmortem => {
+                        run_tui_line_epistemic(runtime, state, settings, session, spec.id, args)
+                            .await?;
+                        continue;
+                    }
+                    TuiCommandId::Mission => {
+                        handle_mission_command(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Triage => {
+                        display_triage(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Plan => {
+                        run_tui_master_plan(state, session, settings, args).await;
+                        continue;
+                    }
+                    TuiCommandId::Approve => {
+                        approve_tui_plan(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Model => {
+                        handle_model_command(state, runtime, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Permissions => {
+                        handle_permissions_command(settings, state, args);
+                        continue;
+                    }
+                    TuiCommandId::Tools => {
+                        display_tools(runtime, state, args);
+                        continue;
+                    }
+                    TuiCommandId::Agents => {
+                        display_agents(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Assign => {
+                        assign_tui_plan(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Dispatch => {
+                        run_tui_dispatch(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Board => {
+                        display_master_board(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Watch => {
+                        watch_tui_master(state, session, settings);
+                        continue;
+                    }
+                    TuiCommandId::Attention => {
+                        display_attention(state, session);
+                        continue;
+                    }
+                    TuiCommandId::Respond => {
+                        respond_tui_task(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Control => {
+                        control_tui_master(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Timeline => {
+                        display_master_timeline(state, session, settings);
+                        continue;
+                    }
+                    TuiCommandId::Artifacts => {
+                        display_master_artifacts(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Verify => {
+                        verify_tui_task(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Session => {
+                        handle_session_command(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Workspace => {
+                        handle_workspace_command(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Context => {
+                        handle_context_command(state, session, settings, args);
+                        continue;
+                    }
+                    TuiCommandId::Config => {
+                        handle_config_command(state, settings, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Export => {
+                        handle_export_command(state, session, args);
+                        continue;
+                    }
+                    TuiCommandId::Copy => {
+                        handle_copy_command(state);
+                        continue;
+                    }
+                    TuiCommandId::Cost => {
+                        handle_cost_command(state, session);
+                        continue;
+                    }
+                    TuiCommandId::Preset => {
+                        if let Some(request) = handle_preset_command(state, session, settings, args)
+                        {
+                            run_tui_line_request(runtime, state, session, &mut stdout, request)
+                                .await?;
+                        }
+                        continue;
+                    }
+                }
             }
-            "/help" => {
-                state.info(
-                    "Commands: /help  /clear  /quit\n\
-                     Enter a task to run it. Ctrl+C cancels the active run.",
+            TuiInputResolution::UnavailableMaster(spec) => {
+                record_rejected_command(
+                    state,
+                    session,
+                    spec.name,
+                    "requires Workshop Master context",
                 );
+                state.info(format!(
+                    "{} 仅在 Skynet Workshop Master-Agent 上下文可用。",
+                    spec.name
+                ));
                 continue;
             }
-            "/clear" => {
-                state.clear();
-                state.info("Conversation cleared.");
+            TuiInputResolution::NotImplemented(spec) => {
+                record_rejected_command(
+                    state,
+                    session,
+                    spec.name,
+                    "not implemented in this development phase",
+                );
+                state.info(format!("{} 已注册，但在当前开发阶段尚未实现。", spec.name));
                 continue;
             }
-            _ if instruction.starts_with('/') => {
-                state.info(format!("Unknown command: {instruction}"));
+            TuiInputResolution::UnavailableInStage(spec) => {
+                record_rejected_command(
+                    state,
+                    session,
+                    spec.name,
+                    "unavailable in current lifecycle stage",
+                );
+                state.info(format!("{} 不在当前生产线阶段可用。", spec.name));
                 continue;
             }
-            _ => {}
+            TuiInputResolution::UnavailableWhileRunning(spec) => {
+                record_rejected_command(
+                    state,
+                    session,
+                    spec.name,
+                    "unavailable while a run is active",
+                );
+                state.info(format!("{} 无法在运行中执行。", spec.name));
+                continue;
+            }
+            TuiInputResolution::UnknownCommand(name) => {
+                record_rejected_command(state, session, name, "unknown command");
+                state.info(format!("Unknown command: {name}"));
+                continue;
+            }
+            TuiInputResolution::Task(task) => {
+                if handle_master_task_intake(state, session, settings, task).await {
+                    continue;
+                }
+            }
         }
 
-        let mut request = TaskRequest::from_objective(instruction, cwd.clone());
-        request.permissions.allow_network = allow_network;
-        request.permissions.read_roots = roots.clone();
-        request.experience_scope = experience_scope.clone();
-        request.budget = RunBudget {
-            max_steps,
-            max_tool_calls,
-            max_context_chars,
-            timeout_ms: timeout_seconds.saturating_mul(1_000),
-            ..RunBudget::default()
-        };
-        let mode = infer_mode(&request);
-        let risk = risk_for_mode(mode);
-        state.begin(instruction, mode, risk);
-        let (columns, rows) = terminal_dimensions();
-        stdout
-            .write_all(state.render_screen(columns, rows).as_bytes())
-            .await?;
-        stdout.flush().await?;
+        state.close_command_panel();
+        let request = settings.request(instruction);
+        run_tui_line_request(runtime, state, session, &mut stdout, request).await?;
+    }
+    session.record_event(SessionEvent::Closed)?;
+    Ok(())
+}
 
-        let cancellation = CancellationToken::new();
-        let signal_cancellation = cancellation.clone();
-        let signal = tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() {
-                signal_cancellation.cancel();
-            }
-        });
-        let result = runtime.run(request, cancellation).await;
-        signal.abort();
-        match result {
-            Ok(result) => {
-                let output = format!(
-                    "{}\n\nRun journal: {}",
-                    render_answer(&result),
-                    result.journal_path.display()
-                );
-                state.finish(TuiStatus::Completed, output);
-            }
-            Err(RuntimeError::Cancelled { .. }) => {
-                state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
-            }
-            Err(error) => {
-                state.finish(TuiStatus::Failed, format!("Error: {error}"));
-            }
+async fn run_tui_line_request(
+    runtime: &mut AgentRuntime,
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    stdout: &mut tokio::io::Stdout,
+    request: TaskRequest,
+) -> Result<()> {
+    let display = request.objective.clone();
+    let mode = infer_mode(&request);
+    let risk = risk_for_mode(mode);
+    if let Err(error) = session.record_event(SessionEvent::TaskSubmitted {
+        mode: mode.as_str().into(),
+    }) {
+        state.info(format!("无法写入 session event log：{error}"));
+        return Ok(());
+    }
+    state.begin(&display, mode, risk);
+    let (columns, rows) = terminal_dimensions();
+    stdout
+        .write_all(state.render_screen(columns, rows).as_bytes())
+        .await?;
+    stdout.flush().await?;
+    let cancellation = CancellationToken::new();
+    let signal_cancellation = cancellation.clone();
+    let signal = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            signal_cancellation.cancel();
+        }
+    });
+    let result = runtime.run(request, cancellation).await;
+    signal.abort();
+    match result {
+        Ok(result) => {
+            session.set_title_from_prompt(&state.last_instruction);
+            session.record_journal(&result.journal_path)?;
+            state.set_last_journal(&result.journal_path);
+            let output = format!(
+                "{}\n\nRun journal: {}",
+                render_answer(&result),
+                result.journal_path.display()
+            );
+            state.finish(TuiStatus::Completed, output);
+        }
+        Err(RuntimeError::Cancelled { .. }) => {
+            state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
+        }
+        Err(error) => {
+            state.finish(TuiStatus::Failed, format!("Error: {error}"));
         }
     }
     Ok(())
 }
 
-fn terminal_dimensions() -> (usize, usize) {
-    let columns = std::env::var("COLUMNS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(100);
-    let rows = std::env::var("LINES")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(40);
-    (columns, rows)
+fn record_rejected_command(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    name: &str,
+    reason: &str,
+) {
+    if let Err(error) = session.record_event(SessionEvent::CommandRejected {
+        name: name.into(),
+        reason: reason.into(),
+    }) {
+        state.info(format!("无法写入 session event log：{error}"));
+    }
+}
+
+fn command_menu_action(
+    label: &str,
+    description: &str,
+    command_line: &str,
+    needs_input: bool,
+) -> CommandMenuItem {
+    CommandMenuItem {
+        id: format!(
+            "{}:{command_line}",
+            if needs_input { "prompt" } else { "open" }
+        ),
+        label: label.into(),
+        description: description.into(),
+    }
+}
+
+fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
+    match command {
+        TuiCommandId::Help => Vec::new(),
+        TuiCommandId::Status => vec![
+            command_menu_action("刷新状态", "重新读取当前运行状态", "/status", false),
+            command_menu_action("上下文", "查看上下文占用与压缩", "/context show", false),
+            command_menu_action("模型", "查看模型路由和候选模型", "/model show", false),
+            command_menu_action("运行权限", "查看下一次运行权限", "/permissions show", false),
+            command_menu_action("成本", "查看 Token 与成本汇总", "/cost", false),
+        ],
+        TuiCommandId::Details => Vec::new(),
+        TuiCommandId::Journal => vec![
+            command_menu_action("刷新日志路径", "重新显示最近的日志", "/journal", false),
+            command_menu_action("运行状态", "查看会话和运行状态", "/status", false),
+            command_menu_action("成本", "查看 Token 与成本汇总", "/cost", false),
+        ],
+        TuiCommandId::Clear | TuiCommandId::Quit => Vec::new(),
+        TuiCommandId::Frame => Vec::new(),
+        TuiCommandId::Challenge => Vec::new(),
+        TuiCommandId::Decide => Vec::new(),
+        TuiCommandId::Postmortem => Vec::new(),
+        TuiCommandId::Evidence => vec![
+            command_menu_action("最近运行", "查看最近一次回答的证据", "/evidence run", false),
+            command_menu_action("总控验收", "查看生产线验收证据", "/evidence master", false),
+        ],
+        TuiCommandId::Audit => vec![
+            command_menu_action("最近运行", "审计最近一次运行", "/audit run", false),
+            command_menu_action("全部运行", "审计会话内全部运行", "/audit all", false),
+        ],
+        TuiCommandId::Report => vec![
+            command_menu_action("最近运行", "生成最近一次运行报告", "/report run", false),
+            command_menu_action("生产线", "生成总控生产线报告", "/report master", false),
+        ],
+        TuiCommandId::Model => vec![
+            command_menu_action("当前模型", "查看当前选择和可用模型", "/model show", false),
+            command_menu_action(
+                "质量优先",
+                "优先选择质量评分",
+                "/model objective quality",
+                false,
+            ),
+            command_menu_action(
+                "均衡",
+                "平衡质量、成本和延迟",
+                "/model objective balanced",
+                false,
+            ),
+            command_menu_action(
+                "延迟优先",
+                "优先选择低延迟模型",
+                "/model objective latency",
+                false,
+            ),
+            command_menu_action(
+                "成本优先",
+                "优先选择低成本模型",
+                "/model objective cost",
+                false,
+            ),
+            command_menu_action("指定模型…", "输入 provider/model", "/model use ", true),
+        ],
+        TuiCommandId::Permissions => vec![
+            command_menu_action("当前权限", "查看下一次运行权限", "/permissions show", false),
+            command_menu_action(
+                "允许网络",
+                "为下一次运行开启网络",
+                "/permissions network on",
+                false,
+            ),
+            command_menu_action(
+                "禁止网络",
+                "为下一次运行关闭网络",
+                "/permissions network off",
+                false,
+            ),
+            command_menu_action(
+                "允许写入",
+                "为下一次运行开启写入和执行",
+                "/permissions write on",
+                false,
+            ),
+            command_menu_action(
+                "禁止写入",
+                "为下一次运行关闭写入和执行",
+                "/permissions write off",
+                false,
+            ),
+            command_menu_action(
+                "添加目录…",
+                "输入允许读取的目录",
+                "/permissions root-add ",
+                true,
+            ),
+        ],
+        TuiCommandId::Session => vec![
+            command_menu_action("当前会话", "查看当前会话详情", "/session show", false),
+            command_menu_action("会话列表", "列出使用中的会话", "/session list", false),
+            command_menu_action("全部会话", "列出包括归档的会话", "/session list all", false),
+            command_menu_action("新建…", "输入新会话标题", "/session new ", true),
+            command_menu_action("恢复…", "输入要恢复的会话 ID", "/session resume ", true),
+            command_menu_action("复制…", "输入新副本的标题", "/session fork ", true),
+            command_menu_action("重命名…", "输入新的会话标题", "/session rename ", true),
+            command_menu_action("归档当前", "归档当前会话", "/session archive", false),
+            command_menu_action(
+                "删除…",
+                "输入会话 ID 并完成两次确认",
+                "/session delete ",
+                true,
+            ),
+        ],
+        TuiCommandId::Workspace => Vec::new(),
+        TuiCommandId::Context => vec![
+            command_menu_action("使用情况", "查看上下文预算和占用", "/context show", false),
+            command_menu_action("生成回顾", "总结最近的已完成运行", "/context recap", false),
+            command_menu_action(
+                "压缩上下文",
+                "保存本地确定性摘要",
+                "/context compact",
+                false,
+            ),
+        ],
+        TuiCommandId::Preset => vec![
+            command_menu_action("预设列表", "列出已保存的预设", "/preset list", false),
+            command_menu_action("运行…", "输入要运行的预设名称", "/preset run ", true),
+            command_menu_action("保存…", "输入名称和指令", "/preset save ", true),
+            command_menu_action("查看…", "输入预设名称", "/preset show ", true),
+            command_menu_action("删除…", "输入预设名称", "/preset delete ", true),
+        ],
+        TuiCommandId::Tools => vec![
+            command_menu_action("工具列表", "列出运行时可用工具", "/tools", false),
+            command_menu_action("查看工具…", "输入工具名称", "/tools inspect ", true),
+        ],
+        TuiCommandId::Export => vec![
+            command_menu_action("会话", "导出当前会话", "/export session", false),
+            command_menu_action("运行报告", "导出最近运行报告", "/export report", false),
+            command_menu_action("证据", "导出最近运行证据", "/export evidence", false),
+        ],
+        TuiCommandId::Copy => vec![
+            command_menu_action("复制回答", "复制最近最终回答", "/copy", false),
+            command_menu_action("导出报告", "将报告保存为文件", "/export report", false),
+        ],
+        TuiCommandId::Cost => vec![
+            command_menu_action("刷新成本", "重新汇总会话 Token 和成本", "/cost", false),
+            command_menu_action("上下文", "查看上下文占用", "/context show", false),
+            command_menu_action("运行状态", "查看会话与模型状态", "/status", false),
+            command_menu_action("导出报告", "导出最近运行报告", "/export report", false),
+        ],
+        TuiCommandId::Config => vec![
+            command_menu_action("当前配置", "查看下次运行配置", "/config show", false),
+            command_menu_action("推理步骤…", "输入最大推理步数", "/config set steps ", true),
+            command_menu_action(
+                "工具调用…",
+                "输入最大工具调用次数",
+                "/config set tools ",
+                true,
+            ),
+            command_menu_action(
+                "模型尝试…",
+                "输入最大模型尝试次数",
+                "/config set attempts ",
+                true,
+            ),
+            command_menu_action(
+                "上下文…",
+                "输入上下文字符上限",
+                "/config set context ",
+                true,
+            ),
+            command_menu_action(
+                "压缩阈值…",
+                "输入 50 到 95 的阈值",
+                "/config set compact ",
+                true,
+            ),
+            command_menu_action("超时…", "输入单次超时秒数", "/config set timeout ", true),
+            command_menu_action("恢复默认", "恢复启动参数", "/config reset", false),
+        ],
+        TuiCommandId::Mission => vec![
+            command_menu_action("当前任务", "查看当前生产线任务", "/mission show", false),
+            command_menu_action("新建任务…", "输入任务目标", "/mission new ", true),
+            command_menu_action("修订任务…", "输入修订目标", "/mission revise ", true),
+            command_menu_action("关闭任务", "关闭当前生产线任务", "/mission close", false),
+        ],
+        TuiCommandId::Triage => vec![
+            command_menu_action(
+                "分析当前任务",
+                "对当前 mission 做路由判断",
+                "/triage",
+                false,
+            ),
+            command_menu_action("分析新目标…", "输入要分析的目标", "/triage ", true),
+        ],
+        TuiCommandId::Plan => vec![
+            command_menu_action("生成计划", "为当前任务生成计划", "/plan generate", false),
+            command_menu_action("查看计划", "查看当前计划", "/plan show", false),
+            command_menu_action("修订计划…", "输入修订要求", "/plan revise ", true),
+        ],
+        TuiCommandId::Approve => {
+            vec![command_menu_action(
+                "批准计划",
+                "批准当前已校验的计划",
+                "/approve",
+                false,
+            )]
+        }
+        TuiCommandId::Agents => vec![
+            command_menu_action("Agent 列表", "列出可用 Agent", "/agents", false),
+            command_menu_action(
+                "刷新 Agent",
+                "重新发现并缓存 Agent",
+                "/agents refresh",
+                false,
+            ),
+            command_menu_action("查看 Agent…", "输入 Agent ID", "/agents inspect ", true),
+        ],
+        TuiCommandId::Assign => vec![
+            command_menu_action("查看分配", "查看当前计划的任务分配", "/assign show", false),
+            command_menu_action("执行分配", "按能力和权限分配 Agent", "/assign apply", false),
+        ],
+        TuiCommandId::Dispatch => vec![
+            command_menu_action(
+                "预演派发",
+                "检查派发条件但不启动任务",
+                "/dispatch dry-run",
+                false,
+            ),
+            command_menu_action("启动派发", "启动生产线任务", "/dispatch run", false),
+            command_menu_action(
+                "后台派发",
+                "以后台 Session 启动任务",
+                "/dispatch detach",
+                false,
+            ),
+        ],
+        TuiCommandId::Board => {
+            vec![command_menu_action(
+                "刷新任务板",
+                "重新读取任务状态",
+                "/board",
+                false,
+            )]
+        }
+        TuiCommandId::Watch => {
+            vec![command_menu_action(
+                "刷新督战",
+                "重新观察运行中的任务",
+                "/watch",
+                false,
+            )]
+        }
+        TuiCommandId::Attention => vec![command_menu_action(
+            "刷新待办",
+            "重新检查需要人工处理的事项",
+            "/attention",
+            false,
+        )],
+        TuiCommandId::Respond => {
+            vec![command_menu_action(
+                "回复任务…",
+                "输入任务 ID 和回复内容",
+                "/respond ",
+                true,
+            )]
+        }
+        TuiCommandId::Control => vec![
+            command_menu_action("暂停…", "输入任务 ID 和原因", "/control pause ", true),
+            command_menu_action("恢复…", "输入任务 ID", "/control resume ", true),
+            command_menu_action("取消…", "输入任务 ID 和原因", "/control cancel ", true),
+            command_menu_action(
+                "人工接管…",
+                "输入任务 ID 和原因",
+                "/control takeover ",
+                true,
+            ),
+            command_menu_action("重试…", "输入任务 ID 和原因", "/control retry ", true),
+            command_menu_action("重规划…", "输入任务 ID 和原因", "/control replan ", true),
+        ],
+        TuiCommandId::Artifacts => vec![
+            command_menu_action("全部产物", "检查全部任务交付物", "/artifacts all", false),
+            command_menu_action("指定任务…", "输入任务 ID", "/artifacts ", true),
+        ],
+        TuiCommandId::Verify => {
+            vec![command_menu_action(
+                "提交验收…",
+                "输入任务 ID 和验收文件",
+                "/verify ",
+                true,
+            )]
+        }
+        TuiCommandId::Timeline => vec![command_menu_action(
+            "刷新时间线",
+            "重新读取总控和 Session 事件",
+            "/timeline",
+            false,
+        )],
+    }
+}
+
+fn command_needs_input(command: TuiCommandId) -> bool {
+    matches!(
+        command,
+        TuiCommandId::Frame
+            | TuiCommandId::Challenge
+            | TuiCommandId::Decide
+            | TuiCommandId::Postmortem
+            | TuiCommandId::Respond
+            | TuiCommandId::Verify
+            | TuiCommandId::Control
+    )
+}
+
+fn display_tui_help_menu(state: &mut TuiState) {
+    state.begin_command_panel("/help");
+    let commands = commands_for_surface(state.host_binding(), state.command_stage(), false)
+        .into_iter()
+        .filter(|command| command.implemented || state.host_binding().is_workshop_master())
+        .collect::<Vec<_>>();
+    state.info(format!(
+        "帮助\n\
+         当前环境      {}\n\
+         可用命令      {} 个\n\
+         \n\
+         使用 ↑/↓ 选择命令，Enter 执行或进入下一步。\n\
+         需要目标、路径或参数的命令会先准备输入。",
+        state.host_binding().kind().label_zh(),
+        commands.len()
+    ));
+    state.set_command_panel_menu(
+        commands
+            .into_iter()
+            .map(|command| {
+                command_menu_action(
+                    command.name,
+                    if command.implemented {
+                        command.description
+                    } else {
+                        "开发中"
+                    },
+                    command.name,
+                    command_needs_input(command.id),
+                )
+            })
+            .collect(),
+    );
+}
+
+async fn run_tui_line_epistemic(
+    runtime: &mut AgentRuntime,
+    state: &mut TuiState,
+    settings: &TuiRunSettings,
+    session: &mut TuiSession,
+    command: TuiCommandId,
+    args: &str,
+) -> Result<()> {
+    let Some((display, mode, request)) = epistemic_request(command, args, state, settings, session)
+    else {
+        state.info(format!("用法：{} [上下文或目标]", command_name(command)));
+        return Ok(());
+    };
+    if let Err(error) = session.record_event(SessionEvent::TaskSubmitted {
+        mode: mode.as_str().into(),
+    }) {
+        state.info(format!("无法写入 session event log：{error}"));
+        return Ok(());
+    }
+    state.begin(&display, mode, risk_for_mode(mode));
+    let cancellation = CancellationToken::new();
+    let signal_cancellation = cancellation.clone();
+    let signal = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            signal_cancellation.cancel();
+        }
+    });
+    let result = runtime.run_with_mode(request, mode, cancellation).await;
+    signal.abort();
+    match result {
+        Ok(result) => {
+            session.set_title_from_prompt(&state.last_instruction);
+            session.record_journal(&result.journal_path)?;
+            state.set_last_journal(&result.journal_path);
+            let output = format!(
+                "{}\n\nRun journal: {}",
+                render_answer(&result),
+                result.journal_path.display()
+            );
+            state.finish(TuiStatus::Completed, output);
+        }
+        Err(RuntimeError::Cancelled { .. }) => {
+            state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
+        }
+        Err(error) => {
+            state.finish(TuiStatus::Failed, format!("Error: {error}"));
+        }
+    }
+    Ok(())
+}
+
+fn epistemic_request(
+    command: TuiCommandId,
+    args: &str,
+    state: &TuiState,
+    settings: &TuiRunSettings,
+    session: &TuiSession,
+) -> Option<(String, CognitiveMode, TaskRequest)> {
+    let plan_context = if command == TuiCommandId::Challenge && args.trim().is_empty() {
+        session
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| std::fs::read_to_string(&plan.path).ok())
+    } else {
+        None
+    };
+    let (prompt, mode) = epistemic_command_prompt(
+        command,
+        plan_context.as_deref().unwrap_or(args),
+        &state.last_instruction,
+    )?;
+    let request = settings.request_with_known_facts(&prompt, session_context_facts(session));
+    let display = if args.trim().is_empty() {
+        format!("{} 上一任务", command_name(command))
+    } else {
+        format!("{} {}", command_name(command), args.trim())
+    };
+    Some((display, mode, request))
+}
+
+fn command_name(command: TuiCommandId) -> &'static str {
+    match command {
+        TuiCommandId::Frame => "/frame",
+        TuiCommandId::Challenge => "/challenge",
+        TuiCommandId::Decide => "/decide",
+        TuiCommandId::Postmortem => "/postmortem",
+        _ => "command",
+    }
+}
+
+fn handle_model_command(
+    state: &mut TuiState,
+    runtime: &mut AgentRuntime,
+    settings: &mut TuiRunSettings,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    let (subcommand, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    match subcommand {
+        "" | "show" => {
+            let selected = runtime
+                .selected_provider()
+                .map(|manifest| format!("{}/{}", manifest.provider_id, manifest.model))
+                .unwrap_or_else(|| "自动选择".into());
+            let models = runtime
+                .provider_manifests()
+                .into_iter()
+                .map(|manifest| {
+                    format!(
+                        "- {}/{}\n\
+                         质量评分      {}\n\
+                         P95 延迟      {} 毫秒\n\
+                         隐私范围      {}",
+                        manifest.provider_id,
+                        manifest.model,
+                        manifest.quality_score,
+                        manifest.p95_latency_ms,
+                        manifest.privacy.label_zh()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            state.info(format!(
+                "模型路由\n\
+                 优化目标      {}\n\
+                 当前选择      {selected}\n\
+                 \n\
+                 可用模型\n{models}",
+                runtime.route_objective().label_zh()
+            ));
+        }
+        "objective" => match rest.trim() {
+            "quality" => {
+                runtime.set_route_objective(RouteObjective::Quality);
+                state.info("模型选择目标已设为“质量优先”。");
+            }
+            "balanced" => {
+                runtime.set_route_objective(RouteObjective::Balanced);
+                state.info("模型选择目标已设为“质量与成本均衡”。");
+            }
+            "latency" => {
+                runtime.set_route_objective(RouteObjective::Latency);
+                state.info("模型选择目标已设为“延迟优先”。");
+            }
+            "cost" => {
+                runtime.set_route_objective(RouteObjective::Cost);
+                state.info("模型选择目标已设为“成本优先”。");
+            }
+            _ => state.info("用法：/model objective quality|balanced|latency|cost"),
+        },
+        _ => {
+            let target = if subcommand == "use" {
+                rest.trim()
+            } else {
+                trimmed
+            };
+            let Some((provider_id, model)) = target.split_once('/') else {
+                state.info("用法：/model use <provider>/<model>");
+                return;
+            };
+            let Some(candidate) = runtime.provider_candidate(provider_id, model) else {
+                state.info(format!("未找到模型服务：{provider_id}/{model}"));
+                return;
+            };
+            if runtime.select_provider(provider_id, model) {
+                settings.planning_provider = candidate.provider;
+                state.info(format!("下一次运行使用：{provider_id}/{model}"));
+            }
+        }
+    }
+}
+
+fn handle_permissions_command(settings: &mut TuiRunSettings, state: &mut TuiState, args: &str) {
+    let trimmed = args.trim();
+    let (subcommand, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    match subcommand {
+        "" | "show" => state.info(format!(
+            "运行权限（仅影响下一次运行）\n\
+             允许读取的目录：\n{}\n\
+             网络访问：{}\n\
+             写入与执行：{}",
+            settings
+                .roots
+                .iter()
+                .map(|path| format!("- {}", path.display()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            if settings.allow_network {
+                "允许"
+            } else {
+                "禁止"
+            },
+            if settings.allow_write {
+                "允许"
+            } else {
+                "禁止"
+            }
+        )),
+        "network" => match rest.trim() {
+            "on" => {
+                settings.allow_network = true;
+                state.info("下一次运行允许网络。");
+            }
+            "off" => {
+                settings.allow_network = false;
+                state.info("下一次运行禁止网络。");
+            }
+            _ => state.info("用法：/permissions network on|off"),
+        },
+        "write" => match rest.trim() {
+            "on" => {
+                settings.allow_write = true;
+                state.info("下一次运行允许写入和执行。");
+            }
+            "off" => {
+                settings.allow_write = false;
+                state.info("下一次运行禁止写入和执行。");
+            }
+            _ => state.info("用法：/permissions write on|off"),
+        },
+        "root-add" => {
+            let path = PathBuf::from(rest.trim());
+            match std::fs::canonicalize(&path) {
+                Ok(path) if path.is_dir() => {
+                    if !settings.roots.contains(&path) {
+                        settings.roots.push(path.clone());
+                    }
+                    state.info(format!("已添加允许读取的目录：{}", path.display()));
+                }
+                Ok(_) => state.info("允许读取的路径必须是目录。"),
+                Err(error) => state.info(format!("无法添加允许读取的目录：{error}")),
+            }
+        }
+        _ => state.info("用法：/permissions [show|network on|off|write|root-add <dir>]"),
+    }
+}
+
+fn display_tools(runtime: &AgentRuntime, state: &mut TuiState, args: &str) {
+    let trimmed = args.trim();
+    let name = trimmed.strip_prefix("inspect ").map(str::trim);
+    let capabilities = runtime.tool_capabilities();
+    if let Some(name) = name {
+        match capabilities
+            .iter()
+            .find(|capability| capability.name == name)
+        {
+            Some(capability) => match serde_json::to_string_pretty(capability) {
+                Ok(json) => state.info(format!(
+                    "工具详情：{}\n\n参数定义（技术信息）\n{json}",
+                    capability.name
+                )),
+                Err(error) => state.info(format!("无法序列化工具信息：{error}")),
+            },
+            None => state.info(format!("未知工具：{name}")),
+        }
+        return;
+    }
+    let output = capabilities
+        .into_iter()
+        .map(|capability| {
+            format!(
+                "- {}\n\
+                 风险等级      {}\n\
+                 需要写入      {}\n\
+                 当前状态      {}\n\
+                 说明          {}",
+                capability.name,
+                capability.risk.label_zh(),
+                if capability.requires_write {
+                    "是"
+                } else {
+                    "否"
+                },
+                capability.status.label_zh(),
+                capability.description
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    state.info(format!(
+        "可用工具\n{}",
+        if output.is_empty() {
+            "当前没有可用工具。"
+        } else {
+            &output
+        }
+    ));
+}
+
+fn tui_agents_path(session: &TuiSession) -> PathBuf {
+    session.root().join("runtime-agents.json")
+}
+
+fn refresh_tui_agents(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+) -> Option<Vec<AgentProfile>> {
+    let configured = match settings.master_agents.as_ref() {
+        Some(path) => match load_agent_profiles(path) {
+            Ok(profiles) => profiles,
+            Err(error) => {
+                state.info(format!("无法读取 Agent 配置：{error}"));
+                return None;
+            }
+        },
+        None => Vec::new(),
+    };
+    let profiles = match WorkshopCliAdapter::new(
+        settings.workshop_prefix.clone(),
+        Duration::from_secs(30),
+        false,
+    )
+    .and_then(|adapter| adapter.merge_profiles(&configured))
+    {
+        Ok(profiles) => profiles,
+        Err(error) if !configured.is_empty() => {
+            state.info(format!("Workshop 不可用，使用配置 Agent：{error}"));
+            configured
+        }
+        Err(error) => {
+            state.info(format!("无法发现 Agent：{error}"));
+            return None;
+        }
+    };
+    if profiles.is_empty() || profiles.len() > 64 {
+        state.info("Agent 数量必须为 1..=64。");
+        return None;
+    }
+    let bytes = match serde_json::to_vec_pretty(&profiles) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            state.info(format!("无法序列化 Agent 配置：{error}"));
+            return None;
+        }
+    };
+    if let Err(error) =
+        write_private_command_file(session.root(), &tui_agents_path(session), &bytes)
+    {
+        state.info(format!("无法缓存 Agent 配置：{error}"));
+        return None;
+    }
+    Some(profiles)
+}
+
+fn read_tui_agents(
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+) -> Result<Vec<AgentProfile>, String> {
+    let path = tui_agents_path(session);
+    if path.exists() {
+        let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+        if bytes.len() > 1024 * 1024 {
+            return Err("Agent 缓存超过 1 MiB".into());
+        }
+        return serde_json::from_slice(&bytes).map_err(|error| error.to_string());
+    }
+    let _ = settings;
+    Err("尚未发现 Agent；请运行 /agents refresh。".into())
+}
+
+fn display_agents(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    let (subcommand, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    let profiles = if subcommand == "refresh" || !tui_agents_path(session).exists() {
+        let Some(profiles) = refresh_tui_agents(state, session, settings) else {
+            return;
+        };
+        profiles
+    } else {
+        match read_tui_agents(session, settings) {
+            Ok(profiles) => profiles,
+            Err(error) => {
+                state.info(error);
+                return;
+            }
+        }
+    };
+    if subcommand == "inspect" {
+        let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.agent_id == rest.trim())
+        else {
+            state.info(format!("未知 Agent：{}", rest.trim()));
+            return;
+        };
+        match serde_json::to_string_pretty(profile) {
+            Ok(json) => state.info(format!(
+                "Agent 详情：{}\n\n原始配置（技术信息）\n{json}",
+                profile.agent_id
+            )),
+            Err(error) => state.info(format!("无法序列化 Agent：{error}")),
+        }
+        return;
+    }
+    let output = profiles
+        .iter()
+        .map(|profile| {
+            format!(
+                "- {}\n\
+                 标识          {}\n\
+                 运行时        {}\n\
+                 当前状态      {}\n\
+                 能力          {}\n\
+                 工具          {}\n\
+                 写入权限      {}",
+                profile.display_name.as_deref().unwrap_or(&profile.agent_id),
+                profile.agent_id,
+                profile.runtime,
+                profile.availability.label_zh(),
+                profile.capabilities.join(","),
+                profile.tools.join(","),
+                if profile.permissions.allow_write {
+                    "允许"
+                } else {
+                    "禁止"
+                }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    state.info(format!("可用 Agent\n{output}"));
+}
+
+fn assign_tui_plan(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let Some(mission) = session.mission().cloned() else {
+        state.info("当前没有 active mission。");
+        return;
+    };
+    let Some(binding) = mission.plan.clone() else {
+        state.info("当前 mission 还没有计划。");
+        return;
+    };
+    if binding.approved_by.is_none() {
+        state.info("请先批准计划，再执行 /assign。");
+        return;
+    }
+    if args.trim() == "show" {
+        let Some(assignment) = binding.assignment else {
+            state.info("当前计划还没有 Agent assignment。");
+            return;
+        };
+        state.info(format_assignment(&assignment));
+        return;
+    }
+    if !args.trim().is_empty() && args.trim() != "apply" {
+        state.info("用法：/assign [show|apply]");
+        return;
+    }
+    let plan = match read_master_plan(&binding.path) {
+        Ok(plan) => plan,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let profiles = match read_tui_agents(session, settings) {
+        Ok(profiles) => profiles,
+        Err(_) => {
+            let Some(profiles) = refresh_tui_agents(state, session, settings) else {
+                return;
+            };
+            profiles
+        }
+    };
+    let assignment = match plan.assign(&profiles) {
+        Ok(assignment) => assignment,
+        Err(error) => {
+            state.info(format!("无法分配 Agent：{error}"));
+            return;
+        }
+    };
+    if let Err(error) = session.bind_assignment(assignment.clone()) {
+        state.info(format!("无法保存 assignment：{error}"));
+        return;
+    }
+    state.info(format_assignment(&assignment));
+}
+
+fn format_assignment(assignment: &first_principles_agent::AssignmentProposal) -> String {
+    let rows = assignment
+        .assignments
+        .iter()
+        .map(|item| {
+            format!(
+                "- {} -> {} ({}) · {}",
+                item.task_id, item.agent_id, item.runtime, item.selection_reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Assignment · plan={}\n{rows}", assignment.plan_id)
+}
+
+fn prepare_master_dispatch(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+) -> std::result::Result<(String, PathBuf, PathBuf, MasterState), String> {
+    let Some(mission) = session.mission().cloned() else {
+        return Err("当前没有 active mission。".into());
+    };
+    let Some(binding) = mission.plan.clone() else {
+        return Err("当前 mission 还没有计划。".into());
+    };
+    let Some(assignment) = binding.assignment.clone() else {
+        return Err("请先运行 /assign apply。".into());
+    };
+    let Some(actor) = binding.approved_by.clone() else {
+        return Err("计划尚未批准。".into());
+    };
+    let plan = read_master_plan(&binding.path)?;
+    if let Some(production) = read_production_plan(&binding.path)? {
+        let task_list_path = binding
+            .task_list_path
+            .as_ref()
+            .ok_or("生产计划缺少已绑定任务清单；请再次执行 /approve。")?;
+        let expected_task_list_sha = binding
+            .task_list_sha256
+            .as_deref()
+            .ok_or("生产计划缺少任务清单摘要；请再次执行 /approve。")?;
+        let expected_plan_sha = binding
+            .production_plan_sha256
+            .as_deref()
+            .ok_or("生产计划缺少计划摘要；请再次执行 /approve。")?;
+        let actual_plan_sha = production
+            .plan_sha256()
+            .map_err(|error| error.to_string())?;
+        if actual_plan_sha != expected_plan_sha {
+            return Err("生产计划摘要已变化，拒绝派工。".into());
+        }
+        let task_list = std::fs::read(task_list_path).map_err(|error| error.to_string())?;
+        if task_list.len() > 4 * 1024 * 1024 {
+            return Err("任务清单超过 4 MiB，拒绝派工。".into());
+        }
+        if hex::encode(Sha256::digest(&task_list)) != expected_task_list_sha {
+            return Err("任务清单已变化，拒绝派工。".into());
+        }
+    }
+    let profiles_path = tui_agents_path(session);
+    if !profiles_path.is_file() {
+        return Err("缺少 Agent profile 缓存；请运行 /agents refresh。".into());
+    }
+    let trace_id = format!("trace-{}", safe_command_component(&plan.plan_id));
+    let state_root = session.root().join("master-state");
+    let store = MasterStore::new(&state_root, &trace_id).map_err(|error| error.to_string())?;
+    let mut state_value = match store.load() {
+        Ok(existing) => {
+            if existing.plan.plan_id != plan.plan_id {
+                return Err("已有 MasterState 属于另一份计划。".into());
+            }
+            existing
+        }
+        Err(_) => {
+            let initialized =
+                MasterState::initialize(trace_id.clone(), plan, assignment, now_unix_ms())
+                    .map_err(|error| error.to_string())?;
+            store
+                .initialize(initialized, now_unix_ms())
+                .map_err(|error| error.to_string())?;
+            store.load().map_err(|error| error.to_string())?
+        }
+    };
+    if !state_value.plan.approved {
+        state_value
+            .approve(actor.clone(), now_unix_ms())
+            .map_err(|error| error.to_string())?;
+        store
+            .append(
+                state_value.clone(),
+                MasterJournalEventKind::Approved,
+                None,
+                &actor,
+                "session-bound plan approval materialized for dispatch",
+                now_unix_ms(),
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    session
+        .bind_dispatch(trace_id.clone(), state_root.clone())
+        .map_err(|error| error.to_string())?;
+    sync_tui_stage(state, session);
+    state.info(format!(
+        "Dispatch state ready · trace={trace_id} · tasks={}",
+        state_value.tasks.len()
+    ));
+    Ok((trace_id, state_root, profiles_path, state_value))
+}
+
+fn run_tui_dispatch(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let action = if args.trim().is_empty() {
+        "dry-run"
+    } else {
+        args.trim()
+    };
+    if !matches!(action, "dry-run" | "run" | "detach") {
+        state.info("用法：/dispatch [dry-run|run|detach]");
+        return;
+    }
+    let (trace_id, state_root, profiles_path, mut master) =
+        match prepare_master_dispatch(state, session) {
+            Ok(value) => value,
+            Err(error) => {
+                state.info(format!("无法准备派发：{error}"));
+                return;
+            }
+        };
+    master.advance_ready(now_unix_ms());
+    let ready = master
+        .plan
+        .work_items
+        .iter()
+        .filter(|item| {
+            master.tasks.get(&item.id).is_some_and(|task| {
+                matches!(
+                    task.status,
+                    WorkItemStatus::Ready | WorkItemStatus::Retrying
+                ) && !task.human_takeover
+            })
+        })
+        .take(master.plan.max_parallel.max(1))
+        .cloned()
+        .collect::<Vec<_>>();
+    if action == "dry-run" {
+        state.info(format!(
+            "Dispatch dry-run · trace={trace_id}\n{}",
+            ready
+                .iter()
+                .map(|item| format!("- {} · {}", item.id, item.title))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+        return;
+    }
+    let store = match MasterStore::new(&state_root, &trace_id) {
+        Ok(store) => store,
+        Err(error) => {
+            state.info(format!("无法打开 MasterState：{error}"));
+            return;
+        }
+    };
+    let adapter = match WorkshopCliAdapter::new(
+        settings.workshop_prefix.clone(),
+        Duration::from_secs(30),
+        action == "run",
+    ) {
+        Ok(adapter) => adapter.with_artifact_dir(store.trace_dir().join("executions")),
+        Err(error) => {
+            state.info(format!("无法创建 Workshop adapter：{error}"));
+            return;
+        }
+    };
+    let profiles = match load_agent_profiles(&profiles_path) {
+        Ok(profiles) => profiles,
+        Err(error) => {
+            state.info(format!("无法读取 Agent profiles：{error}"));
+            return;
+        }
+    };
+    for item in ready {
+        let assignment = match master
+            .assignment
+            .assignments
+            .iter()
+            .find(|assignment| assignment.task_id == item.id)
+        {
+            Some(assignment) => assignment,
+            None => {
+                state.info(format!("任务 {} 没有 assignment。", item.id));
+                continue;
+            }
+        };
+        let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.agent_id == assignment.agent_id)
+        else {
+            state.info(format!("缺少 Agent profile：{}", assignment.agent_id));
+            continue;
+        };
+        let lease = match master.lease_task(
+            &item.id,
+            profile,
+            format!("workshop-session:{}", assignment.agent_id),
+            item.budget.timeout_ms.saturating_add(30_000),
+            now_unix_ms(),
+        ) {
+            Ok(lease) => lease,
+            Err(error) => {
+                state.info(format!("任务 {} 无法租约：{error}", item.id));
+                continue;
+            }
+        };
+        master = match store.append(
+            master,
+            MasterJournalEventKind::Leased,
+            Some(item.id.clone()),
+            "master",
+            format!("lease generation {}", lease.generation),
+            now_unix_ms(),
+        ) {
+            Ok(master) => master,
+            Err(error) => {
+                state.info(format!("无法记录租约：{error}"));
+                return;
+            }
+        };
+        if let Err(error) = master.begin_starting(&item.id, lease.generation, now_unix_ms()) {
+            state.info(format!("任务 {} 无法启动：{error}", item.id));
+            continue;
+        }
+        master = match store.append(
+            master,
+            MasterJournalEventKind::Starting,
+            Some(item.id.clone()),
+            "master",
+            "starting Workshop session",
+            now_unix_ms(),
+        ) {
+            Ok(master) => master,
+            Err(error) => {
+                state.info(format!("无法记录启动：{error}"));
+                return;
+            }
+        };
+        match adapter.start(
+            &item,
+            profile,
+            lease.generation,
+            &lease.idempotency_key,
+            now_unix_ms(),
+        ) {
+            Ok(submission) => {
+                if let Err(error) = master.record_submission(submission.clone(), now_unix_ms()) {
+                    state.info(format!("无法记录提交：{error}"));
+                    continue;
+                }
+                master = match store.append(
+                    master,
+                    MasterJournalEventKind::Submitted,
+                    Some(item.id.clone()),
+                    &profile.agent_id,
+                    format!(
+                        "submitted to session {}",
+                        submission
+                            .execution_target
+                            .session_id
+                            .as_deref()
+                            .unwrap_or("-")
+                    ),
+                    now_unix_ms(),
+                ) {
+                    Ok(master) => master,
+                    Err(error) => {
+                        state.info(format!("无法记录提交：{error}"));
+                        return;
+                    }
+                };
+                state.info(format!(
+                    "已提交 {} · agent={} · session={}",
+                    item.id,
+                    profile.agent_id,
+                    submission
+                        .execution_target
+                        .session_id
+                        .as_deref()
+                        .unwrap_or("-")
+                ));
+            }
+            Err(error) => {
+                let receipt = failed_receipt(&item, profile, &lease, error.to_string());
+                let _ = master.record_receipt(receipt, now_unix_ms());
+                state.info(format!("任务 {} 启动失败：{error}", item.id));
+            }
+        }
+    }
+}
+
+fn tui_master_store(
+    session: &TuiSession,
+) -> std::result::Result<(String, PathBuf, MasterStore), String> {
+    let plan = session
+        .mission()
+        .and_then(|mission| mission.plan.as_ref())
+        .ok_or_else(|| "当前没有已绑定计划。".to_string())?;
+    let trace_id = plan
+        .master_trace_id
+        .clone()
+        .ok_or_else(|| "当前计划尚未派发。".to_string())?;
+    let state_root = plan
+        .master_state_root
+        .clone()
+        .ok_or_else(|| "当前计划没有 MasterState 路径。".to_string())?;
+    let store = MasterStore::new(&state_root, &trace_id).map_err(|error| error.to_string())?;
+    Ok((trace_id, state_root, store))
+}
+
+fn master_task_line(
+    id: &str,
+    task: &first_principles_agent::TaskRuntimeState,
+    item: Option<&first_principles_agent::WorkItem>,
+) -> String {
+    let agent = task
+        .active_lease
+        .as_ref()
+        .map(|lease| lease.agent_id.as_str())
+        .unwrap_or("-");
+    let session = task
+        .execution_target
+        .as_ref()
+        .and_then(|target| target.session_id.as_deref())
+        .unwrap_or("-");
+    let title = item
+        .map(|item| format!(" · {}", bounded_tui_text(&item.title, 80)))
+        .unwrap_or_default();
+    let dependencies = item
+        .filter(|item| !item.dependencies.is_empty())
+        .map(|item| format!(" · deps={}", item.dependencies.join(",")))
+        .unwrap_or_default();
+    let lease = task
+        .active_lease
+        .as_ref()
+        .map(|lease| format!(" · lease_until={}", lease.expires_unix_ms))
+        .unwrap_or_default();
+    let error = task
+        .last_error
+        .as_deref()
+        .map(|value| format!(" · error={}", bounded_tui_text(value, 180)))
+        .unwrap_or_default();
+    format!(
+        "- {id}{title} · {:?} · agent={agent} · session={session} · gen={}{dependencies}{lease}{error}",
+        task.status, task.generation,
+    )
+}
+
+fn display_master_board(state: &mut TuiState, session: &TuiSession, args: &str) {
+    let (trace_id, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let master = match store.load() {
+        Ok(master) => master,
+        Err(error) => {
+            state.info(format!("无法读取 MasterState：{error}"));
+            return;
+        }
+    };
+    let filter = args.trim();
+    let rows = master
+        .tasks
+        .iter()
+        .filter(|(id, _)| {
+            filter.is_empty()
+                || id.contains(filter)
+                || master
+                    .plan
+                    .work_items
+                    .iter()
+                    .any(|item| item.id == **id && item.title.contains(filter))
+        })
+        .map(|(id, task)| {
+            master_task_line(
+                id,
+                task,
+                master.plan.work_items.iter().find(|item| item.id == *id),
+            )
+        })
+        .collect::<Vec<_>>();
+    state.info(bound_tui_command_output(format!(
+        "Board · trace={trace_id} · approved={} · paused={}\n{}",
+        master.plan.approved,
+        master.paused,
+        if rows.is_empty() {
+            "没有匹配任务。".into()
+        } else {
+            rows.join("\n")
+        }
+    )));
+}
+
+fn display_attention(state: &mut TuiState, session: &TuiSession) {
+    let (trace_id, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let master = match store.load() {
+        Ok(master) => master,
+        Err(error) => {
+            state.info(format!("无法读取 MasterState：{error}"));
+            return;
+        }
+    };
+    let now = now_unix_ms();
+    let rows = master
+        .tasks
+        .iter()
+        .filter(|(_, task)| {
+            matches!(
+                task.status,
+                WorkItemStatus::AwaitingInput
+                    | WorkItemStatus::ArtifactReady
+                    | WorkItemStatus::Blocked
+                    | WorkItemStatus::Rejected
+                    | WorkItemStatus::Retrying
+                    | WorkItemStatus::Replanning
+            ) || task
+                .active_lease
+                .as_ref()
+                .is_some_and(|lease| !lease.is_active(now))
+        })
+        .map(|(id, task)| {
+            master_task_line(
+                id,
+                task,
+                master.plan.work_items.iter().find(|item| item.id == *id),
+            )
+        })
+        .collect::<Vec<_>>();
+    state.info(format!(
+        "Attention · trace={trace_id}\n{}",
+        if rows.is_empty() {
+            "没有需要人工处理的任务。".into()
+        } else {
+            rows.join("\n")
+        }
+    ));
+}
+
+fn watch_tui_master(state: &mut TuiState, session: &TuiSession, settings: &TuiRunSettings) {
+    let (trace_id, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let mut master = match store.load() {
+        Ok(master) => master,
+        Err(error) => {
+            state.info(format!("无法读取 MasterState：{error}"));
+            return;
+        }
+    };
+    let adapter = match WorkshopCliAdapter::new(
+        settings.workshop_prefix.clone(),
+        Duration::from_secs(30),
+        false,
+    ) {
+        Ok(adapter) => adapter.with_artifact_dir(store.trace_dir().join("executions")),
+        Err(error) => {
+            state.info(format!("无法创建 Workshop adapter：{error}"));
+            return;
+        }
+    };
+    let submissions = master
+        .plan
+        .work_items
+        .iter()
+        .filter_map(|item| {
+            let task = master.tasks.get(&item.id)?;
+            if task.human_takeover
+                || !matches!(
+                    task.status,
+                    WorkItemStatus::Running
+                        | WorkItemStatus::AwaitingInput
+                        | WorkItemStatus::Blocked
+                )
+            {
+                return None;
+            }
+            let lease = task.active_lease.as_ref()?;
+            Some(ExecutionSubmission {
+                task_id: item.id.clone(),
+                agent_id: lease.agent_id.clone(),
+                lease_generation: lease.generation,
+                idempotency_key: lease.idempotency_key.clone(),
+                execution_target: task.execution_target.clone()?,
+                submitted_unix_ms: task.submitted_unix_ms.unwrap_or_default(),
+                deadline_unix_ms: task
+                    .submitted_unix_ms
+                    .unwrap_or_default()
+                    .saturating_add(u128::from(item.budget.timeout_ms)),
+            })
+        })
+        .collect::<Vec<_>>();
+    if submissions.is_empty() {
+        state.info(format!("Watch · trace={trace_id} · 没有运行中的任务"));
+        return;
+    }
+    let mut outputs = Vec::new();
+    for submission in submissions {
+        let previous = master
+            .tasks
+            .get(&submission.task_id)
+            .map(|task| task.status);
+        let observation = adapter
+            .observe_submission(&submission, now_unix_ms())
+            .unwrap_or_else(|error| ExecutionObservation::Blocked {
+                reason: error.to_string(),
+            });
+        let terminal = matches!(observation, ExecutionObservation::Finished { .. });
+        if let Err(error) =
+            master.record_observation(&submission.task_id, observation.clone(), now_unix_ms())
+        {
+            outputs.push(format!("{} · 状态更新失败：{error}", submission.task_id));
+            continue;
+        }
+        let next = master
+            .tasks
+            .get(&submission.task_id)
+            .map(|task| task.status);
+        if terminal || previous != next {
+            master = match store.append(
+                master.clone(),
+                if terminal {
+                    MasterJournalEventKind::ReceiptRecorded
+                } else {
+                    MasterJournalEventKind::Observed
+                },
+                Some(submission.task_id.clone()),
+                "workshop",
+                format!("{observation:?}"),
+                now_unix_ms(),
+            ) {
+                Ok(master) => master,
+                Err(error) => {
+                    outputs.push(format!(
+                        "{} · 无法写入 journal：{error}",
+                        submission.task_id
+                    ));
+                    continue;
+                }
+            };
+        }
+        outputs.push(format!("{} · {:?}", submission.task_id, observation));
+    }
+    state.info(bound_tui_command_output(format!(
+        "Watch · trace={trace_id}\n{}",
+        outputs.join("\n")
+    )));
+}
+
+fn respond_tui_task(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let Some((task_id, message)) = args.trim().split_once(char::is_whitespace) else {
+        state.info("用法：/respond <task-id> <message>");
+        return;
+    };
+    let message = message.trim();
+    if message.is_empty() {
+        state.info("回复内容不能为空。");
+        return;
+    }
+    let (_, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let mut master = match store.load() {
+        Ok(master) => master,
+        Err(error) => {
+            state.info(format!("无法读取 MasterState：{error}"));
+            return;
+        }
+    };
+    let session_id = match master.tasks.get(task_id) {
+        Some(task)
+            if matches!(
+                task.status,
+                WorkItemStatus::AwaitingInput | WorkItemStatus::Blocked
+            ) =>
+        {
+            task.execution_target
+                .as_ref()
+                .and_then(|target| target.session_id.clone())
+        }
+        Some(_) => {
+            state.info(format!("任务 {task_id} 当前不需要人工回复。"));
+            return;
+        }
+        None => {
+            state.info(format!("未知任务：{task_id}"));
+            return;
+        }
+    };
+    let Some(session_id) = session_id else {
+        state.info(format!("任务 {task_id} 没有可写入的 Session。"));
+        return;
+    };
+    let adapter = match WorkshopCliAdapter::new(
+        settings.workshop_prefix.clone(),
+        Duration::from_secs(30),
+        false,
+    ) {
+        Ok(adapter) => adapter,
+        Err(error) => {
+            state.info(format!("无法创建 Workshop adapter：{error}"));
+            return;
+        }
+    };
+    if let Err(error) = adapter.write_session(&session_id, message) {
+        state.info(format!("无法发送回复：{error}"));
+        return;
+    }
+    if let Err(error) =
+        master.record_observation(task_id, ExecutionObservation::Running, now_unix_ms())
+    {
+        state.info(format!("回复已发送，但状态更新失败：{error}"));
+        return;
+    }
+    match store.append(
+        master,
+        MasterJournalEventKind::Observed,
+        Some(task_id.into()),
+        "user",
+        "human response routed to task Session",
+        now_unix_ms(),
+    ) {
+        Ok(_) => state.info(format!("已回复 {task_id} · session={session_id}")),
+        Err(error) => state.info(format!("回复已发送，但 journal 写入失败：{error}")),
+    }
+}
+
+fn control_tui_master(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let result = (|| -> std::result::Result<String, String> {
+        let trimmed = args.trim();
+        let (command, rest) = trimmed
+            .split_once(char::is_whitespace)
+            .unwrap_or((trimmed, ""));
+        let (_, _, store) = tui_master_store(session)?;
+        let mut master = match store.load() {
+            Ok(master) => master,
+            Err(error) => return Err(format!("无法读取 MasterState：{error}")),
+        };
+        let actor = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "user".into());
+        match command {
+            "pause" | "resume" => {
+                let paused = command == "pause";
+                master
+                    .set_paused(paused, actor.clone(), now_unix_ms())
+                    .map_err(|error| error.to_string())?;
+                store
+                    .append(
+                        master,
+                        if paused {
+                            MasterJournalEventKind::Paused
+                        } else {
+                            MasterJournalEventKind::Resumed
+                        },
+                        None,
+                        &actor,
+                        if paused { "run paused" } else { "run resumed" },
+                        now_unix_ms(),
+                    )
+                    .map(|_| format!("Master run {}", if paused { "paused" } else { "resumed" }))
+                    .map_err(|error| error.to_string())
+            }
+            "cancel" | "takeover" | "retry" | "replan" => {
+                let (task_id, reason) = rest
+                    .split_once(char::is_whitespace)
+                    .unwrap_or((rest, "user requested"));
+                let reason = if reason.trim().is_empty() {
+                    "user requested"
+                } else {
+                    reason.trim()
+                };
+                match command {
+                    "cancel" => {
+                        let status = master
+                            .tasks
+                            .get(task_id)
+                            .ok_or_else(|| format!("未知任务：{task_id}"))?
+                            .status;
+                        if !status.can_transition_to(WorkItemStatus::Cancelled) {
+                            return Err(format!("任务 {task_id} 当前不能取消：{status:?}"));
+                        }
+                        if let Err(error) = cancel_active_session_if_any(
+                            &master,
+                            task_id,
+                            &settings.workshop_prefix,
+                        ) {
+                            return Err(format!("取消 Session 失败：{error}"));
+                        }
+                        master
+                            .cancel_task(task_id, actor.clone(), reason, now_unix_ms())
+                            .map_err(|error| error.to_string())?;
+                        store
+                            .append(
+                                master,
+                                MasterJournalEventKind::Cancelled,
+                                Some(task_id.into()),
+                                &actor,
+                                reason,
+                                now_unix_ms(),
+                            )
+                            .map(|_| format!("任务 {task_id} 已取消"))
+                            .map_err(|error| error.to_string())
+                    }
+                    "takeover" => {
+                        master
+                            .take_over(task_id, actor.clone(), reason, now_unix_ms())
+                            .map_err(|error| error.to_string())?;
+                        store
+                            .append(
+                                master,
+                                MasterJournalEventKind::TakenOver,
+                                Some(task_id.into()),
+                                &actor,
+                                reason,
+                                now_unix_ms(),
+                            )
+                            .map(|_| format!("任务 {task_id} 已由人工接管"))
+                            .map_err(|error| error.to_string())
+                    }
+                    "retry" => {
+                        let task = master
+                            .tasks
+                            .get(task_id)
+                            .ok_or_else(|| format!("未知任务：{task_id}"))?;
+                        if !matches!(
+                            task.status,
+                            WorkItemStatus::Rejected | WorkItemStatus::Blocked
+                        ) {
+                            return Err(format!("任务 {task_id} 当前不能重试：{:?}", task.status));
+                        }
+                        if task.retries >= first_principles_agent::MAX_AUTOMATIC_RETRIES {
+                            return Err(format!("任务 {task_id} 已达到自动重试上限"));
+                        }
+                        if let Err(error) = cancel_active_session_if_any(
+                            &master,
+                            task_id,
+                            &settings.workshop_prefix,
+                        ) {
+                            return Err(format!("取消旧 Session 失败：{error}"));
+                        }
+                        master
+                            .request_retry(task_id, actor.clone(), reason, now_unix_ms())
+                            .map_err(|error| error.to_string())?;
+                        store
+                            .append(
+                                master,
+                                MasterJournalEventKind::RetryRequested,
+                                Some(task_id.into()),
+                                &actor,
+                                reason,
+                                now_unix_ms(),
+                            )
+                            .map(|_| format!("任务 {task_id} 已进入有界重试"))
+                            .map_err(|error| error.to_string())
+                    }
+                    _ => {
+                        let task = master
+                            .tasks
+                            .get(task_id)
+                            .ok_or_else(|| format!("未知任务：{task_id}"))?;
+                        if !matches!(
+                            task.status,
+                            WorkItemStatus::Rejected | WorkItemStatus::Blocked
+                        ) {
+                            return Err(format!(
+                                "任务 {task_id} 当前不能重规划：{:?}",
+                                task.status
+                            ));
+                        }
+                        if master.replan_count >= first_principles_agent::MAX_AUTOMATIC_REPLANS {
+                            return Err("已达到自动重规划上限".into());
+                        }
+                        if let Err(error) = cancel_active_session_if_any(
+                            &master,
+                            task_id,
+                            &settings.workshop_prefix,
+                        ) {
+                            return Err(format!("取消旧 Session 失败：{error}"));
+                        }
+                        master
+                            .request_replan(task_id, actor.clone(), reason, now_unix_ms())
+                            .map_err(|error| error.to_string())?;
+                        store
+                            .append(
+                                master,
+                                MasterJournalEventKind::ReplanRequested,
+                                Some(task_id.into()),
+                                &actor,
+                                reason,
+                                now_unix_ms(),
+                            )
+                            .map(|_| format!("任务 {task_id} 已请求局部重规划"))
+                            .map_err(|error| error.to_string())
+                    }
+                }
+            }
+            _ => Err("用法：/control pause|resume|cancel|takeover|retry|replan ...".into()),
+        }
+    })();
+    match result {
+        Ok(message) => state.info(message),
+        Err(error) => state.info(format!("控制失败：{error}")),
+    }
+}
+
+fn display_master_timeline(state: &mut TuiState, session: &TuiSession, settings: &TuiRunSettings) {
+    let (trace_id, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let events = match read_master_journal_events(&store.trace_dir().join("events.jsonl")) {
+        Ok(events) => events,
+        Err(error) => {
+            state.info(format!("无法读取 Master journal：{error}"));
+            return;
+        }
+    };
+    let session_ids = store
+        .load()
+        .map(|master| {
+            master
+                .tasks
+                .values()
+                .filter_map(|task| {
+                    task.execution_target
+                        .as_ref()
+                        .and_then(|target| target.session_id.clone())
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut rows = events
+        .iter()
+        .rev()
+        .take(20)
+        .rev()
+        .map(|event| {
+            format!(
+                "- {} · {} · {:?} · {} · {}",
+                event.seq,
+                event.timestamp_unix_ms,
+                event.kind,
+                event.task_id.as_deref().unwrap_or("-"),
+                bounded_tui_text(&event.reason, 240)
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Ok(workshop) = WorkshopCliAdapter::new(
+        settings.workshop_prefix.clone(),
+        Duration::from_secs(30),
+        false,
+    )
+    .and_then(|adapter| adapter.bounded_events(None, 20))
+    {
+        rows.extend(workshop.into_iter().map(|event| {
+            let text = bounded_tui_text(&event.to_string(), 400);
+            let session = session_ids
+                .iter()
+                .find(|session_id| text.contains(session_id.as_str()))
+                .map(String::as_str)
+                .unwrap_or("unassociated");
+            format!("- workshop · session={session} · {text}")
+        }));
+    }
+    state.info(bound_tui_command_output(format!(
+        "Timeline · trace={trace_id}\n{}",
+        rows.join("\n")
+    )));
+}
+
+fn bounded_tui_text(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let mut output = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        output.push('…');
+    }
+    output.replace(['\r', '\n'], " ")
+}
+
+fn sync_tui_stage(state: &mut TuiState, session: &TuiSession) {
+    if !state.host_binding().is_workshop_master() {
+        state.set_command_stage(CommandStage::NoMission);
+        return;
+    }
+    let stage = match session.mission() {
+        None => CommandStage::NoMission,
+        Some(mission) => match mission.plan.as_ref() {
+            None => CommandStage::Framing,
+            Some(plan) if plan.master_trace_id.is_some() => CommandStage::Running,
+            Some(_) => CommandStage::Approval,
+        },
+    };
+    state.set_command_stage(stage);
+}
+
+fn handle_mission_command(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    let (subcommand, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    let result = match subcommand {
+        "" | "show" => {
+            state.info(format_mission(session.mission()));
+            return;
+        }
+        "close" => session.close_mission().map_err(|error| error.to_string()),
+        "new" => {
+            if session.mission().is_some() {
+                Err("已有 active mission；使用 /mission revise 或 /mission close。".into())
+            } else {
+                start_mission(session, settings, rest)
+            }
+        }
+        "revise" => session
+            .revise_mission(rest.trim())
+            .map_err(|error| error.to_string()),
+        _ => {
+            if session.mission().is_some() {
+                session
+                    .revise_mission(trimmed)
+                    .map_err(|error| error.to_string())
+            } else {
+                start_mission(session, settings, trimmed)
+            }
+        }
+    };
+    match result {
+        Ok(()) => {
+            state.info(format_mission(session.mission()));
+            sync_tui_stage(state, session);
+        }
+        Err(error) => state.info(format!("Mission 未更新：{error}")),
+    }
+}
+
+fn start_mission(
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    goal: &str,
+) -> std::result::Result<(), String> {
+    if goal.trim().is_empty() {
+        return Err("请提供 mission 目标。".into());
+    }
+    session
+        .start_mission(goal.trim(), settings.cwd.clone())
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn format_mission(mission: Option<&first_principles_agent::SessionMission>) -> String {
+    let Some(mission) = mission else {
+        return "当前没有 active mission。使用 /mission new <目标> 创建。".into();
+    };
+    let plan = mission.plan.as_ref();
+    let approval = plan.and_then(|plan| plan.approved_by.as_deref());
+    let task_list = plan
+        .and_then(|plan| plan.task_list_path.as_ref())
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "未生成".into());
+    format!(
+        "Mission · {} · revision={}\n目标: {}\n工作区: {}\nPlan: {}\nTask list: {}\nApproval: {}",
+        mission.id,
+        mission.revision,
+        mission.goal,
+        mission.workspace.display(),
+        plan.map(|plan| {
+            format!(
+                "{} · {} · sha256={}",
+                plan.plan_id,
+                plan.path.display(),
+                plan.sha256
+            )
+        })
+        .unwrap_or_else(|| "未生成".into()),
+        task_list,
+        approval
+            .map(|actor| format!("approved by {actor}"))
+            .unwrap_or_else(|| "未批准".into())
+    )
+}
+
+fn display_triage(state: &mut TuiState, session: &TuiSession, args: &str) {
+    let goal = args.trim();
+    let goal = if goal.is_empty() {
+        session
+            .mission()
+            .map(|mission| mission.goal.clone())
+            .unwrap_or_else(|| state.last_instruction.clone())
+    } else {
+        goal.to_string()
+    };
+    if goal.trim().is_empty() {
+        state.info("用法：/triage [目标]，或先创建 /mission。");
+        return;
+    }
+    let decision = triage_goal(&goal, &TriageSignals::default());
+    state.info(format!(
+        "Triage\nroute: {:?}\nreason: {}\nrequires_plan: {}\nrequires_approval: {}\n\
+         allows_dispatch: {}\nmax_work_items: {}",
+        decision.route,
+        decision.reason,
+        decision.requires_plan,
+        decision.requires_user_approval,
+        decision.allows_dispatch,
+        decision.max_work_items
+    ));
+}
+
+async fn handle_master_task_intake(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    instruction: &str,
+) -> bool {
+    if !state.host_binding().is_workshop_master() {
+        return false;
+    }
+    let instruction = instruction.trim();
+    if instruction.is_empty() {
+        return false;
+    }
+
+    if let Some(mission) = session.mission().cloned()
+        && let Some(plan) = mission.plan.as_ref()
+    {
+        if plan.approved_by.is_none() && is_plan_confirmation(instruction) {
+            approve_tui_plan(state, session, "");
+            return true;
+        }
+        if plan.approved_by.is_some() && plan.task_list_path.is_none() {
+            if is_plan_confirmation(instruction) || is_execute_confirmation(instruction) {
+                approve_tui_plan(state, session, &plan.plan_id);
+                state.info("任务清单已准备。检查 Agent、窗口和权限后，再回复“确认执行”。");
+                return true;
+            }
+        } else if plan.approved_by.is_some()
+            && plan.task_list_path.is_some()
+            && is_execute_confirmation(instruction)
+        {
+            assign_tui_plan(state, session, settings, "apply");
+            let assigned = session
+                .mission()
+                .and_then(|mission| mission.plan.as_ref())
+                .and_then(|plan| plan.assignment.as_ref())
+                .is_some();
+            if assigned {
+                run_tui_dispatch(state, session, settings, "run");
+            }
+            return true;
+        }
+        if plan.master_trace_id.is_some()
+            && handle_master_supervision_input(state, session, settings, instruction)
+        {
+            return true;
+        }
+        if plan.approved_by.is_none()
+            && triage_goal(instruction, &TriageSignals::default()).requires_plan
+        {
+            state.info(
+                "当前 Mission 正在等待计划确认。请回复“确认计划”、执行 /plan revise，或先关闭当前 Mission。",
+            );
+            return true;
+        }
+        return false;
+    }
+
+    if session.mission().is_some() {
+        return false;
+    }
+    let triage = triage_goal(instruction, &TriageSignals::default());
+    if !triage.requires_plan {
+        return false;
+    }
+    if let Err(error) = start_mission(session, settings, instruction) {
+        state.info(format!("无法创建 Mission：{error}"));
+        return true;
+    }
+    state.info(format!(
+        "识别到任务目标：{}\n正在生成 Goal、可衡量 KR 和任务拆分；批准前不会执行。",
+        instruction
+    ));
+    run_tui_master_plan(state, session, settings, "generate").await;
+    true
+}
+
+fn is_plan_confirmation(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "确认计划" | "确认目标和拆分" | "是" | "yes" | "y"
+    )
+}
+
+fn is_execute_confirmation(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "确认执行" | "确认执行并派工" | "开始执行" | "执行" | "是" | "yes" | "y"
+    )
+}
+
+fn handle_master_supervision_input(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    instruction: &str,
+) -> bool {
+    let normalized = instruction.trim().to_ascii_lowercase();
+    if matches!(
+        normalized.as_str(),
+        "进度" | "状态" | "任务板" | "进度如何" | "现在进度如何" | "status" | "board"
+    ) {
+        watch_tui_master(state, session, settings);
+        display_master_board(state, session, "");
+        return true;
+    }
+    if matches!(
+        normalized.as_str(),
+        "需要我处理什么" | "待办" | "attention" | "blocked"
+    ) {
+        display_attention(state, session);
+        return true;
+    }
+    match normalized.as_str() {
+        "暂停督战" | "暂停调度" | "pause" => {
+            control_tui_master(state, session, settings, "pause");
+            return true;
+        }
+        "继续督战" | "恢复调度" | "resume" => {
+            control_tui_master(state, session, settings, "resume");
+            return true;
+        }
+        _ => {}
+    }
+    if let Some((task_id, message)) = parse_targeted_operator_message(instruction) {
+        respond_tui_task(state, session, settings, &format!("{task_id} {message}"));
+        return true;
+    }
+    if triage_goal(instruction, &TriageSignals::default()).requires_plan {
+        state.info(
+            "当前 Mission 正在督战。新目标请使用新的 Master 对话；调整现有任务请使用“补充任务 T3：...”，控制命令请使用“暂停任务 T3”等明确指令。",
+        );
+        return true;
+    }
+    false
+}
+
+fn parse_targeted_operator_message(instruction: &str) -> Option<(String, String)> {
+    let rest = instruction
+        .trim()
+        .strip_prefix("回复任务")
+        .or_else(|| instruction.trim().strip_prefix("补充任务"))?
+        .trim();
+    let (task_id, message) = rest.split_once('：').or_else(|| rest.split_once(':'))?;
+    let task_id = task_id.trim();
+    let message = message.trim();
+    if task_id.is_empty() || message.is_empty() {
+        return None;
+    }
+    Some((task_id.into(), message.into()))
+}
+
+async fn run_tui_master_plan(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    let (subcommand, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    if subcommand.is_empty() || subcommand == "show" {
+        let Some(mission) = session.mission() else {
+            state.info("当前没有 active mission。");
+            return;
+        };
+        let Some(plan) = mission.plan.as_ref() else {
+            state.info("当前 mission 还没有计划。使用 /plan generate。");
+            return;
+        };
+        match read_production_plan(&plan.path) {
+            Ok(Some(production)) => match production.render_plan_preview() {
+                Ok(output) => state.info(output),
+                Err(error) => state.info(format!("无法渲染生产计划：{error}")),
+            },
+            Ok(None) => match read_master_plan(&plan.path) {
+                Ok(proposal) => state.info(proposal.to_markdown()),
+                Err(error) => state.info(error),
+            },
+            Err(error) => state.info(error),
+        }
+        return;
+    }
+
+    let revision = subcommand == "revise";
+    if subcommand != "generate" && !revision {
+        state.info("用法：/plan [generate|show|revise] [附加约束]");
+        return;
+    }
+    let Some(mission) = session.mission().cloned() else {
+        state.info("当前没有 active mission。");
+        return;
+    };
+    if mission
+        .plan
+        .as_ref()
+        .is_some_and(|plan| plan.approved_by.is_some())
+    {
+        state.info("已批准计划不能直接重写；请先修订 mission。");
+        return;
+    }
+    let triage = triage_goal(&mission.goal, &TriageSignals::default());
+    if !triage.requires_plan {
+        state.info("当前目标不需要工作计划。");
+        return;
+    }
+    let mut context =
+        match PlanningContext::new(mission.goal.clone(), mission.workspace.clone(), &triage) {
+            Ok(context) => context,
+            Err(error) => {
+                state.info(format!("无法创建规划上下文：{error}"));
+                return;
+            }
+        };
+    context.risk = RiskLevel::Medium;
+    if !rest.trim().is_empty() {
+        context.constraints.push(rest.trim().into());
+    }
+    let mut revision_base = None;
+    if revision {
+        let Some(current) = mission.plan.as_ref() else {
+            state.info("当前没有可修订的计划。");
+            return;
+        };
+        let Ok(current_plan) = read_master_plan(&current.path) else {
+            state.info("无法读取当前计划。");
+            return;
+        };
+        context.plan_id = current_plan.plan_id;
+        context.goal_id = current_plan.goal_id;
+        revision_base = Some(current_plan.version);
+    }
+    let conversation_id = state
+        .host_binding()
+        .master_conversation_id()
+        .unwrap_or(session.id());
+    let production_context = match ProductionPlanningContext::new(context, conversation_id) {
+        Ok(context) => context,
+        Err(error) => {
+            state.info(format!("无法创建生产规划上下文：{error}"));
+            return;
+        }
+    };
+    let generator = ModelProductionPlanGenerator::new(settings.planning_provider.clone())
+        .with_journal_dir(session.root().join("planner-journal"));
+    let production = match generator
+        .generate(&production_context, &CancellationToken::new())
+        .await
+    {
+        Ok(production) => production,
+        Err(error) => {
+            state.info(format!("计划生成失败：{error}"));
+            return;
+        }
+    };
+    let mut production = production;
+    if let Some(version) = revision_base {
+        production.plan.version = version.saturating_add(1);
+    }
+    if let Err(error) = production.validate() {
+        state.info(format!("计划校验失败：{error}"));
+        return;
+    }
+    let bytes = match serde_json::to_vec_pretty(&production) {
+        Ok(mut bytes) => {
+            bytes.push(b'\n');
+            bytes
+        }
+        Err(error) => {
+            state.info(format!("无法序列化计划：{error}"));
+            return;
+        }
+    };
+    let digest = hex::encode(Sha256::digest(&bytes));
+    let directory = session.root().join("plans");
+    let path = directory.join(format!(
+        "{}-v{}.json",
+        safe_command_component(&production.plan.plan_id),
+        production.plan.version
+    ));
+    if let Err(error) = write_private_command_file(&directory, &path, &bytes) {
+        state.info(format!("无法保存计划：{error}"));
+        return;
+    }
+    if let Err(error) = session.bind_plan(
+        path.clone(),
+        production.plan.plan_id.clone(),
+        production.plan.goal_id.clone(),
+        digest,
+    ) {
+        state.info(format!("无法绑定计划：{error}"));
+        return;
+    }
+    sync_tui_stage(state, session);
+    state.info(bound_tui_command_output(format!(
+        "{}\n\nPlanner journal: {}\n\n请确认目标和任务拆分。回复“确认计划”或执行 /approve；审批前不会写入项目，也不会创建 Worker Session。",
+        production
+            .render_plan_preview()
+            .unwrap_or_else(|error| format!("无法渲染任务清单预览：{error}")),
+        first_principles_agent::planning_journal_path(
+            &session.root().join("planner-journal"),
+            &production.plan.plan_id
+        )
+        .display()
+    )));
+}
+
+fn approve_tui_plan(state: &mut TuiState, session: &mut TuiSession, args: &str) {
+    let Some(mission) = session.mission().cloned() else {
+        state.info("当前没有 active mission。");
+        return;
+    };
+    let Some(plan) = mission.plan else {
+        state.info("当前 mission 还没有计划。");
+        return;
+    };
+    if !args.trim().is_empty() && args.trim() != plan.plan_id {
+        state.info(format!("计划 ID 不匹配：{}", plan.plan_id));
+        return;
+    }
+    let bytes = match std::fs::read(&plan.path) {
+        Ok(bytes) if bytes.len() <= 4 * 1024 * 1024 => bytes,
+        Ok(_) => {
+            state.info("计划文件超过 4 MiB，拒绝批准。");
+            return;
+        }
+        Err(error) => {
+            state.info(format!("无法读取计划：{error}"));
+            return;
+        }
+    };
+    let digest = hex::encode(Sha256::digest(&bytes));
+    if digest != plan.sha256 {
+        state.info("计划内容已变化，拒绝批准；请重新生成或校验。");
+        return;
+    }
+    let production = match serde_json::from_slice::<ProductionPlan>(&bytes) {
+        Ok(production) => match production.validate() {
+            Ok(()) => Some(production),
+            Err(error) => {
+                state.info(format!("生产计划校验失败：{error}"));
+                return;
+            }
+        },
+        Err(_) => None,
+    };
+    let actor = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| "user".into());
+    if plan.approved_by.is_none()
+        && let Err(error) = session.approve_plan(actor.clone(), &digest, now_unix_ms())
+    {
+        state.info(format!("批准失败：{error}"));
+        return;
+    }
+
+    if let Some(production) = production
+        && plan.task_list_path.is_none()
+    {
+        let snapshot = match production.write_task_list(session.root().join("master-state")) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                state.info(format!(
+                    "计划已批准，但任务清单生成失败：{error}；再次执行 /approve 可重试。"
+                ));
+                sync_tui_stage(state, session);
+                return;
+            }
+        };
+        if let Err(error) = session.bind_task_list(
+            snapshot.path.clone(),
+            snapshot.plan_sha256,
+            snapshot.markdown_sha256,
+        ) {
+            state.info(format!(
+                "任务清单已生成，但无法绑定到会话：{error}；再次执行 /approve 可重试。"
+            ));
+            sync_tui_stage(state, session);
+            return;
+        }
+        state.info(format!(
+            "计划已批准 · plan={} · actor={} · sha256={}\n任务清单：{}\n下一步：检查 Agent、窗口和权限后回复“确认执行”，或执行 /dispatch run",
+            plan.plan_id,
+            plan.approved_by.as_deref().unwrap_or(&actor),
+            digest,
+            snapshot.path.display()
+        ));
+    } else if plan.approved_by.is_some() {
+        state.info(format!(
+            "计划已由 {} 批准。",
+            plan.approved_by.as_deref().unwrap_or(&actor)
+        ));
+    } else {
+        state.info(format!(
+            "计划已批准 · plan={} · actor={} · sha256={}",
+            plan.plan_id, actor, digest
+        ));
+    }
+    sync_tui_stage(state, session);
+}
+
+fn read_master_plan(path: &std::path::Path) -> std::result::Result<PlanProposal, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err("计划文件超过 4 MiB".into());
+    }
+    let plan = if let Ok(production) = serde_json::from_slice::<ProductionPlan>(&bytes) {
+        production.validate().map_err(|error| error.to_string())?;
+        production.plan
+    } else {
+        serde_json::from_slice::<PlanProposal>(&bytes).map_err(|error| error.to_string())?
+    };
+    plan.validate().map_err(|error| error.to_string())?;
+    Ok(plan)
+}
+
+fn read_production_plan(
+    path: &std::path::Path,
+) -> std::result::Result<Option<ProductionPlan>, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err("计划文件超过 4 MiB".into());
+    }
+    let Ok(production) = serde_json::from_slice::<ProductionPlan>(&bytes) else {
+        return Ok(None);
+    };
+    production.validate().map_err(|error| error.to_string())?;
+    Ok(Some(production))
+}
+
+fn write_private_command_file(
+    directory: &std::path::Path,
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> std::result::Result<(), String> {
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| error.to_string())?;
+    }
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(directory).map_err(|error| error.to_string())?;
+    std::io::Write::write_all(&mut temporary, bytes).map_err(|error| error.to_string())?;
+    temporary
+        .persist(path)
+        .map_err(|error| error.error.to_string())?;
+    Ok(())
+}
+
+fn safe_command_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.') {
+                byte as char
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn display_evidence(state: &mut TuiState, session: &TuiSession, args: &str) {
+    if state.host_binding().is_workshop_master()
+        && session
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| plan.master_trace_id.as_ref())
+            .is_some()
+        && args.trim() != "run"
+    {
+        if !matches!(args.trim(), "" | "master") {
+            state.info("用法：/evidence [master|run]");
+            return;
+        }
+        display_master_evidence(state, session);
+        return;
+    }
+    if args.trim() == "master" {
+        state.info("当前 Master 尚未派发。");
+        return;
+    }
+    match load_latest_replay(state) {
+        Ok((journal, replay)) => {
+            state.info(bound_tui_command_output(evidence_summary(
+                &journal, &replay,
+            )));
+        }
+        Err(error) => state.info(error),
+    }
+}
+
+fn display_report(state: &mut TuiState, session: &TuiSession, args: &str) {
+    if state.host_binding().is_workshop_master()
+        && session
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| plan.master_trace_id.as_ref())
+            .is_some()
+        && args.trim() != "run"
+    {
+        if !matches!(args.trim(), "" | "master") {
+            state.info("用法：/report [master|run]");
+            return;
+        }
+        display_master_report(state, session);
+        return;
+    }
+    if args.trim() == "master" {
+        state.info("当前 Master 尚未派发。");
+        return;
+    }
+    match load_latest_replay(state) {
+        Ok((journal, replay)) => {
+            state.info(bound_tui_command_output(run_report(&journal, &replay)));
+        }
+        Err(error) => state.info(error),
+    }
+}
+
+fn display_audit(state: &mut TuiState, session: &TuiSession, args: &str) {
+    let action = args.trim();
+    if state.host_binding().is_workshop_master()
+        && session
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| plan.master_trace_id.as_ref())
+            .is_some()
+        && matches!(action, "" | "master" | "all")
+    {
+        display_master_audit(state, session, action == "all");
+        return;
+    }
+    if action == "master" {
+        state.info("当前 Master 尚未派发。");
+        return;
+    }
+    let journals = if action == "all" {
+        session
+            .journals()
+            .iter()
+            .rev()
+            .take(20)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else if action.is_empty() || action == "run" {
+        state.last_journal().cloned().into_iter().collect()
+    } else {
+        state.info("用法：/audit [run|all]");
+        return;
+    };
+    if journals.is_empty() {
+        state.info("当前会话还没有可审计的 run journal。");
+        return;
+    }
+    let mut outputs = Vec::new();
+    for journal in journals {
+        match read_events(&journal) {
+            Ok(events) => {
+                let audit = audit_events(&events);
+                outputs.push(audit_summary(&journal, &audit));
+            }
+            Err(error) => outputs.push(format!("无法读取 {}：{error}", journal.display())),
+        }
+    }
+    state.info(bound_tui_command_output(outputs.join("\n\n")));
+}
+
+fn display_master_artifacts(state: &mut TuiState, session: &TuiSession, args: &str) {
+    let (_, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    match store.load() {
+        Ok(master) => state.info(bound_tui_command_output(artifacts_summary(&master, args))),
+        Err(error) => state.info(format!("无法读取 MasterState：{error}")),
+    }
+}
+
+fn verify_tui_task(state: &mut TuiState, session: &TuiSession, args: &str) {
+    let Some((task_id, input)) = args.trim().split_once(char::is_whitespace) else {
+        state.info("用法：/verify <task-id> <verification.json>");
+        return;
+    };
+    let input = input.trim();
+    if task_id.is_empty() || input.is_empty() {
+        state.info("用法：/verify <task-id> <verification.json>");
+        return;
+    }
+    let (_, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    match verify_master_task(&store, &PathBuf::from(input), Some(task_id)) {
+        Ok((result, _)) => {
+            let detail = result
+                .failure_reason
+                .as_deref()
+                .map(|reason| format!("\n原因：{reason}"))
+                .unwrap_or_default();
+            state.info(format!("验收：{:?}{detail}", result.status));
+        }
+        Err(error) => state.info(format!("验收失败：{error}")),
+    }
+}
+
+fn display_master_evidence(state: &mut TuiState, session: &TuiSession) {
+    let (_, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    match store.load() {
+        Ok(master) => state.info(bound_tui_command_output(master_evidence_summary(&master))),
+        Err(error) => state.info(format!("无法读取 MasterState：{error}")),
+    }
+}
+
+fn display_master_report(state: &mut TuiState, session: &TuiSession) {
+    let (_, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    match store.load() {
+        Ok(master) => state.info(bound_tui_command_output(master_report(&master))),
+        Err(error) => state.info(format!("无法读取 MasterState：{error}")),
+    }
+}
+
+fn display_master_audit(state: &mut TuiState, session: &TuiSession, include_runs: bool) {
+    let (_, _, store) = match tui_master_store(session) {
+        Ok(value) => value,
+        Err(error) => {
+            state.info(error);
+            return;
+        }
+    };
+    let journal = store.trace_dir().join("events.jsonl");
+    let mut outputs = match replay_master_journal(&journal) {
+        Ok((master, audit)) => vec![master_audit_summary(&master, &audit, &journal)],
+        Err(error) => vec![format!(
+            "Master Journal 审计 · 失败\njournal: {}\n无法 replay：{error}",
+            journal.display()
+        )],
+    };
+    if include_runs {
+        outputs.extend(run_journal_audits(state, session, true));
+    }
+    state.info(bound_tui_command_output(outputs.join("\n\n")));
+}
+
+fn run_journal_audits(state: &TuiState, session: &TuiSession, all: bool) -> Vec<String> {
+    let journals = if all {
+        session
+            .journals()
+            .iter()
+            .rev()
+            .take(20)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        state.last_journal().cloned().into_iter().collect()
+    };
+    if journals.is_empty() {
+        return vec!["当前会话还没有可审计的 run journal。".into()];
+    }
+    journals
+        .into_iter()
+        .map(|journal| match read_events(&journal) {
+            Ok(events) => audit_summary(&journal, &audit_events(&events)),
+            Err(error) => format!("无法读取 {}：{error}", journal.display()),
+        })
+        .collect()
+}
+
+fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &TuiRunSettings) {
+    let facts = session_context_facts(session);
+    let context_used = facts.iter().map(|fact| fact.chars().count()).sum::<usize>();
+    let headroom = settings.max_context_chars.saturating_sub(context_used);
+    let summary = session
+        .context_summary()
+        .filter(|summary| summary.covered_journals == session.journals().len())
+        .map(|summary| {
+            format!(
+                "已生成（覆盖 {} 次运行，约 {} 字符）",
+                summary.covered_journals,
+                summary.text.chars().count()
+            )
+        })
+        .unwrap_or_else(|| "尚未生成".into());
+    let workspace = session
+        .workspace()
+        .map(|workspace| workspace.display().to_string())
+        .unwrap_or_else(|| "尚未设置".into());
+    let (provider, model) = state.provider_label.rsplit_once('/').map_or(
+        (state.provider_label.as_str(), "未指定"),
+        |(provider, model)| (provider, model),
+    );
+    state.info(format!(
+        "运行概览\n\
+         当前状态      {}\n\
+         任务类型      {}\n\
+         风险等级      {}风险\n\
+         运行环境      {}\n\
+         \n\
+         会话与工作区\n\
+         会话标题      {}\n\
+         会话 ID       {}\n\
+         会话状态      {}\n\
+         持久化工作区  {}\n\
+         本次运行目录  {}\n\
+         已引用路径    {} 个\n\
+         \n\
+         模型与运行限制\n\
+         模型服务      {}\n\
+         模型          {}\n\
+         推理步骤      最多 {} 步\n\
+         工具调用      最多 {} 次\n\
+         模型尝试      最多 {} 次\n\
+         单次超时      {} 秒\n\
+         \n\
+         上下文与压缩\n\
+         上下文上限    {} 字符\n\
+         当前占用      {} 字符\n\
+         剩余空间      {} 字符\n\
+         自动压缩      达到 {}% 时触发\n\
+         压缩摘要      {}",
+        state.status.label_zh(),
+        state.mode.label_zh(),
+        state.risk.label_zh(),
+        state.host_binding().kind().label_zh(),
+        session.title(),
+        session.id(),
+        if session.archived() {
+            "已归档"
+        } else {
+            "使用中"
+        },
+        workspace,
+        settings.cwd.display(),
+        session.mentions().len(),
+        provider,
+        model,
+        settings.max_steps,
+        settings.max_tool_calls,
+        settings.max_provider_attempts,
+        settings.timeout_seconds,
+        settings.max_context_chars,
+        context_used,
+        headroom,
+        settings.auto_compact_percent,
+        summary
+    ));
+}
+
+fn display_journal_paths(state: &mut TuiState, session: &TuiSession) {
+    let mut output = String::new();
+    if let Some(journal) = state.last_journal() {
+        output.push_str(&format!("最近运行日志：{}", journal.display()));
+    } else {
+        output.push_str("最近运行日志：尚未生成");
+    }
+    if let Some(plan) = session.mission().and_then(|mission| mission.plan.as_ref())
+        && let (Some(trace_id), Some(root)) = (&plan.master_trace_id, &plan.master_state_root)
+    {
+        output.push_str(&format!(
+            "\n生产线任务：{}\n总控日志：{}",
+            trace_id,
+            root.join(trace_id).join("events.jsonl").display()
+        ));
+    }
+    state.info(output);
+}
+
+fn context_recap(session: &TuiSession, max_chars: usize) -> Result<(String, usize), String> {
+    const MAX_TURNS: usize = 8;
+    let mut recap = String::new();
+    let mut covered = 0;
+    for journal in session.journals().iter().rev().take(MAX_TURNS).rev() {
+        let Ok(events) = read_events(journal) else {
+            continue;
+        };
+        let Ok(replay) = replay_events(&events) else {
+            continue;
+        };
+        let (Some(request), Some(answer)) = (replay.request, replay.answer) else {
+            continue;
+        };
+        let entry = format!(
+            "- 任务：{}\n  结论：{}\n",
+            bounded_tui_text(request.objective.trim(), 500),
+            bounded_tui_text(answer.conclusion.trim(), 700)
+        );
+        if recap.chars().count().saturating_add(entry.chars().count()) > max_chars {
+            break;
+        }
+        recap.push_str(&entry);
+        covered += 1;
+    }
+    if recap.is_empty() {
+        return Err("当前会话没有可压缩的已完成运行。".into());
+    }
+    Ok((recap, covered))
+}
+
+fn handle_context_command(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
+    let action = if args.trim().is_empty() {
+        "show"
+    } else {
+        args.trim()
+    };
+    match action {
+        "show" => {
+            let facts = session_context_facts(session);
+            let used = facts.iter().map(|fact| fact.chars().count()).sum::<usize>();
+            state.info(format!(
+                "上下文使用情况\n\
+                 预算上限      {} 字符\n\
+                 已注入        {} 字符\n\
+                 剩余空间      {} 字符\n\
+                 自动压缩      达到 {}% 时触发\n\
+                 压缩摘要      {}\n\
+                 \n\
+                 自动控制方式：裁剪旧工具结果、限制工具输出、保留最近 6 轮事实，\n\
+                 并执行模型、工具和推理步骤预算。字符预算不是精确 token 计数。",
+                settings.max_context_chars,
+                used,
+                settings.max_context_chars.saturating_sub(used),
+                settings.auto_compact_percent,
+                session
+                    .context_summary()
+                    .map(|summary| format!(
+                        "已生成（覆盖 {} 次运行，约 {} 字符）",
+                        summary.covered_journals,
+                        summary.text.chars().count()
+                    ))
+                    .unwrap_or_else(|| "尚未生成".into())
+            ));
+        }
+        "recap" => match context_recap(session, 6_000) {
+            Ok((recap, covered)) => {
+                state.info(format!("上下文回顾（覆盖 {covered} 次运行）\n{recap}"))
+            }
+            Err(error) => state.info(error),
+        },
+        "compact" => {
+            let max_chars = settings.max_context_chars.clamp(1_000, 8_000);
+            match context_recap(session, max_chars) {
+                Ok((recap, covered)) => match session.set_context_summary(
+                    recap.clone(),
+                    session.journals().len(),
+                    now_unix_ms(),
+                ) {
+                    Ok(()) => state.info(format!(
+                        "上下文已压缩\n\
+                         覆盖运行      {covered} 次\n\
+                         摘要长度      {} 字符\n\
+                         后续运行将只注入该摘要",
+                        recap.chars().count()
+                    )),
+                    Err(error) => state.info(format!("无法保存上下文摘要：{error}")),
+                },
+                Err(error) => state.info(error),
+            }
+        }
+        _ => state.info("用法：/context [show|recap|compact]"),
+    }
+}
+
+fn apply_session_preferences(
+    state: &mut TuiState,
+    settings: &mut TuiRunSettings,
+    session: &TuiSession,
+) {
+    settings.mentions = session.mentions().to_vec();
+    if let Some(workspace) = session.workspace()
+        && workspace.is_dir()
+    {
+        settings.cwd = workspace.to_path_buf();
+    }
+    let preferences = session
+        .preferences()
+        .cloned()
+        .unwrap_or_else(|| settings.default_preferences.clone());
+    settings.max_steps = preferences.max_steps;
+    settings.max_tool_calls = preferences.max_tool_calls;
+    settings.max_provider_attempts = preferences.max_provider_attempts;
+    settings.max_context_chars = preferences.max_context_chars;
+    settings.auto_compact_percent = preferences.auto_compact_percent;
+    settings.timeout_seconds = preferences.timeout_seconds;
+    state.max_steps = preferences.max_steps;
+    state.timeout_seconds = preferences.timeout_seconds;
+}
+
+fn handle_config_command(
+    state: &mut TuiState,
+    settings: &mut TuiRunSettings,
+    session: &mut TuiSession,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() || trimmed == "show" {
+        state.info(format!(
+            "运行配置\n\
+             配置来源      {}\n\
+             推理步骤      最多 {} 步\n\
+             工具调用      最多 {} 次\n\
+             模型尝试      最多 {} 次\n\
+             上下文上限    {} 字符\n\
+             自动压缩      达到 {}% 时触发\n\
+             单次超时      {} 秒\n\
+             \n\
+             修改方法：/config set <steps|tools|attempts|context|compact|timeout> <value>\n\
+             恢复默认：/config reset",
+            if session.preferences().is_some() {
+                "当前会话设置"
+            } else {
+                "启动参数"
+            },
+            settings.max_steps,
+            settings.max_tool_calls,
+            settings.max_provider_attempts,
+            settings.max_context_chars,
+            settings.auto_compact_percent,
+            settings.timeout_seconds
+        ));
+        return;
+    }
+    if trimmed == "reset" {
+        match session.set_preferences(None) {
+            Ok(()) => {
+                apply_session_preferences(state, settings, session);
+                state.info("运行配置已恢复为启动参数。");
+            }
+            Err(error) => state.info(format!("无法恢复运行配置：{error}")),
+        }
+        return;
+    }
+    let Some(rest) = trimmed.strip_prefix("set ") else {
+        state.info("用法：/config set <steps|tools|attempts|context|compact|timeout> <value>");
+        return;
+    };
+    let Some((key, value)) = rest.split_once(char::is_whitespace) else {
+        state.info("用法：/config set <配置项> <数值>");
+        return;
+    };
+    let Ok(value) = value.trim().parse::<u64>() else {
+        state.info("配置值必须是正整数。");
+        return;
+    };
+    let mut preferences = session
+        .preferences()
+        .cloned()
+        .unwrap_or_else(|| settings.default_preferences.clone());
+    let Ok(value_usize) = usize::try_from(value) else {
+        state.info("配置值超出平台范围。");
+        return;
+    };
+    match key {
+        "steps" => preferences.max_steps = value_usize,
+        "tools" => preferences.max_tool_calls = value_usize,
+        "attempts" => preferences.max_provider_attempts = value_usize,
+        "context" => preferences.max_context_chars = value_usize,
+        "compact" => {
+            let Ok(value) = u8::try_from(value) else {
+                state.info("自动压缩阈值超出平台范围。");
+                return;
+            };
+            preferences.auto_compact_percent = value;
+        }
+        "timeout" => preferences.timeout_seconds = value,
+        _ => {
+            state.info("未知配置项。");
+            return;
+        }
+    }
+    if let Err(error) = session.set_preferences(Some(preferences)) {
+        state.info(format!("运行配置超出安全范围：{error}"));
+        return;
+    }
+    apply_session_preferences(state, settings, session);
+    state.info(format!(
+        "运行配置已更新\n\
+         推理步骤      最多 {} 步\n\
+         工具调用      最多 {} 次\n\
+         模型尝试      最多 {} 次\n\
+         上下文上限    {} 字符\n\
+         自动压缩      达到 {}% 时触发\n\
+         单次超时      {} 秒",
+        settings.max_steps,
+        settings.max_tool_calls,
+        settings.max_provider_attempts,
+        settings.max_context_chars,
+        settings.auto_compact_percent,
+        settings.timeout_seconds
+    ));
+}
+
+fn path_within_roots(path: &std::path::Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| path.starts_with(root))
+}
+
+fn workspace_overview_text(session: &TuiSession, settings: &TuiRunSettings) -> String {
+    format!(
+        "工作区概览\n\
+         当前运行目录  {}\n\
+         会话工作区    {}\n\
+         任务工作区    {}\n\
+         授权目录：\n{}\n\
+         已引用路径：\n{}",
+        settings.cwd.display(),
+        session
+            .workspace()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "-".into()),
+        session
+            .mission()
+            .map(|mission| mission.workspace.display().to_string())
+            .unwrap_or_else(|| "-".into()),
+        settings
+            .roots
+            .iter()
+            .map(|root| format!("- {}", root.display()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        session
+            .mentions()
+            .iter()
+            .map(|path| format!("- {}", path.display()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+fn workspace_main_menu() -> Vec<CommandMenuItem> {
+    vec![
+        CommandMenuItem {
+            id: "workspace.set".into(),
+            label: "设置工作区".into(),
+            description: "选择授权根目录或输入路径".into(),
+        },
+        CommandMenuItem {
+            id: "workspace.mention".into(),
+            label: "引用路径".into(),
+            description: "将路径加入当前会话的已知事实".into(),
+        },
+        CommandMenuItem {
+            id: "workspace.diff".into(),
+            label: "Git diff".into(),
+            description: "查看当前工作区状态和变更".into(),
+        },
+        CommandMenuItem {
+            id: "workspace.init".into(),
+            label: "初始化 AGENTS.md".into(),
+            description: "创建项目开发规则文件".into(),
+        },
+        CommandMenuItem {
+            id: "workspace.worktree".into(),
+            label: "Git worktrees".into(),
+            description: "列出关联 worktree".into(),
+        },
+        CommandMenuItem {
+            id: "workspace.worktree.add".into(),
+            label: "新建 worktree…".into(),
+            description: "输入路径和分支后创建".into(),
+        },
+    ]
+}
+
+fn show_workspace_panel(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+    notice: Option<String>,
+) {
+    state.begin_command_panel("/workspace");
+    state.info(workspace_overview_text(session, settings));
+    if let Some(notice) = notice {
+        state.info(notice);
+    }
+    state.set_command_panel_menu(workspace_main_menu());
+}
+
+fn show_workspace_set_menu(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+    notice: Option<String>,
+) {
+    state.begin_command_subpanel("/workspace › 设置工作区");
+    state.info(format!(
+        "当前运行目录：{}\n选择授权根目录，或输入自定义路径。",
+        settings.cwd.display()
+    ));
+    if let Some(notice) = notice {
+        state.info(notice);
+    }
+    let mut items = settings
+        .roots
+        .iter()
+        .enumerate()
+        .map(|(index, root)| CommandMenuItem {
+            id: format!("workspace.set.root.{index}"),
+            label: format!("根目录 {}", index + 1),
+            description: format!(
+                "{}{}",
+                root.display(),
+                if session.workspace() == Some(root) {
+                    "（当前）"
+                } else {
+                    ""
+                }
+            ),
+        })
+        .collect::<Vec<_>>();
+    items.push(CommandMenuItem {
+        id: "workspace.set.manual".into(),
+        label: "输入路径…".into(),
+        description: "输入授权 roots 内的目录".into(),
+    });
+    items.push(CommandMenuItem {
+        id: "workspace.back".into(),
+        label: "返回".into(),
+        description: "回到工作区菜单".into(),
+    });
+    state.set_command_panel_menu(items);
+}
+
+fn switch_workspace(
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    raw_path: &str,
+) -> Result<PathBuf, String> {
+    let path = std::fs::canonicalize(raw_path.trim())
+        .map_err(|_| "目标 workspace 不存在。".to_string())?;
+    if !path.is_dir() || !path_within_roots(&path, &settings.roots) {
+        return Err("目标 workspace 必须是现有目录，并位于已授权 read roots 内。".into());
+    }
+    session
+        .set_workspace(path.clone())
+        .map_err(|error| format!("无法保存 workspace：{error}"))?;
+    settings.cwd = path.clone();
+    Ok(path)
+}
+
+fn mention_workspace_path(
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    raw_path: &str,
+) -> Result<PathBuf, String> {
+    let path =
+        std::fs::canonicalize(raw_path.trim()).map_err(|_| "mention 路径不存在。".to_string())?;
+    if !path_within_roots(&path, &settings.roots) {
+        return Err("mention 路径不在授权 read roots 内。".into());
+    }
+    session
+        .add_mention(path.clone())
+        .map_err(|error| format!("无法保存 mention：{error}"))?;
+    settings.mentions = session.mentions().to_vec();
+    Ok(path)
+}
+
+fn activate_workspace_menu_item(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    id: &str,
+) -> bool {
+    match id {
+        "workspace.set" => show_workspace_set_menu(state, session, settings, None),
+        "workspace.set.manual" => {
+            state.set_input("/workspace cd ");
+            state.set_notice("输入工作区路径后按 Enter");
+        }
+        "workspace.mention" => {
+            state.set_input("/workspace mention ");
+            state.set_notice("输入要引用的路径后按 Enter");
+        }
+        "workspace.diff" => handle_workspace_command(state, session, settings, "diff"),
+        "workspace.init" => handle_workspace_command(state, session, settings, "init"),
+        "workspace.worktree" => handle_workspace_command(state, session, settings, "worktree"),
+        "workspace.worktree.add" => {
+            state.set_input("/workspace worktree add ");
+            state.set_notice("输入 worktree 路径和分支后按 Enter");
+        }
+        "workspace.back" => {
+            state.back_command_panel();
+        }
+        id if id.starts_with("workspace.set.root.") => {
+            let Some(index) = id
+                .strip_prefix("workspace.set.root.")
+                .and_then(|index| index.parse::<usize>().ok())
+            else {
+                return false;
+            };
+            let Some(root) = settings.roots.get(index).cloned() else {
+                state.info("授权根目录已变化，请重新选择。");
+                return true;
+            };
+            match switch_workspace(session, settings, &root.display().to_string()) {
+                Ok(path) => show_workspace_panel(
+                    state,
+                    session,
+                    settings,
+                    Some(format!("工作区已切换：{}", path.display())),
+                ),
+                Err(error) => {
+                    state.info(error);
+                }
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn handle_workspace_command(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() || trimmed == "show" {
+        show_workspace_panel(state, session, settings, None);
+        return;
+    }
+    if let Some(path) = trimmed.strip_prefix("cd ") {
+        match switch_workspace(session, settings, path) {
+            Ok(path) => show_workspace_panel(
+                state,
+                session,
+                settings,
+                Some(format!("工作区已切换：{}", path.display())),
+            ),
+            Err(error) => {
+                state.info(error);
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+        }
+        return;
+    }
+    if let Some(path) = trimmed.strip_prefix("mention ") {
+        match mention_workspace_path(session, settings, path) {
+            Ok(path) => show_workspace_panel(
+                state,
+                session,
+                settings,
+                Some(format!("已记录引用：{}", path.display())),
+            ),
+            Err(error) => {
+                state.info(error);
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+        }
+        return;
+    }
+    match trimmed {
+        "diff" => match git_diff(&settings.cwd) {
+            Ok(output) => {
+                state.info(bound_tui_command_output(output));
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+            Err(error) => {
+                state.info(format!("无法读取 git diff：{error}"));
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+        },
+        "init" => match init_agents_file(&settings.cwd) {
+            Ok(path) => {
+                state.info(format!("已创建 {}", path.display()));
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+            Err(error) => {
+                state.info(format!("无法创建 AGENTS.md：{error}"));
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+        },
+        "worktree" => match git_worktrees(&settings.cwd) {
+            Ok(output) => {
+                state.info(bound_tui_command_output(format!("Git worktrees\n{output}")));
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+            Err(error) => {
+                state.info(format!("无法列出 worktree：{error}"));
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+        },
+        _ => {
+            if let Some(rest) = trimmed.strip_prefix("worktree add ") {
+                let Some((path, branch)) = rest.split_once(char::is_whitespace) else {
+                    state.info("用法：/workspace worktree add <path> <branch>");
+                    state.set_command_panel_menu(workspace_main_menu());
+                    return;
+                };
+                let path = PathBuf::from(path.trim());
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    settings.cwd.join(path)
+                };
+                let Some(parent) = path.parent() else {
+                    state.info("worktree 路径无效。");
+                    state.set_command_panel_menu(workspace_main_menu());
+                    return;
+                };
+                let Ok(parent) = std::fs::canonicalize(parent) else {
+                    state.info("worktree 父目录不存在。");
+                    state.set_command_panel_menu(workspace_main_menu());
+                    return;
+                };
+                let path = parent.join(
+                    path.file_name()
+                        .unwrap_or_else(|| std::ffi::OsStr::new("worktree")),
+                );
+                if !path_within_roots(&path, &settings.roots) {
+                    state.info("worktree 路径不在授权 read roots 内。");
+                    state.set_command_panel_menu(workspace_main_menu());
+                    return;
+                }
+                match add_git_worktree(&settings.cwd, &path, branch.trim()) {
+                    Ok(path) => {
+                        state.info(format!("Worktree 已创建：{}", path.display()));
+                        state.set_command_panel_menu(workspace_main_menu());
+                    }
+                    Err(error) => {
+                        state.info(format!("无法创建 worktree：{error}"));
+                        state.set_command_panel_menu(workspace_main_menu());
+                    }
+                }
+            } else {
+                state.info(
+                    "用法：/workspace [show|cd <dir>|mention <path>|diff|init|worktree [add <path> <branch>]]",
+                );
+                state.set_command_panel_menu(workspace_main_menu());
+            }
+        }
+    }
+}
+
+fn switch_tui_session(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    next: TuiSession,
+) {
+    *session = next;
+    state.clear();
+    state.set_session_info(session.id());
+    apply_session_preferences(state, settings, session);
+    sync_tui_stage(state, session);
+    restore_tui_session(state, session);
+    state.info(format!(
+        "当前会话已切换\n会话 ID       {}\n会话标题      {}",
+        session.id(),
+        session.title()
+    ));
+}
+
+fn handle_session_command(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    let (action, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    match action {
+        "" | "show" => state.info(format!(
+            "当前会话\n\
+             会话 ID       {}\n\
+             会话标题      {}\n\
+             会话状态      {}\n\
+             运行记录      {} 次\n\
+             继续方式      {}",
+            session.id(),
+            session.title(),
+            if session.archived() {
+                "已归档"
+            } else {
+                "使用中"
+            },
+            session.journals().len(),
+            session.continue_command()
+        )),
+        "list" => {
+            let include_archived = rest.trim() == "all";
+            match TuiSession::list(session.journal_root()) {
+                Ok(sessions) => {
+                    let rows = sessions
+                        .into_iter()
+                        .filter(|summary| include_archived || !summary.archived)
+                        .map(|summary| {
+                            format!(
+                                "- {}{}\n\
+                                 标题          {}\n\
+                                 运行记录      {} 次\n\
+                                 会话状态      {}",
+                                summary.id,
+                                if summary.id == session.id() {
+                                    "（当前）"
+                                } else {
+                                    ""
+                                },
+                                summary.title,
+                                summary.runs,
+                                if summary.archived {
+                                    "已归档"
+                                } else {
+                                    "使用中"
+                                }
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    state.info(if rows.is_empty() {
+                        "没有匹配的会话。".into()
+                    } else {
+                        format!("会话列表\n{}", rows.join("\n"))
+                    });
+                }
+                Err(error) => state.info(format!("无法列出会话：{error}")),
+            }
+        }
+        "new" => match TuiSession::open(session.journal_root(), None) {
+            Ok(mut next) => {
+                if !rest.trim().is_empty()
+                    && let Err(error) = next.rename(rest.trim())
+                {
+                    state.info(format!("无法设置新会话标题：{error}"));
+                    return;
+                }
+                switch_tui_session(state, session, settings, next);
+            }
+            Err(error) => state.info(format!("无法创建会话：{error}")),
+        },
+        "resume" => {
+            let id = rest.trim();
+            if id.is_empty() {
+                state.info("用法：/session resume <session-id>");
+                return;
+            }
+            match TuiSession::open(session.journal_root(), Some(id)) {
+                Ok(next) => switch_tui_session(state, session, settings, next),
+                Err(error) => state.info(format!("无法恢复会话：{error}")),
+            }
+        }
+        "fork" => match session.fork((!rest.trim().is_empty()).then_some(rest.trim())) {
+            Ok(next) => switch_tui_session(state, session, settings, next),
+            Err(error) => state.info(format!("无法复制会话：{error}")),
+        },
+        "rename" => {
+            if rest.trim().is_empty() {
+                state.info("用法：/session rename <title>");
+                return;
+            }
+            match session.rename(rest.trim()) {
+                Ok(()) => state.info(format!("会话已重命名为：{}", session.title())),
+                Err(error) => state.info(format!("重命名失败：{error}")),
+            }
+        }
+        "archive" => {
+            let target = rest.trim();
+            let result = if target.is_empty() || target == session.id() {
+                session.set_archived(true)
+            } else {
+                TuiSession::open(session.journal_root(), Some(target))
+                    .and_then(|mut session| session.set_archived(true))
+            };
+            match result {
+                Ok(()) => state.info("会话已归档。"),
+                Err(error) => state.info(format!("归档会话失败：{error}")),
+            }
+        }
+        "delete" => {
+            let mut parts = rest.split_whitespace();
+            let target = parts.next().unwrap_or_default();
+            let confirmation = (parts.next() == Some("confirm")).then(|| parts.next());
+            if target.is_empty()
+                || confirmation.flatten() != Some(target)
+                || parts.next().is_some()
+            {
+                state.info("用法：/session delete <session-id> confirm <session-id>");
+                return;
+            }
+            if target == session.id() {
+                state.info("不能删除当前会话；请先新建或切换到其他会话。");
+                return;
+            }
+            match TuiSession::open(session.journal_root(), Some(target)) {
+                Ok(target_session) => match target_session.trash() {
+                    Ok(path) => state.info(format!("会话已移入回收目录：{}", path.display())),
+                    Err(error) => state.info(format!("删除会话失败：{error}")),
+                },
+                Err(error) => state.info(format!("无法打开目标会话：{error}")),
+            }
+        }
+        _ => state.info(
+            "用法：/session [show|list [all]|new [title]|resume <id>|fork [title]|rename <title>|archive [id]|delete <id> confirm <id>]",
+        ),
+    }
+}
+
+fn handle_preset_command(
+    state: &mut TuiState,
+    session: &TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) -> Option<TaskRequest> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() || trimmed == "list" {
+        match list_presets(session) {
+            Ok(presets) => {
+                let rows = presets
+                    .iter()
+                    .map(|preset| {
+                        format!(
+                            "- {}\n  内容：{}",
+                            preset.name,
+                            bounded_tui_text(&preset.instruction, 120)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                state.info(if rows.is_empty() {
+                    "没有已保存的预设。".into()
+                } else {
+                    format!("已保存的预设\n{rows}")
+                });
+            }
+            Err(error) => state.info(format!("无法列出预设：{error}")),
+        }
+        return None;
+    }
+    let (action, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .unwrap_or((trimmed, ""));
+    match action {
+        "save" => {
+            let (name, instruction) = match rest.split_once(char::is_whitespace) {
+                Some((name, instruction)) => (name, instruction.to_string()),
+                None if !state.last_instruction.trim().is_empty() => {
+                    (rest.trim(), state.last_instruction.clone())
+                }
+                None => {
+                    state.info("用法：/preset save <name> [instruction]");
+                    return None;
+                }
+            };
+            match TuiPreset::new(name, &instruction)
+                .and_then(|preset| save_preset(session, &preset).map(|path| (preset, path)))
+            {
+                Ok((preset, path)) => state.info(format!(
+                    "预设已保存：{}\n位置：{}",
+                    preset.name,
+                    path.display()
+                )),
+                Err(error) => state.info(format!("无法保存预设：{error}")),
+            }
+        }
+        "show" => match load_preset(session, rest.trim()) {
+            Ok(preset) => state.info(format!(
+                "预设：{}\n内容：{}",
+                preset.name, preset.instruction
+            )),
+            Err(error) => state.info(format!("无法读取预设：{error}")),
+        },
+        "delete" => match trash_preset(session, rest.trim()) {
+            Ok(path) => state.info(format!("预设已移入回收目录：{}", path.display())),
+            Err(error) => state.info(format!("无法删除预设：{error}")),
+        },
+        "run" => match load_preset(session, rest.trim()) {
+            Ok(preset) => return Some(settings.request(&preset.instruction)),
+            Err(error) => state.info(format!("无法运行预设：{error}")),
+        },
+        _ => state.info(
+            "用法：/preset [list|save <name> <instruction>|show <name>|run <name>|delete <name>]",
+        ),
+    }
+    None
+}
+
+fn export_tui_data(
+    state: &mut TuiState,
+    session: &TuiSession,
+    kind: &str,
+    destination: Option<&str>,
+) -> Result<PathBuf, String> {
+    let text = match kind {
+        "session" => format!(
+            "# 1A Session\n\n- id: {}\n- title: {}\n- archived: {}\n- runs: {}\n- workspace: {}\n\n## Journals\n{}",
+            session.id(),
+            session.title(),
+            session.archived(),
+            session.journals().len(),
+            session
+                .workspace()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "-".into()),
+            session
+                .journals()
+                .iter()
+                .map(|path| format!("- {}", path.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        "report" => {
+            if state.host_binding().is_workshop_master()
+                && let Ok((_, _, store)) = tui_master_store(session)
+                && let Ok(master) = store.load()
+            {
+                master_report(&master)
+            } else {
+                let (journal, replay) = load_latest_replay(state)?;
+                run_report(&journal, &replay)
+            }
+        }
+        "evidence" => {
+            if state.host_binding().is_workshop_master()
+                && let Ok((_, _, store)) = tui_master_store(session)
+                && let Ok(master) = store.load()
+            {
+                master_evidence_summary(&master)
+            } else {
+                let (journal, replay) = load_latest_replay(state)?;
+                evidence_summary(&journal, &replay)
+            }
+        }
+        _ => return Err("用法：/export <session|report|evidence> [path]".into()),
+    };
+    let path = destination
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                session.journal_root().join(path)
+            }
+        })
+        .unwrap_or_else(|| {
+            session
+                .root()
+                .join("exports")
+                .join(format!("{kind}-{}.md", now_unix_ms()))
+        });
+    let parent = path
+        .parent()
+        .ok_or_else(|| "export 路径没有父目录。".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    std::io::Write::write_all(&mut file, text.as_bytes())
+        .and_then(|_| file.sync_all())
+        .map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
+fn handle_export_command(state: &mut TuiState, session: &TuiSession, args: &str) {
+    let trimmed = args.trim();
+    let (kind, destination) = trimmed
+        .split_once(char::is_whitespace)
+        .map_or((trimmed, None), |(kind, path)| {
+            (kind, (!path.trim().is_empty()).then_some(path.trim()))
+        });
+    match export_tui_data(state, session, kind, destination) {
+        Ok(path) => state.info(format!("已导出：{}", path.display())),
+        Err(error) => state.info(format!("导出失败：{error}")),
+    }
+}
+
+fn handle_copy_command(state: &mut TuiState) {
+    match load_latest_replay(state) {
+        Ok((_, replay)) => {
+            let Some(answer) = replay.answer else {
+                state.info("最近运行没有最终回答。");
+                return;
+            };
+            match copy_to_clipboard(&answer.conclusion) {
+                Ok(()) => state.info("最近回答已复制。"),
+                Err(error) => state.info(format!("复制失败：{error}")),
+            }
+        }
+        Err(error) => state.info(error),
+    }
+}
+
+fn handle_cost_command(state: &mut TuiState, session: &TuiSession) {
+    match build_usage_ledger(session.journals().iter().cloned()) {
+        Ok(ledger) => state.info(bound_tui_command_output(render_usage_ledger(&ledger))),
+        Err(error) => state.info(format!("无法读取 usage ledger：{error}")),
+    }
+}
+
+fn bound_tui_command_output(mut text: String) -> String {
+    const MAX_CHARS: usize = 24_000;
+    if text.chars().count() > MAX_CHARS {
+        text = text.chars().take(MAX_CHARS).collect();
+        text.push_str("\n…（命令输出已截断，完整内容见 journal）");
+    }
+    text
+}
+
+fn load_latest_replay(
+    state: &TuiState,
+) -> std::result::Result<(PathBuf, first_principles_agent::ReplayState), String> {
+    let journal = state
+        .last_journal()
+        .cloned()
+        .ok_or_else(|| "当前会话还没有可读取的 run journal。".to_string())?;
+    let events = read_events(&journal).map_err(|error| error.to_string())?;
+    let replay = replay_events(&events)?;
+    Ok((journal, replay))
+}
+
+async fn run_tui_interactive(
+    mut runtime: AgentRuntime,
+    mut state: TuiState,
+    mut settings: TuiRunSettings,
+    mut session: TuiSession,
+) -> Result<()> {
+    let mut terminal = TerminalSession::enter().context("cannot initialize terminal")?;
+    let mut inputs = spawn_input_reader();
+    state.set_session_info(session.id());
+    if session.journals().is_empty() {
+        // The empty transcript renders the dedicated welcome surface.
+    } else {
+        restore_tui_session(&mut state, &session);
+    }
+    draw_tui_frame(&mut terminal, &mut state)?;
+
+    let mut selection_autoscroll_ticker = tokio::time::interval(Duration::from_millis(70));
+    selection_autoscroll_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        let input = tokio::select! {
+            input = inputs.recv() => input,
+            _ = selection_autoscroll_ticker.tick(), if state.selection_autoscroll_active() => {
+                if state.autoscroll_selection_once() {
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                }
+                continue;
+            }
+        };
+        let Some(input) = input else { break };
+        if !matches!(&input, TuiInput::MouseUp { .. }) {
+            state.clear_notice();
+        }
+        if state.details_open() {
+            match input {
+                TuiInput::CtrlQ => break,
+                TuiInput::Escape => state.close_details(),
+                TuiInput::Up => state.scroll_details_up(1),
+                TuiInput::Down => state.scroll_details_down(1),
+                TuiInput::PageUp | TuiInput::ScrollUp => state.scroll_details_up(8),
+                TuiInput::PageDown | TuiInput::ScrollDown => state.scroll_details_down(8),
+                TuiInput::Home => state.scroll_details_up(usize::MAX / 2),
+                TuiInput::End => state.scroll_details_to_bottom(),
+                TuiInput::Resize => {}
+                _ => {}
+            }
+            draw_tui_frame(&mut terminal, &mut state)?;
+            continue;
+        }
+        match input {
+            TuiInput::Char(character) => state.insert_char(character),
+            TuiInput::Backspace => state.backspace(),
+            TuiInput::Delete => state.delete(),
+            TuiInput::Left => state.move_left(),
+            TuiInput::Right => state.move_right(),
+            TuiInput::Home => state.move_home(),
+            TuiInput::End => state.move_end(),
+            TuiInput::Up if state.slash_drawer_open() => state.move_command_selection(-1),
+            TuiInput::Down if state.slash_drawer_open() => state.move_command_selection(1),
+            TuiInput::Up if state.command_panel_menu_open() && state.input().is_empty() => {
+                state.move_command_panel_selection(-1);
+            }
+            TuiInput::Down if state.command_panel_menu_open() && state.input().is_empty() => {
+                state.move_command_panel_selection(1);
+            }
+            TuiInput::Up if state.command_panel_open() => state.scroll_command_panel_up(1),
+            TuiInput::Down if state.command_panel_open() => state.scroll_command_panel_down(1),
+            TuiInput::Up => state.scroll_up(1),
+            TuiInput::Down => state.scroll_down(1),
+            TuiInput::PageUp if state.command_panel_open() => {
+                state.scroll_command_panel_up(8);
+            }
+            TuiInput::PageDown if state.command_panel_open() => {
+                state.scroll_command_panel_down(8);
+            }
+            TuiInput::PageUp => state.scroll_up(8),
+            TuiInput::PageDown => state.scroll_down(8),
+            TuiInput::Tab => {
+                state.complete_selected_command();
+            }
+            TuiInput::MouseDown { column, row } => {
+                if !state.handle_follow_control(column, row) {
+                    state.begin_selection_drag(column, row);
+                }
+            }
+            TuiInput::MouseDrag { column, row } => state.update_selection_drag(column, row),
+            TuiInput::MouseUp { .. } => {
+                copy_selected_text(&mut state);
+                state.end_selection_drag();
+            }
+            TuiInput::MouseMove { column, row } => {
+                state.handle_follow_control_hover(column, row);
+            }
+            TuiInput::ScrollUp => state.scroll_up(3),
+            TuiInput::ScrollDown => state.scroll_down(3),
+            TuiInput::Paste(text) => state.insert_text(&text),
+            TuiInput::PasteClipboard => match read_clipboard() {
+                Ok(text) => {
+                    state.insert_text(&text);
+                    state.set_notice("已从剪贴板粘贴");
+                }
+                Err(error) => state.set_notice(format!("剪贴板粘贴失败：{error}")),
+            },
+            TuiInput::CtrlQ => break,
+            TuiInput::CtrlC => {
+                if copy_selected_text(&mut state) {
+                    state.clear_selection();
+                }
+            }
+            TuiInput::Escape => {
+                if state.slash_drawer_open() {
+                    state.clear_input();
+                } else if state.command_panel_open() {
+                    if !state.back_command_panel() {
+                        state.close_command_panel();
+                    }
+                } else if state.selected_text().is_some() {
+                    state.clear_selection();
+                } else {
+                    state.scroll_to_bottom();
+                }
+            }
+            TuiInput::Resize => {}
+            TuiInput::Enter => {
+                let submission = state.take_submission();
+                let mut queued_instruction = None;
+                if submission.trim().is_empty()
+                    && let Some(item) = state.selected_command_panel_item()
+                {
+                    if let Some(command_line) = item.id.strip_prefix("open:") {
+                        queued_instruction = Some(command_line.to_string());
+                    } else if let Some(command_line) = item.id.strip_prefix("prompt:") {
+                        state.set_input(command_line);
+                        state.set_notice("继续输入命令参数后按 Enter");
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    } else if activate_workspace_menu_item(
+                        &mut state,
+                        &mut session,
+                        &mut settings,
+                        &item.id,
+                    ) {
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    }
+                }
+                let instruction = queued_instruction
+                    .as_deref()
+                    .unwrap_or_else(|| submission.trim());
+                if instruction.is_empty() {
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
+                let resolution = resolve_input(
+                    instruction,
+                    state.host_binding(),
+                    state.command_stage(),
+                    false,
+                );
+                match resolution {
+                    TuiInputResolution::Command { spec, args } => {
+                        if let Err(error) = session.record_event(SessionEvent::CommandAccepted {
+                            name: spec.name.into(),
+                            scope: spec.scope.as_str().into(),
+                        }) {
+                            state.info(format!("无法写入 session event log：{error}"));
+                            continue;
+                        }
+                        if spec.id.uses_command_panel() {
+                            state.begin_command_panel(spec.name);
+                            state.set_command_panel_menu(command_menu_actions(spec.id));
+                        } else {
+                            state.close_command_panel();
+                        }
+                        match spec.id {
+                            TuiCommandId::Quit => break,
+                            TuiCommandId::Help => {
+                                display_tui_help_menu(&mut state);
+                            }
+                            TuiCommandId::Status => {
+                                display_tui_status(&mut state, &session, &settings);
+                            }
+                            TuiCommandId::Journal => {
+                                display_journal_paths(&mut state, &session);
+                            }
+                            TuiCommandId::Details => {
+                                state.open_details();
+                            }
+                            TuiCommandId::Clear => {
+                                state.clear();
+                                state.info("Conversation cleared.");
+                            }
+                            TuiCommandId::Evidence => {
+                                display_evidence(&mut state, &session, args);
+                            }
+                            TuiCommandId::Audit => display_audit(&mut state, &session, args),
+                            TuiCommandId::Report => {
+                                display_report(&mut state, &session, args);
+                            }
+                            TuiCommandId::Frame
+                            | TuiCommandId::Challenge
+                            | TuiCommandId::Decide
+                            | TuiCommandId::Postmortem => {
+                                let Some((display, mode, request)) =
+                                    epistemic_request(spec.id, args, &state, &settings, &session)
+                                else {
+                                    state.info(format!(
+                                        "用法：{} [上下文或目标]",
+                                        command_name(spec.id)
+                                    ));
+                                    continue;
+                                };
+                                if let Err(error) =
+                                    session.record_event(SessionEvent::TaskSubmitted {
+                                        mode: mode.as_str().into(),
+                                    })
+                                {
+                                    state.info(format!("无法写入 session event log：{error}"));
+                                    continue;
+                                }
+                                state.begin(&display, mode, risk_for_mode(mode));
+                                draw_tui_frame(&mut terminal, &mut state)?;
+                                let quit = run_tui_task(
+                                    &mut runtime,
+                                    &mut state,
+                                    &mut terminal,
+                                    &mut inputs,
+                                    &mut session,
+                                    request,
+                                    Some(mode),
+                                )
+                                .await?;
+                                if quit {
+                                    break;
+                                }
+                            }
+                            TuiCommandId::Mission => {
+                                handle_mission_command(&mut state, &mut session, &settings, args);
+                            }
+                            TuiCommandId::Triage => {
+                                display_triage(&mut state, &session, args);
+                            }
+                            TuiCommandId::Plan => {
+                                run_tui_master_plan(&mut state, &mut session, &settings, args)
+                                    .await;
+                            }
+                            TuiCommandId::Approve => {
+                                approve_tui_plan(&mut state, &mut session, args);
+                            }
+                            TuiCommandId::Model => {
+                                handle_model_command(&mut state, &mut runtime, &mut settings, args);
+                            }
+                            TuiCommandId::Permissions => {
+                                handle_permissions_command(&mut settings, &mut state, args);
+                            }
+                            TuiCommandId::Tools => {
+                                display_tools(&runtime, &mut state, args);
+                            }
+                            TuiCommandId::Agents => {
+                                display_agents(&mut state, &session, &settings, args);
+                            }
+                            TuiCommandId::Assign => {
+                                assign_tui_plan(&mut state, &mut session, &settings, args);
+                            }
+                            TuiCommandId::Dispatch => {
+                                run_tui_dispatch(&mut state, &mut session, &settings, args);
+                            }
+                            TuiCommandId::Board => {
+                                display_master_board(&mut state, &session, args);
+                            }
+                            TuiCommandId::Watch => {
+                                watch_tui_master(&mut state, &session, &settings);
+                            }
+                            TuiCommandId::Attention => {
+                                display_attention(&mut state, &session);
+                            }
+                            TuiCommandId::Respond => {
+                                respond_tui_task(&mut state, &session, &settings, args);
+                            }
+                            TuiCommandId::Control => {
+                                control_tui_master(&mut state, &session, &settings, args);
+                            }
+                            TuiCommandId::Timeline => {
+                                display_master_timeline(&mut state, &session, &settings);
+                            }
+                            TuiCommandId::Artifacts => {
+                                display_master_artifacts(&mut state, &session, args);
+                            }
+                            TuiCommandId::Verify => {
+                                verify_tui_task(&mut state, &session, args);
+                            }
+                            TuiCommandId::Session => {
+                                handle_session_command(
+                                    &mut state,
+                                    &mut session,
+                                    &mut settings,
+                                    args,
+                                );
+                            }
+                            TuiCommandId::Workspace => {
+                                handle_workspace_command(
+                                    &mut state,
+                                    &mut session,
+                                    &mut settings,
+                                    args,
+                                );
+                            }
+                            TuiCommandId::Context => {
+                                handle_context_command(&mut state, &mut session, &settings, args);
+                            }
+                            TuiCommandId::Config => {
+                                handle_config_command(
+                                    &mut state,
+                                    &mut settings,
+                                    &mut session,
+                                    args,
+                                );
+                            }
+                            TuiCommandId::Export => {
+                                handle_export_command(&mut state, &session, args);
+                            }
+                            TuiCommandId::Copy => {
+                                handle_copy_command(&mut state);
+                            }
+                            TuiCommandId::Cost => {
+                                handle_cost_command(&mut state, &session);
+                            }
+                            TuiCommandId::Preset => {
+                                if let Some(request) =
+                                    handle_preset_command(&mut state, &session, &settings, args)
+                                {
+                                    let display = request.objective.clone();
+                                    let mode = infer_mode(&request);
+                                    if let Err(error) =
+                                        session.record_event(SessionEvent::TaskSubmitted {
+                                            mode: mode.as_str().into(),
+                                        })
+                                    {
+                                        state.info(format!("无法写入 session event log：{error}"));
+                                        continue;
+                                    }
+                                    state.begin(&display, mode, risk_for_mode(mode));
+                                    draw_tui_frame(&mut terminal, &mut state)?;
+                                    let quit = run_tui_task(
+                                        &mut runtime,
+                                        &mut state,
+                                        &mut terminal,
+                                        &mut inputs,
+                                        &mut session,
+                                        request,
+                                        None,
+                                    )
+                                    .await?;
+                                    if quit {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    TuiInputResolution::UnavailableMaster(spec) => {
+                        record_rejected_command(
+                            &mut state,
+                            &mut session,
+                            spec.name,
+                            "requires Workshop Master context",
+                        );
+                        state.info(format!(
+                            "{} 仅在 Skynet Workshop Master-Agent 上下文可用。",
+                            spec.name
+                        ));
+                    }
+                    TuiInputResolution::NotImplemented(spec) => {
+                        record_rejected_command(
+                            &mut state,
+                            &mut session,
+                            spec.name,
+                            "not implemented in this development phase",
+                        );
+                        state.info(format!("{} 已注册，但在当前开发阶段尚未实现。", spec.name));
+                    }
+                    TuiInputResolution::UnavailableInStage(spec) => {
+                        record_rejected_command(
+                            &mut state,
+                            &mut session,
+                            spec.name,
+                            "unavailable in current lifecycle stage",
+                        );
+                        state.info(format!("{} 不在当前生产线阶段可用。", spec.name));
+                    }
+                    TuiInputResolution::UnavailableWhileRunning(spec) => {
+                        record_rejected_command(
+                            &mut state,
+                            &mut session,
+                            spec.name,
+                            "unavailable while a run is active",
+                        );
+                        state.info(format!("{} 无法在运行中执行。", spec.name));
+                    }
+                    TuiInputResolution::UnknownCommand(name) => {
+                        record_rejected_command(&mut state, &mut session, name, "unknown command");
+                        state.info(format!("Unknown command: {name}"));
+                    }
+                    TuiInputResolution::Task(task) => {
+                        state.close_command_panel();
+                        if handle_master_task_intake(&mut state, &mut session, &settings, task)
+                            .await
+                        {
+                            continue;
+                        }
+                        let request = settings
+                            .request_with_known_facts(task, session_context_facts(&session));
+                        let mode = infer_mode(&request);
+                        let risk = risk_for_mode(mode);
+                        if let Err(error) = session.record_event(SessionEvent::TaskSubmitted {
+                            mode: mode.as_str().into(),
+                        }) {
+                            state.info(format!("无法写入 session event log：{error}"));
+                            continue;
+                        }
+                        state.begin(task, mode, risk);
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        let quit = run_tui_task(
+                            &mut runtime,
+                            &mut state,
+                            &mut terminal,
+                            &mut inputs,
+                            &mut session,
+                            request,
+                            None,
+                        )
+                        .await?;
+                        if quit {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        draw_tui_frame(&mut terminal, &mut state)?;
+    }
+    session.record_event(SessionEvent::Closed)?;
+    state.info("Session ended.");
+    draw_tui_frame(&mut terminal, &mut state)?;
+    drop(terminal);
+    print_session_banner(session.title(), &session.continue_command())
+        .context("cannot print session banner")?;
+    Ok(())
+}
+
+async fn run_tui_task(
+    runtime: &mut AgentRuntime,
+    state: &mut TuiState,
+    terminal: &mut TerminalSession,
+    inputs: &mut tokio::sync::mpsc::UnboundedReceiver<TuiInput>,
+    session: &mut TuiSession,
+    request: TaskRequest,
+    requested_mode: Option<CognitiveMode>,
+) -> Result<bool> {
+    let cancellation = CancellationToken::new();
+    let run = async {
+        match requested_mode {
+            Some(mode) => {
+                runtime
+                    .run_with_mode(request, mode, cancellation.clone())
+                    .await
+            }
+            None => runtime.run(request, cancellation.clone()).await,
+        }
+    };
+    tokio::pin!(run);
+    let mut ticker = tokio::time::interval(Duration::from_millis(120));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ticker.tick().await;
+    let mut quit_after_run = false;
+
+    loop {
+        tokio::select! {
+            result = &mut run => {
+                match result {
+                    Ok(result) => {
+                        session.set_title_from_prompt(&state.last_instruction);
+                        if let Err(error) = session.record_journal(&result.journal_path) {
+                            state.info(format!("无法保存会话：{error}"));
+                        }
+                        record_tui_result(state, &result);
+                    }
+                    Err(RuntimeError::Cancelled { .. }) => {
+                        state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
+                    }
+                    Err(error) => {
+                        state.finish(TuiStatus::Failed, format!("Error: {error}"));
+                    }
+                }
+                return Ok(quit_after_run);
+            }
+            input = inputs.recv() => {
+                match input {
+                    Some(TuiInput::CtrlC) => {
+                        if !copy_selected_text(state) {
+                            cancellation.cancel();
+                        }
+                    }
+                    Some(TuiInput::CtrlQ) => {
+                        quit_after_run = true;
+                        cancellation.cancel();
+                    }
+                    Some(TuiInput::MouseDown { column, row }) => {
+                        if !state.handle_follow_control(column, row) {
+                            state.begin_selection_drag(column, row);
+                        }
+                    }
+                    Some(TuiInput::MouseDrag { column, row }) => {
+                        state.update_selection_drag(column, row);
+                    }
+                    Some(TuiInput::MouseUp { .. }) => {
+                        copy_selected_text(state);
+                        state.end_selection_drag();
+                    }
+                    Some(TuiInput::MouseMove { column, row }) => {
+                        state.handle_follow_control_hover(column, row);
+                    }
+                    Some(TuiInput::Up) => state.scroll_up(1),
+                    Some(TuiInput::Down) => state.scroll_down(1),
+                    Some(TuiInput::PageUp) => state.scroll_up(8),
+                    Some(TuiInput::PageDown) => state.scroll_down(8),
+                    Some(TuiInput::Home) => state.scroll_up(usize::MAX / 2),
+                    Some(TuiInput::End) => state.scroll_to_bottom(),
+                    Some(TuiInput::ScrollUp) => state.scroll_up(3),
+                    Some(TuiInput::ScrollDown) => state.scroll_down(3),
+                    Some(_) => {}
+                    None => {
+                        quit_after_run = true;
+                        cancellation.cancel();
+                    }
+                }
+                draw_tui_frame(terminal, state)?;
+            }
+            _ = ticker.tick() => {
+                state.tick();
+                if state.selection_autoscroll_active() {
+                    state.autoscroll_selection_once();
+                }
+                draw_tui_frame(terminal, state)?;
+            }
+            _ = tokio::signal::ctrl_c() => cancellation.cancel(),
+        }
+    }
+}
+
+fn draw_tui_frame(terminal: &mut TerminalSession, state: &mut TuiState) -> Result<()> {
+    terminal.draw(state).context("cannot draw terminal")
+}
+
+fn copy_selected_text(state: &mut TuiState) -> bool {
+    let Some(selection) = state.selected_text() else {
+        return false;
+    };
+    match copy_to_clipboard(&selection) {
+        Ok(()) => state.set_notice("已复制选择内容"),
+        Err(error) => state.set_notice(format!("剪贴板复制失败：{error}")),
+    }
+    true
+}
+
+fn restore_tui_session(state: &mut TuiState, session: &TuiSession) {
+    state.clear();
+    for journal_path in session.journals() {
+        let events = match read_events(journal_path) {
+            Ok(events) => events,
+            Err(error) => {
+                state.info(format!(
+                    "无法恢复 journal {}：{error}",
+                    journal_path.display()
+                ));
+                continue;
+            }
+        };
+        let replay = match replay_events(&events) {
+            Ok(replay) => replay,
+            Err(error) => {
+                state.info(format!(
+                    "无法重放 journal {}：{error}",
+                    journal_path.display()
+                ));
+                continue;
+            }
+        };
+        let (Some(request), Some(answer), Some(stop_reason)) =
+            (replay.request, replay.answer, replay.stop_reason)
+        else {
+            state.info(format!("journal {} 没有完整结果", journal_path.display()));
+            continue;
+        };
+        let mode = replay.mode.unwrap_or_else(|| infer_mode(&request));
+        state.begin(&request.objective, mode, risk_for_mode(mode));
+        record_tui_result(
+            state,
+            &first_principles_agent::RunResult {
+                run_id: replay.run_id,
+                journal_path: journal_path.clone(),
+                answer,
+                stop_reason,
+            },
+        );
+    }
+    state.set_status(TuiStatus::Idle);
+}
+
+fn session_context_facts(session: &TuiSession) -> Vec<String> {
+    const MAX_TURNS: usize = 6;
+    const MAX_CHARS_PER_FACT: usize = 1_000;
+    const MAX_TOTAL_CHARS: usize = 6_000;
+
+    if let Some(summary) = session.context_summary()
+        && summary.covered_journals == session.journals().len()
+    {
+        return vec![format!("Compacted session context: {}", summary.text)];
+    }
+    let mut facts = Vec::new();
+    let mut total_chars = 0;
+    for journal_path in session.journals().iter().rev().take(MAX_TURNS).rev() {
+        let Ok(events) = read_events(journal_path) else {
+            continue;
+        };
+        let Ok(replay) = replay_events(&events) else {
+            continue;
+        };
+        let (Some(request), Some(answer)) = (replay.request, replay.answer) else {
+            continue;
+        };
+        for (label, text) in [
+            ("Previous user request", request.objective),
+            ("Previous answer conclusion", answer.conclusion),
+        ] {
+            let text = text.chars().take(MAX_CHARS_PER_FACT).collect::<String>();
+            let fact = format!("{label}: {text}");
+            total_chars += fact.chars().count();
+            if total_chars > MAX_TOTAL_CHARS {
+                return facts;
+            }
+            facts.push(fact);
+        }
+    }
+    facts
+}
+
+fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunResult) {
+    let answer = &result.answer;
+    state.set_status(TuiStatus::Completed);
+    state.set_last_journal(&result.journal_path);
+    let mut details = format!(
+        "{}\n\n终止原因：{:?}",
+        render_answer(result),
+        result.stop_reason,
+    );
+    if let Some(query_details) = query_result_details(&result.journal_path) {
+        details.push_str("\n\n");
+        details.push_str(&query_details);
+    }
+    details.push_str(&format!(
+        "\n\nRun journal：{}",
+        result.journal_path.display()
+    ));
+    state.set_last_details(details);
+
+    if state.mode == first_principles_agent::CognitiveMode::DirectAnswer {
+        record_direct_answer(state, answer);
+    } else {
+        record_structured_answer(state, answer);
+    }
+}
+
+fn query_result_details(journal_path: &std::path::Path) -> Option<String> {
+    let Ok(events) = read_events(journal_path) else {
+        return None;
+    };
+    let Ok(replay) = replay_events(&events) else {
+        return None;
+    };
+    query_observation_details(&replay.observations)
+}
+
+fn query_observation_details(observations: &[ToolObservation]) -> Option<String> {
+    if observations.is_empty() {
+        return None;
+    }
+    let mut output = "查阅详情 · 工具返回，非模型原创".to_string();
+    for observation in observations {
+        let status = match observation.status {
+            ToolStatus::Ok => "成功",
+            ToolStatus::InvalidArguments => "参数错误",
+            ToolStatus::PermissionDenied => "无权限",
+            ToolStatus::TimedOut => "超时",
+            ToolStatus::Failed => "失败",
+        };
+        output.push_str(&format!(
+            "\n\n{} · {status}\n{}",
+            query_tool_label(&observation.tool),
+            query_result_text(observation)
+        ));
+    }
+    Some(output)
+}
+
+fn query_tool_label(tool: &str) -> &str {
+    match tool {
+        "search_files" => "本地文件检索",
+        "read_file" => "读取文件",
+        "echo" => "回显工具",
+        _ => tool,
+    }
+}
+
+fn query_result_text(observation: &ToolObservation) -> String {
+    if observation.tool == "search_files"
+        && let Ok(summary) =
+            serde_json::from_str::<first_principles_agent::SearchSummary>(&observation.content)
+    {
+        return bounded_query_result_text(format_search_result(observation, &summary));
+    }
+
+    let mut text = observation.summary.trim().to_string();
+    if observation.tool == "read_file" {
+        let path = observation
+            .metadata
+            .get("relative_path")
+            .map(String::as_str)
+            .unwrap_or("文件");
+        let bytes = observation
+            .metadata
+            .get("bytes_read")
+            .map(String::as_str)
+            .unwrap_or("未知");
+        text = format!("读取 {path}（{bytes} 字节）");
+    }
+    let content = observation.content.trim();
+    if !content.is_empty() && content != text {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        if observation.tool != "read_file" && looks_like_structured_tool_output(content) {
+            text.push_str("工具返回了结构化数据；完整原始内容保留在 run journal 中。");
+        } else {
+            text.push_str(content);
+        }
+    }
+    bounded_query_result_text(text)
+}
+
+fn bounded_query_result_text(mut text: String) -> String {
+    const MAX_CHARS: usize = 4_000;
+    if text.chars().count() > MAX_CHARS {
+        text = text.chars().take(MAX_CHARS).collect::<String>();
+        text.push_str("\n…（查阅结果已截断，完整内容见 /journal）");
+    }
+    text
+}
+
+fn format_search_result(
+    observation: &ToolObservation,
+    summary: &first_principles_agent::SearchSummary,
+) -> String {
+    const MAX_HITS: usize = 3;
+    let mut output = format!(
+        "找到 {} 处匹配，扫描 {} 个文件。",
+        summary.hits.len(),
+        summary.files_scanned
+    );
+    if summary.skipped_unsafe > 0 {
+        output.push_str(&format!(" 跳过 {} 个不安全文件。", summary.skipped_unsafe));
+    }
+    for hit in summary.hits.iter().take(MAX_HITS) {
+        output.push_str(&format!(
+            "\n\n{}:{}\n  {}",
+            hit.path,
+            hit.line,
+            hit.excerpt.trim()
+        ));
+    }
+    if summary.hits.len() > MAX_HITS {
+        output.push_str(&format!(
+            "\n\n另有 {} 处匹配，完整结果保留在 run journal 中。",
+            summary.hits.len() - MAX_HITS
+        ));
+    } else if summary.truncated {
+        output.push_str("\n\n检索达到结果或文件上限；完整状态保留在 run journal 中。");
+    }
+    if observation
+        .metadata
+        .get("truncated")
+        .is_some_and(|value| value == "true")
+        && !summary.truncated
+    {
+        output.push_str("\n\n工具观测内容已截断；完整内容保留在 run journal 中。");
+    }
+    output
+}
+
+fn looks_like_structured_tool_output(content: &str) -> bool {
+    matches!(
+        content.chars().find(|character| !character.is_whitespace()),
+        Some('{' | '[')
+    )
+}
+
+fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
+    state.assistant_markdown(&answer.conclusion);
+
+    if answer.status == first_principles_agent::AnswerStatus::Completed {
+        return;
+    }
+
+    if !answer.evidence.is_empty() {
+        state.assistant_heading("依据", TuiTone::Accent);
+        for evidence in &answer.evidence {
+            state.assistant_evidence(&evidence.source, &evidence.statement);
+        }
+    }
+
+    let important_impact = first_principles_agent::ImpactLevel::Medium;
+    let claims = answer
+        .claims
+        .iter()
+        .filter(|claim| claim.status != first_principles_agent::ClaimStatus::Verified)
+        .collect::<Vec<_>>();
+    let assumptions = answer
+        .assumptions
+        .iter()
+        .filter(|assumption| assumption.impact >= important_impact)
+        .collect::<Vec<_>>();
+    let unknowns = answer
+        .unknowns
+        .iter()
+        .filter(|unknown| unknown.impact >= important_impact)
+        .collect::<Vec<_>>();
+    let unresolved_conflicts = answer
+        .conflicts
+        .iter()
+        .filter(|conflict| conflict.status == first_principles_agent::ConflictStatus::Unresolved)
+        .collect::<Vec<_>>();
+
+    if !claims.is_empty()
+        || !assumptions.is_empty()
+        || !unknowns.is_empty()
+        || !unresolved_conflicts.is_empty()
+    {
+        state.assistant_heading("需要注意", TuiTone::Warning);
+        for claim in claims {
+            state.assistant_item(
+                format!("[{}]", claim_status_label(claim.status)),
+                tone_for_claim_status(claim.status),
+                &claim.text,
+            );
+        }
+        for assumption in assumptions {
+            state.assistant_item(
+                format!("[假设·{}]", answer_impact_label(assumption.impact)),
+                tone_for_impact(assumption.impact),
+                &assumption.description,
+            );
+        }
+        for unknown in unknowns {
+            state.assistant_item(
+                format!("[未知·{}]", answer_impact_label(unknown.impact)),
+                tone_for_impact(unknown.impact),
+                &unknown.description,
+            );
+        }
+        for conflict in unresolved_conflicts {
+            state.assistant_item("[冲突]", TuiTone::Danger, conflict.claim_ids.join(" ↔ "));
+        }
+    }
+
+    if answer.status != first_principles_agent::AnswerStatus::Completed
+        && !answer.flip_conditions.is_empty()
+    {
+        state.assistant_heading("如何确认", TuiTone::Accent);
+        for condition in &answer.flip_conditions {
+            state.assistant_item(
+                "⇒",
+                TuiTone::Accent,
+                format!("若 {}，则 {}", condition.if_observed, condition.then),
+            );
+        }
+    }
+}
+
+fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
+    state.assistant_heading("结论", tone_for_answer_status(answer.status));
+    state.assistant_markdown(&answer.conclusion);
+
+    if !answer.claims.is_empty() {
+        state.assistant_heading("主张", TuiTone::Accent);
+        for claim in &answer.claims {
+            state.assistant_item(
+                format!("[{}]", claim_status_label(claim.status)),
+                tone_for_claim_status(claim.status),
+                &claim.text,
+            );
+        }
+    }
+
+    if !answer.evidence.is_empty() {
+        state.assistant_heading("依据", TuiTone::Accent);
+        for evidence in &answer.evidence {
+            state.assistant_evidence(&evidence.source, &evidence.statement);
+        }
+    }
+
+    if !answer.assumptions.is_empty() {
+        state.assistant_heading("假设", TuiTone::Accent);
+        for assumption in &answer.assumptions {
+            state.assistant_item(
+                format!("[假设·{}]", answer_impact_label(assumption.impact)),
+                tone_for_impact(assumption.impact),
+                &assumption.description,
+            );
+        }
+    }
+
+    if !answer.constraints.is_empty() {
+        state.assistant_heading("约束", TuiTone::Accent);
+        for constraint in &answer.constraints {
+            state.assistant_item("[约束]", TuiTone::Muted, constraint);
+        }
+    }
+
+    if !answer.unknowns.is_empty() {
+        state.assistant_heading("未知", TuiTone::Accent);
+        for unknown in &answer.unknowns {
+            state.assistant_item(
+                format!("[未知·{}]", answer_impact_label(unknown.impact)),
+                tone_for_impact(unknown.impact),
+                &unknown.description,
+            );
+        }
+    }
+
+    if !answer.conflicts.is_empty() {
+        state.assistant_heading("冲突", TuiTone::Accent);
+        for conflict in &answer.conflicts {
+            let resolved = conflict.status == first_principles_agent::ConflictStatus::Resolved;
+            state.assistant_item(
+                if resolved {
+                    "[已解决]"
+                } else {
+                    "[未解决]"
+                },
+                if resolved {
+                    TuiTone::Success
+                } else {
+                    TuiTone::Danger
+                },
+                conflict
+                    .resolution
+                    .as_deref()
+                    .unwrap_or(&conflict.claim_ids.join(" ↔ ")),
+            );
+        }
+    }
+
+    if !answer.flip_conditions.is_empty() {
+        state.assistant_heading("翻转条件", TuiTone::Accent);
+        for condition in &answer.flip_conditions {
+            state.assistant_item(
+                "⇒",
+                TuiTone::Accent,
+                format!("若 {}，则 {}", condition.if_observed, condition.then),
+            );
+        }
+    }
+}
+
+fn tone_for_answer_status(status: first_principles_agent::AnswerStatus) -> TuiTone {
+    use first_principles_agent::AnswerStatus;
+    match status {
+        AnswerStatus::Completed => TuiTone::Success,
+        AnswerStatus::Conditional | AnswerStatus::NeedsEvidence => TuiTone::Warning,
+        AnswerStatus::NeedsAuthorization => TuiTone::Warning,
+        AnswerStatus::Failed => TuiTone::Danger,
+    }
+}
+
+fn tone_for_claim_status(status: first_principles_agent::ClaimStatus) -> TuiTone {
+    use first_principles_agent::ClaimStatus;
+    match status {
+        ClaimStatus::Verified => TuiTone::Success,
+        ClaimStatus::UserAsserted | ClaimStatus::Derived => TuiTone::Accent,
+        ClaimStatus::Assumed | ClaimStatus::ModelPrior => TuiTone::Warning,
+        ClaimStatus::Conflicting => TuiTone::Danger,
+        ClaimStatus::Unknown => TuiTone::Muted,
+    }
+}
+
+fn tone_for_impact(impact: first_principles_agent::ImpactLevel) -> TuiTone {
+    use first_principles_agent::ImpactLevel;
+    match impact {
+        ImpactLevel::Low => TuiTone::Muted,
+        ImpactLevel::Medium => TuiTone::Warning,
+        ImpactLevel::High => TuiTone::Danger,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tui_rendering_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use first_principles_agent::{CognitiveMode, RiskLevel};
+
+    #[test]
+    fn natural_supervision_message_requires_an_explicit_task_target() {
+        assert_eq!(
+            parse_targeted_operator_message("补充任务 T3：不要修改公开 API"),
+            Some(("T3".into(), "不要修改公开 API".into()))
+        );
+        assert_eq!(
+            parse_targeted_operator_message("回复任务 T2: 保留旧格式"),
+            Some(("T2".into(), "保留旧格式".into()))
+        );
+        assert_eq!(parse_targeted_operator_message("不要修改公开 API"), None);
+    }
+
+    #[test]
+    fn every_panel_command_exposes_executable_menu_actions() {
+        for command in first_principles_agent::COMMANDS {
+            if !command.id.uses_command_panel()
+                || matches!(command.id, TuiCommandId::Help | TuiCommandId::Workspace)
+            {
+                continue;
+            }
+            let actions = command_menu_actions(command.id);
+            assert!(
+                !actions.is_empty(),
+                "{} has no interactive actions",
+                command.name
+            );
+            for action in actions {
+                assert!(
+                    action.id.starts_with("open:") || action.id.starts_with("prompt:"),
+                    "{} has invalid action {}",
+                    command.name,
+                    action.id
+                );
+                if action.id.starts_with("prompt:") {
+                    assert!(
+                        action.id.ends_with(' '),
+                        "{} prompt must prepare an argument",
+                        action.id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn help_menu_is_selectable_and_scoped_to_the_current_host() {
+        let mut state = TuiState::new("mock", 6, 120);
+        display_tui_help_menu(&mut state);
+        assert!(state.command_panel_menu_open());
+        let first = state.selected_command_panel_item().unwrap();
+        assert!(first.id.starts_with("open:/help"));
+        let rendered = state.render_screen(100, 30);
+        assert!(rendered.contains("帮助"));
+        assert!(rendered.contains("/status"));
+        assert!(!rendered.contains("/dispatch"));
+
+        state.set_host_binding(HostBinding::workshop_context(
+            "master",
+            "main-coordinator",
+            "1agent",
+            "term-1790000000000-1234-1",
+        ));
+        state.set_command_stage(CommandStage::Approval);
+        display_tui_help_menu(&mut state);
+        let rendered = state.render_screen(120, 40);
+        assert!(rendered.contains("/dispatch"));
+    }
+
+    #[test]
+    fn tui_provider_budget_defaults_to_requested_steps_and_stays_bounded() {
+        assert_eq!(tui_provider_attempt_budget(None, 6), 6);
+        assert_eq!(tui_provider_attempt_budget(None, 0), 1);
+        assert_eq!(tui_provider_attempt_budget(Some(10), 6), 10);
+        assert_eq!(tui_provider_attempt_budget(Some(100), 6), 16);
+    }
+
+    #[test]
+    fn tui_request_carries_provider_attempt_budget() {
+        let settings = TuiRunSettings {
+            cwd: PathBuf::from("/tmp"),
+            roots: vec![PathBuf::from("/tmp")],
+            allow_network: false,
+            allow_write: false,
+            experience_scope: None,
+            max_steps: 6,
+            max_tool_calls: 8,
+            max_provider_attempts: 6,
+            master_agents: None,
+            workshop_prefix: "skynet-workshop".into(),
+            timeout_seconds: 120,
+            max_context_chars: 100_000,
+            auto_compact_percent: 80,
+            default_preferences: SessionPreferences {
+                max_steps: 6,
+                max_tool_calls: 8,
+                max_provider_attempts: 6,
+                max_context_chars: 100_000,
+                auto_compact_percent: 80,
+                timeout_seconds: 120,
+            },
+            mentions: Vec::new(),
+            planning_provider: Arc::new(DeterministicProvider::new()),
+        };
+        assert_eq!(settings.request("test").budget.max_provider_attempts, 6);
+    }
+
+    struct PlanProvider;
+
+    #[async_trait]
+    impl ModelProvider for PlanProvider {
+        fn id(&self) -> &str {
+            "plan-provider"
+        }
+
+        fn model(&self) -> &str {
+            "plan-model"
+        }
+
+        async fn complete(
+            &self,
+            request: first_principles_agent::ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> std::result::Result<
+            first_principles_agent::ModelResponse,
+            first_principles_agent::ProviderError,
+        > {
+            let context_text = request
+                .messages
+                .last()
+                .map(|message| message.content.as_str())
+                .unwrap_or_default();
+            let context: first_principles_agent::ProductionPlanningContext =
+                serde_json::from_str(context_text).unwrap();
+            let production = first_principles_agent::ProductionPlan {
+                schema_version: first_principles_agent::PRODUCTION_LINE_SCHEMA_VERSION,
+                goal: first_principles_agent::GoalContract {
+                    goal_id: context.planning.goal_id.clone(),
+                    master_conversation_id: context.master_conversation_id.clone(),
+                    objective: context.planning.goal.clone(),
+                    non_goals: Vec::new(),
+                    constraints: Vec::new(),
+                    key_results: vec![first_principles_agent::KeyResult {
+                        id: "verified-output".into(),
+                        statement: "verified output is produced".into(),
+                        baseline: "missing".into(),
+                        target: "artifact exists".into(),
+                        measurement_method: "artifact verification".into(),
+                        work_item_ids: vec!["produce".into()],
+                    }],
+                },
+                plan: PlanProposal {
+                    schema_version: first_principles_agent::MASTER_PLAN_SCHEMA_VERSION,
+                    plan_id: context.planning.plan_id.clone(),
+                    goal_id: context.planning.goal_id.clone(),
+                    version: 1,
+                    summary: "Test production plan".into(),
+                    work_items: vec![first_principles_agent::WorkItem {
+                        id: "produce".into(),
+                        title: "Produce output".into(),
+                        objective: "Produce a verified artifact".into(),
+                        dependencies: Vec::new(),
+                        required_capabilities: vec!["general".into()],
+                        required_tools: vec!["read_file".into()],
+                        permissions: first_principles_agent::PermissionSet {
+                            read_roots: vec![context.planning.workspace.clone()],
+                            allow_network: false,
+                            allow_write: false,
+                        },
+                        acceptance_criteria: vec!["artifact exists".into()],
+                        expected_artifacts: vec!["result.json".into()],
+                        workspace: context.planning.workspace.clone(),
+                        budget: first_principles_agent::WorkBudget::default(),
+                        deadline_unix_ms: None,
+                        risk: RiskLevel::Low,
+                        status: first_principles_agent::WorkItemStatus::Pending,
+                    }],
+                    max_parallel: 1,
+                    approved: false,
+                },
+            };
+            let answer = first_principles_agent::AgentAnswer {
+                schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
+                status: first_principles_agent::AnswerStatus::Completed,
+                conclusion: serde_json::to_string(&production).unwrap(),
+                claims: Vec::new(),
+                evidence: Vec::new(),
+                assumptions: Vec::new(),
+                constraints: Vec::new(),
+                unknowns: Vec::new(),
+                conflicts: Vec::new(),
+                flip_conditions: Vec::new(),
+                action_receipts: Vec::new(),
+            };
+            Ok(first_principles_agent::ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: first_principles_agent::ModelTurn::Final { answer },
+                usage: first_principles_agent::Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn tui_master_mission_plan_and_approval_are_digest_bound() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join("journal");
+        let mut session = TuiSession::open(&journal_dir, None).unwrap();
+        session
+            .start_mission(
+                "Create and verify a production result",
+                workspace.path().to_path_buf(),
+            )
+            .unwrap();
+        let host = HostBinding::workshop_context(
+            "master",
+            "main-coordinator",
+            "1agent",
+            "term-1790000000000-1234-1",
+        );
+        let mut state = TuiState::new("plan-provider/plan-model", 6, 120);
+        state.set_host_binding(host);
+        let mut settings = TuiRunSettings {
+            cwd: workspace.path().to_path_buf(),
+            roots: vec![workspace.path().to_path_buf()],
+            allow_network: false,
+            allow_write: false,
+            experience_scope: None,
+            max_steps: 6,
+            max_tool_calls: 8,
+            max_provider_attempts: 6,
+            master_agents: None,
+            workshop_prefix: "skynet-workshop".into(),
+            timeout_seconds: 120,
+            max_context_chars: 100_000,
+            auto_compact_percent: 80,
+            default_preferences: SessionPreferences {
+                max_steps: 6,
+                max_tool_calls: 8,
+                max_provider_attempts: 6,
+                max_context_chars: 100_000,
+                auto_compact_percent: 80,
+                timeout_seconds: 120,
+            },
+            mentions: Vec::new(),
+            planning_provider: Arc::new(PlanProvider),
+        };
+
+        run_tui_master_plan(&mut state, &mut session, &settings, "generate").await;
+        let plan_binding = session
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .cloned()
+            .expect("plan should be bound");
+        let plan = read_master_plan(&plan_binding.path).unwrap();
+        assert!(!plan.approved);
+        assert_eq!(state.command_stage(), CommandStage::Approval);
+        let (_, challenge_mode, challenge_request) =
+            epistemic_request(TuiCommandId::Challenge, "", &state, &settings, &session).unwrap();
+        assert_eq!(challenge_mode, CognitiveMode::Diagnosis);
+        assert!(challenge_request.objective.contains("Test production plan"));
+
+        approve_tui_plan(&mut state, &mut session, &plan.plan_id);
+        let reopened = TuiSession::open(&journal_dir, Some(session.id())).unwrap();
+        let approved = reopened
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| plan.approved_by.as_deref());
+        assert!(approved.is_some());
+        let task_list = reopened
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| plan.task_list_path.as_ref())
+            .cloned()
+            .expect("approved production plan should have a task list");
+        let task_list_text = std::fs::read_to_string(&task_list).unwrap();
+        assert!(task_list_text.contains("status: prepared"));
+        assert!(task_list_text.contains("### verified-output"));
+        let persisted = read_master_plan(&plan_binding.path).unwrap();
+        assert!(!persisted.approved);
+        drop(reopened);
+
+        let profile = first_principles_agent::AgentProfile {
+            agent_id: "test-worker".into(),
+            runtime: "mock".into(),
+            display_name: Some("Test Worker".into()),
+            capabilities: vec!["general".into()],
+            tools: vec!["read_file".into()],
+            runtime_command: vec!["true".into()],
+            permissions: first_principles_agent::PermissionSet {
+                read_roots: vec![workspace.path().to_path_buf()],
+                allow_network: false,
+                allow_write: false,
+            },
+            availability: first_principles_agent::AgentAvailability::Idle,
+            current_load: 0,
+            observed_success_permille: None,
+            observed_runs: 0,
+            cost_micros: None,
+            max_risk: RiskLevel::Low,
+        };
+        let profiles = serde_json::to_vec_pretty(&vec![profile]).unwrap();
+        write_private_command_file(session.root(), &tui_agents_path(&session), &profiles).unwrap();
+        assign_tui_plan(&mut state, &mut session, &settings, "apply");
+        let assigned = session
+            .mission()
+            .and_then(|mission| mission.plan.as_ref())
+            .and_then(|plan| plan.assignment.as_ref())
+            .cloned()
+            .expect("assignment should be bound");
+        assert_eq!(assigned.assignments[0].agent_id, "test-worker");
+
+        std::fs::write(&task_list, "tampered").unwrap();
+        assert!(
+            prepare_master_dispatch(&mut state, &mut session)
+                .unwrap_err()
+                .contains("任务清单已变化")
+        );
+        std::fs::write(&task_list, task_list_text).unwrap();
+        let (trace_id, state_root, _, master) =
+            prepare_master_dispatch(&mut state, &mut session).unwrap();
+        assert!(trace_id.starts_with("trace-plan-"));
+        assert!(state_root.starts_with(session.root()));
+        assert!(master.plan.approved);
+        assert_eq!(master.assignment, assigned);
+        run_tui_dispatch(&mut state, &mut session, &settings, "dry-run");
+        assert!(state.render_screen(120, 40).contains("Dispatch dry-run"));
+
+        let fake_prefix = workspace.path().join("skynet-workshop");
+        let fake_script = |name: &str, body: &str| {
+            let path = workspace.path().join(format!("skynet-workshop-{name}"));
+            std::fs::write(&path, body).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        };
+        fake_script(
+            "session",
+            "#!/bin/sh\ncase \"$1\" in create) printf '%s\\n' '{\"session_id\":\"term-test\"}';; esac\n",
+        );
+        fake_script("agents", "#!/bin/sh\nexit 0\n");
+        settings.workshop_prefix = fake_prefix.display().to_string();
+        run_tui_dispatch(&mut state, &mut session, &settings, "detach");
+        let dispatched = MasterStore::new(&state_root, &trace_id)
+            .unwrap()
+            .load()
+            .unwrap();
+        let task = dispatched.tasks.values().next().unwrap();
+        assert_eq!(task.status, WorkItemStatus::Running);
+        assert!(task.active_lease.is_some());
+        assert_eq!(
+            task.execution_target
+                .as_ref()
+                .and_then(|target| target.session_id.as_deref()),
+            Some("term-test")
+        );
+
+        std::fs::write(workspace.path().join("result.json"), b"verified output").unwrap();
+        let executions = state_root.join(&trace_id).join("executions");
+        std::fs::create_dir_all(&executions).unwrap();
+        std::fs::write(executions.join("produce-1.output"), "verified output\n").unwrap();
+        std::fs::write(executions.join("produce-1.exit"), "0\n").unwrap();
+        watch_tui_master(&mut state, &session, &settings);
+        assert_eq!(
+            MasterStore::new(&state_root, &trace_id)
+                .unwrap()
+                .load()
+                .unwrap()
+                .tasks["produce"]
+                .status,
+            WorkItemStatus::ArtifactReady
+        );
+        let verification_path = workspace.path().join("verification.json");
+        std::fs::write(
+            &verification_path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "task_id": "produce",
+                "criteria_results": [{
+                    "criterion": "artifact exists",
+                    "passed": true,
+                    "evidence": ["independent verifier inspected result.json"]
+                }],
+                "test_results": [],
+                "evidence": ["full TUI workflow verification"],
+                "verified_by": "workflow-verifier"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        verify_tui_task(
+            &mut state,
+            &session,
+            &format!("produce {}", verification_path.display()),
+        );
+        let verified = MasterStore::new(&state_root, &trace_id)
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(verified.tasks["produce"].status, WorkItemStatus::Verified);
+        display_evidence(&mut state, &session, "master");
+        display_report(&mut state, &session, "master");
+        display_master_audit(&mut state, &session, false);
+        let workflow = state.render_screen(140, 90);
+        assert!(workflow.contains("Master 证据板"));
+        assert!(workflow.contains("生产线报告"));
+        assert!(workflow.contains("Master Journal 审计 · 通过"));
+    }
+
+    #[tokio::test]
+    async fn natural_language_master_intake_uses_two_stage_confirmation() {
+        let workspace = tempfile::tempdir().unwrap();
+        let project = workspace.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let mut state = TuiState::new("plan-provider/plan-model", 6, 120);
+        state.set_host_binding(HostBinding::workshop_context(
+            "master",
+            "main-coordinator",
+            "1agent",
+            "term-1790000000000-1234-1",
+        ));
+        let mut settings = TuiRunSettings {
+            cwd: project.clone(),
+            roots: vec![project.clone()],
+            allow_network: false,
+            allow_write: false,
+            experience_scope: None,
+            max_steps: 6,
+            max_tool_calls: 8,
+            max_provider_attempts: 6,
+            master_agents: None,
+            workshop_prefix: "skynet-workshop".into(),
+            timeout_seconds: 120,
+            max_context_chars: 100_000,
+            auto_compact_percent: 80,
+            default_preferences: SessionPreferences {
+                max_steps: 6,
+                max_tool_calls: 8,
+                max_provider_attempts: 6,
+                max_context_chars: 100_000,
+                auto_compact_percent: 80,
+                timeout_seconds: 120,
+            },
+            mentions: Vec::new(),
+            planning_provider: Arc::new(PlanProvider),
+        };
+
+        assert!(
+            !handle_master_task_intake(&mut state, &mut session, &settings, "如何优化这个项目？")
+                .await
+        );
+        assert!(session.mission().is_none());
+        assert!(
+            handle_master_task_intake(&mut state, &mut session, &settings, "请开发一个功能并测试")
+                .await
+        );
+        let mission = session.mission().unwrap();
+        assert_eq!(mission.goal, "请开发一个功能并测试");
+        let plan = mission.plan.as_ref().unwrap();
+        assert!(plan.approved_by.is_none());
+        assert!(plan.task_list_path.is_none());
+        assert_eq!(state.command_stage(), CommandStage::Approval);
+
+        assert!(handle_master_task_intake(&mut state, &mut session, &settings, "确认计划").await);
+        let mission = session.mission().unwrap();
+        let plan = mission.plan.as_ref().unwrap();
+        assert!(plan.approved_by.is_some());
+        let task_list = plan.task_list_path.as_ref().unwrap();
+        assert!(
+            std::fs::read_to_string(task_list)
+                .unwrap()
+                .contains("status: prepared")
+        );
+        assert!(plan.assignment.is_none());
+
+        let profile = AgentProfile {
+            agent_id: "test-worker".into(),
+            runtime: "mock".into(),
+            display_name: Some("Test Worker".into()),
+            capabilities: vec!["general".into()],
+            tools: vec!["read_file".into()],
+            runtime_command: vec!["true".into()],
+            permissions: first_principles_agent::PermissionSet {
+                read_roots: vec![project.clone()],
+                allow_network: false,
+                allow_write: false,
+            },
+            availability: first_principles_agent::AgentAvailability::Idle,
+            current_load: 0,
+            observed_success_permille: None,
+            observed_runs: 0,
+            cost_micros: None,
+            max_risk: RiskLevel::Low,
+        };
+        let profiles = serde_json::to_vec_pretty(&vec![profile]).unwrap();
+        write_private_command_file(session.root(), &tui_agents_path(&session), &profiles).unwrap();
+        let fake_prefix = workspace.path().join("fake-skynet-workshop");
+        let fake_agent_run = workspace.path().join("fake-skynet-workshop-agent-run");
+        std::fs::write(
+            &fake_agent_run,
+            "#!/bin/sh\nprintf '%s\\n' '{\"schema\":\"skynet.term.agent-run/v1\",\"agent\":{\"agent_id\":\"test-worker\"},\"session_id\":\"term-test\",\"gui\":{\"started\":false},\"exec\":{\"status\":\"ok\",\"exit\":0,\"duration_ms\":1,\"artifact\":{\"path\":\"/tmp/out\",\"sha256\":\"abc\"}}}'\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake_agent_run, std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
+        settings.workshop_prefix = fake_prefix.display().to_string();
+
+        assert!(handle_master_task_intake(&mut state, &mut session, &settings, "确认执行").await);
+        let mission = session.mission().unwrap();
+        let plan = mission.plan.as_ref().unwrap();
+        assert!(plan.assignment.is_some());
+        assert!(plan.master_trace_id.is_some());
+    }
+
+    struct SupervisorFixture {
+        _workspace: tempfile::TempDir,
+        session: TuiSession,
+        state: TuiState,
+        settings: TuiRunSettings,
+        store: MasterStore,
+        task_id: String,
+        workspace: PathBuf,
+        capture: PathBuf,
+    }
+
+    fn supervisor_fixture() -> SupervisorFixture {
+        supervisor_fixture_with_artifact("result.json")
+    }
+
+    fn supervisor_fixture_with_artifact(artifact_spec: &str) -> SupervisorFixture {
+        let workspace = tempfile::tempdir().unwrap();
+        let workdir = workspace.path().join("workspace");
+        std::fs::create_dir_all(&workdir).unwrap();
+        let journal_dir = workspace.path().join("journal");
+        let mut session = TuiSession::open(&journal_dir, None).unwrap();
+        session
+            .start_mission("Exercise production supervision", workdir.clone())
+            .unwrap();
+
+        let task_id = "task-1".to_string();
+        let plan = PlanProposal {
+            schema_version: first_principles_agent::MASTER_PLAN_SCHEMA_VERSION,
+            plan_id: "plan-supervision".into(),
+            goal_id: "goal-supervision".into(),
+            version: 1,
+            summary: "Supervision test plan".into(),
+            work_items: vec![first_principles_agent::WorkItem {
+                id: task_id.clone(),
+                title: "Produce supervised output".into(),
+                objective: "Produce a result that requires supervision".into(),
+                dependencies: Vec::new(),
+                required_capabilities: vec!["general".into()],
+                required_tools: vec!["read_file".into()],
+                permissions: first_principles_agent::PermissionSet {
+                    read_roots: vec![workdir.clone()],
+                    allow_network: false,
+                    allow_write: false,
+                },
+                acceptance_criteria: vec!["result exists".into()],
+                expected_artifacts: vec![artifact_spec.into()],
+                workspace: workdir.clone(),
+                budget: first_principles_agent::WorkBudget::default(),
+                deadline_unix_ms: None,
+                risk: RiskLevel::Low,
+                status: WorkItemStatus::Pending,
+            }],
+            max_parallel: 1,
+            approved: false,
+        };
+        plan.validate().unwrap();
+        let plan_path = session.root().join("plan.json");
+        let plan_bytes = serde_json::to_vec_pretty(&plan).unwrap();
+        std::fs::write(&plan_path, &plan_bytes).unwrap();
+        let digest = hex::encode(Sha256::digest(&plan_bytes));
+        session
+            .bind_plan(
+                plan_path,
+                plan.plan_id.clone(),
+                plan.goal_id.clone(),
+                &digest,
+            )
+            .unwrap();
+        session.approve_plan("tester", &digest, 10).unwrap();
+        let assignment = first_principles_agent::AssignmentProposal {
+            schema_version: first_principles_agent::MASTER_PLAN_SCHEMA_VERSION,
+            plan_id: plan.plan_id.clone(),
+            assignments: vec![first_principles_agent::AssignmentCandidate {
+                task_id: task_id.clone(),
+                agent_id: "test-worker".into(),
+                runtime: "mock".into(),
+                selection_reason: "test fixture".into(),
+            }],
+        };
+        session.bind_assignment(assignment).unwrap();
+
+        let fake_root = workspace.path().join("fake");
+        std::fs::create_dir_all(&fake_root).unwrap();
+        let prefix = fake_root.join("skynet-workshop");
+        let capture = workspace.path().join("workshop-capture.log");
+        let session_script = format!(
+            "#!/bin/sh\n\
+             case \"$1\" in\n\
+               write|kill) printf '%s\\n' \"$@\" >> '{}' ;;\n\
+               status) printf '%s\\n' '{{\"running\":true}}' ;;\n\
+             esac\n",
+            capture.display()
+        );
+        let script_path = PathBuf::from(format!("{}-session", prefix.display()));
+        std::fs::write(&script_path, session_script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let events_path = PathBuf::from(format!("{}-events", prefix.display()));
+        std::fs::write(
+            &events_path,
+            "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"fake-workshop-event\",\"session_id\":\"term-test\"}'\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&events_path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+
+        let mut state = TuiState::new("deterministic/test", 6, 120);
+        state.set_host_binding(HostBinding::workshop_context(
+            "master",
+            "main-coordinator",
+            "1agent",
+            "term-supervision",
+        ));
+        let profile = AgentProfile {
+            agent_id: "test-worker".into(),
+            runtime: "mock".into(),
+            display_name: Some("Test Worker".into()),
+            capabilities: vec!["general".into()],
+            tools: vec!["read_file".into()],
+            runtime_command: vec!["true".into()],
+            permissions: first_principles_agent::PermissionSet::default(),
+            availability: first_principles_agent::AgentAvailability::Idle,
+            current_load: 0,
+            observed_success_permille: None,
+            observed_runs: 0,
+            cost_micros: None,
+            max_risk: RiskLevel::Low,
+        };
+        write_private_command_file(
+            session.root(),
+            &tui_agents_path(&session),
+            &serde_json::to_vec_pretty(&vec![profile.clone()]).unwrap(),
+        )
+        .unwrap();
+        let settings = TuiRunSettings {
+            cwd: workdir.clone(),
+            roots: vec![workdir.clone()],
+            allow_network: false,
+            allow_write: false,
+            experience_scope: None,
+            max_steps: 6,
+            max_tool_calls: 8,
+            max_provider_attempts: 6,
+            master_agents: None,
+            workshop_prefix: prefix.display().to_string(),
+            timeout_seconds: 120,
+            max_context_chars: 100_000,
+            auto_compact_percent: 80,
+            default_preferences: SessionPreferences {
+                max_steps: 6,
+                max_tool_calls: 8,
+                max_provider_attempts: 6,
+                max_context_chars: 100_000,
+                auto_compact_percent: 80,
+                timeout_seconds: 120,
+            },
+            mentions: Vec::new(),
+            planning_provider: Arc::new(DeterministicProvider::new()),
+        };
+        let (trace_id, state_root, _, _) =
+            prepare_master_dispatch(&mut state, &mut session).unwrap();
+        let store = MasterStore::new(&state_root, &trace_id).unwrap();
+        std::fs::create_dir_all(store.trace_dir().join("executions")).unwrap();
+
+        let mut master = store.load().unwrap();
+        let lease = master
+            .lease_task(
+                &task_id,
+                &profile,
+                "workshop-session:test-worker".into(),
+                600_000,
+                now_unix_ms(),
+            )
+            .unwrap();
+        master = store
+            .append(
+                master,
+                MasterJournalEventKind::Leased,
+                Some(task_id.clone()),
+                "master",
+                "supervision fixture lease",
+                now_unix_ms(),
+            )
+            .unwrap();
+        master
+            .begin_starting(&task_id, lease.generation, now_unix_ms())
+            .unwrap();
+        master = store
+            .append(
+                master,
+                MasterJournalEventKind::Starting,
+                Some(task_id.clone()),
+                "master",
+                "supervision fixture start",
+                now_unix_ms(),
+            )
+            .unwrap();
+        let submitted = now_unix_ms();
+        master
+            .record_submission(
+                ExecutionSubmission {
+                    task_id: task_id.clone(),
+                    agent_id: lease.agent_id,
+                    lease_generation: lease.generation,
+                    idempotency_key: lease.idempotency_key,
+                    execution_target: ExecutionTarget {
+                        session_id: Some("term-test".into()),
+                        pane_id: None,
+                        job_id: None,
+                    },
+                    submitted_unix_ms: submitted,
+                    deadline_unix_ms: submitted.saturating_add(600_000),
+                },
+                now_unix_ms(),
+            )
+            .unwrap();
+        store
+            .append(
+                master,
+                MasterJournalEventKind::Submitted,
+                Some(task_id.clone()),
+                "test-worker",
+                "submitted to term-test",
+                now_unix_ms(),
+            )
+            .unwrap();
+
+        SupervisorFixture {
+            _workspace: workspace,
+            session,
+            state,
+            settings,
+            store,
+            task_id,
+            workspace: workdir,
+            capture,
+        }
+    }
+
+    fn block_fixture_task(fixture: &SupervisorFixture) {
+        let mut master = fixture.store.load().unwrap();
+        master
+            .record_observation(
+                &fixture.task_id,
+                ExecutionObservation::Blocked {
+                    reason: "missing operator approval".into(),
+                },
+                now_unix_ms(),
+            )
+            .unwrap();
+        fixture
+            .store
+            .append(
+                master,
+                MasterJournalEventKind::Observed,
+                Some(fixture.task_id.clone()),
+                "test-worker",
+                "blocked on operator approval",
+                now_unix_ms(),
+            )
+            .unwrap();
+    }
+
+    fn make_fixture_artifact_ready(fixture: &SupervisorFixture, contents: Option<&[u8]>) {
+        let artifact = fixture.workspace.join("result.json");
+        let digest = if let Some(contents) = contents {
+            std::fs::write(&artifact, contents).unwrap();
+            hex::encode(Sha256::digest(contents))
+        } else {
+            String::new()
+        };
+        let mut master = fixture.store.load().unwrap();
+        let task = master.tasks[&fixture.task_id].clone();
+        let lease = task.active_lease.unwrap();
+        let now = now_unix_ms();
+        master
+            .record_receipt(
+                ExecutionReceipt {
+                    task_id: fixture.task_id.clone(),
+                    agent_id: lease.agent_id,
+                    lease_generation: lease.generation,
+                    idempotency_key: lease.idempotency_key,
+                    execution_target: task.execution_target.unwrap(),
+                    status: ExecutionStatus::Completed,
+                    exit_code: Some(0),
+                    artifacts: (!digest.is_empty())
+                        .then(|| artifact.display().to_string())
+                        .into_iter()
+                        .collect(),
+                    result_digest: (!digest.is_empty()).then_some(digest),
+                    error: None,
+                    started_unix_ms: now,
+                    finished_unix_ms: now,
+                },
+                now,
+            )
+            .unwrap();
+        fixture
+            .store
+            .append(
+                master,
+                MasterJournalEventKind::ReceiptRecorded,
+                Some(fixture.task_id.clone()),
+                "test-worker",
+                "artifact ready for verification",
+                now,
+            )
+            .unwrap();
+    }
+
+    fn write_verification_input(
+        fixture: &SupervisorFixture,
+        criterion: Option<&str>,
+        verified_by: &str,
+    ) -> PathBuf {
+        let input = fixture.workspace.join("verification.json");
+        let criteria = criterion
+            .map(|criterion| {
+                vec![serde_json::json!({
+                    "criterion": criterion,
+                    "passed": true,
+                    "evidence": ["independent artifact and criterion check"]
+                })]
+            })
+            .unwrap_or_default();
+        std::fs::write(
+            &input,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "task_id": fixture.task_id,
+                "criteria_results": criteria,
+                "test_results": [],
+                "evidence": ["independent verifier inspected the delivered Artifact"],
+                "verified_by": verified_by
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        input
+    }
+
+    #[test]
+    fn master_supervision_routes_human_response_and_preserves_timeline_evidence() {
+        let mut fixture = supervisor_fixture();
+        display_master_board(&mut fixture.state, &fixture.session, "");
+        let board = fixture.state.render_screen(120, 40);
+        assert!(
+            board.contains("Board · trace=trace-plan-supervision"),
+            "{board}"
+        );
+        assert!(
+            board.contains("task-1 · Produce supervised output · Running"),
+            "{board}"
+        );
+        assert!(board.contains("lease_until="), "{board}");
+
+        let master = fixture.store.load().unwrap();
+        let generation = master.tasks[&fixture.task_id].generation;
+        std::fs::write(
+            fixture
+                .store
+                .trace_dir()
+                .join("executions")
+                .join(format!("task-1-{generation}.output")),
+            "[1A:AWAITING_INPUT] approve deployment\n",
+        )
+        .unwrap();
+        watch_tui_master(&mut fixture.state, &fixture.session, &fixture.settings);
+        let master = fixture.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&fixture.task_id].status,
+            WorkItemStatus::AwaitingInput
+        );
+
+        display_attention(&mut fixture.state, &fixture.session);
+        let attention = fixture.state.render_screen(120, 40);
+        assert!(attention.contains("Attention · trace=trace-plan-supervision"));
+        assert!(attention.contains("task-1 · AwaitingInput"), "{attention}");
+
+        respond_tui_task(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "task-1 approve deployment",
+        );
+        let master = fixture.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&fixture.task_id].status,
+            WorkItemStatus::Running
+        );
+        let capture = std::fs::read_to_string(&fixture.capture).unwrap();
+        assert!(capture.contains("write\nterm-test\n--require-idle\napprove deployment"));
+
+        std::fs::write(
+            fixture
+                .store
+                .trace_dir()
+                .join("executions")
+                .join(format!("task-1-{generation}.output")),
+            "[1A:BLOCKED] missing deployment token\n",
+        )
+        .unwrap();
+        watch_tui_master(&mut fixture.state, &fixture.session, &fixture.settings);
+        assert_eq!(
+            fixture.store.load().unwrap().tasks[&fixture.task_id].status,
+            WorkItemStatus::Blocked
+        );
+        respond_tui_task(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "task-1 token supplied by operator",
+        );
+        assert_eq!(
+            fixture.store.load().unwrap().tasks[&fixture.task_id].status,
+            WorkItemStatus::Running
+        );
+
+        display_master_timeline(&mut fixture.state, &fixture.session, &fixture.settings);
+        let timeline = fixture.state.render_screen(120, 50);
+        assert!(timeline.contains("Timeline · trace=trace-plan-supervision"));
+        assert!(timeline.contains("human response routed to task Session"));
+        assert!(timeline.contains("fake-workshop-event"));
+        assert!(timeline.contains("session=term-test"));
+    }
+
+    #[test]
+    fn master_control_pause_resume_takeover_and_cancel_are_journaled() {
+        let mut fixture = supervisor_fixture();
+        control_tui_master(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "retry task-1 invalid while running",
+        );
+        control_tui_master(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "replan task-1 invalid while running",
+        );
+        assert!(
+            !fixture.capture.exists(),
+            "invalid controls must not terminate a live Session"
+        );
+        control_tui_master(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "pause",
+        );
+        assert!(fixture.store.load().unwrap().paused);
+        control_tui_master(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "resume",
+        );
+        assert!(!fixture.store.load().unwrap().paused);
+        control_tui_master(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "takeover task-1 inspect workspace",
+        );
+        assert!(fixture.store.load().unwrap().tasks[&fixture.task_id].human_takeover);
+        control_tui_master(
+            &mut fixture.state,
+            &fixture.session,
+            &fixture.settings,
+            "cancel task-1 operator stopped run",
+        );
+        let master = fixture.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&fixture.task_id].status,
+            WorkItemStatus::Cancelled
+        );
+        let events =
+            read_master_journal_events(&fixture.store.trace_dir().join("events.jsonl")).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == MasterJournalEventKind::Paused)
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == MasterJournalEventKind::Resumed)
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == MasterJournalEventKind::TakenOver)
+        );
+        assert_eq!(
+            events.last().unwrap().kind,
+            MasterJournalEventKind::Cancelled
+        );
+        assert!(
+            first_principles_agent::audit_master_events(&events).ok,
+            "{:?}",
+            first_principles_agent::audit_master_events(&events).issues
+        );
+    }
+
+    #[test]
+    fn master_control_retry_and_replan_remain_bounded_and_explicit() {
+        let mut retry = supervisor_fixture();
+        block_fixture_task(&retry);
+        control_tui_master(
+            &mut retry.state,
+            &retry.session,
+            &retry.settings,
+            "retry task-1 transient worker failure",
+        );
+        let master = retry.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&retry.task_id].status,
+            WorkItemStatus::Retrying
+        );
+        assert_eq!(master.retry_count, 1);
+
+        let mut replan = supervisor_fixture();
+        block_fixture_task(&replan);
+        control_tui_master(
+            &mut replan.state,
+            &replan.session,
+            &replan.settings,
+            "replan task-1 objective is invalid",
+        );
+        let master = replan.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&replan.task_id].status,
+            WorkItemStatus::Replanning
+        );
+        assert_eq!(master.replan_count, 1);
+        assert_eq!(
+            master
+                .replan_scope
+                .as_ref()
+                .map(|scope| scope.source_task.as_str()),
+            Some(replan.task_id.as_str())
+        );
+    }
+
+    #[test]
+    fn master_attention_includes_artifact_ready_for_verification() {
+        let mut fixture = supervisor_fixture();
+        let mut master = fixture.store.load().unwrap();
+        let task = master.tasks[&fixture.task_id].clone();
+        let lease = task.active_lease.unwrap();
+        let now = now_unix_ms();
+        master
+            .record_receipt(
+                ExecutionReceipt {
+                    task_id: fixture.task_id.clone(),
+                    agent_id: lease.agent_id,
+                    lease_generation: lease.generation,
+                    idempotency_key: lease.idempotency_key,
+                    execution_target: task.execution_target.unwrap(),
+                    status: ExecutionStatus::Completed,
+                    exit_code: Some(0),
+                    artifacts: vec!["result.json".into()],
+                    result_digest: Some("a".repeat(64)),
+                    error: None,
+                    started_unix_ms: now,
+                    finished_unix_ms: now,
+                },
+                now,
+            )
+            .unwrap();
+        fixture
+            .store
+            .append(
+                master,
+                MasterJournalEventKind::ReceiptRecorded,
+                Some(fixture.task_id.clone()),
+                "test-worker",
+                "artifact ready for verification",
+                now,
+            )
+            .unwrap();
+
+        display_attention(&mut fixture.state, &fixture.session);
+        let attention = fixture.state.render_screen(120, 40);
+        assert!(attention.contains("task-1 · Produce supervised output · ArtifactReady"));
+    }
+
+    #[test]
+    fn master_artifacts_verify_evidence_report_and_audit_form_a_closed_loop() {
+        let mut fixture = supervisor_fixture();
+        make_fixture_artifact_ready(&fixture, Some(b"delivered result"));
+
+        display_master_artifacts(&mut fixture.state, &fixture.session, "");
+        let artifacts = fixture.state.render_screen(140, 50);
+        assert!(artifacts.contains("Artifacts · trace=trace-plan-supervision"));
+        assert!(artifacts.contains("actual=present"), "{artifacts}");
+        assert!(artifacts.contains("verdict=ok"), "{artifacts}");
+        assert!(artifacts.contains("exit=Some(0)"), "{artifacts}");
+
+        let input =
+            write_verification_input(&fixture, Some("result exists"), "independent-verifier");
+        verify_tui_task(
+            &mut fixture.state,
+            &fixture.session,
+            &format!("task-1 {}", input.display()),
+        );
+        let master = fixture.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&fixture.task_id].status,
+            WorkItemStatus::Verified
+        );
+
+        display_evidence(&mut fixture.state, &fixture.session, "master");
+        let evidence = fixture.state.render_screen(140, 60);
+        assert!(evidence.contains("Master 证据板"));
+        assert!(evidence.contains("claim [pass] result exists"));
+        assert!(evidence.contains("artifact [pass] result.json"));
+        assert!(evidence.contains("independent verifier inspected"));
+
+        display_report(&mut fixture.state, &fixture.session, "master");
+        let report = fixture.state.render_screen(140, 70);
+        assert!(report.contains("生产线报告 · trace=trace-plan-supervision"));
+        assert!(report.contains("verified: Verified"));
+        assert!(report.contains("independent-verifier"));
+
+        display_master_audit(&mut fixture.state, &fixture.session, false);
+        let audit = fixture.state.render_screen(140, 80);
+        assert!(audit.contains("Master Journal 审计 · 通过"), "{audit}");
+    }
+
+    #[test]
+    fn master_verify_rejects_false_success_missing_criteria_and_sha_drift() {
+        let mut missing_artifact = supervisor_fixture();
+        make_fixture_artifact_ready(&missing_artifact, None);
+        let input = write_verification_input(
+            &missing_artifact,
+            Some("result exists"),
+            "independent-verifier",
+        );
+        verify_tui_task(
+            &mut missing_artifact.state,
+            &missing_artifact.session,
+            &format!("task-1 {}", input.display()),
+        );
+        let master = missing_artifact.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&missing_artifact.task_id].status,
+            WorkItemStatus::Rejected
+        );
+        assert!(
+            master.tasks[&missing_artifact.task_id]
+                .last_error
+                .as_deref()
+                .is_some_and(|reason| reason.contains("artifact is missing"))
+        );
+
+        let mut missing_criterion = supervisor_fixture();
+        make_fixture_artifact_ready(&missing_criterion, Some(b"delivered result"));
+        let input = write_verification_input(&missing_criterion, None, "independent-verifier");
+        verify_tui_task(
+            &mut missing_criterion.state,
+            &missing_criterion.session,
+            &format!("task-1 {}", input.display()),
+        );
+        let master = missing_criterion.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&missing_criterion.task_id].status,
+            WorkItemStatus::Rejected
+        );
+        assert!(
+            master.tasks[&missing_criterion.task_id]
+                .last_error
+                .as_deref()
+                .is_some_and(|reason| reason.contains("exactly one result"))
+        );
+
+        let expected_digest = "b".repeat(64);
+        let mut sha_drift =
+            supervisor_fixture_with_artifact(&format!("result.json@sha256:{expected_digest}"));
+        make_fixture_artifact_ready(&sha_drift, Some(b"different bytes"));
+        let input =
+            write_verification_input(&sha_drift, Some("result exists"), "independent-verifier");
+        verify_tui_task(
+            &mut sha_drift.state,
+            &sha_drift.session,
+            &format!("task-1 {}", input.display()),
+        );
+        let master = sha_drift.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&sha_drift.task_id].status,
+            WorkItemStatus::Rejected
+        );
+        assert!(
+            master.tasks[&sha_drift.task_id]
+                .last_error
+                .as_deref()
+                .is_some_and(|reason| reason.contains("artifact SHA-256 mismatch"))
+        );
+    }
+
+    #[test]
+    fn master_verify_requires_an_independent_verifier_and_audit_detects_tampering() {
+        let mut fixture = supervisor_fixture();
+        make_fixture_artifact_ready(&fixture, Some(b"delivered result"));
+        let input = write_verification_input(&fixture, Some("result exists"), "test-worker");
+        verify_tui_task(
+            &mut fixture.state,
+            &fixture.session,
+            &format!("task-1 {}", input.display()),
+        );
+        let master = fixture.store.load().unwrap();
+        assert_eq!(
+            master.tasks[&fixture.task_id].status,
+            WorkItemStatus::ArtifactReady
+        );
+        let verification = fixture.state.render_screen(120, 50);
+        assert!(verification.contains("验收人不能与执行任务的 Agent 相同"));
+
+        let journal = fixture.store.trace_dir().join("events.jsonl");
+        let contents = std::fs::read_to_string(&journal).unwrap();
+        std::fs::write(
+            &journal,
+            contents.replace(
+                "artifact ready for verification",
+                "tampered verification evidence",
+            ),
+        )
+        .unwrap();
+        display_master_audit(&mut fixture.state, &fixture.session, false);
+        let audit = fixture.state.render_screen(140, 80);
+        assert!(audit.contains("Master Journal 审计 · 失败"));
+        assert!(audit.contains("content hash mismatch"), "{audit}");
+    }
+
+    fn phase_six_settings(cwd: PathBuf) -> TuiRunSettings {
+        TuiRunSettings {
+            cwd: cwd.clone(),
+            roots: vec![cwd],
+            allow_network: false,
+            allow_write: false,
+            experience_scope: None,
+            max_steps: 6,
+            max_tool_calls: 8,
+            max_provider_attempts: 6,
+            master_agents: None,
+            workshop_prefix: "skynet-workshop".into(),
+            timeout_seconds: 120,
+            max_context_chars: 100_000,
+            auto_compact_percent: 80,
+            default_preferences: SessionPreferences {
+                max_steps: 6,
+                max_tool_calls: 8,
+                max_provider_attempts: 6,
+                max_context_chars: 100_000,
+                auto_compact_percent: 80,
+                timeout_seconds: 120,
+            },
+            mentions: Vec::new(),
+            planning_provider: Arc::new(DeterministicProvider::new()),
+        }
+    }
+
+    fn write_replay_journal(path: &std::path::Path, objective: &str) {
+        let mut journal = first_principles_agent::Journal::create(path, Uuid::new_v4()).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective(
+                    objective,
+                    path.parent().unwrap().to_path_buf(),
+                ),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ModelResponded {
+                response: first_principles_agent::ModelResponse {
+                    provider_id: "fixture-provider".into(),
+                    model: "fixture-model".into(),
+                    turn: first_principles_agent::ModelTurn::ToolCalls { calls: Vec::new() },
+                    usage: first_principles_agent::Usage {
+                        input_tokens: 100,
+                        output_tokens: 50,
+                        cost_micros: 10,
+                    },
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::AnswerProduced {
+                answer: result().answer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: first_principles_agent::StopReason::Completed,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn phase_six_context_config_status_and_exports_are_operational() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let first = workspace.path().join("first.jsonl");
+        let second = workspace.path().join("second.jsonl");
+        write_replay_journal(&first, "First reviewed task");
+        write_replay_journal(&second, "Second reviewed task");
+        session.record_journal(&first).unwrap();
+        session.record_journal(&second).unwrap();
+        let mut settings = phase_six_settings(workspace.path().to_path_buf());
+        let mut state = TuiState::new("deterministic/test", 6, 120);
+        state.set_session_info(session.id());
+        state.set_last_journal(&second);
+
+        handle_context_command(&mut state, &mut session, &settings, "show");
+        let context = state.render_screen(120, 50);
+        assert!(context.contains("剩余空间"), "{context}");
+        handle_context_command(&mut state, &mut session, &settings, "compact");
+        let summary = session.context_summary().unwrap();
+        assert_eq!(summary.covered_journals, 2);
+        assert!(summary.text.contains("First reviewed task"));
+        let facts = session_context_facts(&session);
+        assert_eq!(facts.len(), 1);
+        assert!(facts[0].contains("Compacted session context"));
+
+        handle_config_command(&mut state, &mut settings, &mut session, "set context 20000");
+        assert_eq!(settings.max_context_chars, 20_000);
+        assert_eq!(session.preferences().unwrap().max_context_chars, 20_000);
+        handle_config_command(&mut state, &mut settings, &mut session, "set compact 70");
+        assert_eq!(settings.auto_compact_percent, 70);
+        handle_config_command(&mut state, &mut settings, &mut session, "reset");
+        assert_eq!(settings.max_context_chars, 100_000);
+        assert_eq!(settings.auto_compact_percent, 80);
+        handle_cost_command(&mut state, &session);
+        let cost = state.render_screen(120, 70);
+        assert!(cost.contains("模型调用      2 次"), "{cost}");
+        assert!(cost.contains("估算成本      20"), "{cost}");
+
+        let report_path = workspace.path().join("report.md");
+        let exported = export_tui_data(
+            &mut state,
+            &session,
+            "report",
+            Some(&report_path.display().to_string()),
+        )
+        .unwrap();
+        assert!(
+            std::fs::read_to_string(exported)
+                .unwrap()
+                .contains("任务报告")
+        );
+        let session_path = workspace.path().join("session.md");
+        let exported = export_tui_data(
+            &mut state,
+            &session,
+            "session",
+            Some(&session_path.display().to_string()),
+        )
+        .unwrap();
+        assert!(
+            std::fs::read_to_string(exported)
+                .unwrap()
+                .contains("Session")
+        );
+
+        display_tui_status(&mut state, &session, &settings);
+        let status = state.render_screen(120, 60);
+        assert!(status.contains("推理步骤      最多 6 步"));
+        assert!(status.contains("运行概览"));
+        assert!(status.contains("压缩摘要"));
+        assert!(!status.contains("status="));
+    }
+
+    #[test]
+    fn phase_six_workspace_presets_and_session_commands_are_bounded() {
+        let workspace = tempfile::tempdir().unwrap();
+        let child = workspace.path().join("child");
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(&child).unwrap();
+        let file = child.join("notes.md");
+        std::fs::write(&file, "notes").unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let mut settings = phase_six_settings(workspace.path().to_path_buf());
+        let mut state = TuiState::new("deterministic/test", 6, 120);
+        state.set_session_info(session.id());
+
+        handle_workspace_command(
+            &mut state,
+            &mut session,
+            &mut settings,
+            &format!("cd {}", child.display()),
+        );
+        assert_eq!(settings.cwd, child);
+        handle_workspace_command(
+            &mut state,
+            &mut session,
+            &mut settings,
+            &format!("mention {}", file.display()),
+        );
+        assert_eq!(session.mentions(), &[file]);
+        handle_workspace_command(&mut state, &mut session, &mut settings, "cd ../../");
+        assert_eq!(settings.cwd, child);
+        let outside_path = outside.path().display().to_string();
+        handle_workspace_command(
+            &mut state,
+            &mut session,
+            &mut settings,
+            &format!("cd {outside_path}"),
+        );
+        assert_eq!(settings.cwd, child);
+
+        handle_preset_command(
+            &mut state,
+            &session,
+            &settings,
+            "save review Review every changed line",
+        );
+        assert_eq!(list_presets(&session).unwrap()[0].name, "review");
+        let request = handle_preset_command(&mut state, &session, &settings, "run review").unwrap();
+        assert_eq!(request.objective, "Review every changed line");
+        assert!(
+            request
+                .known_facts
+                .iter()
+                .any(|fact| fact.contains("Mentioned workspace path"))
+        );
+        handle_preset_command(&mut state, &session, &settings, "delete review");
+        assert!(list_presets(&session).unwrap().is_empty());
+
+        let original = session.id().to_string();
+        handle_session_command(&mut state, &mut session, &mut settings, "new Phase six");
+        assert_ne!(session.id(), original);
+        assert_eq!(session.title(), "Phase six");
+        handle_session_command(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "rename Phase six renamed",
+        );
+        assert_eq!(session.title(), "Phase six renamed");
+        let source = session.id().to_string();
+        handle_session_command(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "fork Forked phase six",
+        );
+        assert_ne!(session.id(), source);
+        assert!(session.mission().is_none());
+        handle_session_command(&mut state, &mut session, &mut settings, "list all");
+        let listing = state.render_screen(120, 70);
+        assert!(listing.contains(&source));
+        assert!(listing.contains(session.id()));
+    }
+
+    #[test]
+    fn workspace_menu_selects_an_authorized_root_and_refreshes_the_panel() {
+        let workspace = tempfile::tempdir().unwrap();
+        let child = workspace.path().join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let mut settings = phase_six_settings(workspace.path().to_path_buf());
+        let mut state = TuiState::new("deterministic/test", 6, 120);
+        settings.cwd = child;
+
+        handle_workspace_command(&mut state, &mut session, &mut settings, "");
+        assert!(state.command_panel_menu_open());
+        assert_eq!(
+            state.selected_command_panel_item().unwrap().id,
+            "workspace.set"
+        );
+        let item = state.selected_command_panel_item().unwrap();
+        assert!(activate_workspace_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            &item.id
+        ));
+        assert_eq!(
+            state.selected_command_panel_item().unwrap().id,
+            "workspace.set.root.0"
+        );
+        let item = state.selected_command_panel_item().unwrap();
+        assert!(activate_workspace_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            &item.id
+        ));
+        assert_eq!(settings.cwd, workspace.path());
+        assert_eq!(session.workspace(), Some(workspace.path()));
+        let panel = state.render_screen(120, 40);
+        assert!(panel.contains("工作区已切换"), "{panel}");
+        assert!(panel.contains("设置工作区"), "{panel}");
+    }
+
+    fn result() -> first_principles_agent::RunResult {
+        serde_json::from_value(serde_json::json!({
+            "run_id": "f7d8a417-5d6d-4e57-87de-2ea1d2ec7aa1",
+            "journal_path": ".journal/test.jsonl",
+            "stop_reason": "completed",
+            "answer": {
+                "schema_version": 2,
+                "status": "completed",
+                "conclusion": "连接测试成功。",
+                "claims": [{
+                    "id": "c1",
+                    "text": "模型返回了结构化结果。",
+                    "status": "verified",
+                    "sources": ["probe"],
+                    "scope": null
+                }],
+                "evidence": [{
+                    "source": "probe",
+                    "statement": "探测返回了结构化结果。",
+                    "observed_unix_ms": null,
+                    "expires_unix_ms": null,
+                    "claim_ids": ["c1"]
+                }],
+                "assumptions": [{
+                    "description": "只测试通信能力。",
+                    "impact": "medium",
+                    "verification_method": null
+                }],
+                "constraints": ["allow_write=false"],
+                "unknowns": [{
+                    "id": "u1",
+                    "description": "尚未测试文件工具。",
+                    "impact": "medium",
+                    "why_it_matters": null,
+                    "reduction_method": null
+                }],
+                "conflicts": [],
+                "flip_conditions": [{
+                    "if_observed": "文件工具失败",
+                    "then": "结论需要调整",
+                    "target_ids": ["c1"]
+                }],
+                "action_receipts": []
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn direct_answer_hides_repetitive_schema_sections_but_keeps_details() {
+        let mut state = TuiState::new("deepseek", 6, 120);
+        state.begin("连接测试", CognitiveMode::DirectAnswer, RiskLevel::Low);
+        record_tui_result(&mut state, &result());
+        let visible = state.render_screen(80, 24);
+        assert!(visible.contains("连接测试成功。"));
+        assert!(!visible.contains("终止原因"));
+        assert!(!visible.contains("allow_write"));
+        assert!(!visible.contains("主张"));
+        assert!(!visible.contains("依据"));
+        assert!(!visible.contains("需要注意"));
+        assert!(!visible.contains("翻转条件"));
+
+        let details = state.last_details().unwrap();
+        assert!(details.contains("终止原因"));
+        assert!(details.contains("allow_write"));
+        assert!(details.contains("主张"));
+    }
+
+    #[test]
+    fn decision_answer_keeps_structured_reasoning_visible() {
+        let mut state = TuiState::new("deepseek", 6, 120);
+        state.begin("做决策", CognitiveMode::DecisionAnalysis, RiskLevel::Medium);
+        record_tui_result(&mut state, &result());
+        let visible = state.render_screen(80, 24);
+        assert!(visible.contains("结论"));
+        assert!(visible.contains("主张"));
+        assert!(visible.contains("依据"));
+        assert!(visible.contains("约束"));
+        assert!(visible.contains("翻转条件"));
+    }
+
+    #[test]
+    fn tool_observations_are_available_only_in_details() {
+        let mut state = TuiState::new("deepseek", 6, 120);
+        state.assistant_body("原回答");
+        let observation = ToolObservation {
+            call_id: "call-1".into(),
+            tool: "search_files".into(),
+            status: ToolStatus::Ok,
+            summary: "found 1 match in 177 files".into(),
+            content: serde_json::json!({
+                "hits": [{
+                    "path": "src/tui.rs",
+                    "line": 1600,
+                    "column": 10,
+                    "excerpt": "fn unfenced_code_start(...)"
+                }],
+                "files_scanned": 177,
+                "skipped_unsafe": 0,
+                "truncated": false
+            })
+            .to_string(),
+            error_code: None,
+            metadata: std::collections::BTreeMap::new(),
+        };
+        state.set_last_details(query_observation_details(&[observation]).unwrap());
+        let visible = state.render_screen(100, 30);
+        assert!(!visible.contains("查阅详情"));
+        assert!(!visible.contains("找到 1 处匹配"));
+        assert!(!visible.contains("src/tui.rs:1600"));
+
+        let backend = ratatui::backend::TestBackend::new(100, 30);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let screen = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact_screen = screen.split_whitespace().collect::<String>();
+        assert!(!compact_screen.contains("查阅详情"), "{screen}");
+        assert!(!compact_screen.contains("找到1处匹配"), "{screen}");
+
+        let details = state.last_details().unwrap();
+        assert!(details.contains("查阅详情 · 工具返回，非模型原创"));
+        assert!(details.contains("本地文件检索 · 成功"));
+        assert!(details.contains("找到 1 处匹配，扫描 177 个文件"));
+        assert!(details.contains("src/tui.rs:1600"));
+        assert!(details.contains("fn unfenced_code_start"));
+        assert!(!details.contains("\"hits\""));
+
+        state.open_details();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let overlay = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact_overlay = overlay.split_whitespace().collect::<String>();
+        assert!(compact_overlay.contains("运行详情"), "overlay={overlay}");
+        assert!(
+            compact_overlay.contains("查阅详情·工具返回，非模型原创"),
+            "overlay={overlay}"
+        );
+        state.close_details();
+        assert!(!state.details_open());
+
+        let observation = ToolObservation {
+            call_id: "call-2".into(),
+            tool: "read_file".into(),
+            status: ToolStatus::Ok,
+            summary: "读取大文件".into(),
+            content: "字".repeat(4_100),
+            error_code: None,
+            metadata: std::collections::BTreeMap::new(),
+        };
+        let bounded = query_result_text(&observation);
+        assert!(bounded.contains("查阅结果已截断"));
+        assert!(bounded.chars().count() < 4_100);
+    }
+
+    #[test]
+    fn journal_command_output_is_bounded() {
+        let output = bound_tui_command_output("x".repeat(30_000));
+        assert!(output.chars().count() < 30_000);
+        assert!(output.contains("命令输出已截断"));
+    }
+
+    #[test]
+    fn search_results_show_three_representative_human_readable_hits() {
+        let hits = (1..=5)
+            .map(|line| {
+                serde_json::json!({
+                    "path": format!("src/example_{line}.rs"),
+                    "line": line,
+                    "column": 1,
+                    "excerpt": format!("matched line {line}")
+                })
+            })
+            .collect::<Vec<_>>();
+        let observation = ToolObservation {
+            call_id: "call-search".into(),
+            tool: "search_files".into(),
+            status: ToolStatus::Ok,
+            summary: "found 5 matches".into(),
+            content: serde_json::json!({
+                "hits": hits,
+                "files_scanned": 20,
+                "skipped_unsafe": 0,
+                "truncated": false
+            })
+            .to_string(),
+            error_code: None,
+            metadata: std::collections::BTreeMap::new(),
+        };
+        let formatted = query_result_text(&observation);
+        assert!(formatted.contains("找到 5 处匹配，扫描 20 个文件。"));
+        assert!(formatted.contains("src/example_1.rs:1"));
+        assert!(formatted.contains("src/example_2.rs:2"));
+        assert!(formatted.contains("src/example_3.rs:3"));
+        assert!(!formatted.contains("src/example_4.rs:4"));
+        assert!(formatted.contains("另有 2 处匹配"));
+        assert!(!formatted.contains("\"hits\""));
+    }
 }
 
 async fn write_host_response(

@@ -1,5 +1,185 @@
 # Changelog
 
+## 0.94.0 - 2026-11-03
+
+- Completed the phased 1A production-control command surface, including mission and
+  approval, dispatch and supervision, independent Artifact verification, context
+  headroom/compaction, session/workspace/preset controls and a full TUI workflow from
+  planning through verified reporting.
+- Added `/cost`, a journal-derived token/cost ledger with provider-reported cost
+  preservation and route-manifest pricing fallback.
+- Added automatic context compaction at a configurable 50%-95% threshold, defaulting to
+  80%, with persistence and legacy session compatibility.
+- Added `master capability-probe` with versioned cross-runtime tasks, bounded commands,
+  pass/fail/blocked classification and hash-only output evidence.
+- Added runtime-filtered probes and 1A-native DeepSeek JSON-path validation.
+- TUI provider-turn budgets now default to `--max-steps` and can be overridden,
+  preventing multi-step tool use from ending before a final answer.
+- TUI command results now use mutually exclusive replacement panels instead of appending
+  command output to the conversation; `Esc` returns to the transcript and panel scrolling
+  is isolated from transcript scrolling.
+- List-bearing command panels now support keyboard-selectable submenus. `/workspace`
+  opens an action menu, its workspace action lists authorized roots, and Enter applies a
+  selected root while `Esc` returns to the parent menu.
+- Operator-facing command output now uses grouped Chinese labels instead of raw key/value
+  rows. `/status`, `/context`, `/config`, `/permissions`, `/model`, `/tools`, `/agents`,
+  `/cost`, session and preset views, command-drawer labels and TUI hints share the same
+  user-first presentation.
+- Every panel command now exposes selectable actions. `/help` is a live command palette:
+  `Enter` executes the selected command, actions that need arguments prepare the composer,
+  and command panels can execute related actions without retyping slash commands.
+- Added host-aware TUI command scopes: standalone and Worker modes cannot see or execute
+  Workshop Master-only commands, and Master commands are filtered by lifecycle stage.
+- Added versioned TUI session event logging with v1 compatibility, contiguous event
+  sequences and explicit command rejection records.
+- Added first-principles TUI commands for framing, challenge, decision analysis,
+  postmortem, evidence inspection, journal audit and bounded run reporting.
+- First-principles analysis commands now select an explicit cognitive mode and persist it
+  in the run journal; evidence and audit views are deterministic and provider-free.
+- Added Workshop Master mission definition commands for mission lifecycle, deterministic
+  triage, validated plan generation/revision and digest-bound plan approval.
+- Added session v2 mission and plan bindings with path containment and plan-digest checks
+  on reload.
+- Added TUI model-route inspection/selection, per-run network/write/read-root controls and
+  ToolRegistry inspection.
+- Added Workshop Agent discovery, deterministic assignment and the session-to-Master
+  dispatch bridge with leases, idempotency keys and controlled Session execution.
+- Added Master supervision commands for the Work Item board, bounded Session polling,
+  attention filtering and human response routing.
+- Added explicit journaled controls for pause, resume, cancel, human takeover, one bounded
+  retry and one affected-subgraph replan; invalid controls are rejected before a live
+  Session is terminated.
+- Added a bounded Master/Workshop timeline with Session-ID correlation when the event
+  payload provides one.
+- Added Master `/artifacts` and `/verify` with current-filesystem checks, independent
+  criterion evidence, verifier identity separation and journaled acceptance state.
+- Added Master evidence, production report and audit views bound to claims, receipts,
+  Artifacts and verifier evidence; audit also detects current Artifact drift.
+- Added `/context` character-budget headroom, deterministic local recap/compaction and
+  persisted `/config` controls for steps, tool calls, provider attempts, context and timeout.
+- Added session list/new/resume/fork/rename/archive and recoverable delete, persisted
+  workspace and mentions, bounded presets, session/report/evidence export and `/copy`.
+- Added workspace Git diff/worktree commands and create-new `AGENTS.md` initialization.
+- Added 1A Master-Agent V1: deterministic triage, bounded plan generation, DAG
+  validation, capability-based Agent assignment, dry-run approval and scoped execution.
+- Added a persisted Master state machine for task leases, idempotency keys, execution
+  targets, supervision, human takeover, cancellation, one automatic retry and one
+  affected-subgraph replan.
+- Added independent Artifact checks with workspace path containment, regular-file
+  validation, streaming SHA-256 and exact acceptance-criterion coverage.
+- Added append-only Master Journal events with full state snapshots, contiguous sequence
+  auditing and replay-based loading.
+- Added planner retry for one invalid/tool-call response and private per-plan JSONL
+  records of every model-visible planning request, response and normalized error.
+- Added a bounded Skynet Workshop CLI adapter for Agent/Registry, Job, event and controlled
+  Agent execution reads, while tolerating forward-compatible response fields.
+- Added parallel dispatch up to the plan's `max_parallel` through Workshop `agent-run`,
+  with one persistent Session per Work Item.
+- Added detached persistent-Session execution and `master poll`, mapping real Session
+  running/completed/timed-out states back into the Master state machine.
+- Added an explicit `[1A:AWAITING_INPUT]`, `[1A:RUNNING]`, `[1A:BLOCKED]` tail-marker
+  protocol for bounded Agent supervision without ingesting raw logs.
+- Added reject and versioned revise workflows for plans that have not started.
+- Required every new Master state to initialize unapproved; a plan file cannot self-approve.
+- Added a false-success pilot: a command exits 0 while omitting the expected Artifact,
+  and independent verification rejects completion with `artifact is missing`.
+- Made the TUI safe to launch before a Workshop GUI attaches by removing a redundant
+  cursor-position query after entering the already-blank alternate screen.
+- Added Workshop `1-Agent` runtime discoverability and validated the real native TUI
+  inside the Master-Agent pane.
+- Added the `master` command family for triage, planning, approval, execution, verification,
+  supervision, recovery, platform reads and audit.
+- Verified a real Workshop execution: Session `term-1793636352398-530889-18`, verified
+  `result.txt`, seven audited Master events.
+- Recorded same-task Pi/Hermes/Claude/Codex capability probe blockers without promoting
+  failed or unmeasured runs to success rates.
+
+## 0.92.0 - 2026-11-02
+
+- Replaced the handwritten ANSI screen painter with a Ratatui/Crossterm interaction layer.
+- Added grapheme-aware text editing, bracketed paste, mouse capture and internal selection.
+- Added automatic copy when a mouse selection is released, `Ctrl+C` selection copy through the
+  native clipboard or OSC 52, plus `Ctrl+V` and right-click pasting.
+- Added mouse-selection edge autoscroll: holding the drag at the top or bottom of the transcript
+  continuously scrolls and extends the selection into off-screen content.
+- Matched the Codex `›` composer prompt with a two-column prefix.
+- Applied the Codex-blue `ANSI 75` highlight color to the composer `›` prefix.
+- Added semantic transcript hierarchy and color tones for headings, verified/derived/assumed
+  claims, evidence, warnings, failures, descriptions and metadata.
+- Removed the global status row from the interactive surface; status is available through
+  `/status`, while the empty transcript serves as the welcome surface.
+- Added a bright-green confirmation message after mouse-selection copy succeeds.
+- Added a Codex-style transcript follow control with `New activity`, `Back to bottom` and Esc.
+- Added reverse-video hover feedback for the transcript follow control.
+- Added persistent TUI sessions, journal-backed transcript restoration and a post-exit
+  `Session` / `Continue` summary.
+- Injected a bounded summary of recent session turns into `known_facts` so continued requests
+  retain conversational context rather than only restoring the visible transcript.
+- Added a responsive 1-Agent ASCII welcome surface with session identity, start guidance and
+  command/resume hints.
+- Styled the running spinner bright green, the `正在运行` label bright blue and the remaining
+  activity hints muted gray.
+- Replaced the welcome mark with the user-selected eight-row box-drawing wordmark.
+- Highlighted the leading `1` glyph in bright green while keeping its two left-edge bars blue.
+- Replaced the welcome wordmark with the selected five-row shade-gradient `1Agent` design.
+- Aligned the first wordmark row with the vertical stem of the leading `1`.
+- Reused the colored welcome wordmark in the post-exit Session/Continue banner.
+- Added a Pi-backed `1agent` launcher that reads the existing Pi DeepSeek credential at runtime
+  without copying the secret into configuration.
+- Added a DeepSeek `deepseek-flash` Provider profile and tightened read-only
+  `action_receipts` output rules.
+- Changed TUI answers to conversation-first adaptive rendering: direct answers stay concise,
+  while decision/evidence tasks retain the full structured reasoning hierarchy.
+- Moved repetitive schema, stop reason and journal information to `/details` and `/journal`.
+- Kept completed direct answers to plain conversational prose by default; evidence and caveats
+  remain available through `/details`.
+- Clarified that `model_prior` claims must have an empty `sources` array and added a prompt-contract
+  regression test.
+- Required unknown evidence timestamps to use `null`, rejected `0` placeholders and required
+  expiration to follow observation when timestamps are present.
+- Added a one-shot model-output repair pass for both non-JSON final text and domain-validation
+  failures; the runtime preserves the original response in the journal, returns the precise error
+  to the same provider and revalidates its corrected JSON.
+- Required every evidence source to exactly match the sources declared by each referenced claim.
+- Added Markdown and inferred-code parsing with visible `╭─ / │ / ╰────` fences, language labels
+  and full-width dark code surfaces; standalone language labels and obvious unlabelled code no
+  longer require triple-backtick fences.
+- Styled code-fence borders in bright green and code-language labels in the high-light blue accent
+  while preserving the gray code text and dark code surface.
+- Added lightweight language-aware syntax highlighting for statements, keywords, functions,
+  classes/types, strings, numbers, comments and import/include references across C-family,
+  Python, Rust, JavaScript/TypeScript, Java/Kotlin/Scala, Go, shell and SQL code blocks.
+- Expanded bare code-label recognition to 163 language and format aliases, including
+  Kotlin, C#, Swift, Ruby, PHP, Haskell, Solidity, Dockerfile, Nix, TeX, Vue, Protobuf and
+  GraphQL.
+- Added a dedicated `▌ 引用` transcript surface for Markdown blockquotes.
+- Added human-readable `查阅结果` entries backed by actual journaled tool observations. Search
+  results show match counts, file locations and excerpts instead of raw JSON; source/status labels,
+  a distinct background and a bounded display size remain visible.
+- Rendered quotes and query results as lower-emphasis gray supplementary content using `DIM` to
+  distinguish them from the primary answer without unsafe per-region font-size changes.
+- Removed tool/query receipts from the primary transcript entirely. `/details` now opens a
+  scrollable overlay containing run structure and human-readable tool results; closing it does not
+  append anything to the conversation.
+- Fixed space input in the composer.
+- Added inset conversation/input surfaces, full-width user-message backgrounds with vertical
+  padding, localized activity labels, extra status-to-composer spacing and a Braille run spinner.
+- Standardized the product name as `1-Agent`, including the welcome logo, runtime identity,
+  system prompt and terminal session summary.
+- Added a filtered `/` command drawer with keyboard selection and Tab completion.
+- Added a Codex-style sticky prompt bar that follows the visible transcript and yields when the
+  corresponding user prompt is already on screen.
+- Added structured transcript rendering with width-aware wrapping, mouse selection and scrolling.
+- Added a blank normal-background row after the user message's gray padding so the assistant answer
+  starts with visible vertical separation.
+- Compacted repeated Markdown blank lines and unified each code block's title, blank lines, code
+  body and footer onto one continuous dark-gray surface, one shade lighter than the terminal
+  background so the block remains visible.
+- Added Codex-style diff backgrounds: green rows for `+` additions, deep-red rows for `-` deletions
+  and a neutral dark surface for unchanged code.
+- Kept the line-oriented fallback for pipes and non-interactive hosts.
+- Recorded OpenAI Codex and Ratatui attribution for reused interaction concepts and algorithms.
+
 ## 0.91.0 - 2026-11-02
 
 - Added an interactive `1agent tui` command.

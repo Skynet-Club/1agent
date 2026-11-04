@@ -1,0 +1,818 @@
+use crate::tui_host::HostBinding;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TuiCommandScope {
+    Core,
+    Master,
+}
+
+impl TuiCommandScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Master => "master",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandStage {
+    Any,
+    NoMission,
+    Framing,
+    Approval,
+    Running,
+    Verification,
+    Delivery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TuiCommandId {
+    Help,
+    Status,
+    Details,
+    Journal,
+    Clear,
+    Quit,
+    Frame,
+    Challenge,
+    Evidence,
+    Audit,
+    Decide,
+    Report,
+    Postmortem,
+    Model,
+    Permissions,
+    Session,
+    Workspace,
+    Context,
+    Preset,
+    Tools,
+    Export,
+    Copy,
+    Cost,
+    Config,
+    Mission,
+    Triage,
+    Plan,
+    Approve,
+    Agents,
+    Assign,
+    Dispatch,
+    Board,
+    Watch,
+    Attention,
+    Respond,
+    Control,
+    Artifacts,
+    Verify,
+    Timeline,
+}
+
+impl TuiCommandId {
+    pub fn uses_command_panel(self) -> bool {
+        !matches!(
+            self,
+            Self::Details
+                | Self::Clear
+                | Self::Quit
+                | Self::Frame
+                | Self::Challenge
+                | Self::Decide
+                | Self::Postmortem
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TuiCommandSpec {
+    pub id: TuiCommandId,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub scope: TuiCommandScope,
+    pub stage: CommandStage,
+    pub supports_inline_args: bool,
+    pub available_during_run: bool,
+    pub implemented: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TuiInputResolution<'a> {
+    Task(&'a str),
+    Command { spec: TuiCommandSpec, args: &'a str },
+    UnavailableMaster(TuiCommandSpec),
+    NotImplemented(TuiCommandSpec),
+    UnavailableInStage(TuiCommandSpec),
+    UnavailableWhileRunning(TuiCommandSpec),
+    UnknownCommand(&'a str),
+}
+
+pub const COMMANDS: &[TuiCommandSpec] = &[
+    command(
+        TuiCommandId::Help,
+        "/help",
+        "显示当前作用域和可用命令",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        true,
+    ),
+    command(
+        TuiCommandId::Status,
+        "/status",
+        "显示运行状态、宿主与预算",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        true,
+    ),
+    command(
+        TuiCommandId::Details,
+        "/details",
+        "打开最近一次运行详情面板",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Journal,
+        "/journal",
+        "显示当前运行日志路径",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        true,
+    ),
+    command(
+        TuiCommandId::Clear,
+        "/clear",
+        "清空显示，不删除会话或日志",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Quit,
+        "/quit",
+        "退出 1-Agent 并保留状态",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        true,
+    ),
+    command(
+        TuiCommandId::Frame,
+        "/frame",
+        "整理事实、假设、约束、未知和验收标准",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Challenge,
+        "/challenge",
+        "红队审查计划、结论、假设和证据",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Evidence,
+        "/evidence",
+        "查看 claim、evidence、unknown 和 conflict",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Audit,
+        "/audit",
+        "审计 run 或 Master journal",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Decide,
+        "/decide",
+        "形成证据绑定的决策记录",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Report,
+        "/report",
+        "输出任务或生产线报告",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Postmortem,
+        "/postmortem",
+        "分析失败根因和预防措施",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Model,
+        "/model",
+        "查看和选择下一次运行的模型路由",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Permissions,
+        "/permissions",
+        "查看和调整下一次运行的权限",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Session,
+        "/session",
+        "管理会话生命周期",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Workspace,
+        "/workspace",
+        "管理工作目录、文件、diff 和 worktree",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Context,
+        "/context",
+        "压缩上下文或生成摘要",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Preset,
+        "/preset",
+        "管理可复用任务模板",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Tools,
+        "/tools",
+        "查看 ToolRegistry、schema、权限和风险",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Export,
+        "/export",
+        "导出会话、报告或证据",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Copy,
+        "/copy",
+        "复制最近回答",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Cost,
+        "/cost",
+        "汇总 provider token usage 与配置价格成本",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Config,
+        "/config",
+        "查看和修改 TUI 配置",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Mission,
+        "/mission",
+        "管理生产线使命",
+        TuiCommandScope::Master,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Triage,
+        "/triage",
+        "确定任务路线和审批需求",
+        TuiCommandScope::Master,
+        CommandStage::Framing,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Plan,
+        "/plan",
+        "生成和检查 Work Item DAG",
+        TuiCommandScope::Master,
+        CommandStage::Framing,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Approve,
+        "/approve",
+        "人工批准生产线计划",
+        TuiCommandScope::Master,
+        CommandStage::Approval,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Agents,
+        "/agents",
+        "查看 Agent 能力和 readiness",
+        TuiCommandScope::Master,
+        CommandStage::Any,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Assign,
+        "/assign",
+        "查看或应用 Agent 分配",
+        TuiCommandScope::Master,
+        CommandStage::Approval,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Dispatch,
+        "/dispatch",
+        "创建租约并派发任务",
+        TuiCommandScope::Master,
+        CommandStage::Approval,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Board,
+        "/board",
+        "查看 Work Item 生产线总览",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Watch,
+        "/watch",
+        "轮询和推进运行状态",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Attention,
+        "/attention",
+        "只显示需要人工处理的事项",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        false,
+        true,
+    ),
+    command(
+        TuiCommandId::Respond,
+        "/respond",
+        "向指定任务路由人工回复",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Control,
+        "/control",
+        "暂停、恢复、取消、接管、重试或重规划",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Artifacts,
+        "/artifacts",
+        "检查预期和实际 Artifact",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Verify,
+        "/verify",
+        "执行独立质检验收",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        true,
+        true,
+    ),
+    command(
+        TuiCommandId::Timeline,
+        "/timeline",
+        "查看 Master 和 Workshop 时间线",
+        TuiCommandScope::Master,
+        CommandStage::Running,
+        false,
+        true,
+    ),
+];
+
+const fn command(
+    id: TuiCommandId,
+    name: &'static str,
+    description: &'static str,
+    scope: TuiCommandScope,
+    stage: CommandStage,
+    supports_inline_args: bool,
+    available_during_run: bool,
+) -> TuiCommandSpec {
+    TuiCommandSpec {
+        id,
+        name,
+        description,
+        scope,
+        stage,
+        supports_inline_args,
+        available_during_run,
+        implemented: true,
+    }
+}
+
+pub fn resolve_input<'a>(
+    input: &'a str,
+    host: &HostBinding,
+    stage: CommandStage,
+    running: bool,
+) -> TuiInputResolution<'a> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with('/') {
+        return TuiInputResolution::Task(trimmed);
+    }
+
+    let (name, args) = trimmed
+        .split_once(char::is_whitespace)
+        .map_or((trimmed, ""), |(name, args)| (name, args.trim()));
+    let canonical_name = if name == "/exit" { "/quit" } else { name };
+    let Some(spec) = COMMANDS
+        .iter()
+        .copied()
+        .find(|spec| spec.name == canonical_name)
+    else {
+        return TuiInputResolution::UnknownCommand(name);
+    };
+
+    if spec.scope == TuiCommandScope::Master && !host.is_workshop_master() {
+        return TuiInputResolution::UnavailableMaster(spec);
+    }
+    if spec.scope == TuiCommandScope::Master
+        && spec.stage != CommandStage::Any
+        && spec.stage != stage
+    {
+        return TuiInputResolution::UnavailableInStage(spec);
+    }
+    if running && !spec.available_during_run {
+        return TuiInputResolution::UnavailableWhileRunning(spec);
+    }
+    if !spec.implemented {
+        return TuiInputResolution::NotImplemented(spec);
+    }
+    TuiInputResolution::Command { spec, args }
+}
+
+pub fn commands_for_surface(
+    host: &HostBinding,
+    stage: CommandStage,
+    running: bool,
+) -> Vec<TuiCommandSpec> {
+    COMMANDS
+        .iter()
+        .copied()
+        .filter(|spec| spec.scope == TuiCommandScope::Core || host.is_workshop_master())
+        .filter(|spec| {
+            spec.scope == TuiCommandScope::Core
+                || spec.stage == CommandStage::Any
+                || spec.stage == stage
+        })
+        .filter(|spec| !running || spec.available_during_run)
+        .collect()
+}
+
+pub fn visible_commands(
+    prefix: &str,
+    host: &HostBinding,
+    stage: CommandStage,
+    running: bool,
+) -> Vec<TuiCommandSpec> {
+    if !prefix.starts_with('/') || prefix.chars().any(char::is_whitespace) {
+        return Vec::new();
+    }
+    commands_for_surface(host, stage, running)
+        .into_iter()
+        .filter(|spec| spec.implemented || spec.scope == TuiCommandScope::Master)
+        .filter(|spec| spec.name.starts_with(prefix))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui_host::{HostBinding, HostKind};
+
+    fn host(kind: HostKind) -> HostBinding {
+        match kind {
+            HostKind::Standalone => HostBinding::standalone(),
+            HostKind::WorkshopMaster => HostBinding::workshop_context(
+                "master",
+                "main-coordinator",
+                "1agent",
+                "term-1790000000000-1234-1",
+            ),
+            HostKind::WorkshopWorker => HostBinding::workshop_context(
+                "worker",
+                "release-verifier",
+                "codex",
+                "term-1790000000000-1234-2",
+            ),
+        }
+    }
+
+    #[test]
+    fn standalone_surface_never_contains_master_commands() {
+        let commands =
+            commands_for_surface(&host(HostKind::Standalone), CommandStage::Running, false);
+        assert!(
+            commands
+                .iter()
+                .all(|command| command.scope == TuiCommandScope::Core)
+        );
+    }
+
+    #[test]
+    fn master_surface_is_stage_aware() {
+        let commands = commands_for_surface(
+            &host(HostKind::WorkshopMaster),
+            CommandStage::Framing,
+            false,
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.id == TuiCommandId::Plan)
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|command| command.id == TuiCommandId::Dispatch)
+        );
+    }
+
+    #[test]
+    fn worker_surface_never_contains_master_commands() {
+        let commands = commands_for_surface(
+            &host(HostKind::WorkshopWorker),
+            CommandStage::Approval,
+            false,
+        );
+        assert!(
+            commands
+                .iter()
+                .all(|command| command.scope == TuiCommandScope::Core)
+        );
+    }
+
+    #[test]
+    fn hidden_master_command_is_rejected_even_when_typed() {
+        assert!(matches!(
+            resolve_input(
+                "/dispatch",
+                &host(HostKind::Standalone),
+                CommandStage::Any,
+                false
+            ),
+            TuiInputResolution::UnavailableMaster(_)
+        ));
+        assert!(matches!(
+            resolve_input(
+                "/dispatch",
+                &host(HostKind::WorkshopWorker),
+                CommandStage::Any,
+                false
+            ),
+            TuiInputResolution::UnavailableMaster(_)
+        ));
+    }
+
+    #[test]
+    fn phase_four_supervision_commands_are_master_only_and_implemented() {
+        let ids = [
+            TuiCommandId::Board,
+            TuiCommandId::Watch,
+            TuiCommandId::Attention,
+            TuiCommandId::Respond,
+            TuiCommandId::Control,
+            TuiCommandId::Timeline,
+        ];
+        let master = commands_for_surface(
+            &host(HostKind::WorkshopMaster),
+            CommandStage::Running,
+            false,
+        );
+        for id in ids {
+            let command = master
+                .iter()
+                .find(|command| command.id == id)
+                .expect("supervision command should be visible in Master mode");
+            assert!(command.implemented);
+            assert_eq!(command.scope, TuiCommandScope::Master);
+            assert!(matches!(
+                resolve_input(
+                    command.name,
+                    &host(HostKind::WorkshopMaster),
+                    CommandStage::Running,
+                    true,
+                ),
+                TuiInputResolution::Command { spec, .. } if spec.id == id
+            ));
+            assert!(matches!(
+                resolve_input(
+                    command.name,
+                    &host(HostKind::Standalone),
+                    CommandStage::Running,
+                    false,
+                ),
+                TuiInputResolution::UnavailableMaster(spec) if spec.id == id
+            ));
+        }
+    }
+
+    #[test]
+    fn phase_five_verification_commands_are_master_only_and_implemented() {
+        let master = commands_for_surface(
+            &host(HostKind::WorkshopMaster),
+            CommandStage::Running,
+            false,
+        );
+        for id in [TuiCommandId::Artifacts, TuiCommandId::Verify] {
+            let command = master
+                .iter()
+                .find(|command| command.id == id)
+                .expect("verification command should be visible in Master mode");
+            assert!(command.implemented);
+            assert_eq!(command.stage, CommandStage::Running);
+            assert!(matches!(
+                resolve_input(
+                    command.name,
+                    &host(HostKind::Standalone),
+                    CommandStage::Running,
+                    false,
+                ),
+                TuiInputResolution::UnavailableMaster(spec) if spec.id == id
+            ));
+        }
+    }
+
+    #[test]
+    fn phase_six_general_commands_are_implemented_core_commands() {
+        for id in [
+            TuiCommandId::Session,
+            TuiCommandId::Workspace,
+            TuiCommandId::Context,
+            TuiCommandId::Preset,
+            TuiCommandId::Cost,
+            TuiCommandId::Config,
+            TuiCommandId::Export,
+            TuiCommandId::Copy,
+        ] {
+            let command = COMMANDS
+                .iter()
+                .find(|command| command.id == id)
+                .expect("phase six command should be registered");
+            assert!(command.implemented);
+            assert_eq!(command.scope, TuiCommandScope::Core);
+        }
+        assert!(COMMANDS.iter().all(|command| command.implemented));
+    }
+
+    #[test]
+    fn command_counts_follow_scope_and_lifecycle_stage() {
+        let standalone =
+            commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
+        assert_eq!(standalone.len(), 24);
+        let master = host(HostKind::WorkshopMaster);
+        assert_eq!(
+            commands_for_surface(&master, CommandStage::NoMission, false).len(),
+            26
+        );
+        assert_eq!(
+            commands_for_surface(&master, CommandStage::Framing, false).len(),
+            28
+        );
+        assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            29
+        );
+        assert_eq!(
+            commands_for_surface(&master, CommandStage::Running, false).len(),
+            34
+        );
+    }
+
+    #[test]
+    fn master_drawer_contains_stage_command_and_standalone_does_not() {
+        let commands = visible_commands(
+            "/",
+            &host(HostKind::WorkshopMaster),
+            CommandStage::NoMission,
+            false,
+        );
+        assert_eq!(
+            commands
+                .iter()
+                .map(|command| command.name)
+                .collect::<Vec<_>>(),
+            vec![
+                "/help",
+                "/status",
+                "/details",
+                "/journal",
+                "/clear",
+                "/quit",
+                "/frame",
+                "/challenge",
+                "/evidence",
+                "/audit",
+                "/decide",
+                "/report",
+                "/postmortem",
+                "/model",
+                "/permissions",
+                "/session",
+                "/workspace",
+                "/context",
+                "/preset",
+                "/tools",
+                "/export",
+                "/copy",
+                "/cost",
+                "/config",
+                "/mission",
+                "/agents"
+            ]
+        );
+        let standalone = visible_commands(
+            "/",
+            &host(HostKind::Standalone),
+            CommandStage::NoMission,
+            false,
+        );
+        assert!(
+            standalone
+                .iter()
+                .all(|command| command.scope == TuiCommandScope::Core)
+        );
+    }
+}

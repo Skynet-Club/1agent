@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root=/home/skynet/1-agent
+pi_auth=/home/skynet/.pi/agent/auth.json
+binary="$project_root/target/release/first-principles-agent"
+
+if [[ ! -x "$binary" ]]; then
+  printf '1-Agent release binary is missing: %s\n' "$binary" >&2
+  exit 1
+fi
+
+if [[ -z "${PI_DEEPSEEK_API_KEY:-}" ]]; then
+  PI_DEEPSEEK_API_KEY="$(jq -er '.deepseek.key // empty' "$pi_auth")"
+  export PI_DEEPSEEK_API_KEY
+fi
+
+has_arg() {
+  local wanted="$1"
+  shift
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == "$wanted" || "$arg" == "$wanted="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ $# -eq 0 ]]; then
+  set -- tui
+fi
+
+subcommand="$1"
+shift
+
+plan_command=false
+if [[ "$subcommand" == "master" && "${1-}" == "plan" ]]; then
+  plan_command=true
+fi
+if [[ "$plan_command" == true ]]; then
+  args=(master plan)
+  shift
+else
+  args=("$subcommand")
+fi
+
+if [[ "$subcommand" == "tui" || "$subcommand" == "run" || "$plan_command" == true ]]; then
+  if has_arg --config "$@"; then
+    unset AGENT_API_KEY AGENT_MODEL AGENT_BASE_URL
+  else
+    export AGENT_API_KEY="$PI_DEEPSEEK_API_KEY"
+    export AGENT_MODEL="${AGENT_MODEL:-deepseek-flash}"
+    export AGENT_BASE_URL="${AGENT_BASE_URL:-https://api.deepseek.com/v1}"
+    if ! has_arg --provider "$@"; then
+      args+=(--provider openai-compatible)
+    fi
+  fi
+  if ! has_arg --allow-network "$@"; then
+    args+=(--allow-network)
+  fi
+fi
+
+exec "$binary" "${args[@]}" "$@"

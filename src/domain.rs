@@ -105,6 +105,8 @@ pub struct RunBudget {
     pub timeout_ms: u64,
     #[serde(default = "default_max_context_chars")]
     pub max_context_chars: usize,
+    #[serde(default = "default_auto_compact_percent")]
+    pub auto_compact_percent: u8,
     #[serde(default)]
     pub max_provider_p95_latency_ms: Option<u64>,
     #[serde(default)]
@@ -120,6 +122,7 @@ impl Default for RunBudget {
             provider_retry_backoff_ms: 50,
             timeout_ms: 120_000,
             max_context_chars: 100_000,
+            auto_compact_percent: default_auto_compact_percent(),
             max_provider_p95_latency_ms: None,
             max_unit_cost_micros_per_k: None,
         }
@@ -128,6 +131,10 @@ impl Default for RunBudget {
 
 fn default_max_context_chars() -> usize {
     100_000
+}
+
+fn default_auto_compact_percent() -> u8 {
+    80
 }
 
 fn default_max_provider_attempts() -> usize {
@@ -149,12 +156,46 @@ pub enum CognitiveMode {
     Escalate,
 }
 
+impl CognitiveMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DirectAnswer => "direct_answer",
+            Self::EvidenceResearch => "evidence_research",
+            Self::DecisionAnalysis => "decision_analysis",
+            Self::Execute => "execute",
+            Self::Diagnosis => "diagnosis",
+            Self::Escalate => "escalate",
+        }
+    }
+
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::DirectAnswer => "直接回答",
+            Self::EvidenceResearch => "证据研究",
+            Self::DecisionAnalysis => "决策分析",
+            Self::Execute => "执行任务",
+            Self::Diagnosis => "诊断分析",
+            Self::Escalate => "升级处理",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
     Low,
     Medium,
     High,
+}
+
+impl RiskLevel {
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::Low => "低",
+            Self::Medium => "中等",
+            Self::High => "高",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -861,6 +902,7 @@ pub struct ModelRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModelTurn {
     Final { answer: AgentAnswer },
+    InvalidFinal { content: String, error: String },
     ToolCalls { calls: Vec<ToolCall> },
 }
 
@@ -1011,6 +1053,23 @@ mod tests {
 
         request.objective = "Execute the deployment".into();
         assert_eq!(infer_mode(&request), CognitiveMode::Execute);
+    }
+
+    #[test]
+    fn cognitive_mode_labels_match_serialized_contract() {
+        for mode in [
+            CognitiveMode::DirectAnswer,
+            CognitiveMode::EvidenceResearch,
+            CognitiveMode::DecisionAnalysis,
+            CognitiveMode::Execute,
+            CognitiveMode::Diagnosis,
+            CognitiveMode::Escalate,
+        ] {
+            assert_eq!(
+                serde_json::to_value(mode).unwrap(),
+                serde_json::Value::String(mode.as_str().into())
+            );
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # ADR 0005: Terminal UI as a Presentation Adapter
 
 Date: 2026-11-02
-Status: accepted for V0
+Status: accepted; raw TTY rendering extended by ADR 0006
 
 ## Context
 

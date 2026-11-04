@@ -1,10 +1,10 @@
-# 1·Agent
+# 1-Agent
 
 Evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
-Version `0.91.0` is an executable V0 vertical slice:
+Version `0.94.0` is an executable provider-neutral vertical slice:
 
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
@@ -18,7 +18,10 @@ Version `0.91.0` is an executable V0 vertical slice:
 - provider configuration with environment-referenced credentials;
 - ranked provider fallback with per-run failure memory;
 - audited L2 experience candidates with review, approval, activation, degradation and rollback;
-- context-budget tool-result pruning;
+- context-budget tool-result pruning with an 80% automatic threshold;
+- journal-derived provider token and configured-cost ledger;
+- versioned capability probes for Pi, Hermes, Claude, Codex and the 1A DeepSeek route with
+  hash-only bounded evidence;
 - explicit claim records and evidence-to-claim audit;
 - durable checkpoints after complete tool batches;
 - interrupted-run resume from valid terminal-free journal prefixes;
@@ -108,20 +111,28 @@ Version `0.91.0` is an executable V0 vertical slice:
 - direct floor-pass labels in human-readable evaluation summaries;
 - HTTPS enforcement for non-loopback provider credentials;
 - readiness preflight consistent with provider credential transport rules;
-- interactive terminal UI with a persistent last-instruction topbar;
+- Ratatui/Crossterm terminal UI with grapheme-aware editing, mouse selection and clipboard
+  actions, a slash-command drawer, wrapped transcript scrolling and a persistent
+  viewport-aware sticky prompt bar;
+- 1A Master-Agent triage, natural-language planning, capability-based Agent assignment,
+  approval, bounded execution, leases, idempotency, scoped replanning and Journal replay;
+- Skynet Workshop Agent/Job/event observation and controlled Session execution;
+- independent Artifact existence, containment and SHA-256 verification;
 - unit, integration, CLI end-to-end and loopback adapter tests.
 
 Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.91.md`](docs/status-v0.91.md).
+[`docs/status-v0.93.md`](docs/status-v0.93.md).
 The evidence plan required before expanding autonomy is in
 [`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
-The latest cross-requirement audit is in [`docs/audit-v0.91.md`](docs/audit-v0.91.md).
-Current release state and resume instructions are in [`docs/handoff-v0.91.md`](docs/handoff-v0.91.md).
+The latest cross-requirement audit is in [`docs/audit-v0.93.md`](docs/audit-v0.93.md).
+Current development state and resume instructions are in [`docs/handoff-v0.93.md`](docs/handoff-v0.93.md).
 The documentation index is [`docs/documentation-map.md`](docs/documentation-map.md).
 Supported behavior, explicit non-goals and claim boundaries are in
 [`docs/product-boundary.md`](docs/product-boundary.md).
 Canonical task, model, journal, answer and evaluation contracts are in
 [`docs/io-contracts.md`](docs/io-contracts.md).
+Master-Agent architecture, safety invariants, commands and live acceptance evidence are in
+[`docs/master-agent.md`](docs/master-agent.md).
 Provider capability filtering, ranking and fallback semantics are in
 [`docs/model-routing.md`](docs/model-routing.md).
 Evaluation suite types, metrics and promotion gates are in
@@ -134,6 +145,7 @@ Research sources and the limits of their transfer are summarized in
 Current V0 assumptions:
 
 - Primary task: evidence-backed decision analysis.
+- Master mode: bounded planning and controlled execution with independent Artifact acceptance.
 - Authority: read-only by default.
 - Initial platform: Linux validation with a platform-neutral Rust core.
 - Provider strategy: deterministic test provider plus OpenAI-compatible adapter for DeepSeek, Kimi, Qwen, Ollama and similar endpoints.
@@ -144,6 +156,7 @@ Current V0 assumptions:
 ```bash
 cargo run --offline -- run --task "Compare A and B"
 cargo run --offline -- tui
+cargo run --offline -- tui --session ses_...
 cargo run --offline -- run --task "Compare A and B" --route-objective balanced
 cargo run --offline -- route-plan \
   --config configs/example.json \
@@ -162,7 +175,23 @@ cargo run --offline -- eval-inspect --report report.json --require-authenticity 
 cargo run --offline -- experience list --store .experience
 cargo run --offline -- resume-status --journal .journal/run.jsonl --json
 cargo run --offline -- tools --json
+cargo run --offline -- master triage --task "先审计，然后修复，最后测试" --json
+cargo run --offline -- master validate --plan plan.json
+cargo run --offline -- master agents --json
+cargo run --offline -- master jobs --json
 ```
+
+Pi-backed DeepSeek launcher in this workspace:
+
+```bash
+1agent
+1agent tui
+1agent run --task "Compare A and B"
+1agent master plan --task "先实现，然后测试" --workspace /path/to/project --write
+```
+
+The launcher reads the existing Pi DeepSeek credential at runtime from
+`/home/skynet/.pi/agent/auth.json`. The secret is not copied into the repository, config or journal.
 
 Remote OpenAI-compatible provider:
 

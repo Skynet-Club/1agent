@@ -7,11 +7,12 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::context::compact_messages;
+use crate::context::compact_messages_at;
 use crate::domain::{
-    AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
-    MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelTurn, ProviderRouteKey,
-    RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest, UnknownItem,
+    AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
+    MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
+    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest,
+    UnknownItem,
 };
 use crate::experience::ExperienceStore;
 use crate::journal::{
@@ -41,6 +42,24 @@ pub struct AgentRuntime {
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
     route_objective: Option<RouteObjective>,
     route_policy_sources: RoutePolicySources,
+    selected_route: Option<ProviderRouteKey>,
+}
+
+struct AnswerRepairContext<'a> {
+    journal: &'a mut Journal,
+    journal_path: PathBuf,
+    request: &'a TaskRequest,
+    model_request: &'a ModelRequest,
+    provider_id: String,
+    model: String,
+    invalid_content: String,
+    failure: String,
+    initial_elapsed: Duration,
+}
+
+struct RepairedAnswer {
+    answer: AgentAnswer,
+    stop_reason: Option<StopReason>,
 }
 
 impl AgentRuntime {
@@ -68,6 +87,7 @@ impl AgentRuntime {
                 latency_budget: PolicyValueSource::Unset,
                 unit_cost_budget: PolicyValueSource::Unset,
             },
+            selected_route: None,
         }
     }
 
@@ -79,6 +99,58 @@ impl AgentRuntime {
     pub fn with_route_policy_sources(mut self, sources: RoutePolicySources) -> Self {
         self.route_policy_sources = sources;
         self
+    }
+
+    pub fn set_route_objective(&mut self, objective: RouteObjective) {
+        self.route_objective = Some(objective);
+    }
+
+    pub fn route_objective(&self) -> RouteObjective {
+        self.route_objective.unwrap_or_default()
+    }
+
+    pub fn select_provider(&mut self, provider_id: &str, model: &str) -> bool {
+        let Some(candidate) = self.providers.iter().find(|candidate| {
+            candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+        }) else {
+            return false;
+        };
+        self.selected_route = Some(ProviderRouteKey {
+            provider_id: candidate.manifest.provider_id.clone(),
+            model: candidate.manifest.model.clone(),
+        });
+        true
+    }
+
+    pub fn selected_provider(&self) -> Option<&ProviderManifest> {
+        let selected = self.selected_route.as_ref()?;
+        self.providers
+            .iter()
+            .find(|candidate| {
+                candidate.manifest.provider_id == selected.provider_id
+                    && candidate.manifest.model == selected.model
+            })
+            .map(|candidate| &candidate.manifest)
+    }
+
+    pub fn provider_candidate(&self, provider_id: &str, model: &str) -> Option<ProviderCandidate> {
+        self.providers
+            .iter()
+            .find(|candidate| {
+                candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+            })
+            .cloned()
+    }
+
+    pub fn provider_manifests(&self) -> Vec<ProviderManifest> {
+        self.providers
+            .iter()
+            .map(|candidate| candidate.manifest.clone())
+            .collect()
+    }
+
+    pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
+        self.tools.capabilities()
     }
 
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
@@ -94,12 +166,174 @@ impl AgentRuntime {
         self
     }
 
+    async fn repair_answer(
+        &self,
+        context: AnswerRepairContext<'_>,
+        provider_attempts_used: &mut usize,
+        started_at: Instant,
+        cancellation: &CancellationToken,
+    ) -> Result<RepairedAnswer, RuntimeError> {
+        const MAX_REPAIR_CONTENT_CHARS: usize = 20_000;
+        let AnswerRepairContext {
+            journal,
+            journal_path,
+            request,
+            model_request,
+            provider_id,
+            model,
+            mut invalid_content,
+            failure,
+            initial_elapsed,
+        } = context;
+        if *provider_attempts_used >= request.budget.max_provider_attempts {
+            return Err(RuntimeError::InvalidOutput {
+                path: journal_path,
+                message: format!("{failure}; provider-attempt budget exhausted before repair"),
+            });
+        }
+        *provider_attempts_used += 1;
+        let candidate = self
+            .providers
+            .iter()
+            .find(|candidate| {
+                candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+            })
+            .ok_or_else(|| RuntimeError::NoRoute {
+                path: journal_path.clone(),
+                mode: model_request.mode,
+            })?;
+        if invalid_content.chars().count() > MAX_REPAIR_CONTENT_CHARS {
+            invalid_content = invalid_content
+                .chars()
+                .take(MAX_REPAIR_CONTENT_CHARS)
+                .collect::<String>();
+            invalid_content.push_str("\n…（原始响应过长，已截断）");
+        }
+        let mut repair_messages = model_request.messages.clone();
+        repair_messages.push(ModelMessage::assistant(invalid_content, Vec::new()));
+        repair_messages.push(ModelMessage::user(format!(
+            "{failure}. Return exactly one corrected AgentAnswer JSON object with no prose or \
+             outer Markdown fence. Markdown and code fences requested by the user may appear only \
+             inside the JSON conclusion string. Preserve the intended answer. Every \
+             evidence.source must exactly equal one entry in the sources array of every referenced \
+             claim. Use null for unknown evidence timestamps. Read-only action_receipts must be \
+             empty. model_prior claims must have empty sources."
+        )));
+        let repair_request = ModelRequest {
+            run_id: model_request.run_id,
+            mode: model_request.mode,
+            messages: repair_messages,
+            tools: model_request.tools.clone(),
+        };
+        journal
+            .append(JournalEventKind::ModelRequested {
+                request: repair_request.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let Some(remaining) =
+            remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+        else {
+            return Ok(RepairedAnswer {
+                answer: budget_answer("answer repair timeout exhausted"),
+                stop_reason: Some(StopReason::BudgetExhausted),
+            });
+        };
+        let mut repair_response = match tokio::time::timeout(
+            remaining,
+            candidate.provider.complete(repair_request, cancellation),
+        )
+        .await
+        {
+            Err(_) => {
+                return Ok(RepairedAnswer {
+                    answer: budget_answer("answer repair call timed out"),
+                    stop_reason: Some(StopReason::BudgetExhausted),
+                });
+            }
+            Ok(Ok(response)) => response,
+            Ok(Err(source)) => {
+                append_provider_failure(journal, &journal_path, &provider_id, &model, &source)?;
+                let _ = journal.append(JournalEventKind::RunStopped {
+                    reason: if source.code == crate::provider::ProviderErrorCode::Cancelled {
+                        StopReason::Cancelled
+                    } else {
+                        StopReason::ProviderError
+                    },
+                });
+                return if source.code == crate::provider::ProviderErrorCode::Cancelled {
+                    Err(RuntimeError::Cancelled { path: journal_path })
+                } else {
+                    Err(RuntimeError::Provider {
+                        path: journal_path,
+                        source,
+                    })
+                };
+            }
+        };
+        if repair_response.provider_id != provider_id || repair_response.model != model {
+            return Err(RuntimeError::InvalidOutput {
+                path: journal_path,
+                message: "repair response changed provider identity".into(),
+            });
+        }
+        apply_manifest_cost(&mut repair_response, &candidate.manifest);
+        journal
+            .append(JournalEventKind::ModelResponded {
+                response: repair_response.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let answer = match repair_response.turn {
+            ModelTurn::Final { answer } => answer,
+            ModelTurn::InvalidFinal { error, .. } => {
+                return Err(RuntimeError::InvalidOutput {
+                    path: journal_path,
+                    message: format!(
+                        "automatic repair did not produce valid AgentAnswer JSON: {error}"
+                    ),
+                });
+            }
+            ModelTurn::ToolCalls { .. } => {
+                return Err(RuntimeError::InvalidOutput {
+                    path: journal_path,
+                    message: "answer repair returned tool calls instead of final JSON".into(),
+                });
+            }
+        };
+        answer
+            .validate(request)
+            .map_err(|error| RuntimeError::InvalidOutput {
+                path: journal_path,
+                message: format!("{error}; automatic repair did not produce a valid answer"),
+            })?;
+        Ok(RepairedAnswer {
+            answer,
+            stop_reason: None,
+        })
+    }
+
     pub async fn run(
         &self,
         request: TaskRequest,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
-        self.run_internal(request, None, None, cancellation).await
+        self.run_internal(request, None, None, None, cancellation)
+            .await
+    }
+
+    pub async fn run_with_mode(
+        &self,
+        request: TaskRequest,
+        mode: CognitiveMode,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        self.run_internal(request, None, Some(mode), None, cancellation)
+            .await
     }
 
     pub async fn run_with_client_request_id(
@@ -114,7 +348,7 @@ impl AgentRuntime {
                 "client request id must not be empty".into(),
             ));
         }
-        self.run_internal(request, None, Some(client_request_id), cancellation)
+        self.run_internal(request, None, None, Some(client_request_id), cancellation)
             .await
     }
 
@@ -127,14 +361,21 @@ impl AgentRuntime {
             .map_err(|error| RuntimeError::Resume(error.to_string()))?;
         let prefix = find_resumable_prefix(&events)
             .map_err(|error| RuntimeError::Resume(error.to_string()))?;
-        self.run_internal(prefix.request.clone(), Some(prefix), None, cancellation)
-            .await
+        self.run_internal(
+            prefix.request.clone(),
+            Some(prefix),
+            None,
+            None,
+            cancellation,
+        )
+        .await
     }
 
     async fn run_internal(
         &self,
         request: TaskRequest,
         resume: Option<ResumablePrefix>,
+        requested_mode: Option<CognitiveMode>,
         client_request_id: Option<String>,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
@@ -148,6 +389,7 @@ impl AgentRuntime {
         let mode = resume
             .as_ref()
             .map(|prefix| prefix.checkpoint.mode)
+            .or(requested_mode)
             .unwrap_or_else(|| crate::domain::infer_mode(&request));
         if let Some(prefix) = &resume {
             journal
@@ -268,7 +510,13 @@ impl AgentRuntime {
             max_provider_p95_latency_ms: request.budget.max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
         };
-        let route_plan = self.router.plan(&route_request);
+        let mut route_plan = self.router.plan(&route_request);
+        if let Some(selected) = &self.selected_route {
+            route_plan.ranked.retain(|decision| {
+                decision.manifest.provider_id == selected.provider_id
+                    && decision.manifest.model == selected.model
+            });
+        }
         let stored_sources = resume
             .as_ref()
             .and_then(|prefix| prefix.checkpoint.route_policy_sources.clone());
@@ -467,8 +715,11 @@ impl AgentRuntime {
                 );
             }
 
+            let trigger_chars = request.budget.max_context_chars.saturating_mul(usize::from(
+                request.budget.auto_compact_percent.clamp(1, 100),
+            )) / 100;
             let (model_messages, context_compaction) =
-                compact_messages(&messages, request.budget.max_context_chars, 4);
+                compact_messages_at(&messages, trigger_chars, 4);
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
@@ -565,7 +816,7 @@ impl AgentRuntime {
                             StopReason::BudgetExhausted,
                         );
                     }
-                    Ok(Ok(candidate_response)) => {
+                    Ok(Ok(mut candidate_response)) => {
                         if candidate_response.provider_id != route.manifest.provider_id
                             || candidate_response.model != route.manifest.model
                         {
@@ -583,6 +834,7 @@ impl AgentRuntime {
                                 ),
                             });
                         }
+                        apply_manifest_cost(&mut candidate_response, &route.manifest);
                         response = Some(candidate_response);
                         break;
                     }
@@ -741,38 +993,93 @@ impl AgentRuntime {
                     path: journal_path.clone(),
                     source,
                 })?;
+            let response_provider_id = response.provider_id.clone();
+            let response_model = response.model.clone();
 
             match response.turn {
                 ModelTurn::Final { answer } => {
-                    answer
-                        .validate(&request)
-                        .map_err(|error| RuntimeError::InvalidOutput {
-                            path: journal_path.clone(),
-                            message: error.to_string(),
+                    let mut answer = answer;
+                    if let Err(validation_error) = answer.validate(&request) {
+                        let invalid_json = serde_json::to_string(&answer).map_err(|error| {
+                            RuntimeError::InvalidOutput {
+                                path: journal_path.clone(),
+                                message: format!(
+                                    "cannot serialize invalid answer for repair: {error}"
+                                ),
+                            }
                         })?;
+                        let repaired = self
+                            .repair_answer(
+                                AnswerRepairContext {
+                                    journal: &mut journal,
+                                    journal_path: journal_path.clone(),
+                                    request: &request,
+                                    model_request: &model_request,
+                                    provider_id: response_provider_id,
+                                    model: response_model,
+                                    invalid_content: invalid_json,
+                                    failure: format!(
+                                        "Your previous JSON failed validation: {validation_error}"
+                                    ),
+                                    initial_elapsed,
+                                },
+                                &mut provider_attempts_used,
+                                started_at,
+                                &cancellation,
+                            )
+                            .await?;
+                        answer = repaired.answer;
+                        if let Some(stop_reason) = repaired.stop_reason {
+                            return finish_with_answer(
+                                &mut journal,
+                                run_id,
+                                journal_path,
+                                answer,
+                                stop_reason,
+                            );
+                        }
+                    }
                     let stop_reason = stop_reason_for_answer(answer.status);
-                    journal
-                        .append(JournalEventKind::AnswerProduced {
-                            answer: answer.clone(),
-                        })
-                        .map_err(|source| RuntimeError::Journal {
-                            path: journal_path.clone(),
-                            source,
-                        })?;
-                    journal
-                        .append(JournalEventKind::RunStopped {
-                            reason: stop_reason,
-                        })
-                        .map_err(|source| RuntimeError::Journal {
-                            path: journal_path.clone(),
-                            source,
-                        })?;
-                    return Ok(RunResult {
+                    return finish_with_answer(
+                        &mut journal,
                         run_id,
                         journal_path,
                         answer,
                         stop_reason,
-                    });
+                    );
+                }
+                ModelTurn::InvalidFinal { content, error } => {
+                    let repaired = self
+                        .repair_answer(
+                            AnswerRepairContext {
+                                journal: &mut journal,
+                                journal_path: journal_path.clone(),
+                                request: &request,
+                                model_request: &model_request,
+                                provider_id: response_provider_id,
+                                model: response_model,
+                                invalid_content: content,
+                                failure: format!(
+                                    "Your previous response could not be parsed as a valid \
+                                     AgentAnswer JSON object: {error}"
+                                ),
+                                initial_elapsed,
+                            },
+                            &mut provider_attempts_used,
+                            started_at,
+                            &cancellation,
+                        )
+                        .await?;
+                    let stop_reason = repaired
+                        .stop_reason
+                        .unwrap_or_else(|| stop_reason_for_answer(repaired.answer.status));
+                    return finish_with_answer(
+                        &mut journal,
+                        run_id,
+                        journal_path,
+                        repaired.answer,
+                        stop_reason,
+                    );
                 }
                 ModelTurn::ToolCalls { calls } => {
                     if calls.is_empty() {
@@ -916,6 +1223,23 @@ pub fn local_manifest() -> ProviderManifest {
         output_cost_micros_per_k: 0,
         p95_latency_ms: 0,
     }
+}
+
+fn apply_manifest_cost(response: &mut ModelResponse, manifest: &ProviderManifest) {
+    if response.usage.cost_micros != 0 {
+        return;
+    }
+    let input_cost = response
+        .usage
+        .input_tokens
+        .saturating_mul(manifest.input_cost_micros_per_k)
+        .div_ceil(1_000);
+    let output_cost = response
+        .usage
+        .output_tokens
+        .saturating_mul(manifest.output_cost_micros_per_k)
+        .div_ceil(1_000);
+    response.usage.cost_micros = input_cost.saturating_add(output_cost);
 }
 
 pub fn remote_manifest(
@@ -1148,7 +1472,7 @@ fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{PermissionSet, RunBudget};
+    use crate::domain::{AgentAnswer, PermissionSet, RunBudget, Usage};
     use crate::experience::{
         ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
     };
@@ -1159,6 +1483,28 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct RetryableFailureProvider;
+
+    #[test]
+    fn manifest_pricing_is_applied_when_provider_cost_is_unknown() {
+        let mut manifest = local_manifest();
+        manifest.input_cost_micros_per_k = 1_000;
+        manifest.output_cost_micros_per_k = 2_000;
+        let mut response = ModelResponse {
+            provider_id: manifest.provider_id.clone(),
+            model: manifest.model.clone(),
+            turn: ModelTurn::ToolCalls { calls: Vec::new() },
+            usage: Usage {
+                input_tokens: 1_500,
+                output_tokens: 500,
+                cost_micros: 0,
+            },
+        };
+        apply_manifest_cost(&mut response, &manifest);
+        assert_eq!(response.usage.cost_micros, 2_500);
+        response.usage.cost_micros = 7;
+        apply_manifest_cost(&mut response, &manifest);
+        assert_eq!(response.usage.cost_micros, 7);
+    }
 
     #[async_trait]
     impl ModelProvider for RetryableFailureProvider {
@@ -1187,6 +1533,135 @@ mod tests {
         calls: AtomicUsize,
     }
 
+    struct RepairingProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for RepairingProvider {
+        fn id(&self) -> &str {
+            "repairing"
+        }
+
+        fn model(&self) -> &str {
+            "repair-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call == 1 {
+                assert!(
+                    request
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.content.contains("failed validation"))
+                );
+            }
+            let evidence_source = if call == 0 { "wrong.source" } else { "task" };
+            let answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+                "schema_version": 2,
+                "status": "completed",
+                "conclusion": "repaired",
+                "claims": [{
+                    "id": "c1",
+                    "text": "read-only",
+                    "status": "verified",
+                    "sources": ["task"],
+                    "scope": "test"
+                }],
+                "evidence": [{
+                    "source": evidence_source,
+                    "statement": "read-only",
+                    "observed_unix_ms": null,
+                    "expires_unix_ms": null,
+                    "claim_ids": ["c1"]
+                }],
+                "assumptions": [],
+                "constraints": [],
+                "unknowns": [],
+                "conflicts": [],
+                "flip_conditions": [],
+                "action_receipts": []
+            }))
+            .unwrap();
+            Ok(crate::domain::ModelResponse {
+                provider_id: "repairing".into(),
+                model: "repair-v1".into(),
+                turn: ModelTurn::Final { answer },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    struct ParsingRepairProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ParsingRepairProvider {
+        fn id(&self) -> &str {
+            "parsing-repair"
+        }
+
+        fn model(&self) -> &str {
+            "parsing-repair-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let turn = if call == 0 {
+                ModelTurn::InvalidFinal {
+                    content: "c\n#include <stdio.h>\nint main(void) { return 0; }".into(),
+                    error: "provider answer is not valid AgentAnswer JSON: expected value".into(),
+                }
+            } else {
+                assert!(
+                    request
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.content.contains("could not be parsed"))
+                );
+                assert!(
+                    request
+                        .messages
+                        .iter()
+                        .any(|message| message.content.contains("#include <stdio.h>"))
+                );
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion:
+                            "C uses #include and main; Python, Java and Rust use their own entry syntax."
+                                .into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(crate::domain::ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
     #[async_trait]
     impl ModelProvider for NonRetryableFailureProvider {
         fn id(&self) -> &str {
@@ -1209,6 +1684,84 @@ mod tests {
                 retryable: false,
             })
         }
+    }
+
+    #[tokio::test]
+    async fn invalid_final_answer_is_repaired_once_and_revalidated() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let mut manifest = local_manifest();
+        manifest.provider_id = "repairing".into();
+        manifest.model = "repair-v1".into();
+        let provider = Arc::new(RepairingProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: provider.clone(),
+                manifest,
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let request =
+            TaskRequest::from_objective("repair invalid output", workspace.path().to_path_buf());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.answer.conclusion, "repaired");
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+        let audit = audit_events(&read_events(&result.journal_path).unwrap());
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn unparseable_provider_text_is_preserved_and_repaired() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let mut manifest = local_manifest();
+        manifest.provider_id = "parsing-repair".into();
+        manifest.model = "parsing-repair-v1".into();
+        let provider = Arc::new(ParsingRepairProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: provider.clone(),
+                manifest,
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let request = TaskRequest::from_objective(
+            "使用 C、Python、Java、Rust 输出 Hello! World.",
+            workspace.path().to_path_buf(),
+        );
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+        assert!(result.answer.conclusion.contains("C uses"));
+        let events = read_events(&result.journal_path).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event.event, JournalEventKind::ModelRequested { .. }))
+                .count(),
+            2
+        );
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ModelResponded {
+                response: crate::domain::ModelResponse {
+                    turn: ModelTurn::InvalidFinal { content, .. },
+                    ..
+                }
+            } if content.contains("#include <stdio.h>")
+        )));
+        assert!(audit_events(&events).ok);
     }
 
     #[tokio::test]
@@ -1460,6 +2013,34 @@ mod tests {
         );
         let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[test]
+    fn explicit_provider_selection_tracks_manifest_and_tools() {
+        let manifest = local_manifest();
+        let mut runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: manifest.clone(),
+            }],
+            default_registry(),
+            std::env::temp_dir(),
+        );
+        assert!(runtime.select_provider(&manifest.provider_id, &manifest.model));
+        assert_eq!(
+            runtime
+                .selected_provider()
+                .map(|value| value.model.as_str()),
+            Some(manifest.model.as_str())
+        );
+        assert!(
+            runtime
+                .tool_capabilities()
+                .iter()
+                .any(|tool| tool.name == "read_file")
+        );
+        runtime.set_route_objective(RouteObjective::Balanced);
+        assert_eq!(runtime.route_objective(), RouteObjective::Balanced);
     }
 
     #[tokio::test]

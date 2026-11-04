@@ -9,7 +9,7 @@ Every iteration follows the same gates:
 5. Verify behavior with a real executable or environment check.
 6. Audit journal, permissions and evidence invariants.
 7. Compare the result with the requirement.
-8. Update architecture, ADRs, README and the Obsidian `1·Agent` document.
+8. Update architecture, ADRs, README and the Obsidian `1-Agent` document.
 9. Record unresolved items and select the next requirement.
 
 No phase is complete if its only evidence is model self-assessment.

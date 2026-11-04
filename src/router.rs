@@ -10,6 +10,15 @@ pub enum PrivacyClass {
     Remote,
 }
 
+impl PrivacyClass {
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::Local => "本地",
+            Self::Remote => "远程",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteObjective {
@@ -18,6 +27,17 @@ pub enum RouteObjective {
     Balanced,
     Latency,
     Cost,
+}
+
+impl RouteObjective {
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::Quality => "质量优先",
+            Self::Balanced => "质量与成本均衡",
+            Self::Latency => "延迟优先",
+            Self::Cost => "成本优先",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

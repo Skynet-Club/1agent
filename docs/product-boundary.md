@@ -1,13 +1,14 @@
 # Product Boundary
 
-Date: 2026-11-02
+Date: 2026-11-03
 
-Status: V0 boundary; model-quality and target-host evidence still pending
+Status: bounded Master-Agent V1; runtime quality matrix still pending
 
 ## Product role
 
-1·Agent is a provider-neutral decision and execution runtime. It owns canonical task, model,
-tool, journal, evidence, answer and evaluation contracts. Model providers and hosts are adapters.
+1-Agent is a provider-neutral decision and execution runtime. It owns canonical task, plan,
+coordination, model, tool, journal, evidence, answer, verification and evaluation contracts.
+Model providers and execution hosts are adapters.
 
 The V0 product is optimized for evidence-backed decisions where actions can remain read-only by
 default and where unsupported certainty is treated as a failure.
@@ -23,15 +24,18 @@ default and where unsupported certainty is treated as a failure.
 - gated experience candidates with held-out verification and lifecycle rollback;
 - versioned evaluation reports with integrity, content and optional HMAC authentication;
 - local host integration through the stdio protocol.
+- bounded Master-Agent Work Item DAG planning, approval, Agent selection and supervision;
+- controlled Skynet Workshop Session execution with independent Artifact acceptance;
+- hash-chained Master Journal replay and false-success rejection.
 
 ## Explicit non-goals for V0
 
 - claiming that the deterministic provider is a reasoning model;
 - claiming production model quality without configured-provider held-out results;
 - autonomous writes or process execution without a new permission model;
-- multi-agent orchestration as a default architecture;
+- unrestricted or unbounded multi-agent orchestration beyond eight Work Items and three runtimes;
 - training or fine-tuning a foundation model;
-- modifying Skynet Terminal v0.10.21;
+- changing Skynet Workshop execution authority or duplicating its scheduler;
 - storing provider secrets in journals or logs;
 - treating hidden model reasoning text as audit evidence;
 - treating an evaluation score as external truth without case semantics and reviewer quality;
@@ -49,6 +53,15 @@ default and where unsupported certainty is treated as a failure.
 
 Additional authority must be introduced as a separate capability with tests for approval,
 revocation, replay and audit.
+
+Master execution is an explicit bounded mode:
+
+- the model may propose but cannot self-approve a plan;
+- a new plan initializes unapproved;
+- path, risk, budget and permission limits are deterministically revalidated;
+- each external dispatch requires a durable lease and idempotency key;
+- error-exit or missing Artifact cannot become `verified`;
+- raw Agent output is not sent wholesale to the planning model.
 
 ## Evidence boundary
 

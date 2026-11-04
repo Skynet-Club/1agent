@@ -10,7 +10,9 @@ The runtime must be cross-platform, provider-neutral, recoverable, auditable and
 
 ```text
 CLI host
-  -> interactive terminal UI
+  -> Ratatui/Crossterm interaction layer
+    -> input editing, mouse selection, clipboard and command drawer
+    -> structured transcript and sticky user-instruction bar
   -> application service
     -> agent runtime
       -> model router -> provider adapter
@@ -21,6 +23,57 @@ CLI host
 The terminal UI is a presentation adapter. It calls the same `AgentRuntime`, answer contract,
 provider router and journal as the one-shot CLI; it does not own or mutate domain state directly.
 
+The command surface is host-aware. A `HostBinding` distinguishes standalone 1A,
+Workshop Master and Workshop Worker. Core commands are available everywhere; Master
+production-control commands are visible and executable only in the Workshop Master
+binding. Command visibility is a UX rule, not an authorization boundary, so Master
+handlers must revalidate state and adapter authority.
+
+The TUI session store uses version 2 metadata with a version 1 compatibility path and a
+separate append-only `events.jsonl` for host binding, command decisions, task submission
+and session closure. These events are correlated with, but do not replace, run journals
+or Master journals.
+
+First-principles commands use two paths. `/frame`, `/challenge`, `/decide` and
+`/postmortem` create model runs with an explicit cognitive mode. `/evidence`, `/audit`
+and `/report` are deterministic journal views and never upgrade a model statement into
+verified evidence.
+
+Workshop Master task definition is session-bound before it enters the execution state
+machine. `/mission` records the goal and workspace, `/triage` uses deterministic routing,
+and `/plan` uses the existing `ModelPlanGenerator` plus deterministic validation. Plan
+files remain unapproved. `/approve` binds user approval to the exact plan SHA-256; phase 3
+must convert that explicit approval into a durable MasterState/lease before dispatch.
+
+Phase 3 performs that conversion. `/agents` merges configured profiles with Workshop
+Registry metadata, `/assign` applies the existing deterministic assignment filters, and
+`/dispatch` initializes or reloads MasterState, materializes approval, creates leases and
+calls the Workshop adapter. Provider selection remains subordinate to router hard filters;
+the TUI can pin or change route objective but cannot bypass capability, privacy or risk
+constraints.
+
+Phase 4 adds supervision over that durable state. `/board` renders replay-validated Master
+state, `/watch` consumes bounded Session progress markers, `/attention` isolates operator
+work and `/respond` routes a human message back to the exact Session. `/control` records
+explicit pause, resume, cancel, takeover, retry and replan decisions after validating
+state and bounded counters. `/timeline` merges bounded Master and Workshop evidence without
+treating the Workshop scheduler as a second Master state store.
+
+Phase 5 closes the acceptance loop. `/artifacts` re-inspects current files, `/verify`
+requires exact independent evidence and a verifier distinct from the execution Agent,
+and Master `/evidence`, `/audit` and `/report` project the same durable record into
+claim, production and audit views. Execution success is never promoted to acceptance.
+
+Phase 6 adds local TUI controls for sessions, workspaces, context, presets, exports,
+clipboard, and bounded run preferences. Runtime context pruning and explicit local
+compaction reduce repeated context while reporting character headroom rather than
+inventing exact provider-token counts. Session metadata carries preferences, preferred
+workspace, mentions, archive state and an invalidatable context summary.
+
+Usage accounting is rebuilt from journaled provider responses rather than mutable UI state.
+Provider-reported cost is preserved; configured route prices fill missing cost. Context
+pruning triggers automatically at a bounded percentage before the hard character limit.
+
 ## V0 decisions
 
 - Rust 2024 and Tokio for a portable single-binary core with explicit cancellation and timeouts.
@@ -29,7 +82,8 @@ provider router and journal as the one-shot CLI; it does not own or mutate domai
 - OpenAI-compatible HTTP adapter is only a provider adapter, not the internal protocol.
 - Deterministic fake provider is required for offline tests and evaluation.
 - Read-only file tool is the first real capability.
-- No UI, database, vector store, agent framework or online self-modification in V0.
+- The terminal UI remains a presentation adapter; no database, vector store, agent framework or
+  online self-modification is part of the runtime.
 
 ## Implemented topology
 
@@ -60,6 +114,42 @@ The V0 runtime runs in the CLI process. Application boundaries are defined so th
 independent local service can replace the in-process host later without changing domain
 events or provider/tool contracts.
 
+## Master-Agent V1
+
+```text
+natural-language goal
+  -> deterministic triage
+  -> model PlanProposal (bounded, unapproved)
+  -> deterministic DAG / budget / permission / Artifact validation
+  -> capability-filtered AssignmentProposal
+  -> human approval
+  -> persisted TaskLease + idempotency key
+  -> ExecutionPort
+    -> Skynet Workshop Adapter
+      -> agent-run / persistent Session
+  -> ExecutionReceipt
+  -> independent verifier
+  -> verified dependency unlock
+  -> bounded retry or affected-subgraph replan
+  -> Master Journal replay / audit
+```
+
+Master coordination remains in 1A. Skynet Workshop retains authority over Session, Pane,
+Job, process, capacity and execution controls. 1A never duplicates the Workshop scheduler
+or treats a Pane as a Work Item identity.
+
+The Master store uses a versioned JSON snapshot plus an append-only JSONL event journal.
+Every event contains the post-transition state; load prefers replaying the journal and
+`audit` validates sequence, identity, bounded counters and status transitions. Planner
+requests and responses are separately journaled before a plan enters the Master store.
+
+Default safety limits are eight Work Items, three parallel tasks, one automatic retry per
+task and one automatic replan per run. A plan must be approved before dispatch. A
+nonterminal lease cannot be silently replaced even after expiry; explicit cancel/takeover
+is required. Verification fails closed unless execution exited zero, every acceptance
+criterion has independent passing evidence and every expected Artifact exists under the
+workspace with optional SHA-256 matching.
+
 ## Implemented contracts
 
 - `TaskRequest`: objective, deliverable, known facts, constraints, unknowns, decision and
@@ -68,6 +158,8 @@ events or provider/tool contracts.
   flip conditions and action receipts.
 - `JournalEvent`: protocol version, run id, contiguous sequence, timestamp and typed event.
 - `ModelRequest` and `ModelResponse`: canonical provider-neutral messages and tool calls.
+- Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
+  losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
 - `EvalReport`: suite outcome counts, decision-completeness policy version/source,
   canonical content digest and per-case results.
@@ -97,7 +189,9 @@ events or provider/tool contracts.
 - Proving real-model quality without configured providers.
 - Calling Linux commands or writing files.
 - Streaming model output.
-- Multi-agent orchestration.
+- Raw-mode terminal behavior on Windows.
+- Arbitrary multi-agent organization beyond the bounded eight-item V1 coordinator.
+- Multi-host or remote Workshop control.
 - Modifying Skynet Terminal.
 - Asymmetric release signatures; current approval is HMAC-based.
 - Asymmetric report signatures; report authentication is currently HMAC-based.
@@ -124,3 +218,5 @@ See `docs/adr/0004-evaluation-report-trust.md`.
 - File access is constrained to canonicalized read roots.
 - Cancellation must propagate through provider calls, tools and cleanup.
 - Structured errors are part of the contract; provider-specific error text is not.
+- Provider responses that cannot be interpreted as `AgentAnswer` are repaired once within the
+  run budget, then fully parsed and domain-validated again before becoming an answer.

@@ -1,0 +1,17 @@
+{
+  "task_id": "false-success",
+  "criteria_results": [
+    {
+      "criterion": "missing.txt exists",
+      "passed": true,
+      "evidence": [
+        "The execution process exited with code 0"
+      ]
+    }
+  ],
+  "test_results": [],
+  "evidence": [
+    "Execution receipt reports exit code 0"
+  ],
+  "verified_by": "pilot-verifier"
+}

@@ -29,6 +29,16 @@ pub enum ToolCapabilityStatus {
     Unsupported,
 }
 
+impl ToolCapabilityStatus {
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::Implemented => "可用",
+            Self::Degraded => "能力受限",
+            Self::Unsupported => "不可用",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ToolCapability {

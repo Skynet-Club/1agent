@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "suite_id": "agent-core-capability-v1",
+  "tasks": [
+    {
+      "id": "exact_ok",
+      "prompt": "Reply with exactly OK and nothing else. Do not use tools.",
+      "timeout_seconds": 60,
+      "success_rule": {
+        "kind": "exact",
+        "expected": "OK"
+      }
+    },
+    {
+      "id": "json_object",
+      "prompt": "Return exactly one JSON object with key ok set to boolean true. Do not use Markdown.",
+      "timeout_seconds": 60,
+      "success_rule": {
+        "kind": "json_object"
+      }
+    }
+  ],
+  "runtimes": [
+    {
+      "runtime": "pi",
+      "command": ["pi", "--print", "--no-tools"],
+      "prompt_delivery": "arg",
+      "blocked_patterns": [
+        "not logged in",
+        "authentication",
+        "unauthorized",
+        "provider transport failed",
+        "connection error",
+        "network is unreachable",
+        "could not resolve host"
+      ]
+    },
+    {
+      "runtime": "hermes",
+      "command": ["hermes", "-z"],
+      "prompt_delivery": "arg",
+      "blocked_patterns": [
+        "not logged in",
+        "authentication",
+        "unauthorized",
+        "read-only file system",
+        "connection error",
+        "network is unreachable",
+        "could not resolve host"
+      ]
+    },
+    {
+      "runtime": "claude",
+      "command": ["claude", "-p"],
+      "prompt_delivery": "arg",
+      "blocked_patterns": [
+        "not logged in",
+        "authentication",
+        "unauthorized",
+        "read-only file system",
+        "connection error",
+        "network is unreachable",
+        "could not resolve host"
+      ]
+    },
+    {
+      "runtime": "codex",
+      "command": ["codex", "exec", "--skip-git-repo-check"],
+      "prompt_delivery": "arg",
+      "blocked_patterns": [
+        "not logged in",
+        "authentication",
+        "unauthorized",
+        "read-only file system",
+        "connection error",
+        "network is unreachable",
+        "could not resolve host"
+      ]
+    },
+    {
+      "runtime": "deepseek-1agent",
+      "command": [
+        "scripts/1agent-pi",
+        "run",
+        "--config",
+        "configs/pi-deepseek.json",
+        "--allow-network",
+        "--json",
+        "--task"
+      ],
+      "prompt_delivery": "arg",
+      "blocked_patterns": [
+        "authentication",
+        "unauthorized",
+        "provider transport failed",
+        "connection error",
+        "network is unreachable",
+        "could not resolve host"
+      ],
+      "success_rule_overrides": {
+        "exact_ok": {
+          "kind": "json_path_equals",
+          "path": "answer.conclusion",
+          "expected": "OK"
+        },
+        "json_object": {
+          "kind": "json_path_json_object",
+          "path": "answer.conclusion"
+        }
+      }
+    }
+  ]
+}
