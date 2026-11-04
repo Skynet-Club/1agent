@@ -1,6 +1,6 @@
 # ADR 0020: 用 journal 承载需求重构的提议与决定
 
-- Status: proposed (blocked on the concurrent lease work finishing)
+- Status: accepted for the journal layer; CLI still unimplemented
 - Date: 2026-11-04
 
 ## Context
@@ -58,11 +58,32 @@ other
   `reframe_duplicate_decision`、`reframe_option_out_of_range`。
 - 未决定的提议是合法状态（用户还没答），不得视为错误。
 
+### 一次决定 = 一次 run
+
+实现前核对 audit 规则时发现：`MissingAnswerForStop` 会对 `Completed` /
+`NeedsEvidence` / `NeedsAuthorization` 触发，而 `Journal::create` 没有
+"重新打开并追加"的路径。因此"先提议、三天后再追加决定"做不到，硬做会让
+audit 报假阳性。
+
+正确形状是：**一次决定就是一个完整 run**。
+
+```text
+RunStarted(DirectAnswer)
+ReframeProposed
+ReframeDecided
+AnswerProduced      // 结论即"已采纳第 2 项"或"拒绝：我就是要原方案"
+RunStopped(Completed)
+```
+
+这样不需要新的 `StopReason`，不需要跨文件拼接，也不需要重开 journal。
+`AnswerProduced` 不是伪造：它就是这次 run 的真实产出。
+
 ### 协议版本
 
-`PROTOCOL_VERSION` 从 1 升到 2，新读取器同时接受 1 和 2；
-写入一律用 2。理由：只加事件而不升版本，会让旧二进制读到
-"schema_version=1 但事件类型未知"，失败得含糊。
+`PROTOCOL_VERSION` **保持 1**。原计划升到 2，但实际核对后发现：
+`experience.rs` 也做版本相等检查，升版本会连带影响历史 journal 与
+经验存储的兼容路径，而新增事件本身对旧二进制已经是 fail-closed
+（未知变体直接反序列化失败）。在收益不明确时不动版本号。
 
 ## Rejected alternatives
 
@@ -81,5 +102,6 @@ other
   `accepted` 计数即 obviation 的分子，`rejected{prefer_literal}` 即 regret。
 - journal 事件枚举扩大，`audit` 与 `replay` 的匹配必须同步更新，
   否则编译期即失败（这是好事）。
-- 旧 journal 保持可读；新 journal 需要新的二进制。
-- 在并发写入方完成 production-lease 工作之前不实施，避免两个契约改动叠加。
+- 一次决定结束一次 run，因此没有"挂起的提议"。用户没答就是没跑，
+  不会留下半开状态。
+- 旧 journal 保持可读；新 journal 需要新的二进制（未知事件变体 fail closed）。

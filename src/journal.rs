@@ -11,6 +11,7 @@ use crate::domain::{
     RuntimeCheckpoint, StopReason, TaskRequest, ToolCall, ToolObservation,
 };
 use crate::provider::{ProviderError, ProviderErrorCode};
+use crate::reframe::{ReframeChoice, ReframeProposal};
 use crate::router::{RouteObjective, RoutePlan, RoutePolicySources};
 use crate::tools::ToolCapabilitySnapshot;
 
@@ -145,6 +146,17 @@ pub enum JournalEventKind {
     AnswerProduced {
         answer: AgentAnswer,
     },
+    ReframeProposed {
+        proposal: ReframeProposal,
+        provider_id: String,
+        model: String,
+        prompt_sha256: String,
+    },
+    ReframeDecided {
+        choice: ReframeChoice,
+        actor: String,
+        decided_at_unix_ms: u128,
+    },
     RunStopped {
         reason: StopReason,
     },
@@ -235,6 +247,10 @@ pub enum AuditFindingCode {
     ProviderRetryOutcomeWithoutSchedule,
     ProviderRetryDelayMismatch,
     ProviderRetryElapsedAboveCap,
+    ReframeProposalInvalid,
+    ReframeDecisionWithoutProposal,
+    ReframeDuplicateDecision,
+    ReframeDecisionInvalid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -275,6 +291,10 @@ pub struct ReplayState {
     pub observations: Vec<ToolObservation>,
     pub checkpoint: Option<RuntimeCheckpoint>,
     pub client_request_id: Option<String>,
+    #[serde(default)]
+    pub reframe_proposal: Option<ReframeProposal>,
+    #[serde(default)]
+    pub reframe_choice: Option<ReframeChoice>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -869,6 +889,8 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
         );
     }
 
+    audit_reframe(events, &mut findings);
+
     let issues = findings
         .iter()
         .map(|finding| finding.message.clone())
@@ -882,6 +904,57 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
         unresolved_tool_calls,
         issues,
         findings,
+    }
+}
+
+fn audit_reframe(events: &[JournalEvent], findings: &mut Vec<JournalAuditFinding>) {
+    let mut current: Option<ReframeProposal> = None;
+    let mut decided = false;
+    for (index, event) in events.iter().enumerate() {
+        match &event.event {
+            JournalEventKind::ReframeProposed { proposal, .. } => {
+                if let Err(error) = proposal.validate() {
+                    push_audit_finding(
+                        findings,
+                        AuditFindingCode::ReframeProposalInvalid,
+                        Some(index),
+                        format!("event {index}: reframe proposal is invalid: {error}"),
+                    );
+                }
+                current = Some(proposal.clone());
+                decided = false;
+            }
+            JournalEventKind::ReframeDecided { choice, .. } => {
+                let Some(proposal) = &current else {
+                    push_audit_finding(
+                        findings,
+                        AuditFindingCode::ReframeDecisionWithoutProposal,
+                        Some(index),
+                        format!("event {index}: decision without a preceding proposal"),
+                    );
+                    continue;
+                };
+                if decided {
+                    push_audit_finding(
+                        findings,
+                        AuditFindingCode::ReframeDuplicateDecision,
+                        Some(index),
+                        format!("event {index}: second decision for the same proposal"),
+                    );
+                    continue;
+                }
+                if let Err(error) = choice.validate_against(proposal) {
+                    push_audit_finding(
+                        findings,
+                        AuditFindingCode::ReframeDecisionInvalid,
+                        Some(index),
+                        format!("event {index}: reframe decision is invalid: {error}"),
+                    );
+                }
+                decided = true;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -921,6 +994,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         observations: Vec::new(),
         checkpoint: None,
         client_request_id: None,
+        reframe_proposal: None,
+        reframe_choice: None,
     };
 
     for event in events {
@@ -932,6 +1007,12 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::ClientRequestLinked {
                 client_request_id: value,
             } => state.client_request_id = Some(value.clone()),
+            JournalEventKind::ReframeProposed { proposal, .. } => {
+                state.reframe_proposal = Some(proposal.clone());
+            }
+            JournalEventKind::ReframeDecided { choice, .. } => {
+                state.reframe_choice = Some(choice.clone());
+            }
             JournalEventKind::ResumeStarted {
                 request,
                 checkpoint,
@@ -1866,5 +1947,156 @@ mod tests {
         assert_eq!(history[0].run_id, Some(run_id));
         assert_eq!(history[0].stop_reason, Some(StopReason::BudgetExhausted));
         assert_eq!(history[0].client_request_id.as_deref(), Some("client-1"));
+    }
+}
+
+#[cfg(test)]
+mod reframe_journal_tests {
+    use super::*;
+    use crate::domain::{AnswerStatus, CognitiveMode};
+    use crate::reframe::{ReframeChoice, ReframeProposal, RejectedReason, RequestRole, StopRule};
+    use std::path::PathBuf;
+
+    fn proposal() -> ReframeProposal {
+        ReframeProposal {
+            schema_version: crate::reframe::REFRAME_SCHEMA_VERSION,
+            stated_request: "我要买个电钻".into(),
+            classification: RequestRole::Means,
+            confidence_bps: Some(8_200),
+            question: Some("打孔是为了穿线、挂东西，还是施工改造？".into()),
+            options: vec!["穿线".into(), "挂东西".into(), "施工改造".into()],
+            hypotheses: vec!["联网".into()],
+            substitutes: vec!["无线路由器".into()],
+            stop_rule: StopRule {
+                verifiable: true,
+                deliverable: true,
+                better_substitute_exists: true,
+            },
+        }
+    }
+
+    fn answer() -> AgentAnswer {
+        AgentAnswer {
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Completed,
+            conclusion: "已记录".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        }
+    }
+
+    fn journal_with(extras: Vec<JournalEventKind>) -> Vec<JournalEvent> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("我要买个电钻", PathBuf::from(".")),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        for extra in extras {
+            journal.append(extra).unwrap();
+        }
+        journal
+            .append(JournalEventKind::AnswerProduced { answer: answer() })
+            .unwrap();
+        journal
+            .append(JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        read_events(&path).unwrap()
+    }
+
+    fn proposed() -> JournalEventKind {
+        JournalEventKind::ReframeProposed {
+            proposal: proposal(),
+            provider_id: "deterministic".into(),
+            model: "offline-v1".into(),
+            prompt_sha256: "a".repeat(64),
+        }
+    }
+
+    fn decided(choice: ReframeChoice) -> JournalEventKind {
+        JournalEventKind::ReframeDecided {
+            choice,
+            actor: "user".into(),
+            decided_at_unix_ms: 1_793_000_000_000,
+        }
+    }
+
+    fn codes(events: &[JournalEvent]) -> Vec<AuditFindingCode> {
+        audit_events(events)
+            .findings
+            .into_iter()
+            .map(|finding| finding.code)
+            .collect()
+    }
+
+    #[test]
+    fn replay_recovers_the_proposal_and_the_decision() {
+        let events = journal_with(vec![
+            proposed(),
+            decided(ReframeChoice::Accepted {
+                option_index: 0,
+                substitute_index: Some(0),
+            }),
+        ]);
+        let state = replay_events(&events).unwrap();
+        assert_eq!(state.reframe_proposal, Some(proposal()));
+        assert_eq!(
+            state.reframe_choice,
+            Some(ReframeChoice::Accepted {
+                option_index: 0,
+                substitute_index: Some(0),
+            })
+        );
+    }
+
+    #[test]
+    fn audit_flags_a_decision_without_a_proposal() {
+        let events = journal_with(vec![decided(ReframeChoice::Deferred)]);
+        assert!(codes(&events).contains(&AuditFindingCode::ReframeDecisionWithoutProposal));
+    }
+
+    #[test]
+    fn audit_flags_a_second_decision() {
+        let events = journal_with(vec![
+            proposed(),
+            decided(ReframeChoice::Deferred),
+            decided(ReframeChoice::Deferred),
+        ]);
+        assert!(codes(&events).contains(&AuditFindingCode::ReframeDuplicateDecision));
+    }
+
+    #[test]
+    fn audit_flags_an_out_of_range_option() {
+        let events = journal_with(vec![
+            proposed(),
+            decided(ReframeChoice::Accepted {
+                option_index: 9,
+                substitute_index: None,
+            }),
+        ]);
+        assert!(codes(&events).contains(&AuditFindingCode::ReframeDecisionInvalid));
+    }
+
+    #[test]
+    fn a_rejected_decision_is_clean() {
+        let events = journal_with(vec![
+            proposed(),
+            decided(ReframeChoice::Rejected {
+                reason: RejectedReason::PreferLiteral,
+            }),
+        ]);
+        let audit = audit_events(&events);
+        assert!(audit.ok, "unexpected findings: {:?}", audit.issues);
     }
 }

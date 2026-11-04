@@ -332,6 +332,8 @@ mod tests {
             observations: Vec::new(),
             checkpoint: None,
             client_request_id: None,
+            reframe_proposal: None,
+            reframe_choice: None,
         };
         replay.answer = Some(AgentAnswer {
             schema_version: LEGACY_ANSWER_SCHEMA_VERSION,

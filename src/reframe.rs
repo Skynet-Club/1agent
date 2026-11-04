@@ -120,6 +120,12 @@ pub enum ReframeError {
     StopRuleNotSatisfied,
     #[error("confidence {0} exceeds 10000 basis points")]
     InvalidConfidence(u16),
+    #[error("cannot accept a proposal that asked no question")]
+    AcceptWithoutQuestion,
+    #[error("option index {0} is outside the proposed options")]
+    OptionOutOfRange(usize),
+    #[error("substitute index {0} is outside the proposed substitutes")]
+    SubstituteOutOfRange(usize),
 }
 
 const YES_NO: &[&str] = &[
@@ -234,6 +240,119 @@ impl ReframeProposal {
         }
         out
     }
+}
+
+/// Why a user turned a proposal down.
+///
+/// The five classes match the labelling categories in
+/// `docs/thesis/02-eval-protocol.md`, so a receipt and an annotation use the
+/// same vocabulary. `PreferLiteral` is the numerator of the regret rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RejectedReason {
+    CostTransferred,
+    ConstraintUnmet,
+    PreferLiteral,
+    Unverifiable,
+    Other,
+}
+
+impl RejectedReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CostTransferred => "cost_transferred",
+            Self::ConstraintUnmet => "constraint_unmet",
+            Self::PreferLiteral => "prefer_literal",
+            Self::Unverifiable => "unverifiable",
+            Self::Other => "other",
+        }
+    }
+
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::CostTransferred => "新增代价被转嫁",
+            Self::ConstraintUnmet => "原始约束未被满足",
+            Self::PreferLiteral => "我就是要原方案",
+            Self::Unverifiable => "提出的目的无法验证",
+            Self::Other => "其他",
+        }
+    }
+}
+
+/// What the user decided about a proposal. Only a human may produce this.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReframeChoice {
+    Accepted {
+        option_index: usize,
+        #[serde(default)]
+        substitute_index: Option<usize>,
+    },
+    Rejected {
+        reason: RejectedReason,
+    },
+    Deferred,
+}
+
+impl ReframeChoice {
+    pub fn validate_against(&self, proposal: &ReframeProposal) -> Result<(), ReframeError> {
+        match self {
+            Self::Accepted {
+                option_index,
+                substitute_index,
+            } => {
+                if !proposal.is_question() {
+                    return Err(ReframeError::AcceptWithoutQuestion);
+                }
+                if *option_index >= proposal.options.len() {
+                    return Err(ReframeError::OptionOutOfRange(*option_index));
+                }
+                if let Some(index) = substitute_index
+                    && *index >= proposal.substitutes.len()
+                {
+                    return Err(ReframeError::SubstituteOutOfRange(*index));
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub fn label_zh(&self) -> String {
+        match self {
+            Self::Accepted { option_index, .. } => format!("采纳第 {} 项", option_index + 1),
+            Self::Rejected { reason } => format!("拒绝：{}", reason.label_zh()),
+            Self::Deferred => "待定".into(),
+        }
+    }
+}
+
+/// The durable record a user can read months later. Plain text, no formatting.
+pub fn render_receipt(
+    proposal: &ReframeProposal,
+    choice: &ReframeChoice,
+    actor: &str,
+    decided_at_unix_ms: u128,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("原请求    {}\n", proposal.stated_request));
+    out.push_str(&format!(
+        "判定      {}\n",
+        proposal.classification.label_zh()
+    ));
+    if let Some(question) = &proposal.question {
+        out.push_str(&format!("追问      {question}\n"));
+    }
+    if !proposal.options.is_empty() {
+        out.push_str(&format!("选项      {}\n", proposal.options.join(" / ")));
+    }
+    if !proposal.substitutes.is_empty() {
+        out.push_str(&format!("替代      {}\n", proposal.substitutes.join(" / ")));
+    }
+    out.push_str(&format!("决定      {}\n", choice.label_zh()));
+    out.push_str(&format!("决定人    {actor}\n"));
+    out.push_str(&format!("时间      {decided_at_unix_ms}\n"));
+    out
 }
 
 fn validate_text(text: &str) -> Option<()> {
@@ -373,5 +492,83 @@ mod tests {
         assert!(text.contains("我要买个电钻"));
         assert!(text.contains("手段"));
         assert!(text.contains("无线路由器"));
+    }
+
+    fn end() -> ReframeProposal {
+        ReframeProposal {
+            schema_version: REFRAME_SCHEMA_VERSION,
+            stated_request: "把 typo 改掉".into(),
+            classification: RequestRole::End,
+            confidence_bps: None,
+            question: None,
+            options: vec![],
+            hypotheses: vec![],
+            substitutes: vec![],
+            stop_rule: StopRule::default(),
+        }
+    }
+
+    #[test]
+    fn accepting_an_end_proposal_is_rejected() {
+        let choice = ReframeChoice::Accepted {
+            option_index: 0,
+            substitute_index: None,
+        };
+        assert_eq!(
+            choice.validate_against(&end()),
+            Err(ReframeError::AcceptWithoutQuestion)
+        );
+    }
+
+    #[test]
+    fn option_index_must_be_in_range() {
+        let choice = ReframeChoice::Accepted {
+            option_index: 3,
+            substitute_index: None,
+        };
+        assert_eq!(
+            choice.validate_against(&means()),
+            Err(ReframeError::OptionOutOfRange(3))
+        );
+    }
+
+    #[test]
+    fn substitute_index_must_be_in_range() {
+        let choice = ReframeChoice::Accepted {
+            option_index: 0,
+            substitute_index: Some(1),
+        };
+        assert_eq!(
+            choice.validate_against(&means()),
+            Err(ReframeError::SubstituteOutOfRange(1))
+        );
+    }
+
+    #[test]
+    fn rejected_and_deferred_are_always_valid() {
+        for choice in [
+            ReframeChoice::Rejected {
+                reason: RejectedReason::PreferLiteral,
+            },
+            ReframeChoice::Deferred,
+        ] {
+            assert_eq!(choice.validate_against(&means()), Ok(()));
+            assert_eq!(choice.validate_against(&end()), Ok(()));
+        }
+    }
+
+    #[test]
+    fn receipt_keeps_the_request_and_the_choice() {
+        let text = render_receipt(
+            &means(),
+            &ReframeChoice::Rejected {
+                reason: RejectedReason::PreferLiteral,
+            },
+            "user",
+            1_793_000_000_000,
+        );
+        assert!(text.contains("我要买个电钻"));
+        assert!(text.contains("我就是要原方案"));
+        assert!(text.contains("user"));
     }
 }
