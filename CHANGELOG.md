@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.95.0 - 2026-11-04
+
+- Added requirement regression as a first-class capability: `ReframeProposal` with
+  fail-closed invariants, `reframe` and `receipt` commands, and journal events that
+  bind a proposal to a human decision in one complete run.
+- Added `/reframe` to the TUI: the model proposes, the options appear as a
+  selectable menu, Enter records the decision, and the interface stays responsive
+  with Ctrl+C cancellation.
+- Added a raw text path to the model provider (`complete_text`) so non-answer
+  replies no longer have to be recovered from an `InvalidFinal` error.
+- Added an end-of-turn next-action menu derived from the command registry, with a
+  default entry, and verified through a pseudo terminal.
+- Added the Occam output contract: five style laws in the system prompt, a
+  decision menu that deliberately has no default, and a language rule pinned to
+  the request.
+- Added evidence for the above: two independent 14-task style sets against
+  pre-registered targets, two frozen held-out rounds for reframing, and a
+  claims-to-evidence table enforced by `verify.sh`.
+- Added a participation kit and self-contained labelling sheets so external
+  people can produce the semantic evidence that is still missing.
+- Did not include the multi-goal production line; that program remains at M2 and
+  is tracked separately.
+
 ## 0.94.0 - 2026-11-03
 
 - Completed the phased 1A production-control command surface, including mission and

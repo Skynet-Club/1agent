@@ -16,8 +16,13 @@
 
 ## Status
 
-Version `0.94.0` is an executable provider-neutral vertical slice:
+Version `0.95.0` is an executable provider-neutral vertical slice:
 
+- requirement regression: decide whether a request is a goal or a means, ask one
+  splitting question, propose a substitute, and record the human decision;
+- a durable receipt rebuilt from the journal alone, and a `reframe` command in both
+  the CLI and the TUI;
+- an Occam output contract with pre-registered style targets and measured evidence;
 - structured task input and deterministic cognitive-mode selection;
 - static capability-based provider routing;
 - canonical model messages and tool calls;
