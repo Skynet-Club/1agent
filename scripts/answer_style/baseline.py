@@ -107,7 +107,14 @@ def measure(row):
     conclusion = normalize(prose)
     matcher = difflib.SequenceMatcher(None, objective, conclusion, autojunk=False)
     longest = matcher.find_longest_match(0, len(objective), 0, len(conclusion)).size
+    # Compare CJK characters against Latin *words*, not letters: an English word
+    # is several letters long, so a letter ratio marks Chinese answers that
+    # mention code identifiers as English.
+    cjk = len(re.findall(r"[\u4e00-\u9fff]", prose))
+    latin_words = len(re.findall(r"[A-Za-z][A-Za-z'-]*", prose))
+    total = cjk + latin_words * 2
     return {
+        "cjk_share": round(cjk / total, 3) if total else 0.0,
         "chars": len(text),
         "prose_chars": len(prose),
         "sentences": len(sentences),
@@ -190,6 +197,7 @@ def main():
         ),
         "real_with_summary_ending": sum(1 for row in real if row["summary_ending"]),
         "real_with_menu": sum(1 for row in real if row["enumerated"] >= 2),
+        "real_latin_dominant": sum(1 for row in real if row["cjk_share"] < 0.5),
     }
 
     if args.list_objectives:

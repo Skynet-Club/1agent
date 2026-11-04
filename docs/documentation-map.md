@@ -44,6 +44,8 @@ Date: 2026-11-02
   tasks; brevity improved, menus and language regressed.
 - [`evidence-reframe-live-v0.md`](evidence-reframe-live-v0.md): prompt unified into one file,
   plus one live reframe call; smoke only.
+- [`evidence-answer-style-v2.md`](evidence-answer-style-v2.md): the same 14 tasks after the
+  language clause; length improved, wrong-language answers fixed.
 
 ## Thesis and pre-registration (v0.95 research)
 

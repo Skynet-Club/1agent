@@ -75,6 +75,9 @@ def main():
     print(f"median prose-char delta : {median:+.0f}")
     print(f"shorter after           : {sum(1 for d in deltas if d < 0)}/{len(deltas)}")
     print(f"restatement > 8         : {restatement_before} -> {restatement_after}")
+    latin_before = sum(1 for o in shared if before[o]["cjk_share"] < 0.5)
+    latin_after = sum(1 for o in shared if after[o]["cjk_share"] < 0.5)
+    print(f"latin-dominant answers  : {latin_before} -> {latin_after}")
     print(
         f"median sentence delta   : {sorted(sentence_deltas)[len(sentence_deltas) // 2]:+d}"
     )
