@@ -1,6 +1,18 @@
 # 1-Agent
 
-Evidence-accountable, provider-neutral decision agent.
+> **先问一句，再动手。**
+
+1-Agent 在动手之前，先判断：这是你要的事，还是这件事能带来的结果。
+
+他走进店里说：我要买个电钻。店主只问了一句——打孔是为了穿线，还是挂东西？
+于是他没买电钻，买了一台路由器。
+
+大多数 Agent 会给他一份很好的电钻推荐清单。1-Agent 先问那一句。
+
+- 产品定位、行为准则与证据边界：[`docs/product-manual.md`](docs/product-manual.md)
+- 命题、停止规则与预注册评测协议：[`docs/thesis/`](docs/thesis/)
+
+技术定位：evidence-accountable, provider-neutral decision agent.
 
 ## Status
 
