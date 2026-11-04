@@ -593,6 +593,51 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    Accept {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Return {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Reclaim {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value = ".master")]
+        state_root: PathBuf,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long, default_value = "skynet-workshop")]
+        workshop_prefix: String,
+        /// Assert the old execution is already gone; skip the cancel call.
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Cancel {
         #[arg(long)]
         trace_id: String,
@@ -1596,6 +1641,73 @@ async fn main() -> Result<()> {
                 let state = store.append(
                     state,
                     MasterJournalEventKind::TakenOver,
+                    Some(task),
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Accept {
+                trace_id,
+                state_root,
+                actor,
+                reason,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.accept_goal(actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::GoalAccepted,
+                    None,
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Return {
+                trace_id,
+                state_root,
+                task,
+                actor,
+                reason,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                state.end_takeover(&task, actor, reason.clone(), now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::TakeoverEnded,
+                    Some(task),
+                    "user",
+                    reason,
+                    now_unix_ms(),
+                )?;
+                print_master_state(&state, json)?;
+            }
+            MasterCommand::Reclaim {
+                trace_id,
+                state_root,
+                task,
+                actor,
+                reason,
+                workshop_prefix,
+                force,
+                json,
+            } => {
+                let store = MasterStore::new(&state_root, &trace_id)?;
+                let mut state = store.load()?;
+                if !force {
+                    terminate_expired_session_if_any(&state, &task, &workshop_prefix)?;
+                }
+                state.reclaim_expired_lease(&task, actor, reason.clone(), true, now_unix_ms())?;
+                let state = store.append(
+                    state,
+                    MasterJournalEventKind::LeaseReclaimed,
                     Some(task),
                     "user",
                     reason,
@@ -3461,7 +3573,8 @@ fn run_master_ready(
         bail!("master run is paused");
     }
     let profiles = load_agent_profiles(&runtime_profiles)?;
-    let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?;
+    let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?
+        .with_goal_context(state.trace_id.clone(), state.plan.goal_id.clone());
     let profiles = if dry_run {
         profiles
     } else {
@@ -3680,7 +3793,8 @@ fn run_master_start(
     }
     let profiles = load_agent_profiles(&runtime_profiles)?;
     let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?
-        .with_artifact_dir(store.trace_dir().join("executions"));
+        .with_artifact_dir(store.trace_dir().join("executions"))
+        .with_goal_context(state.trace_id.clone(), state.plan.goal_id.clone());
     let profiles = adapter.merge_profiles(&profiles)?;
     state.advance_ready(now_unix_ms());
     let ready = state
@@ -3967,6 +4081,37 @@ fn cancel_active_session_if_any(
             .cancel_session(session_id)?;
     }
     Ok(())
+}
+
+fn terminate_expired_session_if_any(
+    state: &MasterState,
+    task_id: &str,
+    workshop_prefix: &str,
+) -> Result<()> {
+    let session_id = state
+        .tasks
+        .get(task_id)
+        .and_then(|task| {
+            task.active_lease
+                .as_ref()
+                .and(task.execution_target.as_ref())
+        })
+        .and_then(|target| target.session_id.clone());
+    let Some(session_id) = session_id else {
+        return Ok(());
+    };
+    match WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), false)?
+        .cancel_session(&session_id)
+    {
+        Ok(()) => Ok(()),
+        Err(error)
+            if error.to_string().contains("session_not_found")
+                || error.to_string().contains("session_exited") =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -5687,7 +5832,9 @@ fn run_tui_dispatch(
         Duration::from_secs(30),
         action == "run",
     ) {
-        Ok(adapter) => adapter.with_artifact_dir(store.trace_dir().join("executions")),
+        Ok(adapter) => adapter
+            .with_artifact_dir(store.trace_dir().join("executions"))
+            .with_goal_context(master.trace_id.clone(), master.plan.goal_id.clone()),
         Err(error) => {
             state.info(format!("无法创建 Workshop adapter：{error}"));
             return;
@@ -5994,7 +6141,9 @@ fn watch_tui_master(state: &mut TuiState, session: &TuiSession, settings: &TuiRu
         Duration::from_secs(30),
         false,
     ) {
-        Ok(adapter) => adapter.with_artifact_dir(store.trace_dir().join("executions")),
+        Ok(adapter) => adapter
+            .with_artifact_dir(store.trace_dir().join("executions"))
+            .with_goal_context(master.trace_id.clone(), master.plan.goal_id.clone()),
         Err(error) => {
             state.info(format!("无法创建 Workshop adapter：{error}"));
             return;
@@ -6216,7 +6365,7 @@ fn control_tui_master(
                     .map(|_| format!("Master run {}", if paused { "paused" } else { "resumed" }))
                     .map_err(|error| error.to_string())
             }
-            "cancel" | "takeover" | "retry" | "replan" => {
+            "cancel" | "takeover" | "return" | "retry" | "replan" | "reclaim" => {
                 let (task_id, reason) = rest
                     .split_once(char::is_whitespace)
                     .unwrap_or((rest, "user requested"));
@@ -6271,6 +6420,51 @@ fn control_tui_master(
                                 now_unix_ms(),
                             )
                             .map(|_| format!("任务 {task_id} 已由人工接管"))
+                            .map_err(|error| error.to_string())
+                    }
+                    "return" => {
+                        master
+                            .end_takeover(task_id, actor.clone(), reason, now_unix_ms())
+                            .map_err(|error| error.to_string())?;
+                        store
+                            .append(
+                                master,
+                                MasterJournalEventKind::TakeoverEnded,
+                                Some(task_id.into()),
+                                &actor,
+                                reason,
+                                now_unix_ms(),
+                            )
+                            .map(|_| format!("任务 {task_id} 已交还 Master"))
+                            .map_err(|error| error.to_string())
+                    }
+                    "reclaim" => {
+                        if let Err(error) = terminate_expired_session_if_any(
+                            &master,
+                            task_id,
+                            &settings.workshop_prefix,
+                        ) {
+                            return Err(format!("终止旧 Session 失败：{error}"));
+                        }
+                        master
+                            .reclaim_expired_lease(
+                                task_id,
+                                actor.clone(),
+                                reason,
+                                true,
+                                now_unix_ms(),
+                            )
+                            .map_err(|error| error.to_string())?;
+                        store
+                            .append(
+                                master,
+                                MasterJournalEventKind::LeaseReclaimed,
+                                Some(task_id.into()),
+                                &actor,
+                                reason,
+                                now_unix_ms(),
+                            )
+                            .map(|_| format!("任务 {task_id} 的过期租约已回收"))
                             .map_err(|error| error.to_string())
                     }
                     "retry" => {
@@ -6350,7 +6544,10 @@ fn control_tui_master(
                     }
                 }
             }
-            _ => Err("用法：/control pause|resume|cancel|takeover|retry|replan ...".into()),
+            _ => Err(
+                "用法：/control pause|resume|cancel|takeover|return|retry|replan|reclaim ..."
+                    .into(),
+            ),
         }
     })();
     match result {
@@ -9651,6 +9848,10 @@ mod tui_rendering_tests {
         fake_script(
             "session",
             "#!/bin/sh\ncase \"$1\" in create) printf '%s\\n' '{\"session_id\":\"term-test\"}';; esac\n",
+        );
+        fake_script(
+            "lease",
+            "#!/bin/sh\nif [ \"$1\" = request ]; then printf '%s\\n' '{\"ok\":true,\"lease\":{\"lease_id\":\"lease-test\"}}'; else printf '%s\\n' '{\"ok\":true}'; fi\n",
         );
         fake_script("agents", "#!/bin/sh\nexit 0\n");
         settings.workshop_prefix = fake_prefix.display().to_string();

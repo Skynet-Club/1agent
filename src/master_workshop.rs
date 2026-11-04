@@ -51,6 +51,34 @@ pub enum WorkshopAdapterError {
     MissingAssignment(String),
     #[error("invalid Agent capability profile: {0}")]
     InvalidProfiles(String),
+    #[error("production lease denied: {0}")]
+    LeaseDenied(String),
+}
+
+struct ProductionLeaseGuard<'a> {
+    adapter: &'a WorkshopCliAdapter,
+    id: Option<String>,
+}
+
+impl<'a> ProductionLeaseGuard<'a> {
+    fn new(adapter: &'a WorkshopCliAdapter, id: String) -> Self {
+        Self {
+            adapter,
+            id: Some(id),
+        }
+    }
+
+    fn take(mut self) -> Option<String> {
+        self.id.take()
+    }
+}
+
+impl Drop for ProductionLeaseGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            self.adapter.release_production_lease(&id);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,6 +125,8 @@ pub struct WorkshopCliAdapter {
     timeout: Duration,
     open_gui: bool,
     artifact_dir: Option<PathBuf>,
+    conversation_id: Option<String>,
+    goal_id: Option<String>,
 }
 
 impl Default for WorkshopCliAdapter {
@@ -106,6 +136,8 @@ impl Default for WorkshopCliAdapter {
             timeout: Duration::from_secs(30),
             open_gui: true,
             artifact_dir: None,
+            conversation_id: None,
+            goal_id: None,
         }
     }
 }
@@ -128,11 +160,25 @@ impl WorkshopCliAdapter {
             timeout,
             open_gui,
             artifact_dir: None,
+            conversation_id: std::env::var("SKYTERM_MASTER_CONVERSATION_ID")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            goal_id: None,
         })
     }
 
     pub fn with_artifact_dir(mut self, directory: impl Into<PathBuf>) -> Self {
         self.artifact_dir = Some(directory.into());
+        self
+    }
+
+    pub fn with_goal_context(
+        mut self,
+        conversation_id: impl Into<String>,
+        goal_id: impl Into<String>,
+    ) -> Self {
+        self.conversation_id = Some(conversation_id.into());
+        self.goal_id = Some(goal_id.into());
         self
     }
 
@@ -292,6 +338,19 @@ impl WorkshopCliAdapter {
                 message: format!("workspace is not a directory: {}", item.workspace.display()),
             });
         }
+        let _production_lease = match (&self.conversation_id, &self.goal_id) {
+            (Some(conversation_id), Some(goal_id)) => Some(ProductionLeaseGuard::new(
+                self,
+                self.request_production_lease(
+                    conversation_id,
+                    goal_id,
+                    item,
+                    profile,
+                    lease_generation,
+                )?,
+            )),
+            _ => None,
+        };
         let task = agent_task(item);
         validate_text("task", &task)?;
         let timeout_s = item.budget.timeout_ms.div_ceil(1000).max(1).to_string();
@@ -392,6 +451,99 @@ impl WorkshopCliAdapter {
         })
     }
 
+    fn request_production_lease(
+        &self,
+        conversation_id: &str,
+        goal_id: &str,
+        item: &WorkItem,
+        profile: &AgentProfile,
+        generation: u64,
+    ) -> Result<String, WorkshopAdapterError> {
+        let ttl_ms = item.budget.timeout_ms.saturating_add(30_000).max(60_000);
+        let generation = generation.to_string();
+        let workspace = item.workspace.display().to_string();
+        let mut args = vec![
+            "lease".to_string(),
+            "request".into(),
+            "--conversation".into(),
+            conversation_id.into(),
+            "--goal".into(),
+            goal_id.into(),
+            "--task".into(),
+            item.id.clone(),
+            "--attempt".into(),
+            generation.clone(),
+            "--generation".into(),
+            generation,
+            "--workspace".into(),
+            workspace,
+            "--provider".into(),
+            profile.runtime.clone(),
+            "--ttl-seconds".into(),
+            (ttl_ms / 1000).to_string(),
+            "--json".into(),
+        ];
+        if item.permissions.allow_write {
+            args.push("--write".into());
+        }
+        let references = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = self.run(&references, self.timeout)?;
+        let value: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+            WorkshopAdapterError::InvalidResponse {
+                command: self.command_name("lease"),
+                message: error.to_string(),
+            }
+        })?;
+        if value.get("ok") != Some(&Value::Bool(true)) {
+            let error = value
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str)
+                .unwrap_or("lease_denied");
+            return Err(WorkshopAdapterError::LeaseDenied(error.into()));
+        }
+        value
+            .get("lease")
+            .and_then(|lease| lease.get("lease_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| WorkshopAdapterError::InvalidResponse {
+                command: self.command_name("lease"),
+                message: "lease response has no lease_id".into(),
+            })
+    }
+
+    fn release_production_lease(&self, lease_id: &str) {
+        let _ = self.run(
+            &["lease", "release", "--id", lease_id, "--json"],
+            self.timeout,
+        );
+    }
+
+    fn release_production_lease_for_task(&self, task_id: &str, attempt: u64) {
+        let Some(conversation_id) = self.conversation_id.as_deref() else {
+            return;
+        };
+        if self.goal_id.is_none() {
+            return;
+        }
+        let attempt = attempt.to_string();
+        let _ = self.run(
+            &[
+                "lease",
+                "release",
+                "--conversation",
+                conversation_id,
+                "--task",
+                task_id,
+                "--attempt",
+                &attempt,
+                "--json",
+            ],
+            self.timeout,
+        );
+    }
+
     pub fn start(
         &self,
         item: &WorkItem,
@@ -432,6 +584,21 @@ impl WorkshopCliAdapter {
         let exit_file = base.with_extension("exit");
         let workspace = item.workspace.display().to_string();
         let name = format!("1A · {} · {}", item.id, item.title);
+        let task_label = format!("task_id={}", item.id);
+        let attempt_label = format!("attempt={lease_generation}");
+        let production_lease = match (&self.conversation_id, &self.goal_id) {
+            (Some(conversation_id), Some(goal_id)) => Some(ProductionLeaseGuard::new(
+                self,
+                self.request_production_lease(
+                    conversation_id,
+                    goal_id,
+                    item,
+                    profile,
+                    lease_generation,
+                )?,
+            )),
+            _ => None,
+        };
         let created = self.run(
             &[
                 "session",
@@ -439,6 +606,10 @@ impl WorkshopCliAdapter {
                 &workspace,
                 "--name",
                 &truncate_utf8(&name, 128),
+                "--label",
+                &task_label,
+                "--label",
+                &attempt_label,
             ],
             self.timeout,
         )?;
@@ -510,6 +681,7 @@ impl WorkshopCliAdapter {
         {
             eprintln!("1agent master: GUI attach was not started: {error}");
         }
+        let _ = production_lease.and_then(ProductionLeaseGuard::take);
         Ok(ExecutionSubmission {
             task_id: item.id.clone(),
             agent_id: profile.agent_id.clone(),
@@ -565,6 +737,10 @@ impl WorkshopCliAdapter {
             })?;
             let exit_code = raw.trim().parse::<i32>().ok();
             let (artifact_path, artifact_sha256) = file_artifact(&output)?;
+            self.release_production_lease_for_task(
+                &submission.task_id,
+                submission.lease_generation,
+            );
             self.mark_agent_idle(&submission.agent_id);
             return Ok(ExecutionObservation::Finished {
                 receipt: Box::new(ExecutionReceipt {
@@ -603,6 +779,10 @@ impl WorkshopCliAdapter {
                     self.timeout,
                 );
             }
+            self.release_production_lease_for_task(
+                &submission.task_id,
+                submission.lease_generation,
+            );
             self.mark_agent_idle(&submission.agent_id);
             let (artifact_path, artifact_sha256) =
                 file_artifact(&output).unwrap_or_else(|_| (String::new(), String::new()));
@@ -1144,9 +1324,14 @@ printf '%s\n' '[{"version":1,"agent_id":"worker","display_name":"Worker","provid
 printf '%s\n' '{"schema":"skynet.term.agent-run/v1","agent":{"agent_id":"worker"},"session_id":"term-test","gui":{"started":false},"exec":{"status":"ok","exit":0,"duration_ms":12,"artifact":{"path":"/tmp/out","sha256":"abc"}}}'
 "#,
         );
+        write_executable(
+            &root.path().join("fake-lease"),
+            "#!/bin/sh\ncommand=$1; shift; printf '%s\\n' \"$@\" > \"$0.$command.args\"; if [ \"$command\" = request ]; then printf '%s\\n' '{\"ok\":true,\"lease\":{\"lease_id\":\"lease-test\"}}'; else printf '%s\\n' '{\"ok\":true}'; fi\n",
+        );
         let adapter =
             WorkshopCliAdapter::new(prefix.display().to_string(), Duration::from_secs(2), false)
-                .unwrap();
+                .unwrap()
+                .with_goal_context("master-test", "goal-test");
         let profiles = adapter.agent_profiles().unwrap();
         assert_eq!(profiles[0].agent_id, "worker");
         let mut profile = profiles[0].clone();
@@ -1188,6 +1373,10 @@ printf '%s\n' '{"schema":"skynet.term.agent-run/v1","agent":{"agent_id":"worker"
             receipt.execution_target.session_id.as_deref(),
             Some("term-test")
         );
+        let release_args = std::fs::read_to_string(root.path().join("fake-lease.release.args"))
+            .expect("synchronous dispatch must release its production lease");
+        assert!(release_args.contains("lease-test"), "{release_args}");
+        assert!(release_args.contains("--id"), "{release_args}");
     }
 
     #[test]
@@ -1205,6 +1394,7 @@ command=$1
 shift
 case "$command" in
   create)
+    printf '%s\n' "$@" > "$0.args"
     printf '%s\n' '{"session_id":"term-async"}'
     ;;
   write)
@@ -1227,11 +1417,25 @@ case "$command" in
 esac
 "#,
         );
+        write_executable(
+            &root.path().join("fake-lease"),
+            r#"#!/bin/sh
+command=$1
+shift
+printf '%s\n' "$@" > "$0.$command.args"
+if [ "$command" = "request" ]; then
+  printf '%s\n' '{"ok":true,"lease":{"lease_id":"lease-test"}}'
+else
+  printf '%s\n' '{"ok":true}'
+fi
+"#,
+        );
         let artifact_dir = root.path().join("executions");
         let adapter =
             WorkshopCliAdapter::new(prefix.display().to_string(), Duration::from_secs(2), false)
                 .unwrap()
-                .with_artifact_dir(&artifact_dir);
+                .with_artifact_dir(&artifact_dir)
+                .with_goal_context("master-test", "goal-test");
         let workspace = tempdir().unwrap();
         let item = WorkItem {
             id: "async-task".into(),
@@ -1281,11 +1485,31 @@ esac
             submission.execution_target.session_id.as_deref(),
             Some("term-async")
         );
+        let create_args = std::fs::read_to_string(root.path().join("fake-session.args")).unwrap();
+        assert!(create_args.contains("task_id=async-task"), "{create_args}");
+        assert!(create_args.contains("attempt=2"), "{create_args}");
+        let lease_args =
+            std::fs::read_to_string(root.path().join("fake-lease.request.args")).unwrap();
+        assert!(lease_args.contains("--conversation"), "{lease_args}");
+        assert!(lease_args.contains("master-test"), "{lease_args}");
+        assert!(lease_args.contains("--goal"), "{lease_args}");
+        assert!(lease_args.contains("goal-test"), "{lease_args}");
+        assert!(lease_args.contains("async-task"), "{lease_args}");
+        assert!(
+            !root.path().join("fake-lease.release.args").exists(),
+            "lease must stay active while the session is running"
+        );
         assert!(workspace.path().join("result.txt").is_file());
         let observation = adapter.observe_submission(&submission, 200).unwrap();
         let ExecutionObservation::Finished { receipt } = observation else {
             panic!("expected a final receipt");
         };
+        let release_args =
+            std::fs::read_to_string(root.path().join("fake-lease.release.args")).unwrap();
+        assert!(release_args.contains("master-test"), "{release_args}");
+        assert!(release_args.contains("async-task"), "{release_args}");
+        assert!(release_args.contains("--attempt"), "{release_args}");
+        assert!(release_args.contains('2'), "{release_args}");
         let receipt = *receipt;
         let output = receipt
             .artifacts

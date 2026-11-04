@@ -87,6 +87,9 @@ pub enum DecisionKind {
     PlanRevised,
     TaskLeased,
     TaskTakenOver,
+    TakeoverEnded,
+    LeaseReclaimed,
+    GoalAccepted,
     RetryRequested,
     ReplanRequested,
     ReplanApplied,
@@ -179,6 +182,8 @@ pub struct MasterState {
     pub paused: bool,
     #[serde(default)]
     pub plan_rejected: bool,
+    #[serde(default)]
+    pub goal_accepted: bool,
     pub approved_at_unix_ms: Option<u128>,
     pub updated_unix_ms: u128,
     pub event_seq: u64,
@@ -222,6 +227,12 @@ pub enum MasterCoordinationError {
     Paused,
     #[error("task '{0}' is under human takeover")]
     HumanTakeover(String),
+    #[error("task '{0}' is not under human takeover")]
+    NotUnderTakeover(String),
+    #[error("goal has already been accepted")]
+    GoalAlreadyAccepted,
+    #[error("task '{0}' is not verified; goal acceptance is blocked")]
+    GoalNotVerified(String),
     #[error("task '{task}' cannot transition from {from:?} to {to:?}")]
     InvalidTransition {
         task: String,
@@ -230,6 +241,12 @@ pub enum MasterCoordinationError {
     },
     #[error("task '{0}' still has an active lease")]
     ActiveLease(String),
+    #[error("task '{0}' has no active lease")]
+    NoActiveLease(String),
+    #[error("task '{0}' lease has not expired")]
+    LeaseNotExpired(String),
+    #[error("task '{0}' execution is not confirmed terminated")]
+    ExecutionNotTerminated(String),
     #[error("task '{0}' has unmet dependencies")]
     DependenciesNotVerified(String),
     #[error("task '{task}' was leased to a different agent than '{agent}'")]
@@ -319,6 +336,7 @@ impl MasterState {
             replan_count: 0,
             paused: false,
             plan_rejected: false,
+            goal_accepted: false,
             approved_at_unix_ms: None,
             updated_unix_ms: now_unix_ms,
             event_seq: 0,
@@ -352,6 +370,42 @@ impl MasterState {
             now_unix_ms,
         );
         self.advance_ready(now_unix_ms);
+        Ok(())
+    }
+
+    pub fn accept_goal(
+        &mut self,
+        actor: impl Into<String>,
+        reason: impl Into<String>,
+        now_unix_ms: u128,
+    ) -> Result<(), MasterCoordinationError> {
+        if !self.plan.approved {
+            return Err(MasterCoordinationError::NotApproved);
+        }
+        if self.goal_accepted {
+            return Err(MasterCoordinationError::GoalAlreadyAccepted);
+        }
+        if self.tasks.is_empty() {
+            return Err(MasterCoordinationError::GoalNotVerified(
+                "no work items".into(),
+            ));
+        }
+        if let Some((task_id, _)) = self
+            .tasks
+            .iter()
+            .find(|(_, task)| task.status != WorkItemStatus::Verified)
+        {
+            return Err(MasterCoordinationError::GoalNotVerified(task_id.clone()));
+        }
+        self.goal_accepted = true;
+        self.record_decision(
+            DecisionKind::GoalAccepted,
+            None,
+            actor,
+            reason.into(),
+            now_unix_ms,
+        );
+        self.updated_unix_ms = now_unix_ms;
         Ok(())
     }
 
@@ -580,6 +634,57 @@ impl MasterState {
             .filter(|lease| lease.generation == generation)
             .ok_or(MasterCoordinationError::StaleReceipt)?;
         lease.expires_unix_ms = expires_unix_ms;
+        self.updated_unix_ms = now_unix_ms;
+        Ok(())
+    }
+
+    /// Explicitly reclaim an expired lease after the caller has terminated the old
+    /// execution. This is manual recovery, not an automatic retry: it does not
+    /// consume the automatic retry budget.
+    pub fn reclaim_expired_lease(
+        &mut self,
+        task_id: &str,
+        actor: impl Into<String>,
+        reason: impl Into<String>,
+        execution_terminated: bool,
+        now_unix_ms: u128,
+    ) -> Result<(), MasterCoordinationError> {
+        let state = self.task_mut(task_id)?;
+        let lease = state
+            .active_lease
+            .as_ref()
+            .ok_or_else(|| MasterCoordinationError::NoActiveLease(task_id.into()))?;
+        if lease.is_active(now_unix_ms) {
+            return Err(MasterCoordinationError::LeaseNotExpired(task_id.into()));
+        }
+        if !execution_terminated {
+            return Err(MasterCoordinationError::ExecutionNotTerminated(
+                task_id.into(),
+            ));
+        }
+        if !matches!(
+            state.status,
+            WorkItemStatus::Assigned
+                | WorkItemStatus::Starting
+                | WorkItemStatus::Running
+                | WorkItemStatus::AwaitingInput
+                | WorkItemStatus::Blocked
+        ) {
+            return Err(MasterCoordinationError::InvalidTransition {
+                task: task_id.into(),
+                from: state.status,
+                to: WorkItemStatus::Retrying,
+            });
+        }
+        state.active_lease = None;
+        set_task_status(state, WorkItemStatus::Retrying);
+        self.record_decision(
+            DecisionKind::LeaseReclaimed,
+            Some(task_id.into()),
+            actor,
+            reason.into(),
+            now_unix_ms,
+        );
         self.updated_unix_ms = now_unix_ms;
         Ok(())
     }
@@ -1112,6 +1217,29 @@ impl MasterState {
         Ok(())
     }
 
+    pub fn end_takeover(
+        &mut self,
+        task_id: &str,
+        actor: impl Into<String>,
+        reason: impl Into<String>,
+        now_unix_ms: u128,
+    ) -> Result<(), MasterCoordinationError> {
+        let state = self.task_mut(task_id)?;
+        if !state.human_takeover {
+            return Err(MasterCoordinationError::NotUnderTakeover(task_id.into()));
+        }
+        state.human_takeover = false;
+        self.record_decision(
+            DecisionKind::TakeoverEnded,
+            Some(task_id.into()),
+            actor,
+            reason.into(),
+            now_unix_ms,
+        );
+        self.updated_unix_ms = now_unix_ms;
+        Ok(())
+    }
+
     pub fn cancel_task(
         &mut self,
         task_id: &str,
@@ -1411,6 +1539,9 @@ pub enum MasterJournalEventKind {
     Paused,
     Resumed,
     TakenOver,
+    TakeoverEnded,
+    LeaseReclaimed,
+    GoalAccepted,
     Cancelled,
 }
 
@@ -1582,7 +1713,11 @@ impl MasterStore {
         file.write_all(&bytes)
             .and_then(|_| file.write_all(b"\n"))
             .and_then(|_| file.sync_data())
-            .map_err(|error| MasterCoordinationError::Store(error.to_string()))
+            .map_err(|error| MasterCoordinationError::Store(error.to_string()))?;
+        // Observability projection: the journal above is the authority. A failed
+        // host-event append must not roll back or fail the task transition.
+        let _ = crate::host_events::emit(&event);
+        Ok(())
     }
 }
 
@@ -2191,6 +2326,123 @@ mod tests {
                 .as_deref()
                 .is_some_and(|reason| reason.contains("SHA-256 mismatch"))
         );
+    }
+
+    #[test]
+    fn expired_and_stale_leases_fail_closed_without_silent_replacement() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), lease_key("a", 1), 100, 3)
+            .unwrap();
+
+        // Before expiry, a second lease is rejected.
+        assert_eq!(
+            state.lease_task("a", &agent(), lease_key("a", 2), 100, 50),
+            Err(MasterCoordinationError::ActiveLease("a".into()))
+        );
+
+        // After expiry, the old lease cannot start and no new lease is silently
+        // granted; the current contract has no explicit reclaim path yet.
+        assert_eq!(
+            state.begin_starting("a", lease.generation, 200),
+            Err(MasterCoordinationError::StaleReceipt)
+        );
+        assert_eq!(
+            state.lease_task("a", &agent(), lease_key("a", 2), 100, 200),
+            Err(MasterCoordinationError::ActiveLease("a".into()))
+        );
+
+        // Stale generation cannot renew or finish.
+        assert_eq!(
+            state.renew_lease("a", lease.generation + 1, 300, 200),
+            Err(MasterCoordinationError::StaleReceipt)
+        );
+        assert_eq!(
+            state.record_receipt(receipt("a", lease.generation, &lease_key("a", 1)), 200),
+            Err(MasterCoordinationError::StaleReceipt)
+        );
+    }
+
+    #[test]
+    fn goal_acceptance_requires_every_task_verified_and_is_idempotent() {
+        let mut state = ready_state();
+        assert!(matches!(
+            state.accept_goal("user", "accept", 3),
+            Err(MasterCoordinationError::GoalNotVerified(_))
+        ));
+        for task in state.tasks.values_mut() {
+            task.status = WorkItemStatus::Verified;
+        }
+        state.accept_goal("user", "accept", 4).unwrap();
+        assert!(state.goal_accepted);
+        assert_eq!(
+            state.accept_goal("user", "again", 5),
+            Err(MasterCoordinationError::GoalAlreadyAccepted)
+        );
+    }
+
+    #[test]
+    fn takeover_can_be_explicitly_returned_to_the_master() {
+        let mut state = ready_state();
+        state
+            .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+            .unwrap();
+        state.take_over("a", "user", "inspect", 4).unwrap();
+        assert!(state.tasks["a"].human_takeover);
+        state.end_takeover("a", "user", "done", 5).unwrap();
+        assert!(!state.tasks["a"].human_takeover);
+        assert_eq!(
+            state.end_takeover("a", "user", "again", 6),
+            Err(MasterCoordinationError::NotUnderTakeover("a".into()))
+        );
+    }
+
+    #[test]
+    fn expired_lease_can_be_reclaimed_and_replaced_with_monotonic_generation() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), lease_key("a", 1), 100, 3)
+            .unwrap();
+        assert_eq!(
+            state.reclaim_expired_lease("a", "master", "still active", true, 50),
+            Err(MasterCoordinationError::LeaseNotExpired("a".into()))
+        );
+        assert_eq!(
+            state.reclaim_expired_lease("a", "master", "not stopped", false, 200),
+            Err(MasterCoordinationError::ExecutionNotTerminated("a".into()))
+        );
+        state
+            .reclaim_expired_lease("a", "master", "lease expired", true, 200)
+            .unwrap();
+        assert!(state.tasks["a"].active_lease.is_none());
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::Retrying);
+
+        let replacement = state
+            .lease_task("a", &agent(), lease_key("a", 2), 100, 201)
+            .unwrap();
+        assert_eq!(replacement.generation, lease.generation + 1);
+    }
+
+    #[test]
+    fn host_event_projection_writes_a_typed_goal_event() {
+        let root = tempdir().unwrap();
+        let state = ready_state();
+        let event = journal_event(
+            &state,
+            1,
+            MasterJournalEventKind::Initialized,
+            None,
+            "test",
+            "init",
+            3,
+        );
+        crate::host_events::emit_to(&root.path().join("events"), &event).unwrap();
+        let raw = std::fs::read_to_string(root.path().join("events/host-events.jsonl")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(raw.lines().next().unwrap()).unwrap();
+        assert_eq!(value["schema"], "skynet.term.host-event/v1");
+        assert_eq!(value["event"], "goal.proposed");
+        assert_eq!(value["goal_id"], state.plan.goal_id);
+        assert!(value["conversation_id"].as_str().is_some());
     }
 
     #[test]

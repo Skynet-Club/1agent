@@ -36,12 +36,15 @@ impl WorkItemStatus {
             (Pending, Ready | Cancelled)
                 | (Ready, Assigned | Cancelled)
                 | (Assigned, Starting | Retrying | Cancelled)
-                | (Starting, Running | Blocked | Rejected | Cancelled)
+                | (
+                    Starting,
+                    Running | Blocked | Rejected | Retrying | Cancelled
+                )
                 | (
                     Running,
-                    AwaitingInput | ArtifactReady | Blocked | Rejected | Cancelled
+                    AwaitingInput | ArtifactReady | Blocked | Rejected | Retrying | Cancelled
                 )
-                | (AwaitingInput, Running | Blocked | Cancelled)
+                | (AwaitingInput, Running | Blocked | Retrying | Cancelled)
                 | (Blocked, Running | Retrying | Replanning | Cancelled)
                 | (ArtifactReady, Verifying | Rejected)
                 | (Verifying, Verified | Rejected | Replanning)

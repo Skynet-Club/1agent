@@ -75,6 +75,8 @@ Create an unapproved dry-run state, inspect it, then approve:
 
 1agent master status --trace-id <trace> --state-root .master
 1agent master approve --trace-id <trace> --state-root .master --actor user
+1agent master accept --trace-id <trace> --state-root .master --reason "all tasks verified"
+1agent master return --trace-id <trace> --state-root .master --task T1 --reason "operator done"
 1agent master revise --trace-id <trace> --state-root .master --plan plan-v2.json --agents agents.json
 1agent master reject --trace-id <trace> --state-root .master --reason "requirements changed"
 ```

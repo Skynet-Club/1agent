@@ -28,9 +28,11 @@ Add six Master-only commands:
 - `/respond <task-id> <message>` is valid only for `AwaitingInput` or `Blocked` tasks. It
   writes to the bound Workshop Session, moves the task to `Running`, and journals the
   operator response as an `Observed` event.
-- `/control pause|resume|cancel|takeover|retry|replan` records explicit operator
-  decisions. Destructive Session cancellation occurs only after the requested task
-  transition and bounded retry/replan preconditions have been validated.
+- `/control pause|resume|cancel|takeover|return|retry|replan|reclaim` records explicit
+  operator decisions. Destructive Session cancellation occurs only after the requested
+  task transition and bounded retry/replan preconditions have been validated. Reclaim
+  requires an expired lease and confirmation that the old execution is terminated.
+  Return ends a human takeover and emits `human_takeover.ended`.
 - `/timeline` renders the bounded tail of the Master journal and Workshop event stream.
   Workshop events are annotated with a matching Session ID when the event payload
   contains one, or `session=unassociated` when it does not.

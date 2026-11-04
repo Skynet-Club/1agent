@@ -160,9 +160,11 @@ After dispatch, the Workshop Master console adds:
   `ArtifactReady` tasks awaiting verification and expired active leases;
 - `/respond <task-id> <message>`: route an operator response to the task's Workshop
   Session and move `AwaitingInput` or `Blocked` back to `Running`;
-- `/control pause|resume|cancel|takeover|retry|replan`: apply explicit Master decisions.
-  Cancel validates the task transition before stopping its Session; retry and replan also
-  fail before Session cancellation when their state or bounded counters are invalid;
+- `/control pause|resume|cancel|takeover|return|retry|replan|reclaim`: apply explicit
+  Master decisions. Cancel validates the task transition before stopping its Session;
+  retry and replan also fail before Session cancellation when their state or bounded
+  counters are invalid; reclaim requires an expired lease and a terminated execution;
+  return ends a human takeover and emits `human_takeover.ended`;
 - `/timeline`: show a bounded tail of Master journal events plus Workshop events, annotated
   with a matching Session ID when present.
 

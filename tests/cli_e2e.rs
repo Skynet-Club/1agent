@@ -481,6 +481,10 @@ printf 'verified artifact\n' > "$cwd/result.txt"
 printf '%s\n' '{"schema":"skynet.term.agent-run/v1","agent":{"agent_id":"agent-1"},"session_id":"term-master-1","gui":{"started":false},"exec":{"status":"ok","exit":0,"duration_ms":5,"artifact":{"path":"/tmp/fake.output","sha256":"abc"}}}'
 "#,
     );
+    write_executable(
+        &root.path().join("fake-workshop-lease"),
+        "#!/bin/sh\nif [ \"$1\" = request ]; then printf '%s\\n' '{\"ok\":true,\"lease\":{\"lease_id\":\"lease-test\"}}'; else printf '%s\\n' '{\"ok\":true}'; fi\n",
+    );
     let plan_path = root.path().join("plan.json");
     let agents_path = root.path().join("agents.json");
     let verification_path = root.path().join("verification.json");
@@ -710,6 +714,10 @@ case "$command" in
     ;;
 esac
 "#,
+    );
+    write_executable(
+        &root.path().join("async-workshop-lease"),
+        "#!/bin/sh\nif [ \"$1\" = request ]; then printf '%s\\n' '{\"ok\":true,\"lease\":{\"lease_id\":\"lease-test\"}}'; else printf '%s\\n' '{\"ok\":true}'; fi\n",
     );
     let plan_path = root.path().join("plan.json");
     let agents_path = root.path().join("agents.json");
