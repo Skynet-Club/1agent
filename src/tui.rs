@@ -19,7 +19,9 @@ const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
-const MATRIX_GREEN: Color = Color::Rgb(0x00, 0xff, 0x41);
+const CAPTION_GREY: Color = Color::Indexed(245);
+const LINK: Color = Color::Indexed(75);
+const LINK_HOVER: Color = Color::Rgb(0x7f, 0xe6, 0xff);
 const BANNER_BG: Color = Color::Indexed(236);
 const COMMAND_DESCRIPTION: Color = Color::Indexed(252);
 const DRAWER_BG: Color = Color::Indexed(235);
@@ -171,6 +173,7 @@ pub struct TuiState {
     last_journal_path: Option<PathBuf>,
     last_details: Option<String>,
     pending_reframe: Option<crate::reframe::ReframeProposal>,
+    pointer: Option<(u16, u16)>,
     details_open: bool,
     details_scroll: usize,
     command_panel: Option<CommandPanel>,
@@ -216,6 +219,7 @@ impl TuiState {
             last_journal_path: None,
             last_details: None,
             pending_reframe: None,
+            pointer: None,
             details_open: false,
             details_scroll: 0,
             command_panel: None,
@@ -510,6 +514,14 @@ impl TuiState {
         self.command_panel = None;
         self.command_panel_history.clear();
         self.command_panel_scroll = 0;
+    }
+
+    pub fn set_pointer(&mut self, column: u16, row: u16) {
+        self.pointer = Some((column, row));
+    }
+
+    pub fn clear_pointer(&mut self) {
+        self.pointer = None;
     }
 
     /// The proposal shown by `/reframe`, waiting for the user's choice.
@@ -1259,16 +1271,33 @@ impl TuiState {
             let mut lines = welcome_mark_lines();
             lines.push(Line::raw(""));
             lines.push(
-                Line::styled("超级个体俱乐部", Style::default().fg(Color::Indexed(240)))
+                Line::styled("超级个体俱乐部", Style::default().fg(CAPTION_GREY))
                     .alignment(Alignment::Center),
             );
             lines.push(
-                Line::styled("Super Individual Club", Style::default().fg(MATRIX_GREEN))
+                Line::styled("Super Individual Club", Style::default().fg(CAPTION_GREY))
                     .alignment(Alignment::Center),
             );
+
+            // Only the domain is highlighted, and the pointer brightens it. The
+            // hit range is derived from the text width rather than hard-coded.
+            let prefix = "Http://";
+            let link = "Skynet.Club";
+            let text_width = (prefix.chars().count() + link.chars().count()) as u16;
+            let left = mark_width.saturating_sub(text_width) / 2;
+            let link_start = rect.x + left + prefix.chars().count() as u16;
+            let hovered = self.pointer.is_some_and(|(column, row)| {
+                row == rect.y + mark_height + 3
+                    && column >= link_start
+                    && column < link_start + link.chars().count() as u16
+            });
+            let link_colour = if hovered { LINK_HOVER } else { LINK };
             lines.push(
-                Line::styled("Http://Skynet.Club", Style::default().fg(MATRIX_GREEN))
-                    .alignment(Alignment::Center),
+                Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(CAPTION_GREY)),
+                    Span::styled(link, Style::default().fg(link_colour)),
+                ])
+                .alignment(Alignment::Center),
             );
             frame.render_widget(Paragraph::new(lines), rect);
         } else {
@@ -3211,7 +3240,7 @@ fn welcome_mark_lines() -> Vec<Line<'static>> {
                         let style = if c == ' ' {
                             Style::default()
                         } else {
-                            Style::default().fg(UI_ACCENT)
+                            Style::default().fg(Color::Indexed(245))
                         };
                         Span::styled(c.to_string(), style)
                     })
@@ -3730,8 +3759,6 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        // The welcome mark is a raster banner; its two brand colours are the
-        // stable contract, not any particular glyph.
         let colours = terminal
             .backend()
             .buffer()
@@ -3739,7 +3766,18 @@ mod tests {
             .iter()
             .map(|cell| cell.fg)
             .collect::<Vec<_>>();
-        assert!(colours.contains(&UI_ACCENT), "the mark is drawn in accent");
+        assert!(
+            colours.contains(&CAPTION_GREY),
+            "the mark and the captions are grey"
+        );
+        assert!(
+            colours.contains(&LINK),
+            "the domain is the only highlighted element"
+        );
+        assert!(
+            !colours.contains(&LINK_HOVER),
+            "nothing is hovered in a fresh render"
+        );
         // The caption ships with the product; pin the exact casing. Wide
         // characters occupy two cells, so the buffer holds a filler between them.
         let tight = content
@@ -3755,6 +3793,39 @@ mod tests {
         assert!(!content.contains("输入任务开始"));
         assert!(!content.contains("Ctrl+Q"));
         assert!(!content.contains("1-Agent | status="));
+    }
+
+    #[test]
+    fn hovering_the_domain_brightens_only_it() {
+        let backend = TestBackend::new(80, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let mut target = None;
+        for y in 0..buffer.area.height {
+            let row: String = (0..buffer.area.width)
+                .map(|x| buffer.cell((x, y)).map(|c| c.symbol()).unwrap_or(""))
+                .collect();
+            if let Some(offset) = row.find("Skynet") {
+                target = Some((y, offset as u16));
+                break;
+            }
+        }
+        let (row, offset) = target.expect("domain is rendered");
+
+        state.set_pointer(offset + 2, row);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|cell| cell.fg == LINK_HOVER),
+            "hovering the domain brightens it"
+        );
     }
 
     #[test]

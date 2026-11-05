@@ -9114,6 +9114,7 @@ async fn run_tui_interactive(
                 state.end_selection_drag();
             }
             TuiInput::MouseMove { column, row } => {
+                state.set_pointer(column, row);
                 state.handle_follow_control_hover(column, row);
             }
             TuiInput::ScrollUp => state.scroll_up(3),
@@ -9550,6 +9551,7 @@ async fn run_tui_task(
                         state.end_selection_drag();
                     }
                     Some(TuiInput::MouseMove { column, row }) => {
+                        state.set_pointer(column, row);
                         state.handle_follow_control_hover(column, row);
                     }
                     Some(TuiInput::Up) => state.scroll_up(1),
