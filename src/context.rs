@@ -58,7 +58,7 @@ pub fn compact_messages_at(
     (compacted, stats)
 }
 
-fn total_chars(messages: &[ModelMessage]) -> usize {
+pub fn total_chars(messages: &[ModelMessage]) -> usize {
     messages
         .iter()
         .map(|message| {

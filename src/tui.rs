@@ -176,6 +176,8 @@ pub struct TuiState {
     last_details: Option<String>,
     pending_reframe: Option<crate::reframe::ReframeProposal>,
     pointer: Option<(u16, u16)>,
+    context_chars: usize,
+    context_budget: usize,
     details_open: bool,
     details_scroll: usize,
     command_panel: Option<CommandPanel>,
@@ -222,6 +224,8 @@ impl TuiState {
             last_details: None,
             pending_reframe: None,
             pointer: None,
+            context_chars: 0,
+            context_budget: 100_000,
             details_open: false,
             details_scroll: 0,
             command_panel: None,
@@ -516,6 +520,26 @@ impl TuiState {
         self.command_panel = None;
         self.command_panel_history.clear();
         self.command_panel_scroll = 0;
+    }
+
+    /// The character budget the runtime compacts against. The status bar
+    /// reports usage as a share of this, not of a model token window, because
+    /// no token window metadata exists.
+    pub fn set_context_budget(&mut self, budget: usize) {
+        self.context_budget = budget.max(1);
+    }
+
+    /// How many characters the most recent model request carried.
+    pub fn set_context_chars(&mut self, used: usize) {
+        self.context_chars = used;
+    }
+
+    fn context_percent(&self) -> usize {
+        self.context_chars
+            .saturating_mul(100)
+            .checked_div(self.context_budget.max(1))
+            .unwrap_or_default()
+            .min(100)
     }
 
     pub fn set_pointer(&mut self, column: u16, row: u16) {
@@ -1084,6 +1108,7 @@ impl TuiState {
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(3),
+                Constraint::Length(1),
             ])
             .split(frame.area());
 
@@ -1098,6 +1123,7 @@ impl TuiState {
         self.draw_activity(frame, chunks[2]);
         frame.render_widget(Clear, chunks[3]);
         self.draw_composer(frame, chunks[4]);
+        self.draw_status_bar(frame, chunks[5]);
 
         if self.slash_drawer_open() {
             let popup_height = (self.filtered_commands().len().clamp(1, 8) + 2) as u16;
@@ -1739,6 +1765,39 @@ impl TuiState {
             cursor_column.min(area.right().saturating_sub(1)),
             input_area.y,
         ));
+    }
+
+    fn draw_status_bar(&self, frame: &mut Frame, area: Rect) {
+        if area.is_empty() {
+            return;
+        }
+        let model = self
+            .provider_label
+            .rsplit_once('/')
+            .map(|(_, model)| model)
+            .unwrap_or(&self.provider_label);
+        let left = format!(" {model} · {}", self.mode.label_zh());
+        let right = format!("上下文 {}% ", self.context_percent());
+        let style = Style::default().fg(MUTED_TEXT);
+        let right_width = right.width() as u16;
+        if area.width > right_width {
+            let right_area = Rect {
+                x: area.right() - right_width,
+                y: area.y,
+                width: right_width,
+                height: 1,
+            };
+            frame.render_widget(Paragraph::new(Line::styled(right, style)), right_area);
+            let left_area = Rect {
+                width: area.width - right_width,
+                ..area
+            };
+            let text = truncate_to_width(&left, left_area.width as usize);
+            frame.render_widget(Paragraph::new(Line::styled(text, style)), left_area);
+        } else {
+            let text = truncate_to_width(&left, area.width as usize);
+            frame.render_widget(Paragraph::new(Line::styled(text, style)), area);
+        }
     }
 
     fn input_spans(&self, visible_end: usize) -> Vec<Span<'static>> {
@@ -3696,13 +3755,40 @@ mod tests {
         );
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
-        let activity_y = 18 - 3 - 1 - 1;
+        let activity_y = 18 - 3 - 1 - 1 - 1;
         let spinner = terminal.backend().buffer().cell((2, activity_y)).unwrap();
         assert_eq!(spinner.fg, Color::LightGreen);
         assert!(spinner.modifier.contains(Modifier::BOLD));
         let status = terminal.backend().buffer().cell((4, activity_y)).unwrap();
         assert_eq!(status.fg, Color::Indexed(75));
         assert!(status.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn status_bar_shows_the_model_the_mode_and_context_usage() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("openai-compatible/deepseek-flash", 6, 120);
+        state.set_context_budget(1000);
+        state.set_context_chars(250);
+        state.begin("任务", CognitiveMode::EvidenceResearch, RiskLevel::Low);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let row: String = (0..80)
+            .map(|x| {
+                terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, 19))
+                    .map(|cell| cell.symbol())
+                    .unwrap_or("")
+            })
+            .collect();
+        // Wide characters leave a filler cell, so compare without whitespace.
+        let tight: String = row.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(tight.contains("deepseek-flash"), "model: {row}");
+        assert!(tight.contains("证据研究"), "mode: {row}");
+        assert!(tight.contains("上下文25%"), "usage: {row}");
     }
 
     #[test]
@@ -3723,7 +3809,7 @@ mod tests {
 
         state.set_notice("已复制选择内容");
         terminal.draw(|frame| state.draw(frame)).unwrap();
-        let notice_y = 18 - 3 - 1 - 1;
+        let notice_y = 18 - 3 - 1 - 1 - 1;
         let notice = terminal.backend().buffer().cell((1, notice_y)).unwrap();
         assert_eq!(notice.fg, Color::LightGreen);
         assert!(notice.modifier.contains(Modifier::BOLD));

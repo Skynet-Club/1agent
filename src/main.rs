@@ -4726,16 +4726,19 @@ async fn run_tui(
         .map(|preferences| preferences.timeout_seconds)
         .unwrap_or(timeout_seconds);
     let timeout = Duration::from_secs(timeout_seconds.max(1));
-    let provider_label = if config_path.is_some() {
-        "configured".to_string()
-    } else {
-        format!("{provider}/{}", model.as_deref().unwrap_or("default"))
-    };
-    let (candidates, tools) = if let Some(config_path) = config_path {
+    let (provider_label, candidates, tools) = if let Some(config_path) = config_path {
         let config = AgentConfig::load(&config_path)?;
-        (config.build_providers(timeout)?, default_registry())
+        let label = config
+            .manifests()?
+            .first()
+            .map(|manifest| format!("{}/{}", manifest.provider_id, manifest.model))
+            .unwrap_or_else(|| "configured".to_string());
+        (label, config.build_providers(timeout)?, default_registry())
     } else {
-        build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
+        let label = format!("{provider}/{}", model.as_deref().unwrap_or("default"));
+        let (candidates, tools) =
+            build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?;
+        (label, candidates, tools)
     };
     let planning_provider = candidates
         .first()
@@ -4768,6 +4771,7 @@ async fn run_tui(
             .collect::<Vec<_>>()
     };
     let mut state = TuiState::new(provider_label, max_steps, timeout_seconds.max(1));
+    state.set_context_budget(max_context_chars);
     state.set_host_binding(host_binding);
     sync_tui_stage(&mut state, &session);
     let mut settings = TuiRunSettings {
@@ -9683,6 +9687,9 @@ fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunR
     let answer = &result.answer;
     state.set_status(TuiStatus::Completed);
     state.set_last_journal(&result.journal_path);
+    if let Some(chars) = latest_context_chars(&result.journal_path) {
+        state.set_context_chars(chars);
+    }
     let mut details = format!(
         "{}\n\n终止原因：{:?}",
         render_answer(result),
@@ -9703,6 +9710,19 @@ fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunR
     } else {
         record_structured_answer(state, answer);
     }
+}
+
+/// The character count of the most recent model request in a run journal. It
+/// uses the same metric the runtime compacts against, so the percentage on the
+/// status bar matches what triggers compaction.
+fn latest_context_chars(journal_path: &std::path::Path) -> Option<usize> {
+    let events = read_events(journal_path).ok()?;
+    events.iter().rev().find_map(|event| match &event.event {
+        JournalEventKind::ModelRequested { request } => Some(
+            first_principles_agent::context::total_chars(&request.messages),
+        ),
+        _ => None,
+    })
 }
 
 fn query_result_details(journal_path: &std::path::Path) -> Option<String> {

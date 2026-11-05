@@ -256,10 +256,14 @@ structured transcript, wrapped to the terminal width and scrollable
 ────────────────────────────────────────────────────────────
  ready
 [ three-row dark-gray composer ]
-[ black shortcut footer ]
+[ status bar: model · mode                      上下文 N% ]
 ```
 
-The interactive surface has no global status row. While an answer occupies the top of the
+The interactive surface has one status row, below the composer: the configured model and the
+current cognitive mode on the left, and context-budget usage on the right. The percentage is
+`chars sent by the last model request / max_context_chars`, the same measure that triggers
+auto-compaction, and it refreshes after each completed run. It is not a model token window: no
+token-window metadata exists, so the row says 上下文 rather than tokens. While an answer occupies the top of the
 transcript, a filled prompt bar keeps the associated user instruction visible. It yields when the
 original user prompt or a newer visible prompt provides that context itself. The bar is
 presentation-only and is not included in transcript selection or copying.
@@ -272,7 +276,7 @@ The shade-gradient wordmark uses Codex blue for `Agent`, with the leading `1` hi
 green. Its first row includes the same one-column leading pad as the lower `1` rows.
 
 The one-line activity surface reports run state and scroll position. The composer is a three-row
-visual container with the editable text vertically centered, followed by a separate black footer.
+visual container with the editable text vertically centered, followed by the one-row status bar.
 Its Codex-style `› ` prefix is bold ANSI-blue `75`.
 
 All primary TUI chrome and operator panels use Chinese labels. English technical names are
@@ -413,6 +417,7 @@ metadata is visually de-emphasized.
 | Selection | reverse video over the semantic color |
 | Composer background | ANSI-256 dark gray `236` |
 | Composer footer | ANSI black background, gray `245` text |
+| Status bar | terminal background, gray `245` text |
 | Running spinner | bright green, bold |
 | Running label `正在运行` | bright blue `75`, bold |
 
