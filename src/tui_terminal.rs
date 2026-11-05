@@ -433,7 +433,17 @@ mod tests {
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("\x1b[1;38;5;10m"));
         assert!(output.contains("\x1b[1;38;5;75m"));
-        assert!(output.contains("░░"));
+        // The banner writes the logo one styled span at a time, so the plain text
+        // is not contiguous; assert on the glyph the art is drawn with.
+        let glyph = crate::tui::WELCOME_LOGO[0]
+            .trim()
+            .chars()
+            .next()
+            .expect("logo is not empty");
+        assert!(
+            output.contains(glyph),
+            "banner should reuse the welcome logo"
+        );
         assert!(output.contains("会话      Greeting"));
         assert!(output.contains("继续      1agent tui --session ses_example"));
     }

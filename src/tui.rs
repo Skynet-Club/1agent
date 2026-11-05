@@ -25,11 +25,11 @@ const DRAWER_BG: Color = Color::Indexed(235);
 const DRAWER_BORDER: Color = Color::Indexed(240);
 
 pub const WELCOME_LOGO: &[&str] = &[
-    " ░░      ░░░░░   ░░░░░░  ░░░░░░░ ░░░    ░░ ░░░░░░░░ ",
-    "▒▒▒     ▒▒   ▒▒ ▒▒       ▒▒      ▒▒▒▒   ▒▒    ▒▒    ",
-    " ▒▒     ▒▒▒▒▒▒▒ ▒▒   ▒▒▒ ▒▒▒▒▒   ▒▒ ▒▒  ▒▒    ▒▒    ",
-    " ▓▓     ▓▓   ▓▓ ▓▓    ▓▓ ▓▓      ▓▓  ▓▓ ▓▓    ▓▓    ",
-    " ██     ██   ██  ██████  ███████ ██   ████    ██    ",
+    " █   █   ██ ███ █ █ ███",
+    "██  █ █ █   █   ███  █ ",
+    " █  ███ █ █ ██  █ █  █ ",
+    " █  █ █ █ █ █   █ █  █ ",
+    "███ █ █  ██ ███ █ █  █ ",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1254,7 +1254,7 @@ impl TuiState {
         }
         frame.render_widget(Clear, area);
         let session = self.session_id.as_deref().unwrap_or("pending");
-        if area.width >= 54 {
+        if area.width >= 32 {
             let logo_width = WELCOME_LOGO
                 .iter()
                 .map(|line| line.width())
@@ -1343,7 +1343,21 @@ impl TuiState {
                 Span::raw("退出后使用打印的恢复命令"),
             ]),
         ];
-        frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), area);
+        // Centre the block, not each line: per-line centring gives every row a
+        // different left edge, which reads as misalignment.
+        let block_width = lines
+            .iter()
+            .map(|line| line.width())
+            .max()
+            .unwrap_or_default()
+            .min(area.width as usize) as u16;
+        let block = Rect::new(
+            area.x + area.width.saturating_sub(block_width) / 2,
+            area.y,
+            block_width,
+            area.height,
+        );
+        frame.render_widget(Paragraph::new(lines), block);
     }
 
     fn build_transcript_lines(&self, width: u16) -> Vec<TranscriptVisualLine> {
@@ -3845,7 +3859,9 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(content.contains("▒▒▒"));
+        // Assert on the current art rather than a fixed glyph, so restyling the
+        // logo does not silently break the welcome contract.
+        assert!(content.contains(WELCOME_LOGO[0].trim()));
         assert!(content.contains("ses_welcome_test"));
         assert!(content.contains('开'));
         assert!(content.contains('继'));
