@@ -19,6 +19,7 @@ const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
+const BANNER_BG: Color = Color::Indexed(236);
 const COMMAND_DESCRIPTION: Color = Color::Indexed(252);
 const DRAWER_BG: Color = Color::Indexed(235);
 const DRAWER_BORDER: Color = Color::Indexed(240);
@@ -1257,7 +1258,22 @@ impl TuiState {
                 .enumerate()
                 .map(|(index, line)| welcome_logo_line(index, line))
                 .collect::<Vec<_>>();
-            frame.render_widget(Paragraph::new(logo), logo_area);
+            let pad = 2;
+            let banner = Rect {
+                x: logo_area.x.saturating_sub(pad).max(area.x),
+                y: logo_area.y,
+                width: (logo_area.right() + pad).min(area.right())
+                    - logo_area.x.saturating_sub(pad).max(area.x),
+                height: logo_area.height,
+            };
+            frame.render_widget(
+                Block::default().style(Style::default().bg(BANNER_BG)),
+                banner,
+            );
+            frame.render_widget(
+                Paragraph::new(logo).style(Style::default().bg(BANNER_BG)),
+                logo_area,
+            );
         } else {
             let content_height = 1u16;
             let start_y = area
@@ -1609,7 +1625,10 @@ impl TuiState {
                     ),
                     Span::styled(
                         "正在运行",
-                        Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(UI_ACCENT)
+                            .bg(BANNER_BG)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         " · Ctrl+C 取消 · PgUp/PgDn 滚动",
@@ -1664,7 +1683,10 @@ impl TuiState {
 
         let mut spans = vec![Span::styled(
             "› ",
-            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(UI_ACCENT)
+                .bg(BANNER_BG)
+                .add_modifier(Modifier::BOLD),
         )];
         spans.extend(self.input_spans(visible_end));
         frame.render_widget(
@@ -1825,7 +1847,10 @@ impl TuiState {
                     ListItem::new(Line::from(vec![
                         Span::styled(
                             format!(" {}", fit_row(&item.label, 18)),
-                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(UI_ACCENT)
+                                .bg(BANNER_BG)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             item.description.clone(),
@@ -1866,7 +1891,10 @@ impl TuiState {
                     ListItem::new(Line::from(vec![
                         Span::styled(
                             format!(" {:<14}", command.name),
-                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(UI_ACCENT)
+                                .bg(BANNER_BG)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             command.description.to_string(),
@@ -3179,7 +3207,10 @@ fn welcome_logo_line(index: usize, text: &str) -> Line<'static> {
     if green_range.is_empty() {
         return Line::styled(
             text.to_string(),
-            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(UI_ACCENT)
+                .bg(BANNER_BG)
+                .add_modifier(Modifier::BOLD),
         );
     }
 
@@ -3189,29 +3220,35 @@ fn welcome_logo_line(index: usize, text: &str) -> Line<'static> {
     if green_start > 0 {
         spans.push(Span::styled(
             text[..green_start].to_string(),
-            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(UI_ACCENT)
+                .bg(BANNER_BG)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     spans.push(Span::styled(
         text[green_start..green_end].to_string(),
         Style::default()
             .fg(PROMPT_GREEN)
+            .bg(BANNER_BG)
             .add_modifier(Modifier::BOLD),
     ));
     if green_end < text.len() {
         spans.push(Span::styled(
             text[green_end..].to_string(),
-            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(UI_ACCENT)
+                .bg(BANNER_BG)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     Line::from(spans)
 }
 
 pub fn welcome_logo_green_range(index: usize) -> Range<usize> {
+    // The mark opens with a three-column "1"; everything after it is the word.
     match index {
-        0 => 1..3,
-        1 => 0..3,
-        2..=4 => 1..3,
+        0..=4 => 0..3,
         _ => 0..0,
     }
 }
@@ -3654,14 +3691,25 @@ mod tests {
     }
 
     #[test]
-    fn welcome_logo_one_uses_green_without_left_edge_bars() {
-        let first = welcome_logo_line(0, WELCOME_LOGO[0]);
-        assert_eq!(first.spans[0].style.fg, Some(UI_ACCENT));
-        assert_eq!(first.spans[1].style.fg, Some(PROMPT_GREEN));
-
-        let middle = welcome_logo_line(3, WELCOME_LOGO[3]);
-        assert_eq!(middle.spans[0].style.fg, Some(UI_ACCENT));
-        assert_eq!(middle.spans[1].style.fg, Some(PROMPT_GREEN));
+    fn welcome_logo_paints_the_one_green_and_the_word_blue_on_a_dark_band() {
+        for (index, art) in WELCOME_LOGO.iter().enumerate() {
+            let line = welcome_logo_line(index, art);
+            assert_eq!(
+                line.spans[0].style.fg,
+                Some(PROMPT_GREEN),
+                "row {index}: the leading 1 is green"
+            );
+            assert_eq!(
+                line.spans[1].style.fg,
+                Some(UI_ACCENT),
+                "row {index}: the word is blue"
+            );
+            assert_eq!(
+                line.spans[0].style.bg,
+                Some(BANNER_BG),
+                "row {index}: the band carries a background"
+            );
+        }
     }
 
     #[test]
