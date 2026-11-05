@@ -101,7 +101,11 @@ def main():
             case_id = (record.get(CASE_FIELD) or "").strip()
             if not case_id:
                 continue
-            raw = record.get(ASK_FIELD) or record.get(SUBSTITUTE_FIELD) or ""
+            # Pick the field by row type. Falling back to "whichever is filled"
+            # silently reads the wrong column when a person fills both, which is
+            # exactly what happened in the first round.
+            field = ASK_FIELD if case_id.endswith("::ask") else SUBSTITUTE_FIELD
+            raw = record.get(field) or ""
             if isinstance(raw, list):
                 raw = raw[0] if raw else ""
             option = str(raw).strip()

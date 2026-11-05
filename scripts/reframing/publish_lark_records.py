@@ -56,10 +56,13 @@ def main():
             "编号": index,
             "原请求": item["stated_request"],
             "助手做了什么": describe(item["model"]),
+            # The question must match the options exactly: "should it ask" for
+            # the ask rows, "is it acceptable" for the substitute rows. A looser
+            # wording lets each person answer a different question.
             "要你判断": (
-                "助手在这个请求上追问了吗？它这样处理对吗？"
+                "这个请求应该被追问吗？"
                 if is_ask
-                else "助手给出的替代方案，用户会接受吗？"
+                else "这些替代方案可以接受吗？"
             ),
             "备注": "",
             "case_id": item["case_id"],
