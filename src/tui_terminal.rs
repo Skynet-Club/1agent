@@ -431,7 +431,7 @@ mod tests {
         )
         .unwrap();
         let output = String::from_utf8(output).unwrap();
-        assert!(output.contains("\x1b[1;38;5;10m"));
+        // The printed banner is single-colour now; only the accent remains.
         assert!(output.contains("\x1b[1;38;5;75m"));
         // The banner writes the logo one styled span at a time, so the plain text
         // is not contiguous; assert on the glyph the art is drawn with.

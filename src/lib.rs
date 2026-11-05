@@ -32,7 +32,6 @@ pub mod tui_session;
 pub mod tui_terminal;
 pub mod tui_workspace;
 pub mod usage_ledger;
-pub mod welcome_banner;
 
 pub use annotation::*;
 pub use approval::*;
