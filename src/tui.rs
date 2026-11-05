@@ -20,20 +20,19 @@ const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
 const BANNER_BG: Color = Color::Indexed(236);
-const MARK_FIELD: Color = Color::Indexed(240);
 const COMMAND_DESCRIPTION: Color = Color::Indexed(252);
 const DRAWER_BG: Color = Color::Indexed(235);
 const DRAWER_BORDER: Color = Color::Indexed(240);
 
 pub const WELCOME_LOGO: &[&str] = &[
-    "╋┏┓╋━━━┓╋╋╋╋╋╋╋╋╋┏┓╋",
-    "┏┛┃╋┏━┓┃╋╋╋╋╋╋╋╋╋┛┗┓",
-    "┗┓┃╋┃╋┃┃━━┓━━┓━┓╋┓┏┛",
-    "╋┃┃╋┗━┛┃┏┓┃┏┓┃┏┓┓┃┃╋",
-    "┏┛┗┓┏━┓┃┗┛┃┃━┫┃┃┃┃┗┓",
-    "┗━━┛┛╋┗┛━┓┃━━┛┛┗┛┗━┛",
-    "╋╋╋╋╋╋╋╋━┛┃╋╋╋╋╋╋╋╋╋",
-    "╋╋╋╋╋╋╋╋━━┛╋╋╋╋╋╋╋╋╋",
+    "╔╗ ╔═══╗              ╔╗ ",
+    "╔╝║ ║╔═╗║            ╔╝╚╗",
+    "╚╗║ ║║ ║║╔══╗╔══╗╔═╗ ╚╗╔╝",
+    " ║║ ║╚═╝║║╔╗║║╔╗║║╔╗╗ ║║ ",
+    "╔╝╚╗║╔═╗║║╚╝║║║═╣║║║║ ║╚╗",
+    "╚══╝╚╝ ╚╝╚═╗║╚══╝╚╝╚╝ ╚═╝",
+    "         ╔═╝║            ",
+    "         ╚══╝            ",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3193,12 +3192,12 @@ fn welcome_mark_lines() -> Vec<Line<'static>> {
             Line::from(
                 row.chars()
                     .map(|c| {
-                        let colour = if c == '\u{254B}' {
-                            MARK_FIELD
+                        let style = if c == ' ' {
+                            Style::default()
                         } else {
-                            UI_ACCENT
+                            Style::default().fg(UI_ACCENT)
                         };
-                        Span::styled(c.to_string(), Style::default().fg(colour))
+                        Span::styled(c.to_string(), style)
                     })
                     .collect::<Vec<_>>(),
             )
@@ -3724,8 +3723,7 @@ mod tests {
             .iter()
             .map(|cell| cell.fg)
             .collect::<Vec<_>>();
-        assert!(colours.contains(&MARK_FIELD), "grey field cells");
-        assert!(colours.contains(&UI_ACCENT), "blue strokes");
+        assert!(colours.contains(&UI_ACCENT), "the mark is drawn in accent");
         // The session block and the key hints were removed on request; assert
         // their absence so they cannot creep back.
         assert!(!content.contains("ses_welcome_test"));
@@ -3748,17 +3746,7 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(content.contains("1-Agent"));
-        let colours = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.fg)
-            .collect::<Vec<_>>();
-        assert!(
-            !colours.contains(&MARK_FIELD),
-            "the grey field belongs to the mark"
-        );
+        assert!(!content.contains('╔'), "the mark is not drawn at this size");
     }
 
     #[test]
