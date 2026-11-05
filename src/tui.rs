@@ -1261,40 +1261,45 @@ impl TuiState {
             .max()
             .unwrap_or_default() as u16;
         let mark_height = WELCOME_LOGO.len() as u16;
-        // The mark needs its own room; below that the compact wordmark is used.
-        if area.width >= mark_width + 4 && area.height >= mark_height + 6 {
-            let block_height = mark_height.saturating_add(4);
+
+        // The English caption shares one line with the domain, so it is wider
+        // than the mark; the block takes whichever is wider and the mark is
+        // centred inside it. No scheme: many terminals underline anything that
+        // looks like a URL, and the domain is already highlighted.
+        let prefix = "Super Individual Club - ";
+        let name = "SKYNET";
+        let tld = ".CLUB";
+        let text_width =
+            (prefix.chars().count() + name.chars().count() + tld.chars().count()) as u16;
+        let block_width = mark_width.max(text_width);
+
+        // The block needs its own room; below that the compact wordmark is used.
+        if area.width >= block_width + 4 && area.height >= mark_height + 5 {
+            let block_height = mark_height.saturating_add(3);
             let rect = Rect::new(
-                area.x + area.width.saturating_sub(mark_width) / 2,
+                area.x + area.width.saturating_sub(block_width) / 2,
                 area.y + area.height.saturating_sub(block_height) / 2,
-                mark_width.min(area.width),
+                block_width.min(area.width),
                 block_height.min(area.height),
             );
-            let mut lines = welcome_mark_lines();
+            let mut lines = welcome_mark_lines()
+                .into_iter()
+                .map(|line| line.alignment(Alignment::Center))
+                .collect::<Vec<_>>();
             lines.push(Line::raw(""));
             lines.push(
                 Line::styled("超级个体俱乐部", Style::default().fg(CAPTION_GREY))
                     .alignment(Alignment::Center),
             );
-            lines.push(
-                Line::styled("Super Individual Club", Style::default().fg(CAPTION_GREY))
-                    .alignment(Alignment::Center),
-            );
 
             // Only the domain is highlighted, and the pointer brightens it. The
-            // hit range is derived from the text width rather than hard-coded.
-            // No scheme: many terminals underline anything that looks like a URL,
-            // and the domain is already highlighted.
-            let prefix = "";
-            let name = "SKYNET";
-            let tld = ".CLUB";
-            let text_width =
-                (prefix.chars().count() + name.chars().count() + tld.chars().count()) as u16;
-            let left = mark_width.saturating_sub(text_width) / 2;
+            // hit range is derived from the rendered text width rather than
+            // hard-coded.
+            let left = block_width.saturating_sub(text_width) / 2;
             let link_start = rect.x + left + prefix.chars().count() as u16;
             let link_width = (name.chars().count() + tld.chars().count()) as u16;
             let hovered = self.pointer.is_some_and(|(column, row)| {
-                row == rect.y + mark_height + 3
+                row == rect.y + mark_height + 2
                     && column >= link_start
                     && column < link_start + link_width
             });
