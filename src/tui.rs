@@ -1283,7 +1283,9 @@ impl TuiState {
 
             // Only the domain is highlighted, and the pointer brightens it. The
             // hit range is derived from the text width rather than hard-coded.
-            let prefix = "HTTP://";
+            // No scheme: many terminals underline anything that looks like a URL,
+            // and the domain is already highlighted.
+            let prefix = "";
             let name = "SKYNET";
             let tld = ".CLUB";
             let text_width =
@@ -3797,7 +3799,7 @@ mod tests {
             .collect::<String>();
         assert!(tight.contains("超级个体俱乐部"));
         assert!(tight.contains("SuperIndividualClub"));
-        assert!(tight.contains("HTTP://SKYNET.CLUB"));
+        assert!(tight.contains("SKYNET.CLUB"));
         // The session block and the key hints were removed on request; assert
         // their absence so they cannot creep back.
         assert!(!content.contains("ses_welcome_test"));
