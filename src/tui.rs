@@ -25,7 +25,7 @@ const DRAWER_BG: Color = Color::Indexed(235);
 const DRAWER_BORDER: Color = Color::Indexed(240);
 
 pub const WELCOME_LOGO: &[&str] = &[
-    "╔╗ ╔═══╗             ╔╗ ",
+    " ╔╗ ╔═══╗             ╔╗ ",
     "╔╝║ ║╔═╗║            ╔╝╚╗",
     "╚╗║ ║║ ║║╔══╗╔══╗╔═╗ ╚╗╔╝",
     " ║║ ║╚═╝║║╔╗║║╔╗║║╔╗╗ ║║ ",
