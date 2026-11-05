@@ -21,6 +21,7 @@ const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
 const CAPTION_GREY: Color = Color::Indexed(245);
 const MARK_GREEN: Color = Color::Rgb(0x3f, 0xb9, 0x50);
+const TLD_GREEN: Color = Color::Rgb(0x2e, 0xa0, 0x43);
 const LINK: Color = Color::Indexed(75);
 const LINK_HOVER: Color = Color::Rgb(0x7f, 0xe6, 0xff);
 const BANNER_BG: Color = Color::Indexed(236);
@@ -1282,21 +1283,25 @@ impl TuiState {
 
             // Only the domain is highlighted, and the pointer brightens it. The
             // hit range is derived from the text width rather than hard-coded.
-            let prefix = "Http://";
-            let link = "Skynet.Club";
-            let text_width = (prefix.chars().count() + link.chars().count()) as u16;
+            let prefix = "HTTP://";
+            let name = "SKYNET";
+            let tld = ".CLUB";
+            let text_width =
+                (prefix.chars().count() + name.chars().count() + tld.chars().count()) as u16;
             let left = mark_width.saturating_sub(text_width) / 2;
             let link_start = rect.x + left + prefix.chars().count() as u16;
+            let link_width = (name.chars().count() + tld.chars().count()) as u16;
             let hovered = self.pointer.is_some_and(|(column, row)| {
                 row == rect.y + mark_height + 3
                     && column >= link_start
-                    && column < link_start + link.chars().count() as u16
+                    && column < link_start + link_width
             });
             let link_colour = if hovered { LINK_HOVER } else { LINK };
             lines.push(
                 Line::from(vec![
                     Span::styled(prefix, Style::default().fg(CAPTION_GREY)),
-                    Span::styled(link, Style::default().fg(link_colour)),
+                    Span::styled(name, Style::default().fg(link_colour)),
+                    Span::styled(tld, Style::default().fg(TLD_GREEN)),
                 ])
                 .alignment(Alignment::Center),
             );
@@ -3792,7 +3797,7 @@ mod tests {
             .collect::<String>();
         assert!(tight.contains("超级个体俱乐部"));
         assert!(tight.contains("SuperIndividualClub"));
-        assert!(tight.contains("Http://Skynet.Club"));
+        assert!(tight.contains("HTTP://SKYNET.CLUB"));
         // The session block and the key hints were removed on request; assert
         // their absence so they cannot creep back.
         assert!(!content.contains("ses_welcome_test"));
@@ -3814,7 +3819,7 @@ mod tests {
             let row: String = (0..buffer.area.width)
                 .map(|x| buffer.cell((x, y)).map(|c| c.symbol()).unwrap_or(""))
                 .collect();
-            if let Some(offset) = row.find("Skynet") {
+            if let Some(offset) = row.find("SKYNET") {
                 target = Some((y, offset as u16));
                 break;
             }
