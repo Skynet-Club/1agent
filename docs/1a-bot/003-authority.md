@@ -148,7 +148,7 @@ Does not own: 具体工具实现（`006`）、记忆算法（`004`）
 
 ### 8.1 记忆
 
-- 写入：来源、scope、taint、审批；不可信来源进入 quarantine。
+- 写入：来源、scope、taint；低风险事实可按配置自动写入，高风险/外部来源必须审批或进入 quarantine。
 - 检索：返回 provenance/taint；高 taint 记忆不得直接触发动作。
 - 传播：Bot/Workspace/Tenant 默认隔离；共享需显式 ACL。
 - 遗忘：一等操作；删除后索引、缓存、向量都要失效。
