@@ -104,8 +104,13 @@ def main():
             # Pick the field by row type. Falling back to "whichever is filled"
             # silently reads the wrong column when a person fills both, which is
             # exactly what happened in the first round.
-            field = ASK_FIELD if case_id.endswith("::ask") else SUBSTITUTE_FIELD
-            raw = record.get(field) or ""
+            if "你的判断" in record:
+                # Single-column tables: the row type already says which question
+                # applies, so the same field name cannot be misread.
+                raw = record.get("你的判断") or ""
+            else:
+                field = ASK_FIELD if case_id.endswith("::ask") else SUBSTITUTE_FIELD
+                raw = record.get(field) or ""
             if isinstance(raw, list):
                 raw = raw[0] if raw else ""
             option = str(raw).strip()

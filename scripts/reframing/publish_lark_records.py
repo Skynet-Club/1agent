@@ -40,6 +40,17 @@ def main():
     parser.add_argument("--table-id", required=True)
     parser.add_argument("--items", required=True)
     parser.add_argument("--as", dest="identity", default="user")
+    parser.add_argument(
+        "--kind",
+        choices=["ask", "substitute", "both"],
+        default="both",
+        help="single-column tables carry only one kind of judgement",
+    )
+    parser.add_argument(
+        "--judge-field",
+        default="",
+        help="name of the single judgement field, e.g. 你的判断",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -48,6 +59,10 @@ def main():
         for line in Path(args.items).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+    if args.kind != "both":
+        suffix = "::ask" if args.kind == "ask" else "::substitute"
+        items = [item for item in items if item["case_id"].endswith(suffix)]
 
     records = []
     for index, item in enumerate(items, start=1):
@@ -67,6 +82,8 @@ def main():
             "备注": "",
             "case_id": item["case_id"],
         }
+        if args.judge_field:
+            record[args.judge_field] = ""
         records.append(record)
 
     payload = {"create_records": records}
