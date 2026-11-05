@@ -13,7 +13,6 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const INPUT_BG: Color = Color::Indexed(236);
-const FOOTER_BG: Color = Color::Black;
 const PROMPT_GREEN: Color = Color::LightGreen;
 const UI_ACCENT: Color = Color::Indexed(75);
 const CODE_BG: Color = Color::Indexed(236);
@@ -1066,7 +1065,6 @@ impl TuiState {
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(3),
-                Constraint::Length(2),
             ])
             .split(frame.area());
 
@@ -1081,7 +1079,6 @@ impl TuiState {
         self.draw_activity(frame, chunks[2]);
         frame.render_widget(Clear, chunks[3]);
         self.draw_composer(frame, chunks[4]);
-        self.draw_footer(frame, chunks[5]);
 
         if self.slash_drawer_open() {
             let popup_height = (self.filtered_commands().len().clamp(1, 8) + 2) as u16;
@@ -1133,15 +1130,6 @@ impl TuiState {
                 ));
                 output.push('\n');
             }
-            output.push_str(&fit_row(
-                if panel.menu.is_empty() {
-                    "   Esc 返回会话 · ↑/↓ 或 PgUp/PgDn 滚动"
-                } else {
-                    "   Esc 返回上一层 · ↑/↓ 选择 · Enter 打开 · PgUp/PgDn 查看"
-                },
-                columns.saturating_sub(4),
-            ));
-            output.push('\n');
         } else {
             for entry in &self.transcript {
                 for line in wrap_display(&entry.text, columns.saturating_sub(2)) {
@@ -1152,14 +1140,9 @@ impl TuiState {
             }
         }
         output.push_str(&format!(
-            "{}\n› {}\n{}\n{}\n",
+            "{}\n› {}\n",
             fit_row(&self.activity_line(), columns),
-            self.input,
-            fit_row(
-                "  ←/→ 移动 · Home/End 跳转 · Backspace/Delete 删除",
-                columns
-            ),
-            fit_row("  Enter 发送 · /help 查看命令 · Ctrl+Q 退出", columns)
+            self.input
         ));
         output
     }
@@ -1253,14 +1236,13 @@ impl TuiState {
             return;
         }
         frame.render_widget(Clear, area);
-        let session = self.session_id.as_deref().unwrap_or("pending");
         if area.width >= 32 {
             let logo_width = WELCOME_LOGO
                 .iter()
                 .map(|line| line.width())
                 .max()
                 .unwrap_or_default() as u16;
-            let content_height = WELCOME_LOGO.len() as u16 + 7;
+            let content_height = WELCOME_LOGO.len() as u16;
             let start_y = area
                 .y
                 .saturating_add(area.height.saturating_sub(content_height) / 2);
@@ -1276,88 +1258,20 @@ impl TuiState {
                 .map(|(index, line)| welcome_logo_line(index, line))
                 .collect::<Vec<_>>();
             frame.render_widget(Paragraph::new(logo), logo_area);
-            let info = Rect::new(
-                area.x,
-                logo_area.bottom().saturating_add(1),
-                area.width,
-                area.height
-                    .saturating_sub(logo_area.height.saturating_add(1)),
-            );
-            self.draw_welcome_info(frame, info, session);
         } else {
-            let content_height = 7u16;
+            let content_height = 1u16;
             let start_y = area
                 .y
                 .saturating_add(area.height.saturating_sub(content_height) / 2);
             let compact = Rect::new(area.x, start_y, area.width, area.height.min(content_height));
-            let title = vec![
-                Line::styled(
-                    "▄",
-                    Style::default()
-                        .fg(PROMPT_GREEN)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Line::styled(
-                    "1-Agent",
-                    Style::default()
-                        .fg(Color::Indexed(75))
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Line::raw(""),
-            ];
-            frame.render_widget(Paragraph::new(title).alignment(Alignment::Center), compact);
-            let info_y = start_y.saturating_add(3);
-            let info = Rect::new(
-                area.x,
-                info_y,
-                area.width,
-                area.bottom().saturating_sub(info_y),
-            );
-            self.draw_welcome_info(frame, info, session);
-        }
-    }
-
-    fn draw_welcome_info(&self, frame: &mut Frame, area: Rect, session: &str) {
-        let lines = vec![
-            Line::styled(
-                "1-Agent · 证据可审计的决策智能体",
+            let title = vec![Line::styled(
+                "1-Agent",
                 Style::default()
                     .fg(Color::Indexed(75))
                     .add_modifier(Modifier::BOLD),
-            ),
-            Line::raw(""),
-            Line::from(vec![
-                Span::styled("会话      ", Style::default().fg(MUTED_TEXT)),
-                Span::styled(session, Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("开始      ", Style::default().fg(MUTED_TEXT)),
-                Span::raw("输入任务开始"),
-            ]),
-            Line::from(vec![
-                Span::styled("命令      ", Style::default().fg(MUTED_TEXT)),
-                Span::raw("输入 / 打开命令抽屉"),
-            ]),
-            Line::from(vec![
-                Span::styled("继续      ", Style::default().fg(MUTED_TEXT)),
-                Span::raw("退出后使用打印的恢复命令"),
-            ]),
-        ];
-        // Centre the block, not each line: per-line centring gives every row a
-        // different left edge, which reads as misalignment.
-        let block_width = lines
-            .iter()
-            .map(|line| line.width())
-            .max()
-            .unwrap_or_default()
-            .min(area.width as usize) as u16;
-        let block = Rect::new(
-            area.x + area.width.saturating_sub(block_width) / 2,
-            area.y,
-            block_width,
-            area.height,
-        );
-        frame.render_widget(Paragraph::new(lines), block);
+            )];
+            frame.render_widget(Paragraph::new(title).alignment(Alignment::Center), compact);
+        }
     }
 
     fn build_transcript_lines(&self, width: u16) -> Vec<TranscriptVisualLine> {
@@ -1794,15 +1708,6 @@ impl TuiState {
         spans
     }
 
-    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
-        let style = Style::default().bg(FOOTER_BG).fg(Color::Indexed(245));
-        let lines = vec![
-            Line::raw("  ←/→ 移动 · Home/End 跳转 · Backspace/Delete 删除"),
-            Line::raw("  Enter 发送 · /help 查看命令 · Ctrl+Q 退出"),
-        ];
-        frame.render_widget(Paragraph::new(lines).style(style), area);
-    }
-
     fn draw_details(&mut self, frame: &mut Frame, area: Rect) {
         if area.is_empty() {
             return;
@@ -1945,22 +1850,6 @@ impl TuiState {
                 &mut menu_state,
             );
         }
-        if inner.height > 0 {
-            let footer = if panel.menu.is_empty() {
-                "Esc 返回会话 · ↑/↓ 或 PgUp/PgDn 滚动"
-            } else {
-                "Esc 返回上一层 · ↑/↓ 选择 · Enter 打开 · PgUp/PgDn 查看"
-            };
-            frame.render_widget(
-                Paragraph::new(footer).style(Style::default().fg(MUTED_TEXT)),
-                Rect {
-                    x: inner.x.saturating_add(1),
-                    y: inner.bottom().saturating_sub(1),
-                    width: inner.width.saturating_sub(2),
-                    height: 1,
-                },
-            );
-        }
     }
 
     fn draw_command_drawer(&self, frame: &mut Frame, area: Rect) {
@@ -2088,15 +1977,12 @@ impl TuiState {
         match self.status {
             TuiStatus::Running => {
                 let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-                format!(
-                    " {} 正在运行 · Ctrl+C 取消 · PgUp/PgDn 滚动",
-                    frames[self.activity_frame % frames.len()]
-                )
+                format!(" {} 正在运行", frames[self.activity_frame % frames.len()])
             }
-            TuiStatus::Idle => " 就绪 · ↑/↓ 或 PgUp/PgDn 浏览历史".to_string(),
-            TuiStatus::Completed => " 已完成 · /clear 开启新会话 · PgUp/PgDn 滚动".to_string(),
-            TuiStatus::Failed => " 失败 · /details 查看详情 · /clear 开启新会话".to_string(),
-            TuiStatus::Cancelled => " 已取消 · /details 查看详情 · /clear 开启新会话".to_string(),
+            TuiStatus::Idle => " 就绪".to_string(),
+            TuiStatus::Completed => " 已完成".to_string(),
+            TuiStatus::Failed => " 失败".to_string(),
+            TuiStatus::Cancelled => " 已取消".to_string(),
         }
     }
 
@@ -3586,16 +3472,6 @@ mod tests {
                 .bg,
             INPUT_BG
         );
-        assert_eq!(
-            terminal
-                .backend()
-                .buffer()
-                .cell((0, geometry.row + 2))
-                .unwrap()
-                .bg,
-            FOOTER_BG
-        );
-
         state.select_at(geometry.text_x, geometry.row, false);
         state.select_at(geometry.text_x + 3, geometry.row, true);
         assert_eq!(state.selected_input_text().as_deref(), Some("hel"));
@@ -3768,7 +3644,7 @@ mod tests {
         );
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
-        let activity_y = 18 - 2 - 3 - 1 - 1;
+        let activity_y = 18 - 3 - 1 - 1;
         let spinner = terminal.backend().buffer().cell((2, activity_y)).unwrap();
         assert_eq!(spinner.fg, Color::LightGreen);
         assert!(spinner.modifier.contains(Modifier::BOLD));
@@ -3806,7 +3682,7 @@ mod tests {
 
         state.set_notice("已复制选择内容");
         terminal.draw(|frame| state.draw(frame)).unwrap();
-        let notice_y = 18 - 2 - 3 - 1 - 1;
+        let notice_y = 18 - 3 - 1 - 1;
         let notice = terminal.backend().buffer().cell((1, notice_y)).unwrap();
         assert_eq!(notice.fg, Color::LightGreen);
         assert!(notice.modifier.contains(Modifier::BOLD));
@@ -3862,9 +3738,11 @@ mod tests {
         // Assert on the current art rather than a fixed glyph, so restyling the
         // logo does not silently break the welcome contract.
         assert!(content.contains(WELCOME_LOGO[0].trim()));
-        assert!(content.contains("ses_welcome_test"));
-        assert!(content.contains('开'));
-        assert!(content.contains('继'));
+        // The session block and the key hints were removed on request; assert
+        // their absence so they cannot creep back.
+        assert!(!content.contains("ses_welcome_test"));
+        assert!(!content.contains("输入任务开始"));
+        assert!(!content.contains("Ctrl+Q"));
         assert!(!content.contains("1-Agent | status="));
     }
 
