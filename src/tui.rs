@@ -20,6 +20,7 @@ const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
 const CAPTION_GREY: Color = Color::Indexed(245);
+const MARK_GREEN: Color = Color::Rgb(0x00, 0xff, 0x41);
 const LINK: Color = Color::Indexed(75);
 const LINK_HOVER: Color = Color::Rgb(0x7f, 0xe6, 0xff);
 const BANNER_BG: Color = Color::Indexed(236);
@@ -3236,11 +3237,16 @@ fn welcome_mark_lines() -> Vec<Line<'static>> {
         .map(|row| {
             Line::from(
                 row.chars()
-                    .map(|c| {
+                    .enumerate()
+                    .map(|(column, c)| {
+                        // The mark opens with a four-column "1"; the rest is the
+                        // word. Spaces stay empty so the terminal shows through.
                         let style = if c == ' ' {
                             Style::default()
+                        } else if column < 4 {
+                            Style::default().fg(MARK_GREEN)
                         } else {
-                            Style::default().fg(Color::Indexed(245))
+                            Style::default().fg(LINK)
                         };
                         Span::styled(c.to_string(), style)
                     })
