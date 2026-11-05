@@ -19,6 +19,7 @@ const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
+const MATRIX_GREEN: Color = Color::Rgb(0x00, 0xff, 0x41);
 const BANNER_BG: Color = Color::Indexed(236);
 const COMMAND_DESCRIPTION: Color = Color::Indexed(252);
 const DRAWER_BG: Color = Color::Indexed(235);
@@ -1258,15 +1259,15 @@ impl TuiState {
             let mut lines = welcome_mark_lines();
             lines.push(Line::raw(""));
             lines.push(
-                Line::styled("超级个体俱乐部", Style::default().fg(MUTED_TEXT))
+                Line::styled("超级个体俱乐部", Style::default().fg(Color::Indexed(240)))
                     .alignment(Alignment::Center),
             );
             lines.push(
-                Line::styled("Super Individual Club", Style::default().fg(MUTED_TEXT))
+                Line::styled("Super Individual Club", Style::default().fg(MATRIX_GREEN))
                     .alignment(Alignment::Center),
             );
             lines.push(
-                Line::styled("Http://Skynet.Club", Style::default().fg(MUTED_TEXT))
+                Line::styled("Http://Skynet.Club", Style::default().fg(MATRIX_GREEN))
                     .alignment(Alignment::Center),
             );
             frame.render_widget(Paragraph::new(lines), rect);
