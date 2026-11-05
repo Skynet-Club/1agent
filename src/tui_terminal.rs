@@ -3,7 +3,8 @@ use std::process::{Command, Stdio};
 
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
+    MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -29,6 +30,7 @@ pub enum TuiInput {
     Home,
     End,
     Tab,
+    CtrlTab,
     Escape,
     CtrlC,
     CtrlQ,
@@ -94,6 +96,7 @@ fn map_key(key: KeyEvent) -> Option<TuiInput> {
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
+            KeyCode::Tab => return Some(TuiInput::CtrlTab),
             KeyCode::Char('c') | KeyCode::Char('C') => return Some(TuiInput::CtrlC),
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(TuiInput::CtrlQ),
             KeyCode::Char('v') | KeyCode::Char('V') => {
@@ -122,6 +125,9 @@ fn map_key(key: KeyEvent) -> Option<TuiInput> {
         KeyCode::Home => TuiInput::Home,
         KeyCode::End => TuiInput::End,
         KeyCode::Tab => TuiInput::Tab,
+        // Shift+Tab is the portable fallback: many terminals cannot report
+        // Ctrl+Tab separately unless they speak a keyboard-enhancement protocol.
+        KeyCode::BackTab => TuiInput::CtrlTab,
         KeyCode::Esc => TuiInput::Escape,
         _ => return None,
     };
@@ -165,6 +171,7 @@ impl TerminalSession {
         execute!(
             stdout,
             EnterAlternateScreen,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
             EnableMouseCapture,
             EnableBracketedPaste
         )?;
@@ -191,6 +198,7 @@ impl TerminalSession {
         let _ = disable_raw_mode();
         let _ = execute!(
             self.terminal.backend_mut(),
+            PopKeyboardEnhancementFlags,
             DisableMouseCapture,
             DisableBracketedPaste,
             LeaveAlternateScreen
@@ -382,6 +390,14 @@ mod tests {
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
             Some(TuiInput::Tab)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::CONTROL)),
+            Some(TuiInput::CtrlTab)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            Some(TuiInput::CtrlTab)
         );
     }
 

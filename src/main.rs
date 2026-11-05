@@ -9060,6 +9060,19 @@ async fn run_tui_interactive(
         if !matches!(&input, TuiInput::MouseUp { .. }) {
             state.clear_notice();
         }
+        if state.mode_menu_open() {
+            match input {
+                TuiInput::CtrlQ => break,
+                TuiInput::CtrlTab | TuiInput::Escape => state.close_mode_menu(),
+                TuiInput::Up => state.move_mode_menu_selection(-1),
+                TuiInput::Down => state.move_mode_menu_selection(1),
+                TuiInput::Enter => state.apply_mode_menu(),
+                TuiInput::Resize => {}
+                _ => {}
+            }
+            draw_tui_frame(&mut terminal, &mut state)?;
+            continue;
+        }
         if state.details_open() {
             match input {
                 TuiInput::CtrlQ => break,
@@ -9107,6 +9120,7 @@ async fn run_tui_interactive(
             TuiInput::Tab => {
                 state.complete_selected_command();
             }
+            TuiInput::CtrlTab => state.toggle_mode_menu(),
             TuiInput::MouseDown { column, row } => {
                 if !state.handle_follow_control(column, row) {
                     state.begin_selection_drag(column, row);
@@ -9373,7 +9387,9 @@ async fn run_tui_interactive(
                                     handle_preset_command(&mut state, &session, &settings, args)
                                 {
                                     let display = request.objective.clone();
-                                    let mode = infer_mode(&request);
+                                    let inferred = infer_mode(&request);
+                                    state.set_last_inferred(inferred);
+                                    let mode = state.effective_mode(inferred);
                                     if let Err(error) =
                                         session.record_event(SessionEvent::TaskSubmitted {
                                             mode: mode.as_str().into(),
@@ -9391,7 +9407,7 @@ async fn run_tui_interactive(
                                         &mut inputs,
                                         &mut session,
                                         request,
-                                        None,
+                                        Some(mode),
                                     )
                                     .await?;
                                     if quit {
@@ -9444,7 +9460,9 @@ async fn run_tui_interactive(
                         }
                         let request = settings
                             .request_with_known_facts(task, session_context_facts(&session));
-                        let mode = infer_mode(&request);
+                        let inferred = infer_mode(&request);
+                        state.set_last_inferred(inferred);
+                        let mode = state.effective_mode(inferred);
                         let risk = risk_for_mode(mode);
                         if let Err(error) = session.record_event(SessionEvent::TaskSubmitted {
                             mode: mode.as_str().into(),
@@ -9461,7 +9479,7 @@ async fn run_tui_interactive(
                             &mut inputs,
                             &mut session,
                             request,
-                            None,
+                            Some(mode),
                         )
                         .await?;
                         if quit {

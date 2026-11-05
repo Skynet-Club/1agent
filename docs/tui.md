@@ -263,10 +263,17 @@ The interactive surface has one status row, below the composer: the configured m
 current cognitive mode on the left, and context-budget usage on the right. The percentage is
 `chars sent by the last model request / max_context_chars`, the same measure that triggers
 auto-compaction, and it refreshes after each completed run. It is not a model token window: no
-token-window metadata exists, so the row says 上下文 rather than tokens. While an answer occupies the top of the
+token-window metadata exists, so the row says 上下文 rather than tokens. The row ends with
+`Ctrl+Tab 切换`, which opens the mode menu. While an answer occupies the top of the
 transcript, a filled prompt bar keeps the associated user instruction visible. It yields when the
 original user prompt or a newer visible prompt provides that context itself. The bar is
 presentation-only and is not included in transcript selection or copying.
+
+The mode menu offers `自动` plus the five reachable modes. The applied row is marked `●`, the
+cursor `▌`; `↑`/`↓` moves, `Enter` applies and `Esc` closes. `升级处理` is deliberately absent
+because nothing produces it. A manual choice overrides content inference for later tasks until
+`自动` is selected again. It changes rendering, risk and the execute authorization path; only the
+four epistemic commands rewrite the prompt itself.
 
 An empty transcript shows the responsive `1AGENT` welcome surface, session identity, start guidance
 and command/resume hints. Operational status, mode, risk, provider and budget are available through
@@ -298,6 +305,8 @@ section.
 - type a task and press Enter to run it;
 - type `/` to open the filtered command drawer;
 - use `Up`/`Down` in the command drawer and `Tab` to complete the selected command;
+- `Ctrl+Tab` opens the mode menu; `Shift+Tab` is the fallback on terminals that cannot report
+  Ctrl+Tab separately;
 - drag over input or transcript text to create an internal selection; releasing the mouse copies
   a non-empty selection automatically;
 - while dragging a transcript selection at the top or bottom edge, the viewport continues scrolling
@@ -409,6 +418,8 @@ metadata is visually de-emphasized.
 | System command output | normal answer foreground |
 | Metadata and journal path | gray `245` |
 | Command drawer background | ANSI-256 dark gray `235` |
+| Mode menu background | ANSI-256 dark gray `235` |
+| Mode menu selected row | ANSI-256 gray `238` |
 | Command drawer border | gray `240` |
 | Command drawer title | white, bold |
 | Command name | Codex blue `75`, bold |

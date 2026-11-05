@@ -6,7 +6,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use std::ops::Range;
 use std::path::PathBuf;
 use unicode_segmentation::UnicodeSegmentation;
@@ -26,8 +26,54 @@ const LINK: Color = Color::Indexed(75);
 const LINK_HOVER: Color = Color::Rgb(0x7f, 0xe6, 0xff);
 const BANNER_BG: Color = Color::Indexed(236);
 const COMMAND_DESCRIPTION: Color = Color::Indexed(252);
-const DRAWER_BG: Color = Color::Indexed(235);
 const DRAWER_BORDER: Color = Color::Indexed(240);
+const MENU_BG: Color = Color::Indexed(235);
+const MENU_SELECTED_BG: Color = Color::Indexed(238);
+const MENU_LABEL: Color = Color::Indexed(252);
+const MENU_HINT: Color = Color::Indexed(245);
+
+/// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModeMenuItem {
+    pub mode: Option<CognitiveMode>,
+    pub label: &'static str,
+    pub description: &'static str,
+}
+
+/// Escalate is deliberately absent: nothing produces it and it has no
+/// behaviour, so offering it would be a promise the runtime cannot keep.
+pub const MODE_MENU: &[ModeMenuItem] = &[
+    ModeMenuItem {
+        mode: None,
+        label: "自动",
+        description: "跟随任务内容推断",
+    },
+    ModeMenuItem {
+        mode: Some(CognitiveMode::DirectAnswer),
+        label: "直接回答",
+        description: "只给结论，不展开结构化推理",
+    },
+    ModeMenuItem {
+        mode: Some(CognitiveMode::EvidenceResearch),
+        label: "证据研究",
+        description: "事实、断言、假设与未知分开",
+    },
+    ModeMenuItem {
+        mode: Some(CognitiveMode::DecisionAnalysis),
+        label: "决策分析",
+        description: "备选、标准、权衡与翻转条件",
+    },
+    ModeMenuItem {
+        mode: Some(CognitiveMode::Execute),
+        label: "执行任务",
+        description: "有副作用，需要写权限",
+    },
+    ModeMenuItem {
+        mode: Some(CognitiveMode::Diagnosis),
+        label: "诊断分析",
+        description: "根因、失败模式与回归检查",
+    },
+];
 
 pub const WELCOME_LOGO: &[&str] = &[
     " ╔╗ ╔═══╗             ╔╗ ",
@@ -176,6 +222,9 @@ pub struct TuiState {
     last_details: Option<String>,
     pending_reframe: Option<crate::reframe::ReframeProposal>,
     pointer: Option<(u16, u16)>,
+    mode_menu: Option<usize>,
+    mode_override: Option<CognitiveMode>,
+    last_inferred: Option<CognitiveMode>,
     context_chars: usize,
     context_budget: usize,
     details_open: bool,
@@ -224,6 +273,9 @@ impl TuiState {
             last_details: None,
             pending_reframe: None,
             pointer: None,
+            mode_menu: None,
+            mode_override: None,
+            last_inferred: None,
             context_chars: 0,
             context_budget: 100_000,
             details_open: false,
@@ -520,6 +572,75 @@ impl TuiState {
         self.command_panel = None;
         self.command_panel_history.clear();
         self.command_panel_scroll = 0;
+    }
+
+    pub fn mode_menu_open(&self) -> bool {
+        self.mode_menu.is_some()
+    }
+
+    /// Opens the mode menu, or closes it when already open. The cursor starts
+    /// on the applied mode so opening twice never hides where you are.
+    pub fn toggle_mode_menu(&mut self) {
+        if self.mode_menu.is_some() {
+            self.mode_menu = None;
+            return;
+        }
+        let selected = MODE_MENU
+            .iter()
+            .position(|item| item.mode == self.mode_override)
+            .unwrap_or(0);
+        self.mode_menu = Some(selected);
+    }
+
+    pub fn close_mode_menu(&mut self) {
+        self.mode_menu = None;
+    }
+
+    pub fn move_mode_menu_selection(&mut self, delta: isize) {
+        let Some(current) = self.mode_menu else {
+            return;
+        };
+        let len = MODE_MENU.len() as isize;
+        self.mode_menu = Some((current as isize + delta).rem_euclid(len) as usize);
+    }
+
+    pub fn mode_menu_selected(&self) -> Option<ModeMenuItem> {
+        let index = self.mode_menu?;
+        MODE_MENU.get(index).copied()
+    }
+
+    /// Applies the highlighted row. `自动` clears the override and lets the
+    /// next task be classified from its content.
+    pub fn apply_mode_menu(&mut self) {
+        let Some(item) = self.mode_menu_selected() else {
+            return;
+        };
+        self.mode_override = item.mode;
+        self.mode_menu = None;
+    }
+
+    pub fn mode_override(&self) -> Option<CognitiveMode> {
+        self.mode_override
+    }
+
+    /// What automatic inference produced for the most recent plain task.
+    pub fn set_last_inferred(&mut self, mode: CognitiveMode) {
+        self.last_inferred = Some(mode);
+    }
+
+    /// What the status bar shows: a manual choice, otherwise what inference
+    /// would pick next. Falling back to the last run keeps it defined before
+    /// any task has been submitted.
+    pub fn displayed_mode(&self) -> CognitiveMode {
+        self.mode_override
+            .or(self.last_inferred)
+            .unwrap_or(self.mode)
+    }
+
+    /// The mode a task will actually run in: a manual choice wins over
+    /// inference.
+    pub fn effective_mode(&self, inferred: CognitiveMode) -> CognitiveMode {
+        self.mode_override.unwrap_or(inferred)
     }
 
     /// The character budget the runtime compacts against. The status bar
@@ -1128,13 +1249,17 @@ impl TuiState {
         if self.slash_drawer_open() {
             let popup_height = (self.filtered_commands().len().clamp(1, 8) + 2) as u16;
             let popup_height = popup_height.min(chunks[0].height);
+            let popup_width = chunks[0].width.min(86);
             let popup = Rect {
-                x: chunks[0].x,
+                x: chunks[0].x + chunks[0].width.saturating_sub(popup_width) / 2,
                 y: chunks[0].bottom().saturating_sub(popup_height),
-                width: chunks[0].width,
+                width: popup_width,
                 height: popup_height,
             };
             self.draw_command_drawer(frame, popup);
+        }
+        if self.mode_menu_open() {
+            self.draw_mode_menu(frame, chunks[0]);
         }
         if self.details_open {
             self.draw_details(frame, frame.area());
@@ -1776,7 +1901,10 @@ impl TuiState {
             .rsplit_once('/')
             .map(|(_, model)| model)
             .unwrap_or(&self.provider_label);
-        let left = format!(" {model} · {}", self.mode.label_zh());
+        let left = format!(
+            " {model} · {} · Ctrl+Tab 切换",
+            self.displayed_mode().label_zh()
+        );
         let right = format!("上下文 {}% ", self.context_percent());
         let style = Style::default().fg(MUTED_TEXT);
         let right_width = right.width() as u16;
@@ -1875,20 +2003,76 @@ impl TuiState {
         );
     }
 
+    fn draw_mode_menu(&self, frame: &mut Frame, area: Rect) {
+        if area.is_empty() || area.height < 3 {
+            return;
+        }
+        let width = 52.min(area.width.saturating_sub(2)).max(20);
+        let height = (u16::try_from(MODE_MENU.len()).unwrap_or(u16::MAX) + 2).min(area.height);
+        let rect = Rect {
+            x: area.x + area.width.saturating_sub(width) / 2,
+            y: area.bottom().saturating_sub(height),
+            width,
+            height,
+        };
+        let selected = self
+            .mode_menu
+            .unwrap_or(0)
+            .min(MODE_MENU.len().saturating_sub(1));
+        let items = MODE_MENU
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let is_selected = index == selected;
+                let is_active = item.mode == self.mode_override;
+                let bar = if is_selected { "▌ " } else { "  " };
+                let marker = if is_active { "●" } else { " " };
+                let label_style = if is_selected {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(MENU_LABEL)
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(bar, Style::default().fg(UI_ACCENT)),
+                    Span::styled(
+                        format!("{marker} "),
+                        Style::default().fg(if is_active { UI_ACCENT } else { MENU_HINT }),
+                    ),
+                    Span::styled(fit_row(item.label, 12), label_style),
+                    Span::styled(item.description, Style::default().fg(MENU_HINT)),
+                ]))
+            })
+            .collect::<Vec<_>>();
+        let mut state = ListState::default();
+        state.select(Some(selected));
+        frame.render_widget(Clear, rect);
+        frame.render_stateful_widget(
+            List::new(items)
+                .style(Style::default().bg(MENU_BG))
+                .block(menu_block(
+                    "切换模式",
+                    "↑↓ 选择 · Enter 确认 · Esc 返回",
+                    MENU_BG,
+                ))
+                .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
+            rect,
+            &mut state,
+        );
+    }
+
     fn draw_command_panel(&mut self, frame: &mut Frame, area: Rect) {
         let Some(panel) = self.command_panel.clone() else {
             return;
         };
         frame.render_widget(Clear, area);
-        let block = Block::bordered()
-            .title(Line::from(Span::styled(
-                format!(" {} ", panel.title),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )))
-            .border_style(Style::default().fg(DRAWER_BORDER))
-            .style(Style::default().bg(Color::Reset));
+        let hint = if panel.menu.is_empty() {
+            ""
+        } else {
+            "↑↓ 选择 · Enter 确认 · Esc 返回"
+        };
+        let block = menu_block(&panel.title, hint, Color::Reset);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.is_empty() {
@@ -1899,22 +2083,26 @@ impl TuiState {
             .len()
             .min(8)
             .min(usize::from(inner.height.saturating_sub(2)));
-        let body_area = Rect {
-            x: inner.x,
-            y: inner.y,
-            width: inner.width,
-            height: inner
-                .height
-                .saturating_sub(1)
-                .saturating_sub(u16::try_from(menu_height).unwrap_or(u16::MAX)),
-        };
-        let content_width = usize::from(body_area.width.saturating_sub(2).max(1));
+        let content_width = usize::from(inner.width.saturating_sub(2).max(1));
         let wrapped_rows = panel
             .body
             .lines()
             .map(|line| wrap_display(line, content_width).len())
             .sum::<usize>();
-        let max_scroll = wrapped_rows.saturating_sub(usize::from(body_area.height));
+        // The body takes only the rows it needs, so a short panel keeps its
+        // menu next to the text instead of pinning it to the far edge.
+        let reserved = menu_height + usize::from(menu_height > 0) * 2;
+        let max_body = usize::from(inner.height).saturating_sub(reserved).max(1);
+        let body_height = u16::try_from(wrapped_rows)
+            .unwrap_or(u16::MAX)
+            .min(u16::try_from(max_body).unwrap_or(u16::MAX));
+        let body_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: body_height,
+        };
+        let max_scroll = wrapped_rows.saturating_sub(usize::from(body_height));
         self.command_panel_scroll = self.command_panel_scroll.min(max_scroll);
         let top = self.command_panel_scroll;
         if !body_area.is_empty() {
@@ -1932,23 +2120,39 @@ impl TuiState {
             );
         }
         if menu_height > 0 {
+            let divider = Line::styled(
+                "─".repeat(usize::from(inner.width)),
+                Style::default().fg(DRAWER_BORDER),
+            );
+            frame.render_widget(
+                Paragraph::new(divider),
+                Rect {
+                    x: inner.x,
+                    y: body_area.bottom(),
+                    width: inner.width,
+                    height: 1,
+                },
+            );
             let menu_area = Rect {
                 x: inner.x.saturating_add(1),
-                y: body_area.bottom(),
+                y: body_area.bottom().saturating_add(1),
                 width: inner.width.saturating_sub(2),
                 height: u16::try_from(menu_height).unwrap_or(u16::MAX),
             };
+            let selected = panel
+                .selected_menu_item
+                .min(panel.menu.len().saturating_sub(1));
             let items = panel
                 .menu
                 .iter()
-                .map(|item| {
+                .enumerate()
+                .map(|(index, item)| {
+                    let bar = if index == selected { "▌ " } else { "  " };
                     ListItem::new(Line::from(vec![
+                        Span::styled(bar, Style::default().fg(UI_ACCENT)),
                         Span::styled(
-                            format!(" {}", fit_row(&item.label, 18)),
-                            Style::default()
-                                .fg(UI_ACCENT)
-                                .bg(BANNER_BG)
-                                .add_modifier(Modifier::BOLD),
+                            fit_row(&item.label, 18),
+                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             item.description.clone(),
@@ -1962,13 +2166,7 @@ impl TuiState {
                 panel.selected_menu_item.min(items.len().saturating_sub(1)),
             ));
             frame.render_stateful_widget(
-                List::new(items)
-                    .highlight_style(
-                        Style::default()
-                            .bg(Color::Indexed(238))
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .highlight_symbol("› "),
+                List::new(items).highlight_style(Style::default().bg(MENU_SELECTED_BG)),
                 menu_area,
                 &mut menu_state,
             );
@@ -1983,16 +2181,17 @@ impl TuiState {
                 Style::default().fg(MUTED_TEXT),
             ))]
         } else {
+            let selected = self.selected_command.min(commands.len().saturating_sub(1));
             commands
                 .iter()
-                .map(|command| {
+                .enumerate()
+                .map(|(index, command)| {
+                    let bar = if index == selected { "▌ " } else { "  " };
                     ListItem::new(Line::from(vec![
+                        Span::styled(bar, Style::default().fg(UI_ACCENT)),
                         Span::styled(
-                            format!(" {:<14}", command.name),
-                            Style::default()
-                                .fg(UI_ACCENT)
-                                .bg(BANNER_BG)
-                                .add_modifier(Modifier::BOLD),
+                            fit_row(command.name, 16),
+                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             command.description.to_string(),
@@ -2007,25 +2206,16 @@ impl TuiState {
             self.selected_command.min(items.len().saturating_sub(1)),
         ));
         frame.render_widget(Clear, area);
-        let block = Block::bordered()
-            .title(Line::from(Span::styled(
-                self.command_drawer_title(),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )))
-            .border_style(Style::default().fg(DRAWER_BORDER))
-            .style(Style::default().bg(DRAWER_BG));
+        let block = menu_block(
+            self.command_drawer_title(),
+            "↑↓ 选择 · Tab 补全 · Esc 关闭",
+            MENU_BG,
+        );
         frame.render_stateful_widget(
             List::new(items)
-                .style(Style::default().bg(DRAWER_BG))
+                .style(Style::default().bg(MENU_BG))
                 .block(block)
-                .highlight_style(
-                    Style::default()
-                        .bg(Color::Indexed(238))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("› "),
+                .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
             area,
             &mut state,
         );
@@ -3388,6 +3578,29 @@ fn truncate_to_width(text: &str, limit: usize) -> String {
     output
 }
 
+fn menu_block(title: &str, hint: &str, background: Color) -> Block<'static> {
+    let mut block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title_top(Line::from(Span::styled(
+            format!(" {} ", title.trim()),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )))
+        .border_style(Style::default().fg(DRAWER_BORDER))
+        .style(Style::default().bg(background));
+    if !hint.is_empty() {
+        block = block.title_bottom(
+            Line::from(Span::styled(
+                format!(" {hint} "),
+                Style::default().fg(MENU_HINT),
+            ))
+            .right_aligned(),
+        );
+    }
+    block
+}
+
 fn fit_row(text: &str, columns: usize) -> String {
     let text = truncate_to_width(text, columns);
     let padding = columns.saturating_sub(text.width());
@@ -3765,6 +3978,74 @@ mod tests {
     }
 
     #[test]
+    fn mode_menu_switches_the_effective_mode_and_returns_to_auto() {
+        let mut state = TuiState::new("mock", 6, 120);
+        assert_eq!(
+            state.effective_mode(CognitiveMode::EvidenceResearch),
+            CognitiveMode::EvidenceResearch
+        );
+
+        state.toggle_mode_menu();
+        assert!(state.mode_menu_open());
+        state.move_mode_menu_selection(3);
+        assert_eq!(state.mode_menu_selected().unwrap().label, "决策分析");
+        state.apply_mode_menu();
+        assert!(!state.mode_menu_open());
+        assert_eq!(state.displayed_mode(), CognitiveMode::DecisionAnalysis);
+        assert_eq!(
+            state.effective_mode(CognitiveMode::DirectAnswer),
+            CognitiveMode::DecisionAnalysis
+        );
+
+        // Reopening starts on the applied row, not on the first row.
+        state.toggle_mode_menu();
+        assert_eq!(state.mode_menu_selected().unwrap().label, "决策分析");
+        state.move_mode_menu_selection(-3);
+        state.apply_mode_menu();
+        assert_eq!(state.mode_override(), None);
+        assert_eq!(
+            state.effective_mode(CognitiveMode::EvidenceResearch),
+            CognitiveMode::EvidenceResearch
+        );
+    }
+
+    #[test]
+    fn mode_menu_is_rounded_highlights_the_selection_and_marks_the_active_mode() {
+        let backend = TestBackend::new(80, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.toggle_mode_menu();
+        state.move_mode_menu_selection(3);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let content: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        let tight: String = content.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(content.contains('╭'), "rounded border");
+        assert!(tight.contains("切换模式"));
+        assert!(tight.contains("决策分析"));
+        assert!(tight.contains("↑↓选择"));
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|cell| cell.symbol() != " " && cell.bg == MENU_SELECTED_BG),
+            "the highlighted row has its own background"
+        );
+
+        state.close_mode_menu();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(!content.contains("切换模式"));
+    }
+
+    #[test]
     fn status_bar_shows_the_model_the_mode_and_context_usage() {
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -3788,6 +4069,7 @@ mod tests {
         let tight: String = row.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(tight.contains("deepseek-flash"), "model: {row}");
         assert!(tight.contains("证据研究"), "mode: {row}");
+        assert!(tight.contains("Ctrl+Tab切换"), "hint: {row}");
         assert!(tight.contains("上下文25%"), "usage: {row}");
     }
 
