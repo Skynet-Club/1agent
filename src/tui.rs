@@ -1237,43 +1237,20 @@ impl TuiState {
             return;
         }
         frame.render_widget(Clear, area);
-        if area.width >= 32 {
-            let logo_width = WELCOME_LOGO
-                .iter()
-                .map(|line| line.width())
-                .max()
-                .unwrap_or_default() as u16;
-            let content_height = WELCOME_LOGO.len() as u16;
-            let start_y = area
-                .y
-                .saturating_add(area.height.saturating_sub(content_height) / 2);
-            let logo_area = Rect::new(
-                area.x + area.width.saturating_sub(logo_width) / 2,
-                start_y,
-                logo_width.min(area.width),
-                area.height.min(WELCOME_LOGO.len() as u16),
+        // The mark needs its own room; below that the compact wordmark is used
+        // rather than a cropped logo.
+        let banner_fits = area.width >= crate::welcome_banner::BANNER_COLS as u16 + 4
+            && area.height >= crate::welcome_banner::BANNER_ROWS as u16 + 2;
+        if banner_fits {
+            let width = crate::welcome_banner::BANNER_COLS as u16;
+            let height = crate::welcome_banner::BANNER_ROWS as u16;
+            let rect = Rect::new(
+                area.x + area.width.saturating_sub(width) / 2,
+                area.y + area.height.saturating_sub(height) / 2,
+                width.min(area.width),
+                height.min(area.height),
             );
-            let logo = WELCOME_LOGO
-                .iter()
-                .enumerate()
-                .map(|(index, line)| welcome_logo_line(index, line))
-                .collect::<Vec<_>>();
-            let pad = 2;
-            let banner = Rect {
-                x: logo_area.x.saturating_sub(pad).max(area.x),
-                y: logo_area.y,
-                width: (logo_area.right() + pad).min(area.right())
-                    - logo_area.x.saturating_sub(pad).max(area.x),
-                height: logo_area.height,
-            };
-            frame.render_widget(
-                Block::default().style(Style::default().bg(BANNER_BG)),
-                banner,
-            );
-            frame.render_widget(
-                Paragraph::new(logo).style(Style::default().bg(BANNER_BG)),
-                logo_area,
-            );
+            frame.render_widget(Paragraph::new(banner_lines()), rect);
         } else {
             let content_height = 1u16;
             let start_y = area
@@ -3202,47 +3179,32 @@ fn looks_like_code_line(line: &str) -> bool {
             .all(|character| character.is_alphanumeric() || "_$.:".contains(character))
 }
 
-fn welcome_logo_line(index: usize, text: &str) -> Line<'static> {
-    let green_range = welcome_logo_green_range(index);
-    if green_range.is_empty() {
-        return Line::styled(
-            text.to_string(),
-            Style::default()
-                .fg(UI_ACCENT)
-                .bg(BANNER_BG)
-                .add_modifier(Modifier::BOLD),
-        );
-    }
+/// Renders the baked raster as half blocks: the foreground paints the top pixel
+/// and the background the bottom one, so one cell carries two pixels.
+fn banner_lines() -> Vec<Line<'static>> {
+    crate::welcome_banner::BANNER
+        .iter()
+        .map(|row| {
+            let bytes = row.as_bytes();
+            let mut spans = Vec::with_capacity(bytes.len() / 12);
+            for chunk in bytes.chunks(12) {
+                let top = half_color(&chunk[0..6]);
+                let bottom = half_color(&chunk[6..12]);
+                spans.push(Span::styled(
+                    "\u{2580}",
+                    Style::default().fg(top).bg(bottom),
+                ));
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
 
-    let green_start = char_byte_index(text, green_range.start);
-    let green_end = char_byte_index(text, green_range.end);
-    let mut spans = Vec::new();
-    if green_start > 0 {
-        spans.push(Span::styled(
-            text[..green_start].to_string(),
-            Style::default()
-                .fg(UI_ACCENT)
-                .bg(BANNER_BG)
-                .add_modifier(Modifier::BOLD),
-        ));
-    }
-    spans.push(Span::styled(
-        text[green_start..green_end].to_string(),
-        Style::default()
-            .fg(PROMPT_GREEN)
-            .bg(BANNER_BG)
-            .add_modifier(Modifier::BOLD),
-    ));
-    if green_end < text.len() {
-        spans.push(Span::styled(
-            text[green_end..].to_string(),
-            Style::default()
-                .fg(UI_ACCENT)
-                .bg(BANNER_BG)
-                .add_modifier(Modifier::BOLD),
-        ));
-    }
-    Line::from(spans)
+fn half_color(hex: &[u8]) -> Color {
+    let parse = |slice: &[u8]| {
+        u8::from_str_radix(std::str::from_utf8(slice).unwrap_or("00"), 16).unwrap_or(0)
+    };
+    Color::Rgb(parse(&hex[0..2]), parse(&hex[2..4]), parse(&hex[4..6]))
 }
 
 pub fn welcome_logo_green_range(index: usize) -> Range<usize> {
@@ -3251,12 +3213,6 @@ pub fn welcome_logo_green_range(index: usize) -> Range<usize> {
         0..=4 => 0..3,
         _ => 0..0,
     }
-}
-
-fn char_byte_index(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index)
-        .map_or(text.len(), |(index, _)| index)
 }
 
 fn wrap_first_then_rest(text: &str, first_width: usize, rest_width: usize) -> Vec<String> {
@@ -3691,24 +3647,12 @@ mod tests {
     }
 
     #[test]
-    fn welcome_logo_paints_the_one_green_and_the_word_blue_on_a_dark_band() {
+    fn the_plain_text_banner_paints_the_leading_one_green() {
+        // tui_terminal prints the text logo after a session ends; the welcome
+        // screen uses the raster banner instead. This keeps the text contract.
         for (index, art) in WELCOME_LOGO.iter().enumerate() {
-            let line = welcome_logo_line(index, art);
-            assert_eq!(
-                line.spans[0].style.fg,
-                Some(PROMPT_GREEN),
-                "row {index}: the leading 1 is green"
-            );
-            assert_eq!(
-                line.spans[1].style.fg,
-                Some(UI_ACCENT),
-                "row {index}: the word is blue"
-            );
-            assert_eq!(
-                line.spans[0].style.bg,
-                Some(BANNER_BG),
-                "row {index}: the band carries a background"
-            );
+            assert_eq!(welcome_logo_green_range(index), 0..3, "row {index}");
+            assert!(art.chars().count() >= 3);
         }
     }
 
@@ -3771,7 +3715,8 @@ mod tests {
 
     #[test]
     fn welcome_surface_uses_logo_session_and_no_global_status() {
-        let backend = TestBackend::new(80, 24);
+        // Tall enough for the raster mark; the fallback is covered separately.
+        let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
         state.set_session_info("ses_welcome_test");
@@ -3783,15 +3728,50 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        // Assert on the current art rather than a fixed glyph, so restyling the
-        // logo does not silently break the welcome contract.
-        assert!(content.contains(WELCOME_LOGO[0].trim()));
+        // The welcome mark is a raster banner; its two brand colours are the
+        // stable contract, not any particular glyph.
+        let colours = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.fg)
+            .collect::<Vec<_>>();
+        assert!(
+            colours.contains(&Color::Rgb(0xff, 0x6b, 0x4a)),
+            "orange half"
+        );
+        assert!(colours.contains(&Color::Rgb(0x6f, 0xe3, 0xff)), "cyan half");
         // The session block and the key hints were removed on request; assert
         // their absence so they cannot creep back.
         assert!(!content.contains("ses_welcome_test"));
         assert!(!content.contains("输入任务开始"));
         assert!(!content.contains("Ctrl+Q"));
         assert!(!content.contains("1-Agent | status="));
+    }
+
+    #[test]
+    fn a_short_terminal_falls_back_to_the_wordmark_instead_of_cropping_the_mark() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(content.contains("1-Agent"));
+        let colours = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.fg)
+            .collect::<Vec<_>>();
+        assert!(!colours.contains(&Color::Rgb(0xff, 0x6b, 0x4a)));
     }
 
     #[test]
