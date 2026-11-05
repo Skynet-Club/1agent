@@ -273,12 +273,14 @@ mod tests {
 
     #[test]
     fn task_session_id_prefers_the_execution_target() {
-        let mut task = TaskRuntimeState::default();
-        task.execution_target = Some(crate::master_coordination::ExecutionTarget {
-            session_id: Some("term-1790000000000-1234-1".into()),
-            pane_id: None,
-            job_id: None,
-        });
+        let mut task = TaskRuntimeState {
+            execution_target: Some(crate::master_coordination::ExecutionTarget {
+                session_id: Some("term-1790000000000-1234-1".into()),
+                pane_id: None,
+                job_id: None,
+            }),
+            ..Default::default()
+        };
         assert_eq!(
             task_session_id(Some(&task)).as_deref(),
             Some("term-1790000000000-1234-1")
