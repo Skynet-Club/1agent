@@ -54,6 +54,8 @@ Date: 2026-11-02
   14-task style set; the same five targets hold.
 - [`evidence-annotation-round1.md`](evidence-annotation-round1.md): first external labelling
   round; one annotator, so no kappa yet, with the single disagreement recorded.
+- [`evidence-annotation-round2.md`](evidence-annotation-round2.md): second annotator; kappa
+  0.891, and both annotators dispute the label the only held-out error depends on.
 
 ## Thesis and pre-registration (v0.95 research)
 
