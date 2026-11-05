@@ -473,6 +473,20 @@ does not duplicate the secret.
   contains a known Session ID;
 - the existing read-only, network and journal policies remain unchanged.
 
+## Deferred: spinning welcome mark
+
+The welcome screen is static. A Codex-style spin was scoped on 2026-11-05 and
+deliberately deferred:
+
+- Codex renders a 3D field to Braille cells at 50 ms per frame, two rotations per
+  7.2 s loop, with per-cell RGB and smoothstep easing; it pauses while hidden.
+- Our mark is a flat hexagon, so the cheaper route is to bake N rotations of
+  `assets/skynet-matrix.svg` into constants and play them once at 60 ms per frame.
+- Rotating the double-line `1Agent` wordmark does not work: text art falls apart
+  when turned. The badge would spin above the wordmark.
+- Requires an idle redraw ticker in the interactive loop, which currently only
+  ticks while a selection is auto-scrolling.
+
 ## Current limitations
 
 - no token streaming;
