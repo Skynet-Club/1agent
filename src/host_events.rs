@@ -129,13 +129,23 @@ fn render(
     if let Some(attempt) = attempt {
         object.insert("attempt".into(), json!(attempt));
     }
-    if let Ok(session_id) = std::env::var("SKYTERM_SESSION_ID")
-        && safe_id(&session_id)
-    {
+    if let Some(session_id) = task_session_id(task) {
         object.insert("session_id".into(), json!(session_id));
     }
     object.insert("payload".into(), Value::Object(payload));
     Ok(Value::Object(object))
+}
+
+fn task_session_id(task: Option<&TaskRuntimeState>) -> Option<String> {
+    task.and_then(|task| task.execution_target.as_ref())
+        .and_then(|target| target.session_id.as_deref())
+        .filter(|value| safe_id(value))
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::var("SKYTERM_SESSION_ID")
+                .ok()
+                .filter(|value| safe_id(value))
+        })
 }
 
 fn safe_id(value: &str) -> bool {
@@ -259,6 +269,27 @@ mod tests {
             project(&MasterJournalEventKind::GoalAccepted, None),
             Some("goal.accepted")
         );
+    }
+
+    #[test]
+    fn task_session_id_prefers_the_execution_target() {
+        let mut task = TaskRuntimeState::default();
+        task.execution_target = Some(crate::master_coordination::ExecutionTarget {
+            session_id: Some("term-1790000000000-1234-1".into()),
+            pane_id: None,
+            job_id: None,
+        });
+        assert_eq!(
+            task_session_id(Some(&task)).as_deref(),
+            Some("term-1790000000000-1234-1")
+        );
+        task.execution_target = Some(crate::master_coordination::ExecutionTarget {
+            session_id: Some("bad/id".into()),
+            pane_id: None,
+            job_id: None,
+        });
+        assert_eq!(task_session_id(Some(&task)), None);
+        assert_eq!(task_session_id(None), None);
     }
 
     #[test]
