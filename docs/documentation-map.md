@@ -2,23 +2,12 @@
 
 Date: 2026-11-02
 
-## 1A Bot development manual (product layer, planned)
+## 1A Bot development manual (Obsidian)
 
-The manual defines the Bot product on top of the 1A kernel and Workshop infrastructure. It is
-normative for the Bot Alpha program; the existing V0 boundary remains until ADR-003 is accepted.
-
-- [`1a-bot/README.md`](1a-bot/README.md): reading order, ownership, single source of truth.
-- [`1a-bot/000-thesis.md`](1a-bot/000-thesis.md): proposition, invariants, non-goals, success metrics.
-- [`1a-bot/001-domain.md`](1a-bot/001-domain.md): Bot, Ticket, Mandate, Memory, Skill, state machines.
-- [`1a-bot/002-architecture.md`](1a-bot/002-architecture.md): kernel/bot/surface/control-plane layers.
-- [`1a-bot/003-authority.md`](1a-bot/003-authority.md): sandbox, exec policy, approvals, secrets, audit.
-- [`1a-bot/004-memory.md`](1a-bot/004-memory.md): working/episodic/semantic/procedural memory and user model.
-- [`1a-bot/005-evolution.md`](1a-bot/005-evolution.md): skills, progressive disclosure, evolution gates.
-- [`1a-bot/006-runtime.md`](1a-bot/006-runtime.md): event loop, router/worker, recovery, concurrency.
-- [`1a-bot/007-surfaces.md`](1a-bot/007-surfaces.md): Web/TUI/IM/voice information architecture and UX.
-- [`1a-bot/008-quality.md`](1a-bot/008-quality.md): test pyramid, benchmarks, red team, release gates.
-- [`1a-bot/009-roadmap.md`](1a-bot/009-roadmap.md): G0 foundation hardening through G4, work packages, exit gates.
-- [`1a-bot/010-governance.md`](1a-bot/010-governance.md): ADRs, decisions, open questions, consistency protocol.
+The manual lives in the Obsidian vault at
+`Skynet-Workshop/03-架构/1A-Bot/` (12 notes, index: `00-索引`). It is the single source of
+truth for the Bot Alpha program; the repository no longer keeps a duplicate. The existing V0
+boundary remains until ADR-003 is accepted.
 
 ## Stable technical references
 
