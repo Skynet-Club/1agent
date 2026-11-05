@@ -1247,14 +1247,29 @@ impl TuiState {
             .unwrap_or_default() as u16;
         let mark_height = WELCOME_LOGO.len() as u16;
         // The mark needs its own room; below that the compact wordmark is used.
-        if area.width >= mark_width + 4 && area.height >= mark_height + 2 {
+        if area.width >= mark_width + 4 && area.height >= mark_height + 6 {
+            let block_height = mark_height.saturating_add(4);
             let rect = Rect::new(
                 area.x + area.width.saturating_sub(mark_width) / 2,
-                area.y + area.height.saturating_sub(mark_height) / 2,
+                area.y + area.height.saturating_sub(block_height) / 2,
                 mark_width.min(area.width),
-                mark_height.min(area.height),
+                block_height.min(area.height),
             );
-            frame.render_widget(Paragraph::new(welcome_mark_lines()), rect);
+            let mut lines = welcome_mark_lines();
+            lines.push(Line::raw(""));
+            lines.push(
+                Line::styled("超级个体俱乐部", Style::default().fg(MUTED_TEXT))
+                    .alignment(Alignment::Center),
+            );
+            lines.push(
+                Line::styled("Super Individual Club", Style::default().fg(MUTED_TEXT))
+                    .alignment(Alignment::Center),
+            );
+            lines.push(
+                Line::styled("Http://Skynet.Club", Style::default().fg(MUTED_TEXT))
+                    .alignment(Alignment::Center),
+            );
+            frame.render_widget(Paragraph::new(lines), rect);
         } else {
             let content_height = 1u16;
             let start_y = area
@@ -3724,6 +3739,15 @@ mod tests {
             .map(|cell| cell.fg)
             .collect::<Vec<_>>();
         assert!(colours.contains(&UI_ACCENT), "the mark is drawn in accent");
+        // The caption ships with the product; pin the exact casing. Wide
+        // characters occupy two cells, so the buffer holds a filler between them.
+        let tight = content
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+        assert!(tight.contains("超级个体俱乐部"));
+        assert!(tight.contains("SuperIndividualClub"));
+        assert!(tight.contains("Http://Skynet.Club"));
         // The session block and the key hints were removed on request; assert
         // their absence so they cannot creep back.
         assert!(!content.contains("ses_welcome_test"));
