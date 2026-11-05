@@ -70,8 +70,8 @@ file: <路径>              → 文件必须存在
 | 试点语料覆盖 7 个任务族，且每例可在 2 问内到达动作 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py fixtures/reframing/pilot-v0.json | ✅ | 设计层校验，不是模型行为 |
 | 在 11 个构造的 means 案例上，10 个得到 2–3 路问题 | file: docs/evidence/reframing-pilot-v0/summary-v2.json | ⚠️ | 调参集 10/11；held-out 召回 21/21；但 precision 未达标 |
 | 产品能自行生成重构提议 | file: docs/evidence-reframe-live-v0.md | ⚠️ | 一次真实调用；提示词与研究脚本同源，哈希已锁 |
-| 语义判断可被两位独立标注者复现 | file: docs/evidence-annotation-round2.md | ⚠️ | κ=0.891（21 例）；标注者是代理，不是真实用户 |
-| 替代方案可接受率 | file: docs/evidence-annotation-round2.md | ⚠️ | 8 条构造案例：B 全接受，A 6 接受 1 存疑；n 太小 |
+| 语义判断可被两位独立标注者复现 | 无 | ❌ | 两轮由同一人填写，κ 无效；需第二位独立标注者 |
+| 替代方案可接受率 | 无 | ❌ | 同上：只有一位标注者的判断，不能代表用户 |
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
 | 回答不复述请求、不含开场脚手架 | file: docs/evidence-answer-style-v2set.md | ⚠️ | 两套独立 14 任务均达标：散文 p50 292/222，句子 4.0/5.0，复述 2/14、2/14，脚手架 0 |
 | 五条风格法已写入系统提示词 | test: system_prompt_carries_the_occam_style_laws | ✅ | 只证明条款存在，不证明模型遵守 |
