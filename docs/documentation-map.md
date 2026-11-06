@@ -5,7 +5,7 @@ Date: 2026-11-02
 ## 1A Bot development manual (Obsidian)
 
 The manual lives in the Obsidian vault at
-`Skynet-Workshop/03-架构/1A-Bot/` (12 notes, index: `00-索引`). It is the single source of
+`Skynet-Workshop/03-架构/1A-Bot/` (13 chapters + ADR, index: `00-索引`). It is the single source of
 truth for the Bot Alpha program; the repository no longer keeps a duplicate. The existing V0
 boundary remains until ADR-003 is accepted.
 
