@@ -1153,6 +1153,11 @@ fn parse_evolution_kind(value: &str) -> Result<EvolutionKind, SurfaceError> {
 fn map_evolution_store_error(error: EvolutionStoreError) -> SurfaceError {
     match error {
         EvolutionStoreError::Evolution(error) => map_evolution_error(error),
+        EvolutionStoreError::ConcurrentWrite { .. } => SurfaceError::new(
+            SurfaceErrorCode::Conflict,
+            "evolution store changed concurrently; retry the request",
+            true,
+        ),
         EvolutionStoreError::Io(_)
         | EvolutionStoreError::Json(_)
         | EvolutionStoreError::Corrupt(_) => {
@@ -1206,6 +1211,11 @@ fn parse_risk(value: &str) -> Result<RiskLevel, SurfaceError> {
 fn map_delegation_store_error(error: DelegationStoreError) -> SurfaceError {
     match error {
         DelegationStoreError::Delegation(error) => map_delegation_error(error),
+        DelegationStoreError::ConcurrentWrite { .. } => SurfaceError::new(
+            SurfaceErrorCode::Conflict,
+            "delegation store changed concurrently; retry the request",
+            true,
+        ),
         DelegationStoreError::Io(_)
         | DelegationStoreError::Json(_)
         | DelegationStoreError::Corrupt(_) => {

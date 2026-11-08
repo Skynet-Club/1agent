@@ -118,3 +118,39 @@ fn cli_wires_authority_gate_health_and_alert_log() {
     let result: RunResult = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(result.stop_reason, StopReason::Completed);
 }
+
+#[test]
+fn cli_rejects_insecure_alert_webhook() {
+    let workspace = tempfile::tempdir().unwrap();
+    let config = workspace.path().join("agent.json");
+    std::fs::write(
+        &config,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "providers": [{
+                "id": "deterministic",
+                "adapter": "deterministic",
+                "model": "offline-v1",
+                "quality_score": 1,
+                "max_risk": "high"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args(["run", "--config", &config.display().to_string()])
+        .args([
+            "--task",
+            "Compare options",
+            "--journal-dir",
+            &workspace.path().join("journal").display().to_string(),
+            "--alert-webhook",
+            "http://example.com/alerts",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("https"));
+}

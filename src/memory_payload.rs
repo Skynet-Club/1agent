@@ -185,6 +185,43 @@ impl MemoryKeyring {
         Ok(derive_scope_key(master, scope_id))
     }
 
+    fn lock(&self) -> Result<crate::jsonl::FileLock, MemoryPayloadError> {
+        Ok(crate::jsonl::FileLock::exclusive(&self.master_path)?)
+    }
+
+    /// Reload the master bundle and KEK ledger from disk. The caller must hold
+    /// the cross-process key lock.
+    fn reload(&self) -> Result<(), MemoryPayloadError> {
+        let metadata = std::fs::symlink_metadata(&self.master_path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(MemoryPayloadError::Corrupt(
+                "memory key must be a regular file".into(),
+            ));
+        }
+        check_private_permissions(&self.master_path)?;
+        let bytes = std::fs::read(&self.master_path)?;
+        let state = if bytes.len() == KEY_LEN {
+            let mut master = [0u8; KEY_LEN];
+            master.copy_from_slice(&bytes);
+            KeyringState {
+                masters: BTreeMap::from([(LEGACY_MASTER_ID, master)]),
+                active: LEGACY_MASTER_ID,
+            }
+        } else {
+            decode_master_bundle(&bytes)?
+        };
+        let disk = load_ledger(&self.ledger_path)?;
+        *self
+            .state
+            .write()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key state lock".into()))? = state;
+        *self
+            .ledger
+            .write()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key ledger lock".into()))? = disk;
+        Ok(())
+    }
+
     fn ledger_is_empty(&self) -> Result<bool, MemoryPayloadError> {
         let ledger = self
             .ledger
@@ -720,9 +757,11 @@ impl MemoryPayloadStore {
         key_path: impl AsRef<Path>,
     ) -> Result<Self, MemoryPayloadError> {
         let root = root.into();
+        let key_path = key_path.as_ref().to_path_buf();
+        let _key_lock = crate::jsonl::FileLock::exclusive(&key_path)?;
         std::fs::create_dir_all(&root)?;
         set_dir_permissions(&root)?;
-        let keyring = MemoryKeyring::open_or_create(key_path)?;
+        let keyring = MemoryKeyring::open_or_create(&key_path)?;
         if keyring.ledger_is_empty()? && root_has_schema_two_payload(&root)? {
             return Err(MemoryPayloadError::Corrupt(
                 "scope key ledger is missing for existing schema-2 payloads".into(),
@@ -762,6 +801,8 @@ impl MemoryPayloadStore {
                 "scope id must not be empty".into(),
             ));
         }
+        let _key_lock = self.keyring.lock()?;
+        self.keyring.reload()?;
         let _guard = self.read_rotation()?;
         let (kek_version, scope_key) = self.keyring.ensure_scope_key(scope_id)?;
         let rng = SystemRandom::new();
@@ -792,6 +833,8 @@ impl MemoryPayloadStore {
     }
 
     pub fn get(&self, memory_id: &str, scope_id: &str) -> Result<String, MemoryPayloadError> {
+        let _key_lock = self.keyring.lock()?;
+        self.keyring.reload()?;
         let _guard = self.read_rotation()?;
         let path = self.path_for(memory_id)?;
         ensure_regular_payload(&path)?;
@@ -840,6 +883,8 @@ impl MemoryPayloadStore {
                 "scope id must not be empty".into(),
             ));
         }
+        let _key_lock = self.keyring.lock()?;
+        self.keyring.reload()?;
         let _guard = self.write_rotation()?;
         let (new_version, new_key) = self.keyring.new_scope_key(scope_id)?;
         let mut paths = Vec::new();
@@ -926,6 +971,8 @@ impl MemoryPayloadStore {
     /// payloads must be migrated to schema 2 first; otherwise their
     /// master-derived key would become unrecoverable.
     pub fn rotate_master_key(&self) -> Result<MasterRotation, MemoryPayloadError> {
+        let _key_lock = self.keyring.lock()?;
+        self.keyring.reload()?;
         let _guard = self.write_rotation()?;
         if root_has_legacy_payload(&self.root)? {
             return Err(MemoryPayloadError::Corrupt(
@@ -982,6 +1029,7 @@ impl MemoryPayloadStore {
     }
 
     pub fn forget(&self, memory_id: &str) -> Result<(), MemoryPayloadError> {
+        let _key_lock = self.keyring.lock()?;
         let _guard = self.read_rotation()?;
         let path = self.path_for(memory_id)?;
         match std::fs::remove_file(&path) {
@@ -1180,6 +1228,24 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp"))
             .count();
         assert_eq!(leftovers, 0);
+    }
+
+    #[test]
+    fn concurrent_first_writes_reuse_one_scope_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("payloads");
+        let key = dir.path().join("memory.key");
+        let first = MemoryPayloadStore::open(&root, &key).unwrap();
+        let second = MemoryPayloadStore::open(&root, &key).unwrap();
+        first.put("mem-1", "bot-1", "first body").unwrap();
+        second.put("mem-2", "bot-1", "second body").unwrap();
+        assert_eq!(first.get("mem-1", "bot-1").unwrap(), "first body");
+        assert_eq!(second.get("mem-2", "bot-1").unwrap(), "second body");
+        assert_eq!(first.get("mem-2", "bot-1").unwrap(), "second body");
+        let rotation = first.rotate_scope_key("bot-1").unwrap();
+        assert_eq!(rotation.rotated, 2);
+        assert_eq!(second.get("mem-1", "bot-1").unwrap(), "first body");
+        assert_eq!(second.get("mem-2", "bot-1").unwrap(), "second body");
     }
 
     #[test]

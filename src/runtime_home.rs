@@ -18,8 +18,11 @@ use thiserror::Error;
 use crate::audit::{AuditKind, audit_store};
 
 pub const HOME_SCHEMA: &str = "1agent.home.v1";
-pub const HOME_VERSION: u32 = 1;
-pub const HOME_DIRS: [&str; 3] = ["journals", "payloads", "backups"];
+pub const HOME_VERSION: u32 = 2;
+pub const HOME_DIRS: [&str; 4] = ["journals", "payloads", "backups", "keys"];
+const MEMORY_KEY: &str = "memory.key";
+const MEMORY_LEDGER: &str = "memory.key-keks.json";
+const KEYS_DIR: &str = "keys";
 
 const MANIFEST_NAME: &str = "home.json";
 const EXPORT_MANIFEST_NAME: &str = "export.json";
@@ -130,6 +133,7 @@ pub struct UpgradeOutcome {
     pub check_only: bool,
     pub from_version: u32,
     pub to_version: u32,
+    pub rolled_back: bool,
     pub repaired: Vec<String>,
     pub changed: bool,
 }
@@ -260,14 +264,23 @@ pub fn doctor(root: &Path) -> Result<DoctorReport, HomeError> {
                     ),
                 ));
             } else if manifest.version < HOME_VERSION {
-                checks.push(check(
-                    "home_marker",
-                    DoctorStatus::Fail,
-                    format!(
-                        "home version {} is older than {HOME_VERSION}; this build has no migration",
-                        manifest.version
-                    ),
-                ));
+                let (status, detail) = if manifest.version == 1 {
+                    (
+                        DoctorStatus::Warn,
+                        format!(
+                            "home version 1 is older than {HOME_VERSION}; run `1agent upgrade`"
+                        ),
+                    )
+                } else {
+                    (
+                        DoctorStatus::Fail,
+                        format!(
+                            "home version {} is older than {HOME_VERSION}; this build has no migration",
+                            manifest.version
+                        ),
+                    )
+                };
+                checks.push(check("home_marker", status, detail));
             } else {
                 checks.push(check(
                     "home_marker",
@@ -336,11 +349,15 @@ pub fn doctor(root: &Path) -> Result<DoctorReport, HomeError> {
         }
     }
 
-    checks.push(check_private_key_file(&root, "master_key", "memory.key"));
+    checks.push(check_private_key_file(
+        &root,
+        "master_key",
+        "keys/memory.key",
+    ));
     checks.push(check_private_key_file(
         &root,
         "kek_ledger",
-        "memory.key-keks.json",
+        "keys/memory.key-keks.json",
     ));
     checks.push(check_journal(
         &root,
@@ -643,22 +660,88 @@ pub fn restore(bundle: &Path, root: &Path, _now_ms: u128) -> Result<RestoreOutco
     })
 }
 
-pub fn upgrade(root: &Path, check_only: bool, now_ms: u128) -> Result<UpgradeOutcome, HomeError> {
+pub fn upgrade(
+    root: &Path,
+    check_only: bool,
+    rollback: bool,
+    now_ms: u128,
+) -> Result<UpgradeOutcome, HomeError> {
     let root = absolute(root)?;
     let mut manifest = read_manifest(&root)?;
-    if manifest.version > HOME_VERSION {
-        return Err(HomeError::UnsupportedVersion {
-            found: manifest.version,
-            supported: HOME_VERSION,
-        });
-    }
-    if manifest.version < HOME_VERSION {
-        return Err(HomeError::UnsupportedVersion {
-            found: manifest.version,
-            supported: HOME_VERSION,
-        });
-    }
     let from_version = manifest.version;
+    if from_version > HOME_VERSION {
+        return Err(HomeError::UnsupportedVersion {
+            found: from_version,
+            supported: HOME_VERSION,
+        });
+    }
+    if rollback {
+        if from_version != HOME_VERSION {
+            return Err(HomeError::UnsupportedVersion {
+                found: from_version,
+                supported: HOME_VERSION,
+            });
+        }
+        let repaired = rollback_key_layout(&root, check_only)?;
+        if !check_only {
+            manifest.version = 1;
+            manifest.updated_ms = now_ms;
+            write_manifest(&root, &manifest)?;
+        }
+        return Ok(UpgradeOutcome {
+            root,
+            check_only,
+            from_version,
+            to_version: 1,
+            rolled_back: true,
+            repaired,
+            changed: !check_only,
+        });
+    }
+    if from_version == 1 {
+        let mut repaired = migrate_key_layout(&root, check_only)?;
+        if !check_only {
+            manifest.version = 2;
+            manifest.updated_ms = now_ms;
+            write_manifest(&root, &manifest)?;
+            repaired.extend(repair_layout(&root, false)?);
+        } else {
+            repaired.extend(missing_layout(&root)?);
+        }
+        return Ok(UpgradeOutcome {
+            root,
+            check_only,
+            from_version,
+            to_version: 2,
+            rolled_back: false,
+            repaired,
+            changed: !check_only,
+        });
+    }
+    if from_version != HOME_VERSION {
+        return Err(HomeError::UnsupportedVersion {
+            found: from_version,
+            supported: HOME_VERSION,
+        });
+    }
+    let repaired = repair_layout(&root, check_only)?;
+    let changed = !check_only && !repaired.is_empty();
+    if changed {
+        manifest.updated_ms = now_ms;
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(UpgradeOutcome {
+        root,
+        check_only,
+        from_version,
+        to_version: manifest.version,
+        rolled_back: false,
+        repaired,
+        changed,
+    })
+}
+
+fn repair_layout(root: &Path, check_only: bool) -> Result<Vec<String>, HomeError> {
     let mut repaired = Vec::new();
     for name in HOME_DIRS {
         let path = root.join(name);
@@ -685,19 +768,153 @@ pub fn upgrade(root: &Path, check_only: bool, now_ms: u128) -> Result<UpgradeOut
             Err(error) => return Err(HomeError::Io(error)),
         }
     }
-    let changed = !check_only && !repaired.is_empty();
-    if changed {
-        manifest.updated_ms = now_ms;
-        write_manifest(&root, &manifest)?;
+    Ok(repaired)
+}
+
+fn missing_layout(root: &Path) -> Result<Vec<String>, HomeError> {
+    let mut missing = Vec::new();
+    for name in HOME_DIRS {
+        match fs::symlink_metadata(root.join(name)) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+                return Err(HomeError::UnsafeLayout(format!(
+                    "{} is not a safe directory",
+                    root.join(name).display()
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(name.to_string())
+            }
+            Err(error) => return Err(HomeError::Io(error)),
+        }
     }
-    Ok(UpgradeOutcome {
-        root,
-        check_only,
-        from_version,
-        to_version: manifest.version,
-        repaired,
-        changed,
-    })
+    Ok(missing)
+}
+
+fn migrate_key_layout(root: &Path, check_only: bool) -> Result<Vec<String>, HomeError> {
+    let keys = root.join(KEYS_DIR);
+    let mut repaired = Vec::new();
+    match fs::symlink_metadata(&keys) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+            return Err(HomeError::UnsafeLayout(format!(
+                "{} is not a safe directory",
+                keys.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if !check_only {
+                create_private_dirs(&keys)?;
+            }
+            repaired.push(KEYS_DIR.to_string());
+        }
+        Err(error) => return Err(HomeError::Io(error)),
+    }
+    let mut moves = Vec::new();
+    for name in [MEMORY_KEY, MEMORY_LEDGER] {
+        let source = root.join(name);
+        let destination = keys.join(name);
+        if let Some(metadata) = existing_metadata(&source)? {
+            if !metadata.is_file() {
+                return Err(HomeError::UnsafeLayout(format!(
+                    "{} is not a regular file",
+                    source.display()
+                )));
+            }
+            if existing_metadata(&destination)?.is_some() {
+                return Err(HomeError::UnsafeLayout(format!(
+                    "refusing to overwrite {}",
+                    destination.display()
+                )));
+            }
+            repaired.push(format!("{KEYS_DIR}/{name}"));
+            moves.push((source, destination));
+        }
+    }
+    if !check_only {
+        for (source, destination) in moves {
+            fs::rename(&source, &destination)?;
+        }
+    }
+    let stale_lock = root.join(format!("{MEMORY_KEY}.lock"));
+    if existing_metadata(&stale_lock)?.is_some() && !check_only {
+        let _ = fs::remove_file(&stale_lock);
+    }
+    if !check_only {
+        sync_dir(root)?;
+        if keys.is_dir() {
+            sync_dir(&keys)?;
+        }
+    }
+    Ok(repaired)
+}
+
+fn rollback_key_layout(root: &Path, check_only: bool) -> Result<Vec<String>, HomeError> {
+    let keys = root.join(KEYS_DIR);
+    match fs::symlink_metadata(&keys) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+            return Err(HomeError::UnsafeLayout(format!(
+                "{} is not a safe directory",
+                keys.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(HomeError::Io(error)),
+    }
+    let lock_name = format!("{MEMORY_KEY}.lock");
+    let mut allowed = vec![MEMORY_KEY, MEMORY_LEDGER, lock_name.as_str()];
+    for entry in fs::read_dir(&keys)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_str().ok_or_else(|| {
+            HomeError::UnsafeLayout("keys directory contains a non-UTF-8 name".into())
+        })?;
+        if !allowed.contains(&name) {
+            return Err(HomeError::UnsafeLayout(format!(
+                "keys directory contains unexpected file {name}"
+            )));
+        }
+    }
+    let mut repaired = Vec::new();
+    let mut moves = Vec::new();
+    for name in [MEMORY_KEY, MEMORY_LEDGER] {
+        let source = keys.join(name);
+        if let Some(metadata) = existing_metadata(&source)? {
+            if !metadata.is_file() {
+                return Err(HomeError::UnsafeLayout(format!(
+                    "{} is not a regular file",
+                    source.display()
+                )));
+            }
+            let destination = root.join(name);
+            if existing_metadata(&destination)?.is_some() {
+                return Err(HomeError::UnsafeLayout(format!(
+                    "refusing to overwrite {}",
+                    destination.display()
+                )));
+            }
+            repaired.push(name.to_string());
+            moves.push((source, destination));
+        }
+    }
+    if !check_only {
+        for (source, destination) in moves {
+            fs::rename(&source, &destination)?;
+        }
+    }
+    if !check_only {
+        let _ = fs::remove_file(keys.join(&lock_name));
+        if fs::read_dir(&keys)?.next().is_some() {
+            return Err(HomeError::UnsafeLayout(
+                "keys directory is not empty after rollback".into(),
+            ));
+        }
+        fs::remove_dir(&keys)?;
+        sync_dir(root)?;
+    }
+    allowed.clear();
+    Ok(repaired)
 }
 
 pub fn uninstall(root: &Path, purge: bool, confirmed: bool) -> Result<UninstallOutcome, HomeError> {

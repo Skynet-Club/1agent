@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::alerts::{AlertLog, provider_health_alert};
+use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
 use crate::context::compact_messages_at;
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
@@ -59,6 +59,7 @@ pub struct AgentRuntime {
     tool_gate: Option<ToolGateContext>,
     provider_health: Option<Arc<Mutex<ProviderHealth>>>,
     alerts: Option<Arc<Mutex<AlertLog>>>,
+    alert_webhook: Option<Arc<AlertWebhook>>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -107,6 +108,7 @@ impl AgentRuntime {
             tool_gate: None,
             provider_health: None,
             alerts: None,
+            alert_webhook: None,
         }
     }
 
@@ -117,6 +119,11 @@ impl AgentRuntime {
 
     pub fn with_alert_log(mut self, alerts: Arc<Mutex<AlertLog>>) -> Self {
         self.alerts = Some(alerts);
+        self
+    }
+
+    pub fn with_alert_webhook(mut self, webhook: Arc<AlertWebhook>) -> Self {
+        self.alert_webhook = Some(webhook);
         self
     }
 
@@ -985,17 +992,26 @@ impl AgentRuntime {
                                 alert_info = Some((failures, health.policy().failure_threshold));
                             }
                         }
-                        if let Some((failures, threshold)) = alert_info
-                            && let Some(alerts) = &self.alerts
-                            && let Ok(alerts) = alerts.lock()
-                        {
-                            let _ = alerts.append(&provider_health_alert(
+                        if let Some((failures, threshold)) = alert_info {
+                            let alert = provider_health_alert(
                                 &route.manifest.provider_id,
                                 &route.manifest.model,
                                 health_now_ms,
                                 failures,
                                 threshold,
-                            ));
+                            );
+                            if let Some(alerts) = &self.alerts
+                                && let Ok(alerts) = alerts.lock()
+                            {
+                                let _ = alerts.append(&alert);
+                            }
+                            if let Some(webhook) = &self.alert_webhook {
+                                let _ = tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    webhook.send(&alert),
+                                )
+                                .await;
+                            }
                         }
                         append_provider_failure(
                             &mut journal,

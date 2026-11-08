@@ -1,4 +1,4 @@
-# ADR 0026: Task-Graph Cross-Process Write Lock
+# ADR 0026: Cross-Process Journal and Snapshot Locks
 
 - Status: accepted for the reliability slice
 - Date: 2026-11-08
@@ -31,8 +31,16 @@ store was explicitly documented as single-writer, but nothing enforced it.
 7. The guarantee is Linux/Unix only. On other platforms the lock is a no-op and
    only the byte-length check remains, which cannot close the race.
 8. The task graph, memory journal, skill journal, goal log and action log all
-   use the same lock-and-length-check append path. Memory payload files, scope
-   key creation and cross-process indexes are still outside this guarantee.
+   use the same lock-and-length-check append path.
+9. Memory payload writes take a `<memory.key>.lock` file lock around ledger
+   reload, scope-KEK creation, payload write/read/delete and key rotation. The
+   keyring reloads the master bundle and ledger from disk under the lock, so two
+   processes writing the first scope share one KEK instead of overwriting it.
+10. Delegation and evolution JSON snapshots use the same sibling lock plus a
+    SHA-256 comparison. A stale writer reloads the snapshot and returns a
+    retryable conflict; the next request succeeds.
+11. Cross-process indexes and automatic operation merging are still outside
+    this guarantee.
 
 ## Consequences
 
@@ -42,6 +50,7 @@ store was explicitly documented as single-writer, but nothing enforced it.
   need an index and conflict-aware retry policy, neither of which is claimed.
 - A non-cooperating writer that ignores the lock can still race; the length
   check detects it only when it wins before the append.
-- Cross-process memory payload/key creation remains a known race: journal
-  ordering is protected, but two processes creating the first scope key can
-  still overwrite each other's ledger entry.
+- Cross-process memory key creation is serialized and ledger-reloaded under the
+  lock; the remaining cross-process gap is indexing and automatic merging.
+- Snapshot locks protect whole-file replacement; they do not merge concurrent
+  edits, so the loser must retry against the reloaded snapshot.

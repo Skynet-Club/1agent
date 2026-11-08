@@ -185,6 +185,8 @@ cargo run --offline -- init
 cargo run --offline -- doctor --json
 cargo run --offline -- export --output ~/1agent-export
 cargo run --offline -- restore --bundle ~/1agent-export
+cargo run --offline -- upgrade              # v1 -> v2 key layout
+cargo run --offline -- upgrade --rollback   # v2 -> v1
 cargo run --offline -- key escrow --output ~/1agent-keys.escrow.json \
   --recovery-key ~/1agent-recovery.key
 cargo run --offline -- key restore --escrow ~/1agent-keys.escrow.json \
@@ -193,8 +195,9 @@ cargo run --offline -- uninstall            # keeps data
 cargo run --offline -- uninstall --purge --yes
 ```
 
-`export` excludes key material and credential-looking files and records a
-SHA-256 manifest. `key escrow` stores the master key and KEK ledger encrypted
+Home layout v2 keeps the master key and KEK ledger under `keys/`; `upgrade`
+migrates a v1 home and `upgrade --rollback` reverses it. `export` excludes key
+material and credential-looking files and records a SHA-256 manifest. `key escrow` stores the master key and KEK ledger encrypted
 under a separate recovery key; keep the escrow and recovery key apart. Both
 commands are local recovery mechanisms, not HSM/quorum custody.
 
@@ -247,6 +250,16 @@ AGENT_API_KEY=... \
 cargo run --offline -- run \
   --provider openai-compatible \
   --task "Compare A and B"
+```
+
+Provider health alerts can be sent to an HTTPS webhook (loopback HTTP is allowed
+for local integrations):
+
+```bash
+cargo run --offline -- run --config configs/example.json \
+  --task "Compare A and B" --provider-health \
+  --alert-log .1a/alerts.jsonl \
+  --alert-webhook https://alerts.example.com/1agent
 ```
 
 Multi-provider configuration:

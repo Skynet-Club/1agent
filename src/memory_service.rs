@@ -481,6 +481,29 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_first_writes_with_a_shared_key_recover() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut first = service(dir.path());
+        let mut second = service(dir.path());
+        first.remember_at(record("first"), 10).unwrap();
+
+        let mut next = record("second");
+        next.memory_id = "mem-2".into();
+        assert!(second.remember_at(next.clone(), 11).is_err());
+        second.remember_at(next, 12).unwrap();
+
+        let reopened = service(dir.path());
+        assert!(reopened.get("mem-1", &MemoryScope::bot("bot-1")).is_some());
+        assert_eq!(
+            reopened
+                .get("mem-2", &MemoryScope::bot("bot-1"))
+                .unwrap()
+                .content,
+            "second"
+        );
+    }
+
+    #[test]
     fn missing_payload_fails_closed_on_open() {
         let dir = tempfile::tempdir().unwrap();
         let mut memory = service(dir.path());

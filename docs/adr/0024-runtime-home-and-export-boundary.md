@@ -16,10 +16,10 @@ because the memory master key lives beside encrypted payloads.
 1. The default runtime home is `$ONEAGENT_HOME`, otherwise `$HOME/.1a`. A
    `home.json` marker binds the directory to schema `1agent.home.v1` and a
    version number.
-2. `1agent init` creates the home and `journals/`, `payloads/` and `backups/`
-   with mode 0700. It is idempotent. A non-empty directory without the marker is
-   refused instead of adopted, so a mistyped `--root` cannot overwrite user
-   files.
+2. `1agent init` creates the home and `journals/`, `payloads/`, `backups/` and
+   `keys/` with mode 0700. It is idempotent. A non-empty directory without the
+   marker is refused instead of adopted, so a mistyped `--root` cannot overwrite
+   user files. Home layout version 2 keeps key material under `keys/`.
 3. `1agent doctor` reports actionable checks (marker/version, directory
    permissions, layout, master-key permissions, writability) and verifies the
    hash chain of any task-graph, memory or skill journal present in the home.
@@ -38,14 +38,16 @@ because the memory master key lives beside encrypted payloads.
    ancestor, so a symlinked parent cannot smuggle the output back inside the
    home.
 7. `1agent upgrade --check` reports missing layout without changing state.
-   Upgrading repairs the current layout only. Any other home version is rejected
-   until a real migration is registered; the version field is the migration
-   hook. `doctor` reports an older version as a failure because this build has
-   no migration for it.
+   Version 1 to 2 moves `memory.key` and `memory.key-keks.json` into `keys/`
+   with fsyncs and refuses to overwrite an existing destination.
+   `1agent upgrade --rollback` moves them back, removes the empty `keys/`
+   directory and writes version 1; unexpected files in `keys/` abort the
+   rollback. `doctor` warns on a version-1 home (migration available) and fails
+   on versions without a migration.
 8. `1agent uninstall` never deletes data without `--purge --yes`. Purge requires
    a valid home marker and refuses `/`, top-level paths, `$HOME` and a home that
    contains the current working directory.
-8. Exports deliberately exclude the master key, so an export alone cannot
+9. Exports deliberately exclude the master key, so an export alone cannot
    decrypt memory payloads. Key escrow remains a separate product decision and
    is not claimed by this ADR.
 
@@ -60,6 +62,8 @@ because the memory master key lives beside encrypted payloads.
   snapshot. Run it while the home is quiescent; a writer or key rotation during
   export can produce a manifest that verifies file-by-file but does not
   represent one consistent point in time.
-- `upgrade` currently has no historical version to migrate. S-Gate evidence for
-  migration and rollback requires a future schema bump plus a registered
-  migration, not a no-op claim.
+- Version 2 is a real layout migration (key material moves under `keys/`), not
+  a no-op version bump. The rollback is file-move based and requires no writer
+  to be active; it does not merge concurrent changes.
+- Already-built version-1 homes require `1agent upgrade` before this binary's
+  default key paths, export/restore and key escrow operate on them.

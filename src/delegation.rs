@@ -12,6 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -160,12 +161,17 @@ pub enum DelegationStoreError {
     Delegation(#[from] DelegationError),
     #[error("delegation store is corrupt: {0}")]
     Corrupt(String),
+    #[error(
+        "delegation store was modified by another writer (expected {expected}, found {actual})"
+    )]
+    ConcurrentWrite { expected: String, actual: String },
 }
 
 #[derive(Debug)]
 pub struct DelegationStore {
     path: PathBuf,
     registry: DelegationRegistry,
+    loaded_sha256: Option<String>,
 }
 
 impl DelegationRegistry {
@@ -331,20 +337,13 @@ impl DelegationRegistry {
 impl DelegationStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, DelegationStoreError> {
         let path = path.into();
-        let registry = if path.exists() {
-            let metadata = std::fs::symlink_metadata(&path)?;
-            if !metadata.is_file() || metadata.file_type().is_symlink() {
-                return Err(DelegationStoreError::Corrupt(
-                    "delegation store must be a regular file".into(),
-                ));
-            }
-            let bytes = std::fs::read(&path)?;
-            let snapshot: DelegationSnapshot = serde_json::from_slice(&bytes)?;
-            DelegationRegistry::from_snapshot(snapshot)?
-        } else {
-            DelegationRegistry::default()
-        };
-        Ok(Self { path, registry })
+        let _lock = crate::jsonl::FileLock::exclusive(&path)?;
+        let (loaded_sha256, registry) = read_snapshot(&path)?;
+        Ok(Self {
+            path,
+            registry,
+            loaded_sha256,
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -359,13 +358,66 @@ impl DelegationStore {
         &mut self,
         operation: impl FnOnce(&mut DelegationRegistry) -> Result<R, DelegationError>,
     ) -> Result<R, DelegationStoreError> {
+        let _lock = crate::jsonl::FileLock::exclusive(&self.path)?;
+        let expected = self.loaded_sha256.clone();
+        let current = current_sha256(&self.path)?;
+        if current != expected {
+            let (sha, registry) = read_snapshot(&self.path)?;
+            self.loaded_sha256 = sha;
+            self.registry = registry;
+            return Err(DelegationStoreError::ConcurrentWrite {
+                expected: expected_sha(&expected),
+                actual: expected_sha(&current),
+            });
+        }
         let mut candidate = self.registry.clone();
         let result = operation(&mut candidate)?;
         let bytes = serde_json::to_vec_pretty(&candidate.snapshot())?;
         write_private_atomic(&self.path, &bytes)?;
+        self.loaded_sha256 = Some(sha256_hex(&bytes));
         self.registry = candidate;
         Ok(result)
     }
+}
+
+fn read_snapshot(
+    path: &Path,
+) -> Result<(Option<String>, DelegationRegistry), DelegationStoreError> {
+    let Some(bytes) = read_bytes(path)? else {
+        return Ok((None, DelegationRegistry::default()));
+    };
+    let snapshot: DelegationSnapshot = serde_json::from_slice(&bytes)?;
+    Ok((
+        Some(sha256_hex(&bytes)),
+        DelegationRegistry::from_snapshot(snapshot)?,
+    ))
+}
+
+fn current_sha256(path: &Path) -> Result<Option<String>, DelegationStoreError> {
+    Ok(read_bytes(path)?.map(|bytes| sha256_hex(&bytes)))
+}
+
+fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, DelegationStoreError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(DelegationStoreError::Corrupt(
+                    "delegation store must be a regular file".into(),
+                ));
+            }
+            Ok(Some(std::fs::read(path)?))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn expected_sha(value: &Option<String>) -> String {
+    value.clone().unwrap_or_else(|| "none".into())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), DelegationStoreError> {
@@ -540,6 +592,42 @@ mod tests {
                 .authorize(&request(DelegationMode::Suggest), &authority(), 21)
                 .unwrap_err(),
             DelegationError::Revoked
+        );
+    }
+
+    #[test]
+    fn stale_writer_reloads_and_retry_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delegation.json");
+        let mut first = DelegationStore::open(&path).unwrap();
+        let mut second = DelegationStore::open(&path).unwrap();
+        first
+            .with_registry_mut(|registry| registry.register(profile(DelegationMode::Suggest)))
+            .unwrap();
+        let mut other = profile(DelegationMode::Suggest);
+        other.domain = "repo:other".into();
+        let error = second
+            .with_registry_mut(|registry| registry.register(other.clone()))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            DelegationStoreError::ConcurrentWrite { .. }
+        ));
+        second
+            .with_registry_mut(|registry| registry.register(other))
+            .unwrap();
+        let reopened = DelegationStore::open(&path).unwrap();
+        assert!(
+            reopened
+                .registry()
+                .profile("owner-1", "repo:1-agent")
+                .is_some()
+        );
+        assert!(
+            reopened
+                .registry()
+                .profile("owner-1", "repo:other")
+                .is_some()
         );
     }
 

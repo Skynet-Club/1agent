@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added home layout v2 with key material under `keys/`, a v1-to-v2 migration,
+  and `upgrade --rollback`.
+- Added cross-process key locking and ledger reload for memory payloads, and
+  SHA-256 snapshot locks for delegation/evolution stores.
+- Added best-effort HTTPS alert webhooks for provider health from `run` and
+  `serve`.
 - Added a single runtime home (`$ONEAGENT_HOME` or `$HOME/.1a`) with
   `init`, `doctor`, `export`, `restore`, `upgrade` and `uninstall`; exports use
   a SHA-256 manifest and exclude key/credential files.

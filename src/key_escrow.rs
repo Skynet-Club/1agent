@@ -21,8 +21,8 @@ use crate::runtime_home::{HOME_SCHEMA, HOME_VERSION, HomeManifest};
 
 pub const ESCROW_SCHEMA: &str = "1agent.key-escrow.v1";
 pub const MATERIAL_SCHEMA: &str = "1agent.key-material.v1";
-pub const KEY_FILE: &str = "memory.key";
-pub const LEDGER_FILE: &str = "memory.key-keks.json";
+pub const KEY_FILE: &str = "keys/memory.key";
+pub const LEDGER_FILE: &str = "keys/memory.key-keks.json";
 
 const NONCE_LEN: usize = 12;
 const RECOVERY_KEY_LEN: usize = 32;
@@ -234,6 +234,14 @@ pub fn restore(
         let target = root.join(&file.path);
         if existing_metadata(&target)?.is_some() {
             return Err(KeyEscrowError::RefuseOverwrite(target));
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+            }
         }
         pending.push((file.path.clone(), target, data));
     }

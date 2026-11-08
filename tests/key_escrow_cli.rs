@@ -55,7 +55,7 @@ fn service(home: &std::path::Path) -> MemoryService {
     MemoryService::open(
         home.join("memory-journal.jsonl"),
         home.join("payloads"),
-        home.join("memory.key"),
+        home.join("keys/memory.key"),
     )
     .unwrap()
 }
@@ -95,8 +95,8 @@ fn escrow_and_restore_recover_memory_after_key_loss() {
         }
     }
 
-    std::fs::remove_file(home.join("memory.key")).unwrap();
-    std::fs::remove_file(home.join("memory.key-keks.json")).unwrap();
+    std::fs::remove_file(home.join("keys/memory.key")).unwrap();
+    std::fs::remove_file(home.join("keys/memory.key-keks.json")).unwrap();
     let restored = run_ok(&[
         "key",
         "restore",
@@ -144,8 +144,8 @@ fn restore_rejects_a_tampered_escrow() {
     let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
-    std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
-    std::fs::write(home.join("memory.key-keks.json"), "ledger-bytes").unwrap();
+    std::fs::write(home.join("keys/memory.key"), "master-key-bytes").unwrap();
+    std::fs::write(home.join("keys/memory.key-keks.json"), "ledger-bytes").unwrap();
     let escrow = workspace.path().join("keys.escrow.json");
     let recovery = workspace.path().join("recovery.key");
     run_ok(&[
@@ -167,8 +167,8 @@ fn restore_rejects_a_tampered_escrow() {
     envelope["ciphertext_hex"] = Value::from(format!("{replacement}{}", chars.as_str()));
     std::fs::write(&escrow, serde_json::to_vec_pretty(&envelope).unwrap()).unwrap();
 
-    std::fs::remove_file(home.join("memory.key")).unwrap();
-    std::fs::remove_file(home.join("memory.key-keks.json")).unwrap();
+    std::fs::remove_file(home.join("keys/memory.key")).unwrap();
+    std::fs::remove_file(home.join("keys/memory.key-keks.json")).unwrap();
     let output = run(&[
         "key",
         "restore",
@@ -182,7 +182,7 @@ fn restore_rejects_a_tampered_escrow() {
     ]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be decrypted"));
-    assert!(!home.join("memory.key").exists());
+    assert!(!home.join("keys/memory.key").exists());
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn escrow_requires_paths_outside_the_home() {
     let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
-    std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
+    std::fs::write(home.join("keys/memory.key"), "master-key-bytes").unwrap();
     let recovery = workspace.path().join("recovery.key");
 
     let output = run(&[
@@ -228,7 +228,7 @@ fn escrow_rejects_a_public_recovery_key() {
     let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
-    std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
+    std::fs::write(home.join("keys/memory.key"), "master-key-bytes").unwrap();
     let recovery = workspace.path().join("recovery.key");
     std::fs::write(&recovery, format!("{}\n", "11".repeat(32))).unwrap();
     {
@@ -256,7 +256,7 @@ fn escrow_rejects_symlinked_parents_inside_the_home() {
     let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
-    std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
+    std::fs::write(home.join("keys/memory.key"), "master-key-bytes").unwrap();
     let link = workspace.path().join("link");
     std::os::unix::fs::symlink(&home, &link).unwrap();
     let recovery = workspace.path().join("recovery.key");

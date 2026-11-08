@@ -148,12 +148,15 @@ pub enum EvolutionStoreError {
     Evolution(#[from] EvolutionError),
     #[error("evolution store is corrupt: {0}")]
     Corrupt(String),
+    #[error("evolution store was modified by another writer (expected {expected}, found {actual})")]
+    ConcurrentWrite { expected: String, actual: String },
 }
 
 #[derive(Debug)]
 pub struct EvolutionStore {
     path: PathBuf,
     registry: EvolutionRegistry,
+    loaded_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -605,25 +608,13 @@ fn hash_receipt(receipt: &EvolutionReceipt) -> Result<String, EvolutionError> {
 impl EvolutionStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, EvolutionStoreError> {
         let path = path.into();
-        let registry = if path.exists() {
-            let metadata = std::fs::symlink_metadata(&path)?;
-            if !metadata.is_file() || metadata.file_type().is_symlink() {
-                return Err(EvolutionStoreError::Corrupt(
-                    "evolution store must be a regular file".into(),
-                ));
-            }
-            let bytes = std::fs::read(&path)?;
-            let snapshot: EvolutionSnapshot = serde_json::from_slice(&bytes)?;
-            if snapshot.schema_version != EVOLUTION_SNAPSHOT_SCHEMA {
-                return Err(EvolutionStoreError::Corrupt(
-                    "unsupported evolution snapshot schema".into(),
-                ));
-            }
-            EvolutionRegistry::from_ledger(snapshot.ledger)?
-        } else {
-            EvolutionRegistry::default()
-        };
-        Ok(Self { path, registry })
+        let _lock = crate::jsonl::FileLock::exclusive(&path)?;
+        let (loaded_sha256, registry) = read_snapshot(&path)?;
+        Ok(Self {
+            path,
+            registry,
+            loaded_sha256,
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -638,6 +629,18 @@ impl EvolutionStore {
         &mut self,
         operation: impl FnOnce(&mut EvolutionRegistry) -> Result<R, EvolutionError>,
     ) -> Result<R, EvolutionStoreError> {
+        let _lock = crate::jsonl::FileLock::exclusive(&self.path)?;
+        let expected = self.loaded_sha256.clone();
+        let current = current_sha256(&self.path)?;
+        if current != expected {
+            let (sha, registry) = read_snapshot(&self.path)?;
+            self.loaded_sha256 = sha;
+            self.registry = registry;
+            return Err(EvolutionStoreError::ConcurrentWrite {
+                expected: expected_sha(&expected),
+                actual: expected_sha(&current),
+            });
+        }
         let mut candidate = self.registry.clone();
         let result = operation(&mut candidate)?;
         let snapshot = EvolutionSnapshot {
@@ -646,9 +649,53 @@ impl EvolutionStore {
         };
         let bytes = serde_json::to_vec_pretty(&snapshot)?;
         write_private_atomic(&self.path, &bytes)?;
+        self.loaded_sha256 = Some(sha256_hex(&bytes));
         self.registry = candidate;
         Ok(result)
     }
+}
+
+fn read_snapshot(path: &Path) -> Result<(Option<String>, EvolutionRegistry), EvolutionStoreError> {
+    let Some(bytes) = read_bytes(path)? else {
+        return Ok((None, EvolutionRegistry::default()));
+    };
+    let snapshot: EvolutionSnapshot = serde_json::from_slice(&bytes)?;
+    if snapshot.schema_version != EVOLUTION_SNAPSHOT_SCHEMA {
+        return Err(EvolutionStoreError::Corrupt(
+            "unsupported evolution snapshot schema".into(),
+        ));
+    }
+    Ok((
+        Some(sha256_hex(&bytes)),
+        EvolutionRegistry::from_ledger(snapshot.ledger)?,
+    ))
+}
+
+fn current_sha256(path: &Path) -> Result<Option<String>, EvolutionStoreError> {
+    Ok(read_bytes(path)?.map(|bytes| sha256_hex(&bytes)))
+}
+
+fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, EvolutionStoreError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(EvolutionStoreError::Corrupt(
+                    "evolution store must be a regular file".into(),
+                ));
+            }
+            Ok(Some(std::fs::read(path)?))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn expected_sha(value: &Option<String>) -> String {
+    value.clone().unwrap_or_else(|| "none".into())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), EvolutionStoreError> {
@@ -744,6 +791,27 @@ mod tests {
             registry.apply("proposal-1", "owner-2", 20).unwrap_err(),
             EvolutionError::InvalidState(_, _)
         ));
+    }
+
+    #[test]
+    fn stale_writer_reloads_and_retry_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evolution.json");
+        let mut first = EvolutionStore::open(&path).unwrap();
+        let mut second = EvolutionStore::open(&path).unwrap();
+        first
+            .with_registry_mut(|registry| registry.propose(draft("proposal-1"), 10))
+            .unwrap();
+        let error = second
+            .with_registry_mut(|registry| registry.propose(draft("proposal-2"), 11))
+            .unwrap_err();
+        assert!(matches!(error, EvolutionStoreError::ConcurrentWrite { .. }));
+        second
+            .with_registry_mut(|registry| registry.propose(draft("proposal-2"), 12))
+            .unwrap();
+        let reopened = EvolutionStore::open(&path).unwrap();
+        assert!(reopened.registry().proposal("proposal-1").is_some());
+        assert!(reopened.registry().proposal("proposal-2").is_some());
     }
 
     #[test]

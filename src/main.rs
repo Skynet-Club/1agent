@@ -120,6 +120,8 @@ enum Command {
         #[arg(long)]
         alert_log: Option<PathBuf>,
         #[arg(long)]
+        alert_webhook: Option<String>,
+        #[arg(long)]
         json: bool,
     },
     Tui {
@@ -270,6 +272,12 @@ enum Command {
         timeout_seconds: u64,
         #[arg(long, default_value_t = 4)]
         max_concurrency: usize,
+        #[arg(long)]
+        provider_health: bool,
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+        #[arg(long)]
+        alert_webhook: Option<String>,
     },
     Providers {
         #[arg(long)]
@@ -439,6 +447,8 @@ enum Command {
         root: Option<PathBuf>,
         #[arg(long)]
         check: bool,
+        #[arg(long)]
+        rollback: bool,
         #[arg(long)]
         json: bool,
     },
@@ -861,7 +871,7 @@ enum MemoryCommand {
     RotateKey {
         #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
-        #[arg(long, default_value_os_t = home_or_legacy("memory.key", ".1a/memory.key"))]
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
         key: PathBuf,
         #[arg(long, conflicts_with = "bot_id")]
         scope: Option<String>,
@@ -873,7 +883,7 @@ enum MemoryCommand {
     RotateMasterKey {
         #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
-        #[arg(long, default_value_os_t = home_or_legacy("memory.key", ".1a/memory.key"))]
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
         key: PathBuf,
         #[arg(long)]
         json: bool,
@@ -1436,6 +1446,7 @@ async fn main() -> Result<()> {
             authority_scope,
             provider_health,
             alert_log,
+            alert_webhook,
             json,
         } => {
             let mut request = load_request(task, input)?;
@@ -1504,7 +1515,7 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
-            let health = if provider_health || alert_log.is_some() {
+            let health = if provider_health || alert_log.is_some() || alert_webhook.is_some() {
                 Some(std::sync::Arc::new(std::sync::Mutex::new(
                     first_principles_agent::ProviderHealth::new(
                         first_principles_agent::ProviderHealthPolicy::default(),
@@ -1541,6 +1552,10 @@ async fn main() -> Result<()> {
             }
             if let Some(alerts) = alerts {
                 runtime = runtime.with_alert_log(alerts);
+            }
+            if let Some(url) = alert_webhook {
+                runtime = runtime
+                    .with_alert_webhook(Arc::new(first_principles_agent::AlertWebhook::new(url)?));
             }
             if let Some(experience_dir) = experience_dir {
                 runtime = runtime.with_experience_dir(experience_dir);
@@ -2735,6 +2750,9 @@ async fn main() -> Result<()> {
             journal_dir,
             timeout_seconds,
             max_concurrency,
+            provider_health,
+            alert_log,
+            alert_webhook,
         } => {
             let timeout = Duration::from_secs(timeout_seconds.max(1));
             let (candidates, tools) = if let Some(config_path) = config {
@@ -2746,7 +2764,25 @@ async fn main() -> Result<()> {
             if max_concurrency == 0 || max_concurrency > 32 {
                 bail!("--max-concurrency must be between 1 and 32");
             }
-            let runtime = Arc::new(AgentRuntime::new(candidates, tools, journal_dir));
+            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            if provider_health || alert_log.is_some() || alert_webhook.is_some() {
+                runtime = runtime.with_provider_health(Arc::new(std::sync::Mutex::new(
+                    first_principles_agent::ProviderHealth::new(
+                        first_principles_agent::ProviderHealthPolicy::default(),
+                    )
+                    .map_err(anyhow::Error::msg)?,
+                )));
+            }
+            if let Some(path) = alert_log {
+                runtime = runtime.with_alert_log(Arc::new(std::sync::Mutex::new(
+                    first_principles_agent::AlertLog::open(path)?,
+                )));
+            }
+            if let Some(url) = alert_webhook {
+                runtime = runtime
+                    .with_alert_webhook(Arc::new(first_principles_agent::AlertWebhook::new(url)?));
+            }
+            let runtime = Arc::new(runtime);
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
             tokio::spawn(async move {
@@ -3432,9 +3468,14 @@ async fn main() -> Result<()> {
                 );
             }
         }
-        Command::Upgrade { root, check, json } => {
+        Command::Upgrade {
+            root,
+            check,
+            rollback,
+            json,
+        } => {
             let root = root.unwrap_or_else(default_home);
-            let outcome = upgrade(&root, check, current_time_ms())?;
+            let outcome = upgrade(&root, check, rollback, current_time_ms())?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&outcome)?);
             } else if outcome.repaired.is_empty() {
@@ -3443,12 +3484,18 @@ async fn main() -> Result<()> {
                     outcome.to_version
                 );
             } else if check {
-                println!("missing layout: {}", outcome.repaired.join(", "));
+                println!("pending changes: {}", outcome.repaired.join(", "));
+            } else if outcome.rolled_back {
+                println!(
+                    "rolled back to version {}: {}",
+                    outcome.to_version,
+                    outcome.repaired.join(", ")
+                );
             } else {
                 println!(
-                    "repaired layout: {} (version {})",
-                    outcome.repaired.join(", "),
-                    outcome.to_version
+                    "upgraded to version {}: {}",
+                    outcome.to_version,
+                    outcome.repaired.join(", ")
                 );
             }
         }

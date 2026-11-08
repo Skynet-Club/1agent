@@ -26,7 +26,7 @@ fn init_creates_private_home_and_is_idempotent() {
     let first = run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
     assert_eq!(first["created"], true);
     assert!(home.join("home.json").is_file());
-    for name in ["journals", "payloads", "backups"] {
+    for name in ["journals", "payloads", "backups", "keys"] {
         assert!(home.join(name).is_dir(), "{name} missing");
     }
     #[cfg(unix)]
@@ -96,8 +96,8 @@ fn export_excludes_keys_and_restore_rebuilds_home() {
     let workspace = tempfile::tempdir().unwrap();
     let home = workspace.path().join("home");
     run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
-    std::fs::write(home.join("memory.key"), "secret-key-material").unwrap();
-    std::fs::write(home.join("memory.key-keks.json"), "wrapped-scope-keys").unwrap();
+    std::fs::write(home.join("keys/memory.key"), "secret-key-material").unwrap();
+    std::fs::write(home.join("keys/memory.key-keks.json"), "wrapped-scope-keys").unwrap();
     std::fs::write(home.join("payloads/record.json"), "{\"encrypted\":true}").unwrap();
     std::fs::write(home.join("journals/run.jsonl"), "{\"event\":1}\n").unwrap();
 
@@ -111,11 +111,15 @@ fn export_excludes_keys_and_restore_rebuilds_home() {
         "--json",
     ]);
     assert_eq!(exported["manifest"]["key_included"], false);
-    assert!(!bundle.join("memory.key").exists());
-    assert!(!bundle.join("memory.key-keks.json").exists());
+    assert!(!bundle.join("keys/memory.key").exists());
+    assert!(!bundle.join("keys/memory.key-keks.json").exists());
     let excluded = exported["manifest"]["excluded"].as_array().unwrap();
-    assert!(excluded.iter().any(|value| value == "memory.key"));
-    assert!(excluded.iter().any(|value| value == "memory.key-keks.json"));
+    assert!(excluded.iter().any(|value| value == "keys/memory.key"));
+    assert!(
+        excluded
+            .iter()
+            .any(|value| value == "keys/memory.key-keks.json")
+    );
     assert!(bundle.join("payloads/record.json").is_file());
 
     let restored_home = workspace.path().join("restored");
@@ -132,7 +136,7 @@ fn export_excludes_keys_and_restore_rebuilds_home() {
         std::fs::read_to_string(restored_home.join("payloads/record.json")).unwrap(),
         "{\"encrypted\":true}"
     );
-    assert!(!restored_home.join("memory.key").exists());
+    assert!(!restored_home.join("keys/memory.key").exists());
 }
 
 #[test]
@@ -372,7 +376,7 @@ fn doctor_rejects_public_key_ledger() {
     let workspace = tempfile::tempdir().unwrap();
     let home = workspace.path().join("home");
     run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
-    let ledger = home.join("memory.key-keks.json");
+    let ledger = home.join("keys/memory.key-keks.json");
     std::fs::write(&ledger, "wrapped").unwrap();
     {
         use std::os::unix::fs::PermissionsExt;
@@ -513,4 +517,61 @@ fn doctor_fails_on_an_older_home_version_without_a_migration() {
                 .as_str()
                 .is_some_and(|detail| detail.contains("no migration"))
     }));
+}
+
+#[cfg(unix)]
+#[test]
+fn upgrade_migrates_v1_keys_and_rolls_back() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    for name in ["journals", "payloads", "backups"] {
+        std::fs::create_dir(home.join(name)).unwrap();
+    }
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(
+        home.join("home.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema": "1agent.home.v1",
+            "version": 1,
+            "created_ms": 1,
+            "updated_ms": 1
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    for name in ["memory.key", "memory.key-keks.json"] {
+        let path = home.join(name);
+        std::fs::write(&path, format!("{name}-bytes")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    let upgraded = run_ok(&["upgrade", "--root", &home.display().to_string(), "--json"]);
+    assert_eq!(upgraded["from_version"], 1);
+    assert_eq!(upgraded["to_version"], 2);
+    assert_eq!(upgraded["rolled_back"], false);
+    assert!(home.join("keys/memory.key").is_file());
+    assert!(home.join("keys/memory.key-keks.json").is_file());
+    assert!(!home.join("memory.key").exists());
+
+    let report = run_ok(&["doctor", "--root", &home.display().to_string(), "--json"]);
+    assert_eq!(report["status"], "ok", "{report:?}");
+
+    let rolled_back = run_ok(&[
+        "upgrade",
+        "--root",
+        &home.display().to_string(),
+        "--rollback",
+        "--json",
+    ]);
+    assert_eq!(rolled_back["to_version"], 1);
+    assert_eq!(rolled_back["rolled_back"], true);
+    assert!(home.join("memory.key").is_file());
+    assert!(home.join("memory.key-keks.json").is_file());
+    assert!(!home.join("keys").exists());
+    let marker: Value =
+        serde_json::from_slice(&std::fs::read(home.join("home.json")).unwrap()).unwrap();
+    assert_eq!(marker["version"], 1);
 }
