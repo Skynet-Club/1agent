@@ -493,3 +493,24 @@ fn task_graph_inspect_uses_the_initialized_home() {
     let snapshot: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(snapshot["threads"].as_array().unwrap().len(), 1);
 }
+
+#[test]
+fn doctor_fails_on_an_older_home_version_without_a_migration() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+    let marker = home.join("home.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&marker).unwrap()).unwrap();
+    manifest["version"] = Value::from(0);
+    std::fs::write(&marker, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+    let output = run(&["doctor", "--root", &home.display().to_string(), "--json"]);
+    assert!(!output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "fail");
+    assert!(report["checks"].as_array().unwrap().iter().any(|check| {
+        check["id"] == "home_marker"
+            && check["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("no migration"))
+    }));
+}
