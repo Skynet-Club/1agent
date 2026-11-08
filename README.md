@@ -170,6 +170,13 @@ Current V0 assumptions:
 
 ## Commands
 
+Build a verified package and install it into a prefix:
+
+```bash
+./scripts/package.sh
+./scripts/install.sh --prefix ~/.local
+```
+
 Runtime home (defaults to `$ONEAGENT_HOME` or `$HOME/.1a`; explicit flags still
 override it):
 
