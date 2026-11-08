@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Added a single runtime home (`$ONEAGENT_HOME` or `$HOME/.1a`) with
+  `init`, `doctor`, `export`, `restore`, `upgrade` and `uninstall`; exports use
+  a SHA-256 manifest and exclude key/credential files.
+- Added local key escrow/restore: AES-256-GCM under a separate recovery key,
+  with tamper, overwrite and path-boundary checks.
+- Added cross-process `flock` and stale-writer detection to the task-graph,
+  memory, skill, goal and action journals; long-lived surfaces reload and return
+  a retryable conflict instead of wedging.
+- Added a restart-continuity scenario covering memory, goals, commitments,
+  delegation and evolution, plus an installer for packaged binaries.
+
 ## 0.95.0 - 2026-11-04
 
 - Added requirement regression as a first-class capability: `ReframeProposal` with
