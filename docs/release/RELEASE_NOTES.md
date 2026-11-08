@@ -1,0 +1,57 @@
+# Release Notes — 0.95.0 R1 Candidate
+
+Date: 2026-11-08  
+Status: **release candidate, not publicly releasable**
+
+## Highlights
+
+- **Runtime home**: `init/doctor/export/restore/upgrade/uninstall` around
+  `$ONEAGENT_HOME` or `$HOME/.1a`.
+- **Home layout v2**: master key and KEK ledger live under `keys/`; v1 homes
+  migrate with `1agent upgrade` and can be reversed with
+  `1agent upgrade --rollback`.
+- **Key escrow**: AES-256-GCM escrow of the master key and ledger under a
+  separate 0600 recovery key.
+- **Cross-process safety**: flock and stale-writer detection for task-graph,
+  memory, skill, goal, action and snapshot stores; long-lived surfaces reload
+  and return retryable conflicts instead of wedging.
+- **Alerts**: local JSONL alert log plus optional HTTPS webhook for provider
+  health events.
+- **Restart continuity**: goals, commitments, memory, delegation and evolution
+  survive a full reopen; the context graph explains goal/commitment links.
+- **Packaging**: reproducible Linux/Windows archives, release manifest,
+  installer and third-party license inventory.
+
+## Upgrade notes
+
+- A v1 runtime home must run `1agent upgrade` before default key paths, export,
+  restore or key escrow use it.
+- `1agent upgrade --rollback` moves keys back to the v1 layout and requires
+  `keys/` to contain only the expected key, ledger and lock files.
+- The release manifest for this candidate is verified in development policy.
+  Production signing, approval envelopes and an external registry are separate.
+
+## Verification
+
+- 632 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
+  HTTP and loopback runs.
+- `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
+  cycles.
+- One-hour soak: 2922 cycles / 3600 seconds on the frozen core binary.
+- Linux and Windows packages built; `release verify` reports `verified`
+  (development policy).
+- Install from the Linux archive was smoke-tested in a temporary prefix.
+
+## Known limits
+
+- A-Gate formal closure, external IdP, third-party security audit and the
+  Workshop full release gate remain open.
+- A real HTTPS alert receiver is not configured; delivery is best-effort.
+- Cross-process indexes/automatic merge and multi-tenant authorization are not
+  implemented.
+- G2 daemon/Routine/Watchdog and a real cross-day task are future work.
+- Unknown file formats and untrusted skills should not be run in the same home.
+
+## License
+
+MIT. See `LICENSE`, `THIRD_PARTY_NOTICES.md` and `THIRD_PARTY_LICENSES.md`.

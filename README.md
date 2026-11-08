@@ -297,7 +297,7 @@ cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline
 ./scripts/verify.sh
 ./scripts/verify-reproducible-package.sh
-cargo run --offline -- release verify --manifest dist/1agent-0.25.0-release.json
+cargo run --offline -- release verify --manifest dist/1agent-0.95.0-release.json
 ```
 
 A signed release check additionally requires the approval envelope, key environment variable and
@@ -305,8 +305,8 @@ key registry:
 
 ```bash
 cargo run --offline -- release verify \
-  --manifest dist/1agent-0.26.0-release.json \
-  --approval dist/1agent-0.26.0-release.approval.json \
+  --manifest dist/1agent-0.95.0-release.json \
+  --approval dist/1agent-0.95.0-release.approval.json \
   --key-env RELEASE_APPROVAL_KEY \
   --registry approval-registry.json
 ```
@@ -328,3 +328,17 @@ The OpenAI-compatible loopback test requires a managed-sandbox exception:
 ```bash
 AGENT_RUN_LOOPBACK_TESTS=1 ./scripts/verify.sh
 ```
+
+## Product, release and license documents
+
+- Product brief: `docs/release/PRODUCT.md`
+- Release notes: `docs/release/RELEASE_NOTES.md`
+- License policy: `docs/release/LICENSE_POLICY.md`
+- Security: `SECURITY.md`
+- Privacy: `PRIVACY.md`
+
+## License
+
+MIT. See `LICENSE`. Adapted-code notices are in `THIRD_PARTY_NOTICES.md`; the
+dependency inventory is `THIRD_PARTY_LICENSES.md`; the Apache-2.0 text is in
+`LICENSES/Apache-2.0.txt`.

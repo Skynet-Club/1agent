@@ -40,7 +40,9 @@ SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
   --target x86_64-pc-windows-gnu \
   --output "$package_root/provenance/windows-x86_64.json" \
   >/dev/null
-install -m 0644 README.md LICENSE CHANGELOG.md "$package_root/"
+install -m 0644 README.md LICENSE CHANGELOG.md SECURITY.md PRIVACY.md \
+  THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.md "$package_root/"
+cp -R LICENSES "$package_root/"
 mkdir -p "$package_root/scripts"
 install -m 0755 scripts/install.sh "$package_root/scripts/install.sh"
 cp -R docs evals configs "$package_root/"
