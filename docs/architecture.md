@@ -118,7 +118,8 @@ events or provider/tool contracts.
 
 `1agent init` creates one private home (`$ONEAGENT_HOME` or `$HOME/.1a`) marked by
 `home.json`. `doctor` reports marker/version, permissions, layout, master-key and
-writability checks; `export`/`restore` use a hash-manifest bundle that excludes key
+writability checks and verifies any task-graph/memory/skill journal hash chain;
+`export`/`restore` use a hash-manifest bundle that excludes key
 and credential files; `upgrade` repairs the current layout and rejects unknown
 versions; `uninstall` requires `--purge --yes` and refuses unsafe paths. Once a
 home is initialized, CLI path defaults (journals, task graph, memory payloads and

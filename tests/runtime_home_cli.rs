@@ -324,3 +324,41 @@ fn contains_jsonl(dir: &std::path::Path) -> bool {
     }
     false
 }
+
+#[test]
+fn doctor_verifies_journals_and_fails_on_corruption() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+    let store = home.join("task-graph.jsonl");
+    run_ok(&[
+        "task-graph",
+        "demo",
+        "--store",
+        &store.display().to_string(),
+        "--json",
+    ]);
+    let report = run_ok(&["doctor", "--root", &home.display().to_string(), "--json"]);
+    assert_eq!(report["status"], "ok");
+    let checks = report["checks"].as_array().unwrap();
+    assert!(checks.iter().any(|check| {
+        check["id"] == "task_graph_journal"
+            && check["status"] == "ok"
+            && check["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("events verified"))
+    }));
+
+    std::fs::write(home.join("skill-journal.jsonl"), "{broken\n").unwrap();
+    let output = run(&["doctor", "--root", &home.display().to_string(), "--json"]);
+    assert!(!output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "fail");
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| { check["id"] == "skill_journal" && check["status"] == "fail" })
+    );
+}

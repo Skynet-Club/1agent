@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::audit::{AuditKind, audit_store};
+
 pub const HOME_SCHEMA: &str = "1agent.home.v1";
 pub const HOME_VERSION: u32 = 1;
 pub const HOME_DIRS: [&str; 3] = ["journals", "payloads", "backups"];
@@ -325,6 +327,24 @@ pub fn doctor(root: &Path) -> Result<DoctorReport, HomeError> {
     }
 
     checks.push(check_master_key(&root));
+    checks.push(check_journal(
+        &root,
+        "task_graph_journal",
+        "task-graph.jsonl",
+        AuditKind::TaskGraph,
+    ));
+    checks.push(check_journal(
+        &root,
+        "memory_journal",
+        "memory-journal.jsonl",
+        AuditKind::Memory,
+    ));
+    checks.push(check_journal(
+        &root,
+        "skill_journal",
+        "skill-journal.jsonl",
+        AuditKind::Skill,
+    ));
 
     let probe = root.join(format!(
         ".doctor-probe-{}-{now}",
@@ -343,6 +363,32 @@ pub fn doctor(root: &Path) -> Result<DoctorReport, HomeError> {
     }
 
     Ok(finish_report(root, checks))
+}
+
+fn check_journal(root: &Path, id: &str, name: &str, kind: AuditKind) -> DoctorCheck {
+    let path = root.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            check(id, DoctorStatus::Fail, format!("{name} is a symlink"))
+        }
+        Ok(meta) if !meta.is_file() => check(
+            id,
+            DoctorStatus::Fail,
+            format!("{name} is not a regular file"),
+        ),
+        Ok(_) => match audit_store(kind, &path, now_ms()) {
+            Ok(receipt) => check(
+                id,
+                DoctorStatus::Ok,
+                format!("{name}: {} events verified", receipt.events),
+            ),
+            Err(error) => check(id, DoctorStatus::Fail, error.to_string()),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            check(id, DoctorStatus::Ok, format!("{name} is not present yet"))
+        }
+        Err(error) => check(id, DoctorStatus::Fail, error.to_string()),
+    }
 }
 
 fn check_master_key(root: &Path) -> DoctorCheck {

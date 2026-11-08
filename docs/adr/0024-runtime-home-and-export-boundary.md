@@ -21,8 +21,9 @@ because the memory master key lives beside encrypted payloads.
    refused instead of adopted, so a mistyped `--root` cannot overwrite user
    files.
 3. `1agent doctor` reports actionable checks (marker/version, directory
-   permissions, layout, master-key permissions, writability) and exits non-zero
-   on a failing check. It does not repair state.
+   permissions, layout, master-key permissions, writability) and verifies the
+   hash chain of any task-graph, memory or skill journal present in the home.
+   It exits non-zero on a failing check and does not repair state.
 4. `1agent export` writes a directory bundle with an `export.json` manifest
    containing relative path, size and SHA-256 for every file. Key material and
    credential-looking files are excluded and listed under `excluded`. Files are
