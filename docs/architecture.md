@@ -114,6 +114,17 @@ The V0 runtime runs in the CLI process. Application boundaries are defined so th
 independent local service can replace the in-process host later without changing domain
 events or provider/tool contracts.
 
+## Product runtime home
+
+`1agent init` creates one private home (`$ONEAGENT_HOME` or `$HOME/.1a`) marked by
+`home.json`. `doctor` reports marker/version, permissions, layout, master-key and
+writability checks; `export`/`restore` use a hash-manifest bundle that excludes key
+and credential files; `upgrade` repairs the current layout and rejects unknown
+versions; `uninstall` requires `--purge --yes` and refuses unsafe paths. Existing
+commands still accept explicit paths, so home adoption is incremental. See
+ADR-0024 for the boundary and for why an export alone is not a key-escrow
+recovery.
+
 ## Master-Agent V1
 
 ```text

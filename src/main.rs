@@ -9,11 +9,11 @@ use first_principles_agent::{
     AnnotationStore, AnswerStatus, ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus,
     ArtifactKind, AuthenticityStatus, CalibrationPrediction, CapabilityProbeManifest,
     CognitiveMode, CommandMenuItem, CommandStage, ConversationQueue, DeterministicProvider,
-    EvalReportSummary, EvalReportTrustRequirements, ExecutionObservation, ExecutionReceipt,
-    ExecutionStatus, ExecutionSubmission, ExecutionTarget, ExperienceCandidateSpec,
-    ExperienceStore, ExperienceVerificationInput, GoldSetManifest, HostBinding, HostCommand,
-    HostError, HostRegistry, HostRequestState, HostResponse, Journal, JournalEventKind,
-    MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
+    DoctorStatus, EvalReportSummary, EvalReportTrustRequirements, ExecutionObservation,
+    ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
+    ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
+    HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, Journal,
+    JournalEventKind, MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
     ModelProductionPlanGenerator, ModelProvider, OpenAiCompatibleProvider, PlanGenerator,
     PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
     ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
@@ -26,20 +26,21 @@ use first_principles_agent::{
     WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary, audit_events,
     audit_summary, build_release_verification_report, build_usage_ledger, build_user_message,
     collect_provenance, collect_release_manifest, commands_for_surface, copy_to_clipboard,
-    create_goldset_manifest, create_trust_anchor, default_registry, epistemic_command_prompt,
-    evaluate_experience_suite, evidence_summary, filter_capability_manifest_by_runtime,
-    find_resumable_prefix, git_diff, git_worktrees, infer_mode, init_agents_file,
-    inspect_artifacts, interactive_terminal_available, list_presets, load_agent_profiles,
-    load_eval_report, load_preset, load_suite, local_manifest, master_audit_summary,
-    master_evidence_summary, master_report, next_actions, parse_model_output, print_session_banner,
-    probe_provider, probe_provider_tools, prompt_sha256, read_clipboard, read_events,
-    read_master_journal_events, rebuild_and_compare, remote_manifest, render_capability_report,
-    render_receipt, render_usage_ledger, replay_events, replay_master_journal, resolve_input,
-    risk_for_mode, run_capability_suite, run_report, run_suite_with_providers, save_preset,
-    scan_history, schedule_ready, spawn_input_reader, stage_next_actions, summarize_route_trace,
-    terminal_dimensions, trash_preset, triage_goal, verify_goldset_manifest, verify_provenance,
-    verify_release_approval, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor, write_capability_report,
+    create_goldset_manifest, create_trust_anchor, current_time_ms, default_home, default_registry,
+    doctor, epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
+    filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
+    infer_mode, init, init_agents_file, inspect_artifacts, interactive_terminal_available,
+    list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
+    master_audit_summary, master_evidence_summary, master_report, next_actions, parse_model_output,
+    print_session_banner, probe_provider, probe_provider_tools, prompt_sha256, read_clipboard,
+    read_events, read_master_journal_events, rebuild_and_compare, remote_manifest,
+    render_capability_report, render_receipt, render_usage_ledger, replay_events,
+    replay_master_journal, resolve_input, restore, risk_for_mode, run_capability_suite, run_report,
+    run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
+    stage_next_actions, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
+    uninstall, upgrade, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -397,6 +398,52 @@ enum Command {
     Receipt {
         #[arg(long)]
         journal: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Init {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Doctor {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Export {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Restore {
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Upgrade {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        check: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Uninstall {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        purge: bool,
+        #[arg(long)]
+        yes: bool,
         #[arg(long)]
         json: bool,
     },
@@ -3299,6 +3346,96 @@ async fn main() -> Result<()> {
         }
         Command::Provenance { command } => {
             handle_provenance(command)?;
+        }
+        Command::Init { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let outcome = init(&root, current_time_ms())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else if outcome.created {
+                println!("initialized 1Agent home at {}", outcome.root.display());
+            } else {
+                println!(
+                    "1Agent home already initialized at {}",
+                    outcome.root.display()
+                );
+            }
+        }
+        Command::Doctor { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let report = doctor(&root)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                for check in &report.checks {
+                    println!("{:?} {}: {}", check.status, check.id, check.detail);
+                }
+                println!("overall: {:?}", report.status);
+            }
+            if report.status == DoctorStatus::Fail {
+                std::process::exit(1);
+            }
+        }
+        Command::Export { root, output, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let outcome = export(&root, &output, current_time_ms())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else {
+                println!(
+                    "exported {} files to {} ({} key/credential files excluded)",
+                    outcome.manifest.files.len(),
+                    outcome.output.display(),
+                    outcome.manifest.excluded.len()
+                );
+            }
+        }
+        Command::Restore { bundle, root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let outcome = restore(&bundle, &root, current_time_ms())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else {
+                println!(
+                    "restored {} files into {}",
+                    outcome.files,
+                    outcome.root.display()
+                );
+            }
+        }
+        Command::Upgrade { root, check, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let outcome = upgrade(&root, check, current_time_ms())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else if outcome.repaired.is_empty() {
+                println!(
+                    "runtime home is up to date (version {})",
+                    outcome.to_version
+                );
+            } else if check {
+                println!("missing layout: {}", outcome.repaired.join(", "));
+            } else {
+                println!(
+                    "repaired layout: {} (version {})",
+                    outcome.repaired.join(", "),
+                    outcome.to_version
+                );
+            }
+        }
+        Command::Uninstall {
+            root,
+            purge,
+            yes,
+            json,
+        } => {
+            let root = root.unwrap_or_else(default_home);
+            let outcome = uninstall(&root, purge, yes)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else {
+                println!("{}", outcome.message);
+            }
         }
         Command::Release { command } => {
             handle_release(command)?;
