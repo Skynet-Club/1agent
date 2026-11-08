@@ -97,6 +97,7 @@ fn export_excludes_keys_and_restore_rebuilds_home() {
     let home = workspace.path().join("home");
     run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
     std::fs::write(home.join("memory.key"), "secret-key-material").unwrap();
+    std::fs::write(home.join("memory.key-keks.json"), "wrapped-scope-keys").unwrap();
     std::fs::write(home.join("payloads/record.json"), "{\"encrypted\":true}").unwrap();
     std::fs::write(home.join("journals/run.jsonl"), "{\"event\":1}\n").unwrap();
 
@@ -111,8 +112,10 @@ fn export_excludes_keys_and_restore_rebuilds_home() {
     ]);
     assert_eq!(exported["manifest"]["key_included"], false);
     assert!(!bundle.join("memory.key").exists());
+    assert!(!bundle.join("memory.key-keks.json").exists());
     let excluded = exported["manifest"]["excluded"].as_array().unwrap();
     assert!(excluded.iter().any(|value| value == "memory.key"));
+    assert!(excluded.iter().any(|value| value == "memory.key-keks.json"));
     assert!(bundle.join("payloads/record.json").is_file());
 
     let restored_home = workspace.path().join("restored");
@@ -360,5 +363,29 @@ fn doctor_verifies_journals_and_fails_on_corruption() {
             .unwrap()
             .iter()
             .any(|check| { check["id"] == "skill_journal" && check["status"] == "fail" })
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn doctor_rejects_public_key_ledger() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+    let ledger = home.join("memory.key-keks.json");
+    std::fs::write(&ledger, "wrapped").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&ledger, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let output = run(&["doctor", "--root", &home.display().to_string(), "--json"]);
+    assert!(!output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        report["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| { check["id"] == "kek_ledger" && check["status"] == "fail" })
     );
 }

@@ -326,7 +326,12 @@ pub fn doctor(root: &Path) -> Result<DoctorReport, HomeError> {
         }
     }
 
-    checks.push(check_master_key(&root));
+    checks.push(check_private_key_file(&root, "master_key", "memory.key"));
+    checks.push(check_private_key_file(
+        &root,
+        "kek_ledger",
+        "memory.key-keks.json",
+    ));
     checks.push(check_journal(
         &root,
         "task_graph_journal",
@@ -391,16 +396,16 @@ fn check_journal(root: &Path, id: &str, name: &str, kind: AuditKind) -> DoctorCh
     }
 }
 
-fn check_master_key(root: &Path) -> DoctorCheck {
-    let path = root.join("memory.key");
+fn check_private_key_file(root: &Path, id: &str, name: &str) -> DoctorCheck {
+    let path = root.join(name);
     match fs::symlink_metadata(&path) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            check("master_key", DoctorStatus::Fail, "memory.key is a symlink")
+            check(id, DoctorStatus::Fail, format!("{name} is a symlink"))
         }
         Ok(meta) if !meta.is_file() => check(
-            "master_key",
+            id,
             DoctorStatus::Fail,
-            "memory.key is not a regular file",
+            format!("{name} is not a regular file"),
         ),
         Ok(meta) => {
             #[cfg(unix)]
@@ -409,20 +414,18 @@ fn check_master_key(root: &Path) -> DoctorCheck {
                 let mode = meta.permissions().mode() & 0o777;
                 if mode & 0o077 != 0 {
                     return check(
-                        "master_key",
+                        id,
                         DoctorStatus::Fail,
-                        format!("memory.key mode {mode:o} is accessible by other users"),
+                        format!("{name} mode {mode:o} is accessible by other users"),
                     );
                 }
             }
-            check("master_key", DoctorStatus::Ok, "memory.key is private")
+            check(id, DoctorStatus::Ok, format!("{name} is private"))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => check(
-            "master_key",
-            DoctorStatus::Ok,
-            "memory.key is not created yet (created on first memory write)",
-        ),
-        Err(error) => check("master_key", DoctorStatus::Fail, error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            check(id, DoctorStatus::Ok, format!("{name} is not created yet"))
+        }
+        Err(error) => check(id, DoctorStatus::Fail, error.to_string()),
     }
 }
 
@@ -478,6 +481,7 @@ pub fn export(root: &Path, output: &Path, now_ms: u128) -> Result<ExportOutcome,
         key_included: false,
     };
     write_json_file(&output.join(EXPORT_MANIFEST_NAME), &export_manifest)?;
+    sync_dir(&output)?;
     Ok(ExportOutcome {
         output,
         manifest: export_manifest,
@@ -521,6 +525,13 @@ pub fn verify_export(output: &Path) -> Result<ExportManifest, HomeError> {
     if !manifest.files.iter().any(|file| file.path == MANIFEST_NAME) {
         return Err(HomeError::InvalidBundle(format!(
             "{MANIFEST_NAME} is missing"
+        )));
+    }
+    let marker: HomeManifest = serde_json::from_slice(&fs::read(output.join(MANIFEST_NAME))?)
+        .map_err(|error| HomeError::InvalidBundle(format!("{MANIFEST_NAME}: {error}")))?;
+    if marker.schema != HOME_SCHEMA || marker.version != manifest.home_version {
+        return Err(HomeError::InvalidBundle(format!(
+            "{MANIFEST_NAME} does not match the export version"
         )));
     }
     let mut listed = std::collections::BTreeSet::new();
@@ -606,6 +617,7 @@ pub fn restore(bundle: &Path, root: &Path, _now_ms: u128) -> Result<RestoreOutco
         let bytes = fs::read(bundle.join(&relative))?;
         write_new_private(&destination, &bytes)?;
     }
+    sync_dir(&root)?;
     Ok(RestoreOutcome {
         root,
         files: manifest.files.len(),
@@ -982,10 +994,9 @@ fn relative_display(path: &Path) -> String {
 
 fn is_secret_name(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    lower.ends_with(".key")
-        || lower
-            .split('/')
-            .any(|part| part.contains("credential") || part.contains("secret"))
+    lower
+        .split('/')
+        .any(|part| part.contains(".key") || part.contains("credential") || part.contains("secret"))
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {

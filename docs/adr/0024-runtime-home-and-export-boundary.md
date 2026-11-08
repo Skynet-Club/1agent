@@ -25,9 +25,10 @@ because the memory master key lives beside encrypted payloads.
    hash chain of any task-graph, memory or skill journal present in the home.
    It exits non-zero on a failing check and does not repair state.
 4. `1agent export` writes a directory bundle with an `export.json` manifest
-   containing relative path, size and SHA-256 for every file. Key material and
-   credential-looking files are excluded and listed under `excluded`. Files are
-   written 0600 and the output must be empty and outside the home.
+   containing relative path, size and SHA-256 for every file. Key material
+   (including `memory.key-keks.json`) and credential-looking files are excluded
+   and listed under `excluded`. Files are written 0600 and the output must be
+   empty and outside the home.
 5. `1agent restore` verifies the manifest, rejects absolute/`..` paths, extra
    files, symlinks, key material and hash mismatches, and writes only into an
    empty or nonexistent home.
