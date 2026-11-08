@@ -68,6 +68,52 @@ fn memory_backup_export_and_verify_cli() {
 }
 
 #[test]
+fn memory_rotate_master_cli_rewraps_the_kek_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("memory-journal.jsonl");
+    let payloads = dir.path().join("payloads");
+    let key = dir.path().join("memory.key");
+    let mut service = MemoryService::open(&journal, &payloads, &key).unwrap();
+    service
+        .remember_at(
+            MemoryRecord::new(
+                "mem-1",
+                MemoryLayer::Semantic,
+                MemoryKind::Preference,
+                MemoryScope::bot("bot-1"),
+                "private preference body",
+                MemorySource::new(MemorySourceKind::UserMessage, "event-1"),
+            ),
+            10,
+        )
+        .unwrap();
+    drop(service);
+
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let rotate = Command::new(bin)
+        .args(["memory", "rotate-master-key", "--json"])
+        .arg("--payloads")
+        .arg(&payloads)
+        .arg("--key")
+        .arg(&key)
+        .output()
+        .unwrap();
+    assert!(rotate.status.success(), "{rotate:?}");
+    let rotation: serde_json::Value = serde_json::from_slice(&rotate.stdout).unwrap();
+    assert_eq!(rotation["new_master_id"], 1);
+    assert_eq!(rotation["rewrapped_keks"], 1);
+
+    let reopened = MemoryService::open(&journal, &payloads, &key).unwrap();
+    assert_eq!(
+        reopened
+            .get("mem-1", &MemoryScope::bot("bot-1"))
+            .unwrap()
+            .content,
+        "private preference body"
+    );
+}
+
+#[test]
 fn memory_rotate_key_cli_rewraps_live_payloads() {
     let dir = tempfile::tempdir().unwrap();
     let journal = dir.path().join("memory-journal.jsonl");

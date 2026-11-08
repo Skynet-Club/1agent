@@ -21,8 +21,9 @@ backups without such a policy would be false.
    otherwise and rejects any `.key` file inside the backup tree.
 4. Backup-grade crypto-shredding requires a later decision: scope KEK versioning, rotation
    on hard forget, key escrow, and an "old backup is unrecoverable" drill. That is not
-   implemented here. ADR-0023 implements scope KEK versioning and rotation for schema-2
-   payloads, but legacy payloads and master-key rotation remain outside the guarantee.
+   implemented here. ADR-0023 implements scope KEK versioning/rotation and master-key
+   rotation; legacy payloads must be migrated before master rotation, and rotation is an
+   explicit operator action rather than part of hard forget.
 
 ## Consequences
 

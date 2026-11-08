@@ -808,6 +808,14 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    RotateMasterKey {
+        #[arg(long, default_value = ".1a/payloads")]
+        payloads: PathBuf,
+        #[arg(long, default_value = ".1a/memory.key")]
+        key: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2256,6 +2264,25 @@ async fn main() -> Result<()> {
                         rotation.rotated,
                         rotation.retired_versions,
                         rotation.legacy_migrated
+                    );
+                }
+            }
+            MemoryCommand::RotateMasterKey {
+                payloads,
+                key,
+                json,
+            } => {
+                let store = first_principles_agent::MemoryPayloadStore::open(&payloads, &key)
+                    .map_err(anyhow::Error::msg)?;
+                let rotation = store.rotate_master_key().map_err(anyhow::Error::msg)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&rotation)?);
+                } else {
+                    println!(
+                        "rotated master\nnew_master_id={}\nrewrapped_keks={}\nretired_master_ids={:?}",
+                        rotation.new_master_id,
+                        rotation.rewrapped_keks,
+                        rotation.retired_master_ids
                     );
                 }
             }

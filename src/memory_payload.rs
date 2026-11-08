@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -21,6 +21,8 @@ use uuid::Uuid;
 const PAYLOAD_SCHEMA_VERSION: u32 = 2;
 const LEGACY_PAYLOAD_SCHEMA_VERSION: u32 = 1;
 const KEK_LEDGER_SCHEMA_VERSION: u32 = 1;
+const MASTER_BUNDLE_SCHEMA_VERSION: u32 = 1;
+const LEGACY_MASTER_ID: u32 = 0;
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
 
@@ -52,8 +54,39 @@ struct KekLedgerFile {
 struct KekLedgerEntry {
     scope_id: String,
     version: u32,
+    #[serde(default)]
+    master_id: Option<u32>,
     nonce_hex: String,
     wrapped_key_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct MasterEntry {
+    id: u32,
+    key_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct MasterBundle {
+    schema_version: u32,
+    active: u32,
+    masters: Vec<MasterEntry>,
+}
+
+#[derive(Debug, Default)]
+struct KeyringState {
+    masters: BTreeMap<u32, [u8; KEY_LEN]>,
+    active: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MasterRotation {
+    pub new_master_id: u32,
+    pub rewrapped_keks: usize,
+    pub retired_master_ids: Vec<u32>,
 }
 
 #[derive(Debug, Default)]
@@ -73,8 +106,9 @@ pub struct ScopeKeyRotation {
 
 #[derive(Clone)]
 pub struct MemoryKeyring {
-    master: [u8; KEY_LEN],
+    master_path: PathBuf,
     ledger_path: PathBuf,
+    state: Arc<RwLock<KeyringState>>,
     ledger: Arc<RwLock<KekLedger>>,
 }
 
@@ -82,7 +116,8 @@ impl std::fmt::Debug for MemoryKeyring {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("MemoryKeyring")
-            .field("master", &"<redacted>")
+            .field("masters", &"<redacted>")
+            .field("master_path", &self.master_path)
             .field("ledger_path", &self.ledger_path)
             .finish()
     }
@@ -92,25 +127,25 @@ impl MemoryKeyring {
     pub fn open_or_create(path: impl AsRef<Path>) -> Result<Self, MemoryPayloadError> {
         let path = path.as_ref();
         let ledger_path = ledger_path_for(path);
-        let master = if path.exists() {
+        let state = if path.exists() {
             let metadata = std::fs::symlink_metadata(path)?;
             if !metadata.is_file() || metadata.file_type().is_symlink() {
                 return Err(MemoryPayloadError::Corrupt(
                     "memory key must be a regular file".into(),
                 ));
             }
-            let mut file = File::open(path)?;
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)?;
-            if bytes.len() != KEY_LEN {
-                return Err(MemoryPayloadError::Corrupt(
-                    "memory key must be exactly 32 bytes".into(),
-                ));
-            }
             check_private_permissions(path)?;
-            let mut master = [0u8; KEY_LEN];
-            master.copy_from_slice(&bytes);
-            master
+            let bytes = std::fs::read(path)?;
+            if bytes.len() == KEY_LEN {
+                let mut master = [0u8; KEY_LEN];
+                master.copy_from_slice(&bytes);
+                KeyringState {
+                    masters: BTreeMap::from([(LEGACY_MASTER_ID, master)]),
+                    active: LEGACY_MASTER_ID,
+                }
+            } else {
+                decode_master_bundle(&bytes)?
+            }
         } else {
             if let Some(parent) = path.parent()
                 && !parent.as_os_str().is_empty()
@@ -121,60 +156,33 @@ impl MemoryKeyring {
                     set_dir_permissions(parent)?;
                 }
             }
-            let rng = SystemRandom::new();
-            let mut master = [0u8; KEY_LEN];
-            rng.fill(&mut master)
-                .map_err(|_| MemoryPayloadError::Crypto("cannot generate memory key".into()))?;
-            let file_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("memory.key");
-            let temp = path.with_file_name(format!(".{file_name}.{}.tmp", Uuid::new_v4()));
-            let result = (|| -> Result<(), MemoryPayloadError> {
-                let mut options = OpenOptions::new();
-                options.write(true).create_new(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600);
-                    options.custom_flags(libc::O_NOFOLLOW);
-                }
-                let mut file = options.open(&temp)?;
-                set_private_permissions(&file)?;
-                file.write_all(&master)?;
-                file.sync_data()?;
-                drop(file);
-                std::fs::rename(&temp, path)?;
-                Ok(())
-            })();
-            if let Err(error) = result {
-                let _ = std::fs::remove_file(&temp);
-                return Err(error);
+            let master = random_key()?;
+            write_private_atomic(path, &master)?;
+            KeyringState {
+                masters: BTreeMap::from([(LEGACY_MASTER_ID, master)]),
+                active: LEGACY_MASTER_ID,
             }
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-                && let Ok(dir) = File::open(parent)
-            {
-                let _ = dir.sync_all();
-            }
-            master
         };
         let ledger = load_ledger(&ledger_path)?;
         Ok(Self {
-            master,
+            master_path: path.to_path_buf(),
             ledger_path,
+            state: Arc::new(RwLock::new(state)),
             ledger: Arc::new(RwLock::new(ledger)),
         })
     }
 
     /// Legacy schema-v1 payloads derived their KEK directly from the master.
     /// New payloads use the random per-scope KEK ledger instead.
-    fn legacy_scope_key(&self, scope_id: &str) -> [u8; KEY_LEN] {
-        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.master);
-        let tag = hmac::sign(&key, scope_id.as_bytes());
-        let mut output = [0u8; KEY_LEN];
-        output.copy_from_slice(tag.as_ref());
-        output
+    fn legacy_scope_key(&self, scope_id: &str) -> Result<[u8; KEY_LEN], MemoryPayloadError> {
+        let state = self
+            .state
+            .read()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key lock".into()))?;
+        let master = state.masters.get(&LEGACY_MASTER_ID).ok_or_else(|| {
+            MemoryPayloadError::Crypto("legacy master key has been retired".into())
+        })?;
+        Ok(derive_scope_key(master, scope_id))
     }
 
     fn ledger_is_empty(&self) -> Result<bool, MemoryPayloadError> {
@@ -185,12 +193,15 @@ impl MemoryKeyring {
         Ok(ledger.entries.is_empty())
     }
 
-    fn wrap_key(&self) -> [u8; KEY_LEN] {
-        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.master);
-        let tag = hmac::sign(&key, b"memory-kek-wrap-v1");
-        let mut output = [0u8; KEY_LEN];
-        output.copy_from_slice(tag.as_ref());
-        output
+    fn wrap_key(&self, master_id: u32) -> Result<[u8; KEY_LEN], MemoryPayloadError> {
+        let state = self
+            .state
+            .read()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key lock".into()))?;
+        let master = state.masters.get(&master_id).ok_or_else(|| {
+            MemoryPayloadError::Crypto(format!("master key {master_id} is missing"))
+        })?;
+        Ok(derive_wrap_key(master))
     }
 
     fn ensure_scope_key(&self, scope_id: &str) -> Result<(u32, [u8; KEY_LEN]), MemoryPayloadError> {
@@ -256,14 +267,20 @@ impl MemoryKeyring {
             .map_err(|_| MemoryPayloadError::Crypto("cannot generate scope key".into()))?;
         rng.fill(&mut nonce)
             .map_err(|_| MemoryPayloadError::Crypto("cannot generate nonce".into()))?;
-        let aad = kek_aad(scope_id, version);
-        let wrapped = seal(&self.wrap_key(), &nonce, &key, &aad)?;
+        let master_id = self
+            .state
+            .read()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key lock".into()))?
+            .active;
+        let aad = kek_aad_v(master_id, scope_id, version);
+        let wrapped = seal(&self.wrap_key(master_id)?, &nonce, &key, &aad)?;
         let key_id = (scope_id.into(), version);
         ledger.entries.insert(
             key_id.clone(),
             KekLedgerEntry {
                 scope_id: scope_id.into(),
                 version,
+                master_id: Some(master_id),
                 nonce_hex: hex::encode(nonce),
                 wrapped_key_hex: hex::encode(wrapped),
             },
@@ -292,12 +309,11 @@ impl MemoryKeyring {
         let nonce = decode_nonce(&entry.nonce_hex)?;
         let wrapped = hex::decode(&entry.wrapped_key_hex)
             .map_err(|_| MemoryPayloadError::Corrupt("wrapped scope key is not hex".into()))?;
-        let key = open(
-            &self.wrap_key(),
-            &nonce,
-            &wrapped,
-            &kek_aad(scope_id, version),
-        )?;
+        let (master_id, aad) = match entry.master_id {
+            Some(master_id) => (master_id, kek_aad_v(master_id, scope_id, version)),
+            None => (LEGACY_MASTER_ID, kek_aad(scope_id, version)),
+        };
+        let key = open(&self.wrap_key(master_id)?, &nonce, &wrapped, &aad)?;
         if key.len() != KEY_LEN {
             return Err(MemoryPayloadError::Corrupt(
                 "scope key has wrong length".into(),
@@ -352,6 +368,93 @@ impl MemoryKeyring {
         let bytes = serde_json::to_vec_pretty(&file)?;
         write_private_atomic(&self.ledger_path, &bytes)
     }
+
+    fn rotate_master(&self) -> Result<MasterRotation, MemoryPayloadError> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key lock".into()))?;
+        let mut ledger = self
+            .ledger
+            .write()
+            .map_err(|_| MemoryPayloadError::Crypto("memory key ledger lock".into()))?;
+        let new_id = state
+            .masters
+            .keys()
+            .max()
+            .copied()
+            .unwrap_or(LEGACY_MASTER_ID)
+            .saturating_add(1);
+        let new_master = random_key()?;
+        let mut with_new = state.masters.clone();
+        with_new.insert(new_id, new_master);
+        write_master_bundle(
+            &self.master_path,
+            &KeyringState {
+                masters: with_new.clone(),
+                active: new_id,
+            },
+        )?;
+
+        let mut entries = BTreeMap::new();
+        let mut rewrapped = 0;
+        let new_wrap_key = derive_wrap_key(&new_master);
+        for (key, entry) in &ledger.entries {
+            let (old_id, old_aad) = match entry.master_id {
+                Some(master_id) => (
+                    master_id,
+                    kek_aad_v(master_id, &entry.scope_id, entry.version),
+                ),
+                None => (LEGACY_MASTER_ID, kek_aad(&entry.scope_id, entry.version)),
+            };
+            let old_master = state.masters.get(&old_id).ok_or_else(|| {
+                MemoryPayloadError::Crypto(format!("master key {old_id} is missing"))
+            })?;
+            let nonce = decode_nonce(&entry.nonce_hex)?;
+            let wrapped = hex::decode(&entry.wrapped_key_hex)
+                .map_err(|_| MemoryPayloadError::Corrupt("wrapped scope key is not hex".into()))?;
+            let scope_key = open(&derive_wrap_key(old_master), &nonce, &wrapped, &old_aad)?;
+            let rng = SystemRandom::new();
+            let mut new_nonce = [0u8; NONCE_LEN];
+            rng.fill(&mut new_nonce)
+                .map_err(|_| MemoryPayloadError::Crypto("cannot generate nonce".into()))?;
+            let new_aad = kek_aad_v(new_id, &entry.scope_id, entry.version);
+            let mut updated = entry.clone();
+            updated.master_id = Some(new_id);
+            updated.nonce_hex = hex::encode(new_nonce);
+            updated.wrapped_key_hex =
+                hex::encode(seal(&new_wrap_key, &new_nonce, &scope_key, &new_aad)?);
+            entries.insert(key.clone(), updated);
+            rewrapped += 1;
+        }
+        let new_ledger = KekLedger {
+            entries: entries.clone(),
+        };
+        self.persist_ledger(&new_ledger)?;
+        let mut final_masters = BTreeMap::new();
+        final_masters.insert(new_id, new_master);
+        write_master_bundle(
+            &self.master_path,
+            &KeyringState {
+                masters: final_masters.clone(),
+                active: new_id,
+            },
+        )?;
+        let retired_master_ids: Vec<u32> = state
+            .masters
+            .keys()
+            .filter(|id| **id != new_id)
+            .copied()
+            .collect();
+        state.masters = final_masters;
+        state.active = new_id;
+        ledger.entries = entries;
+        Ok(MasterRotation {
+            new_master_id: new_id,
+            rewrapped_keks: rewrapped,
+            retired_master_ids,
+        })
+    }
 }
 
 fn ledger_path_for(key_path: &Path) -> PathBuf {
@@ -360,6 +463,86 @@ fn ledger_path_for(key_path: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("memory.key");
     key_path.with_file_name(format!("{name}-keks.json"))
+}
+
+fn decode_master_bundle(bytes: &[u8]) -> Result<KeyringState, MemoryPayloadError> {
+    let bundle: MasterBundle = serde_json::from_slice(bytes)?;
+    if bundle.schema_version != MASTER_BUNDLE_SCHEMA_VERSION {
+        return Err(MemoryPayloadError::Corrupt(
+            "unsupported master bundle schema".into(),
+        ));
+    }
+    let mut masters = BTreeMap::new();
+    for entry in bundle.masters {
+        if entry.id == LEGACY_MASTER_ID {
+            return Err(MemoryPayloadError::Corrupt(
+                "master bundle id must be greater than zero".into(),
+            ));
+        }
+        let key = hex::decode(&entry.key_hex)
+            .map_err(|_| MemoryPayloadError::Corrupt("master key is not hex".into()))?;
+        if key.len() != KEY_LEN {
+            return Err(MemoryPayloadError::Corrupt(
+                "master key has wrong length".into(),
+            ));
+        }
+        let mut master = [0u8; KEY_LEN];
+        master.copy_from_slice(&key);
+        if masters.insert(entry.id, master).is_some() {
+            return Err(MemoryPayloadError::Corrupt(
+                "duplicate master key id".into(),
+            ));
+        }
+    }
+    if masters.is_empty() || !masters.contains_key(&bundle.active) {
+        return Err(MemoryPayloadError::Corrupt(
+            "master bundle has no active key".into(),
+        ));
+    }
+    Ok(KeyringState {
+        masters,
+        active: bundle.active,
+    })
+}
+
+fn write_master_bundle(path: &Path, state: &KeyringState) -> Result<(), MemoryPayloadError> {
+    let bundle = MasterBundle {
+        schema_version: MASTER_BUNDLE_SCHEMA_VERSION,
+        active: state.active,
+        masters: state
+            .masters
+            .iter()
+            .map(|(id, key)| MasterEntry {
+                id: *id,
+                key_hex: hex::encode(key),
+            })
+            .collect(),
+    };
+    write_private_atomic(path, &serde_json::to_vec_pretty(&bundle)?)
+}
+
+fn random_key() -> Result<[u8; KEY_LEN], MemoryPayloadError> {
+    let rng = SystemRandom::new();
+    let mut key = [0u8; KEY_LEN];
+    rng.fill(&mut key)
+        .map_err(|_| MemoryPayloadError::Crypto("cannot generate key".into()))?;
+    Ok(key)
+}
+
+fn derive_scope_key(master: &[u8; KEY_LEN], scope_id: &str) -> [u8; KEY_LEN] {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, master);
+    let tag = hmac::sign(&key, scope_id.as_bytes());
+    let mut output = [0u8; KEY_LEN];
+    output.copy_from_slice(tag.as_ref());
+    output
+}
+
+fn derive_wrap_key(master: &[u8; KEY_LEN]) -> [u8; KEY_LEN] {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, master);
+    let tag = hmac::sign(&key, b"memory-kek-wrap-v1");
+    let mut output = [0u8; KEY_LEN];
+    output.copy_from_slice(tag.as_ref());
+    output
 }
 
 fn load_ledger(path: &Path) -> Result<KekLedger, MemoryPayloadError> {
@@ -439,6 +622,37 @@ fn sync_directory(path: &Path) -> Result<(), MemoryPayloadError> {
 
 fn kek_aad(scope_id: &str, version: u32) -> Vec<u8> {
     format!("memory-kek:{scope_id}:{version}").into_bytes()
+}
+
+fn kek_aad_v(master_id: u32, scope_id: &str, version: u32) -> Vec<u8> {
+    format!("memory-kek-v2:{master_id}:{scope_id}:{version}").into_bytes()
+}
+
+fn root_has_legacy_payload(root: &Path) -> Result<bool, MemoryPayloadError> {
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".payload.json")
+        {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(entry.path()) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        if value
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            == Some(u64::from(LEGACY_PAYLOAD_SCHEMA_VERSION))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn root_has_schema_two_payload(root: &Path) -> Result<bool, MemoryPayloadError> {
@@ -661,7 +875,7 @@ impl MemoryPayloadStore {
             }
             let old_key = if payload.schema_version == LEGACY_PAYLOAD_SCHEMA_VERSION {
                 legacy_migrated += 1;
-                self.keyring.legacy_scope_key(scope_id)
+                self.keyring.legacy_scope_key(scope_id)?
             } else if payload.schema_version == PAYLOAD_SCHEMA_VERSION {
                 if payload.kek_version == 0 {
                     return Err(MemoryPayloadError::Corrupt(
@@ -708,12 +922,26 @@ impl MemoryPayloadStore {
         })
     }
 
+    /// Rotate the master key and rewrap the scope-KEK ledger. Legacy schema-1
+    /// payloads must be migrated to schema 2 first; otherwise their
+    /// master-derived key would become unrecoverable.
+    pub fn rotate_master_key(&self) -> Result<MasterRotation, MemoryPayloadError> {
+        let _guard = self.write_rotation()?;
+        if root_has_legacy_payload(&self.root)? {
+            return Err(MemoryPayloadError::Corrupt(
+                "legacy schema-1 payloads must be rotated to schema 2 before master rotation"
+                    .into(),
+            ));
+        }
+        self.keyring.rotate_master()
+    }
+
     fn scope_key_for(
         &self,
         payload: &EncryptedPayload,
     ) -> Result<[u8; KEY_LEN], MemoryPayloadError> {
         match payload.schema_version {
-            LEGACY_PAYLOAD_SCHEMA_VERSION => Ok(self.keyring.legacy_scope_key(&payload.scope_id)),
+            LEGACY_PAYLOAD_SCHEMA_VERSION => self.keyring.legacy_scope_key(&payload.scope_id),
             PAYLOAD_SCHEMA_VERSION => {
                 if payload.kek_version == 0 {
                     return Err(MemoryPayloadError::Corrupt(
@@ -1071,12 +1299,78 @@ mod tests {
     }
 
     #[test]
+    fn master_rotation_rewraps_ledger_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("payloads");
+        let key_path = dir.path().join("memory.key");
+        let store = MemoryPayloadStore::open(&root, &key_path).unwrap();
+        store.put("mem-1", "scope-a", "one").unwrap();
+        let old_key = std::fs::read(&key_path).unwrap();
+        let rotation = store.rotate_master_key().unwrap();
+        assert_eq!(rotation.new_master_id, 1);
+        assert_eq!(rotation.rewrapped_keks, 1);
+        assert_eq!(rotation.retired_master_ids, vec![0]);
+        assert_ne!(std::fs::read(&key_path).unwrap(), old_key);
+        assert_eq!(store.get("mem-1", "scope-a").unwrap(), "one");
+        drop(store);
+
+        let reopened = MemoryPayloadStore::open(&root, &key_path).unwrap();
+        assert_eq!(reopened.get("mem-1", "scope-a").unwrap(), "one");
+    }
+
+    #[test]
+    fn master_rotation_requires_legacy_payload_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("payloads");
+        let store = MemoryPayloadStore::open(&root, dir.path().join("memory.key")).unwrap();
+        let scope = "scope-legacy";
+        let legacy_key = store.keyring.legacy_scope_key(scope).unwrap();
+        let rng = SystemRandom::new();
+        let mut dek = [0u8; KEY_LEN];
+        let mut content_nonce = [0u8; NONCE_LEN];
+        let mut wrap_nonce = [0u8; NONCE_LEN];
+        rng.fill(&mut dek).unwrap();
+        rng.fill(&mut content_nonce).unwrap();
+        rng.fill(&mut wrap_nonce).unwrap();
+        let aad = payload_aad("mem-legacy", scope);
+        let ciphertext = seal(&dek, &content_nonce, b"legacy body", &aad).unwrap();
+        let wrapped = seal(&legacy_key, &wrap_nonce, &dek, &aad).unwrap();
+        let legacy_payload = EncryptedPayload {
+            schema_version: LEGACY_PAYLOAD_SCHEMA_VERSION,
+            kek_version: 0,
+            memory_id: "mem-legacy".into(),
+            scope_id: scope.into(),
+            nonce_hex: hex::encode(content_nonce),
+            ciphertext_hex: hex::encode(ciphertext),
+            wrapped_dek_nonce_hex: hex::encode(wrap_nonce),
+            wrapped_dek_hex: hex::encode(wrapped),
+            content_sha256: sha256_hex(b"legacy body"),
+        };
+        store.write_payload(&legacy_payload).unwrap();
+        store.put("mem-live", "scope-live", "live").unwrap();
+        let old_legacy_bytes = std::fs::read(root.join("mem-legacy.payload.json")).unwrap();
+        assert!(matches!(
+            store.rotate_master_key().unwrap_err(),
+            MemoryPayloadError::Corrupt(_)
+        ));
+
+        store.rotate_scope_key(scope).unwrap();
+        store.rotate_master_key().unwrap();
+        assert_eq!(store.get("mem-live", "scope-live").unwrap(), "live");
+        std::fs::write(root.join("mem-legacy.payload.json"), old_legacy_bytes).unwrap();
+        assert!(matches!(
+            store.get("mem-legacy", scope).unwrap_err(),
+            MemoryPayloadError::Crypto(_)
+        ));
+    }
+
+    #[test]
     fn legacy_schema_one_payload_still_reads_and_migrates() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("payloads");
         let store = MemoryPayloadStore::open(&root, dir.path().join("memory.key")).unwrap();
         let scope = "scope-legacy";
-        let legacy_key = store.keyring.legacy_scope_key(scope);
+        let legacy_key = store.keyring.legacy_scope_key(scope).unwrap();
         let rng = SystemRandom::new();
         let mut dek = [0u8; KEY_LEN];
         let mut content_nonce = [0u8; NONCE_LEN];

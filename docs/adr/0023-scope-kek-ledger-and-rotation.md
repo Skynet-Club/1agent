@@ -33,14 +33,21 @@ scope key.
    exclusively, so a `put` cannot write an old version after retirement. Symlinked
    payloads are rejected, and the backup verifier rejects the ledger and any file
    not listed in the manifest.
+7. Master-key rotation uses a versioned bundle (`memory.key` JSON with one or
+   more master keys). It refuses to run while schema-1 payloads exist, adds a new
+   master, rewraps every ledger entry, then removes old masters. A live schema-2
+   payload remains readable; a pre-rotation legacy backup loses its derived key
+   once the old master is removed. The bundle and ledger are replaced atomically,
+   and a crash leaves both old/new masters until the final step.
 
 ## Consequences
 
 - `hard_forget_covers_backup` remains false in backup manifests: rotation is an
   explicit operator action, not part of hard forget.
-- Master-key rotation and a restore/old-backup-unrecoverable drill for legacy
-  payloads are still required before any general claim that hard forget covers
-  backups.
+- Master-key rotation is implemented, but it only seals legacy backups after all
+  schema-1 payloads have been migrated. Schema-2 backups are sealed by scope-KEK
+  rotation, not by master rotation. `hard_forget_covers_backup` remains false
+  because neither rotation is part of hard forget and restore is not implemented.
 - The ledger is key material: backups must continue to exclude it, and losing it
   makes all schema-2 payloads unrecoverable.
 - Single-writer assumption remains; concurrent rotation from multiple processes

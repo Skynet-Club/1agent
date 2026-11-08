@@ -174,8 +174,9 @@ workspace with optional SHA-256 matching.
   master-derived AEAD key; payloads record `kek_version`.
 - `rotate_scope_key` rewraps live payloads, then retires older versions. A pre-rotation
   backup referencing a retired version is unrecoverable even with the master key.
-- Schema-1 payloads remain readable via the legacy derivation; rotation migrates them but
-  cannot retire legacy derivation until master-key rotation (ADR-0023).
+- Schema-1 payloads remain readable via the legacy derivation; rotation migrates them,
+  and master-key rotation (`memory rotate-master-key`) adds a new master, rewraps the KEK
+  ledger, then removes old masters. It refuses to run while schema-1 payloads exist.
 
 ## Agent intent, attention and evolution
 

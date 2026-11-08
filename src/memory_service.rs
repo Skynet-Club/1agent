@@ -8,7 +8,9 @@ use crate::memory::{
     ForgetMode, MemoryError, MemoryEvent, MemoryHit, MemoryRecord, MemoryScope, MemoryStore,
 };
 use crate::memory_journal::{MemoryJournalError, MemoryJournalStore};
-use crate::memory_payload::{MemoryPayloadError, MemoryPayloadStore, ScopeKeyRotation};
+use crate::memory_payload::{
+    MasterRotation, MemoryPayloadError, MemoryPayloadStore, ScopeKeyRotation,
+};
 
 #[derive(Debug, Error)]
 pub enum MemoryServiceError {
@@ -194,6 +196,12 @@ impl MemoryService {
         scope: &MemoryScope,
     ) -> Result<ScopeKeyRotation, MemoryPayloadError> {
         self.payload.rotate_scope_key(&scope.scope_id())
+    }
+
+    /// Rotate the master key and rewrap the scope-KEK ledger. All live
+    /// payloads must already be schema 2.
+    pub fn rotate_master_key(&self) -> Result<MasterRotation, MemoryPayloadError> {
+        self.payload.rotate_master_key()
     }
 
     pub fn payload_contains(
