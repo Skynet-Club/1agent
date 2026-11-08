@@ -18,14 +18,16 @@ survives.
 2. A random 256-bit recovery key is generated on first use and written as
    hex to a separate file with mode 0600. The recovery key, the escrow output
    and the runtime home must be pairwise outside the home; an existing
-   recovery key must be private (no group/world access).
+   recovery key must be private (no group/world access), and its parent
+   directory must not be group/world writable.
 3. The escrow envelope contains a schema, creation time, random 96-bit nonce
    and ciphertext. The schema string is the AEAD associated data, so a rewritten
    envelope fails authentication.
 4. `1agent key restore` verifies the envelope, decrypts it, checks every key
-   file's size and SHA-256, and writes only `memory.key` and the ledger into an
-   initialized current-version home. It refuses to overwrite existing key files
-   and writes the ledger before the master key.
+   file's size and SHA-256, rejects duplicate paths, and writes only
+   `memory.key` and the ledger into an initialized current-version home. It
+   refuses to overwrite existing key files and writes the ledger before the
+   master key.
 5. The recovery key is never printed or journaled. Tests cover a real memory
    write, key loss, escrow restore, memory re-read, tamper rejection and
    overwrite refusal.
@@ -44,3 +46,6 @@ survives.
 - The escrow bundle is only as current as the last escrow run. `doctor` should
   eventually warn when key files are newer than the stored escrow, but that
   policy is not implemented yet.
+- Escrow reads the master key and ledger as separate files. Run it while no
+  master/scope-key rotation is in progress; an interleaved rotation can capture
+  an inconsistent key set.

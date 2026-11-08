@@ -23,6 +23,16 @@ fn run_ok(args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn workspace() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    dir
+}
+
 fn init(home: &std::path::Path) {
     run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
 }
@@ -52,7 +62,7 @@ fn service(home: &std::path::Path) -> MemoryService {
 
 #[test]
 fn escrow_and_restore_recover_memory_after_key_loss() {
-    let workspace = tempfile::tempdir().unwrap();
+    let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
     let mut memory = service(&home);
@@ -131,7 +141,7 @@ fn escrow_and_restore_recover_memory_after_key_loss() {
 
 #[test]
 fn restore_rejects_a_tampered_escrow() {
-    let workspace = tempfile::tempdir().unwrap();
+    let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
     std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
@@ -177,7 +187,7 @@ fn restore_rejects_a_tampered_escrow() {
 
 #[test]
 fn escrow_requires_paths_outside_the_home() {
-    let workspace = tempfile::tempdir().unwrap();
+    let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
     std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
@@ -215,7 +225,7 @@ fn escrow_requires_paths_outside_the_home() {
 #[cfg(unix)]
 #[test]
 fn escrow_rejects_a_public_recovery_key() {
-    let workspace = tempfile::tempdir().unwrap();
+    let workspace = workspace();
     let home = workspace.path().join("home");
     init(&home);
     std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
@@ -238,4 +248,44 @@ fn escrow_rejects_a_public_recovery_key() {
     ]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("accessible"));
+}
+
+#[cfg(unix)]
+#[test]
+fn escrow_rejects_symlinked_parents_inside_the_home() {
+    let workspace = workspace();
+    let home = workspace.path().join("home");
+    init(&home);
+    std::fs::write(home.join("memory.key"), "master-key-bytes").unwrap();
+    let link = workspace.path().join("link");
+    std::os::unix::fs::symlink(&home, &link).unwrap();
+    let recovery = workspace.path().join("recovery.key");
+
+    let output = run(&[
+        "key",
+        "escrow",
+        "--root",
+        &home.display().to_string(),
+        "--output",
+        &link.join("escrow.json").display().to_string(),
+        "--recovery-key",
+        &recovery.display().to_string(),
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("outside"));
+
+    let output = run(&[
+        "key",
+        "escrow",
+        "--root",
+        &home.display().to_string(),
+        "--output",
+        &workspace.path().join("escrow.json").display().to_string(),
+        "--recovery-key",
+        &link.join("recovery.key").display().to_string(),
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("outside"));
 }

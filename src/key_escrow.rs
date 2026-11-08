@@ -221,6 +221,12 @@ pub fn restore(
                 file.path
             )));
         }
+        if pending.iter().any(|(name, _, _)| name == &file.path) {
+            return Err(KeyEscrowError::InvalidMaterial(format!(
+                "duplicate key path {}",
+                file.path
+            )));
+        }
         let data = hex_decode(&file.data_hex)?;
         if data.len() as u64 != file.bytes || hex_sha256(&data) != file.sha256 {
             return Err(KeyEscrowError::HashMismatch(file.path.clone()));
@@ -272,7 +278,9 @@ fn require_home(root: &Path) -> Result<(), KeyEscrowError> {
 }
 
 fn ensure_outside_home(root: &Path, path: &Path) -> Result<(), KeyEscrowError> {
-    if path.starts_with(root) || root.starts_with(path) {
+    let root = fs::canonicalize(root)?;
+    let path = canonicalize_for_compare(path)?;
+    if path.starts_with(&root) || root.starts_with(&path) {
         return Err(KeyEscrowError::UnsafeLayout(format!(
             "{} must be outside the runtime home",
             path.display()
@@ -281,9 +289,41 @@ fn ensure_outside_home(root: &Path, path: &Path) -> Result<(), KeyEscrowError> {
     Ok(())
 }
 
+fn canonicalize_for_compare(path: &Path) -> Result<PathBuf, KeyEscrowError> {
+    let mut existing = path.to_path_buf();
+    let mut suffix = Vec::new();
+    loop {
+        match fs::symlink_metadata(&existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = existing.file_name() else {
+                    return Err(KeyEscrowError::UnsafeLayout(format!(
+                        "{} has no resolvable parent",
+                        path.display()
+                    )));
+                };
+                suffix.push(name.to_os_string());
+                existing = existing.parent().map(Path::to_path_buf).ok_or_else(|| {
+                    KeyEscrowError::UnsafeLayout(format!(
+                        "{} has no resolvable parent",
+                        path.display()
+                    ))
+                })?;
+            }
+            Err(error) => return Err(KeyEscrowError::Io(error)),
+        }
+    }
+    let mut resolved = fs::canonicalize(&existing)?;
+    for name in suffix.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
+}
+
 fn load_or_create_recovery_key(
     path: &Path,
 ) -> Result<([u8; RECOVERY_KEY_LEN], bool), KeyEscrowError> {
+    ensure_private_parent(path)?;
     if existing_metadata(path)?.is_some() {
         return Ok((read_recovery_key(path)?, false));
     }
@@ -297,6 +337,7 @@ fn load_or_create_recovery_key(
 }
 
 fn read_recovery_key(path: &Path) -> Result<[u8; RECOVERY_KEY_LEN], KeyEscrowError> {
+    ensure_private_parent(path)?;
     let metadata = existing_metadata(path)?.ok_or_else(|| {
         KeyEscrowError::InvalidRecoveryKey(format!("{} is missing", path.display()))
     })?;
@@ -371,6 +412,28 @@ fn aead_key(key: &[u8; RECOVERY_KEY_LEN]) -> Result<LessSafeKey, KeyEscrowError>
     let key = UnboundKey::new(&AES_256_GCM, key)
         .map_err(|_| KeyEscrowError::InvalidRecoveryKey("wrong key length".to_string()))?;
     Ok(LessSafeKey::new(key))
+}
+
+fn ensure_private_parent(path: &Path) -> Result<(), KeyEscrowError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let metadata = fs::metadata(parent)?;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o022 != 0 {
+            return Err(KeyEscrowError::InvalidRecoveryKey(format!(
+                "{} mode {mode:o} is group/world writable",
+                parent.display()
+            )));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 fn existing_metadata(path: &Path) -> Result<Option<fs::Metadata>, KeyEscrowError> {

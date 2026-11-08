@@ -31,12 +31,17 @@ because the memory master key lives beside encrypted payloads.
    empty and outside the home.
 5. `1agent restore` verifies the manifest, rejects absolute/`..` paths, extra
    files, symlinks, key material and hash mismatches, and writes only into an
-   empty or nonexistent home.
-6. `1agent upgrade --check` reports missing layout without changing state.
+   empty or nonexistent home. The home marker is written last, so a partial
+   restore is not mistaken for an initialized home.
+6. Export output and the home are compared after resolving the nearest existing
+   ancestor, so a symlinked parent cannot smuggle the output back inside the
+   home.
+7. `1agent upgrade --check` reports missing layout without changing state.
    Upgrading repairs the current layout only. Any other home version is rejected
    until a real migration is registered; the version field is the migration
-   hook.
-7. `1agent uninstall` never deletes data without `--purge --yes`. Purge requires
+   hook. `doctor` reports an older version as a failure because this build has
+   no migration for it.
+8. `1agent uninstall` never deletes data without `--purge --yes`. Purge requires
    a valid home marker and refuses `/`, top-level paths, `$HOME` and a home that
    contains the current working directory.
 8. Exports deliberately exclude the master key, so an export alone cannot
@@ -50,6 +55,10 @@ because the memory master key lives beside encrypted payloads.
   override them. Uninitialized worktrees keep the historical relative paths, so
   starting `1agent init` is the opt-in boundary and old data is not silently
   reinterpreted.
+- An export is a file-by-file copy with per-file hashes, not a transactional
+  snapshot. Run it while the home is quiescent; a writer or key rotation during
+  export can produce a manifest that verifies file-by-file but does not
+  represent one consistent point in time.
 - `upgrade` currently has no historical version to migrate. S-Gate evidence for
   migration and rollback requires a future schema bump plus a registered
   migration, not a no-op claim.

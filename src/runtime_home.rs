@@ -153,10 +153,20 @@ pub fn default_home() -> PathBuf {
 }
 
 pub fn is_initialized(root: &Path) -> bool {
-    matches!(
-        fs::symlink_metadata(root.join(MANIFEST_NAME)),
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink()
-    )
+    let path = root.join(MANIFEST_NAME);
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(bytes) = fs::read(&path) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_slice::<HomeManifest>(&bytes) else {
+        return false;
+    };
+    manifest.schema == HOME_SCHEMA && manifest.version == HOME_VERSION
 }
 
 /// Resolve a command default against the initialized home, falling back to the
@@ -252,9 +262,9 @@ pub fn doctor(root: &Path) -> Result<DoctorReport, HomeError> {
             } else if manifest.version < HOME_VERSION {
                 checks.push(check(
                     "home_marker",
-                    DoctorStatus::Warn,
+                    DoctorStatus::Fail,
                     format!(
-                        "home version {} is older than {HOME_VERSION}; run `1agent upgrade`",
+                        "home version {} is older than {HOME_VERSION}; this build has no migration",
                         manifest.version
                     ),
                 ));
@@ -434,11 +444,11 @@ pub fn export(root: &Path, output: &Path, now_ms: u128) -> Result<ExportOutcome,
     let manifest = read_manifest(&root)?;
     ensure_supported(&manifest)?;
     let output = absolute(output)?;
-    if output.starts_with(&root) || root.starts_with(&output) {
-        return Err(HomeError::UnsafeLayout(
-            "export output must be outside the runtime home".to_string(),
-        ));
-    }
+    ensure_disjoint(
+        &root,
+        &output,
+        "export output must be outside the runtime home",
+    )?;
     prepare_empty_output(&output)?;
 
     let mut paths = Vec::new();
@@ -607,7 +617,9 @@ pub fn restore(bundle: &Path, root: &Path, _now_ms: u128) -> Result<RestoreOutco
         create_private_dirs(&root)?;
     }
     set_mode(&root, 0o700)?;
-    for file in &manifest.files {
+    let mut files = manifest.files.clone();
+    files.sort_by_key(|file| file.path == MANIFEST_NAME);
+    for file in &files {
         let relative = safe_relative(&file.path)
             .ok_or_else(|| HomeError::InvalidBundle(format!("unsafe path {}", file.path)))?;
         let destination = root.join(&relative);
@@ -767,6 +779,45 @@ fn ensure_layout(root: &Path) -> Result<(), HomeError> {
         }
     }
     Ok(())
+}
+
+fn ensure_disjoint(root: &Path, path: &Path, message: &str) -> Result<(), HomeError> {
+    let root = fs::canonicalize(root)?;
+    let path = canonicalize_for_compare(path)?;
+    if path.starts_with(&root) || root.starts_with(&path) {
+        return Err(HomeError::UnsafeLayout(message.to_string()));
+    }
+    Ok(())
+}
+
+/// Resolve a possibly nonexistent path through its nearest existing ancestor so
+/// a symlinked parent cannot smuggle an output back into the home.
+fn canonicalize_for_compare(path: &Path) -> Result<PathBuf, HomeError> {
+    let mut existing = path.to_path_buf();
+    let mut suffix = Vec::new();
+    loop {
+        match fs::symlink_metadata(&existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = existing.file_name() else {
+                    return Err(HomeError::UnsafeLayout(format!(
+                        "{} has no resolvable parent",
+                        path.display()
+                    )));
+                };
+                suffix.push(name.to_os_string());
+                existing = existing.parent().map(Path::to_path_buf).ok_or_else(|| {
+                    HomeError::UnsafeLayout(format!("{} has no resolvable parent", path.display()))
+                })?;
+            }
+            Err(error) => return Err(HomeError::Io(error)),
+        }
+    }
+    let mut resolved = fs::canonicalize(&existing)?;
+    for name in suffix.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
 }
 
 fn ensure_supported(manifest: &HomeManifest) -> Result<(), HomeError> {

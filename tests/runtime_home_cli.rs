@@ -389,3 +389,54 @@ fn doctor_rejects_public_key_ledger() {
             .any(|check| { check["id"] == "kek_ledger" && check["status"] == "fail" })
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn export_rejects_a_symlinked_parent_inside_the_home() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+    let link = workspace.path().join("link");
+    std::os::unix::fs::symlink(&home, &link).unwrap();
+    let output = run(&[
+        "export",
+        "--root",
+        &home.display().to_string(),
+        "--output",
+        &link.join("bundle").display().to_string(),
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("outside"));
+}
+
+#[test]
+fn invalid_home_marker_does_not_become_the_default_state_root() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::write(
+        home.join("home.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema": "1agent.home.v1",
+            "version": 99,
+            "created_ms": 1,
+            "updated_ms": 1
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_first-principles-agent"))
+        .args(["task-graph", "demo", "--json"])
+        .current_dir(workspace.path())
+        .env("ONEAGENT_HOME", &home)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!home.join("task-graph.jsonl").exists());
+    assert!(workspace.path().join(".1a/task-graph.jsonl").is_file());
+}
