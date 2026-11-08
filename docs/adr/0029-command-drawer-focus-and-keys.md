@@ -36,9 +36,10 @@ submit something the user had not selected.
    non-empty query keeps the flat fuzzy-match order; recency is process-local.
 10. Destructive commands (`/clear`, non-dry-run `/dispatch`, `/control cancel`
    and `/control takeover`) arm a confirmation notice and execute only on a
-   second Enter. Typing, Esc or opening the command drawer cancels the pending
-   command. The original `/session delete` double-confirmation syntax is
-   unchanged.
+   second Enter. Any other input except Esc and Ctrl+Q — typing, navigation,
+   mouse or opening the command drawer — cancels the pending command; Esc
+   reports the cancellation. The original `/session delete`
+   double-confirmation syntax is unchanged.
 11. While a command panel is open it owns the keyboard: character, delete, Tab,
    Home/End and paste input is ignored rather than editing the hidden composer.
    Prompt menu items close the panel before placing a command template in the
