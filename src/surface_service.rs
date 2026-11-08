@@ -187,7 +187,19 @@ impl SurfaceService {
                 query,
                 limit,
             } => self.memory_recall(auth, scope, query, *limit, now_ms),
+            SurfaceMethod::MemoryForget {
+                memory_id,
+                scope,
+                mode,
+            } => self.memory_forget(auth, memory_id, scope, mode, now_ms),
             SurfaceMethod::SkillList => self.skill_list(auth),
+            SurfaceMethod::SkillEnable { name, version } => {
+                self.skill_enable(auth, name, version, now_ms)
+            }
+            SurfaceMethod::SkillDisable { name } => self.skill_disable(auth, name, now_ms),
+            SurfaceMethod::SkillRollback { name, version } => {
+                self.skill_rollback(auth, name, version, now_ms)
+            }
             SurfaceMethod::AuditQuery { kind, filter } => {
                 self.audit_query(auth, kind, filter, now_ms)
             }
@@ -847,6 +859,33 @@ impl SurfaceService {
         Ok(serde_json::Value::Array(hits))
     }
 
+    fn memory_forget(
+        &mut self,
+        auth: &AuthContext,
+        memory_id: &str,
+        scope: &crate::memory::MemoryScope,
+        mode: &str,
+        now_ms: u128,
+    ) -> Result<serde_json::Value, SurfaceError> {
+        auth.require("memory:write")?;
+        let (mode, mode_label) = match mode {
+            "soft" => (crate::memory::ForgetMode::Soft, "soft"),
+            "hard" => (crate::memory::ForgetMode::Hard, "hard"),
+            _ => return Err(SurfaceError::invalid("mode must be soft or hard")),
+        };
+        let memory = self
+            .resources
+            .memory
+            .as_mut()
+            .ok_or_else(|| unavailable("memory service"))?;
+        memory
+            .forget(memory_id, scope, mode, now_ms)
+            .map_err(|error| {
+                SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
+            })?;
+        Ok(serde_json::json!({"memory_id": memory_id, "forgotten": true, "mode": mode_label}))
+    }
+
     fn skill_list(&self, auth: &AuthContext) -> Result<serde_json::Value, SurfaceError> {
         auth.require("skill:read")?;
         let skills = self
@@ -856,6 +895,60 @@ impl SurfaceService {
             .ok_or_else(|| unavailable("skill service"))?;
         serde_json::to_value(skills.list())
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "skill encode", false))
+    }
+
+    fn skill_enable(
+        &mut self,
+        auth: &AuthContext,
+        name: &str,
+        version: &str,
+        now_ms: u128,
+    ) -> Result<serde_json::Value, SurfaceError> {
+        auth.require("skill:write")?;
+        let skills = self
+            .resources
+            .skills
+            .as_mut()
+            .ok_or_else(|| unavailable("skill service"))?;
+        skills
+            .activate(name, version, now_ms)
+            .map_err(map_skill_error)?;
+        Ok(serde_json::json!({"name": name, "version": version, "active": true}))
+    }
+
+    fn skill_disable(
+        &mut self,
+        auth: &AuthContext,
+        name: &str,
+        now_ms: u128,
+    ) -> Result<serde_json::Value, SurfaceError> {
+        auth.require("skill:write")?;
+        let skills = self
+            .resources
+            .skills
+            .as_mut()
+            .ok_or_else(|| unavailable("skill service"))?;
+        skills.disable(name, now_ms).map_err(map_skill_error)?;
+        Ok(serde_json::json!({"name": name, "active": false}))
+    }
+
+    fn skill_rollback(
+        &mut self,
+        auth: &AuthContext,
+        name: &str,
+        version: &str,
+        now_ms: u128,
+    ) -> Result<serde_json::Value, SurfaceError> {
+        auth.require("skill:write")?;
+        let skills = self
+            .resources
+            .skills
+            .as_mut()
+            .ok_or_else(|| unavailable("skill service"))?;
+        skills
+            .rollback(name, version, now_ms)
+            .map_err(map_skill_error)?;
+        Ok(serde_json::json!({"name": name, "version": version, "active": true}))
     }
 
     fn audit_query(
@@ -1025,6 +1118,10 @@ fn map_evolution_error(error: EvolutionError) -> SurfaceError {
             SurfaceError::new(SurfaceErrorCode::Internal, error.to_string(), false)
         }
     }
+}
+
+fn map_skill_error(error: crate::skill_service::SkillServiceError) -> SurfaceError {
+    SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
 }
 
 fn parse_risk(value: &str) -> Result<RiskLevel, SurfaceError> {
@@ -1313,7 +1410,9 @@ mod tests {
             actor_id: "owner-1".into(),
             scopes: vec![
                 "memory:read".into(),
+                "memory:write".into(),
                 "skill:read".into(),
+                "skill:write".into(),
                 "audit:read".into(),
                 "message:send".into(),
             ],
@@ -1336,6 +1435,58 @@ mod tests {
             ..request
         };
         assert!(service.handle(&request, &auth, 20).ok);
+
+        let request = SurfaceRequest {
+            method: SurfaceMethod::SkillEnable {
+                name: "release".into(),
+                version: "1.0.0".into(),
+            },
+            ..request
+        };
+        assert!(service.handle(&request, &auth, 20).ok);
+        let request = SurfaceRequest {
+            method: SurfaceMethod::SkillDisable {
+                name: "release".into(),
+            },
+            ..request
+        };
+        assert!(service.handle(&request, &auth, 20).ok);
+        let request = SurfaceRequest {
+            method: SurfaceMethod::SkillEnable {
+                name: "release".into(),
+                version: "1.0.0".into(),
+            },
+            ..request
+        };
+        assert!(service.handle(&request, &auth, 20).ok);
+        let request = SurfaceRequest {
+            method: SurfaceMethod::SkillRollback {
+                name: "release".into(),
+                version: "1.0.0".into(),
+            },
+            ..request
+        };
+        assert!(service.handle(&request, &auth, 20).ok);
+
+        let request = SurfaceRequest {
+            method: SurfaceMethod::MemoryForget {
+                memory_id: "mem-1".into(),
+                scope: MemoryScope::bot("bot-1"),
+                mode: "hard".into(),
+            },
+            ..request
+        };
+        let response = service.handle(&request, &auth, 21);
+        assert!(response.ok, "{response:?}");
+        assert!(
+            !service
+                .resources()
+                .memory
+                .as_ref()
+                .unwrap()
+                .payload_contains("mem-1", &MemoryScope::bot("bot-1"))
+                .unwrap()
+        );
 
         let request = SurfaceRequest {
             method: SurfaceMethod::AuditQuery {

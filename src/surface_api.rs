@@ -169,7 +169,23 @@ pub enum SurfaceMethod {
         query: String,
         limit: usize,
     },
+    MemoryForget {
+        memory_id: String,
+        scope: MemoryScope,
+        mode: String,
+    },
     SkillList,
+    SkillEnable {
+        name: String,
+        version: String,
+    },
+    SkillDisable {
+        name: String,
+    },
+    SkillRollback {
+        name: String,
+        version: String,
+    },
     MessageSend {
         thread_id: String,
         channel: String,
@@ -392,7 +408,24 @@ impl SurfaceMethod {
                 }
                 validate_limit(Some(*limit), false)
             }
+            Self::MemoryForget {
+                memory_id,
+                scope,
+                mode,
+            } => {
+                safe_id(memory_id, "memory_id")?;
+                safe_id(&scope.bot_id, "bot_id")?;
+                if !matches!(mode.as_str(), "soft" | "hard") {
+                    return Err(SurfaceError::invalid("mode must be soft or hard"));
+                }
+                Ok(())
+            }
             Self::SkillList => Ok(()),
+            Self::SkillEnable { name, version } | Self::SkillRollback { name, version } => {
+                safe_id(name, "name")?;
+                safe_id(version, "version")
+            }
+            Self::SkillDisable { name } => safe_id(name, "name"),
             Self::MessageSend {
                 thread_id,
                 channel,
@@ -767,8 +800,20 @@ pub fn openapi_document() -> serde_json::Value {
             "/v0/memory/recall": {
                 "post": {"operationId": "recallMemory", "summary": "Recall scoped memory"}
             },
+            "/v0/memory/forget": {
+                "post": {"operationId": "forgetMemory", "summary": "Soft- or hard-forget a memory"}
+            },
             "/v0/skills": {
                 "get": {"operationId": "listSkills", "summary": "List skills"}
+            },
+            "/v0/skills/enable": {
+                "post": {"operationId": "enableSkill", "summary": "Activate a skill version"}
+            },
+            "/v0/skills/disable": {
+                "post": {"operationId": "disableSkill", "summary": "Disable a skill"}
+            },
+            "/v0/skills/rollback": {
+                "post": {"operationId": "rollbackSkill", "summary": "Roll back a skill version"}
             },
             "/v0/messages": {
                 "post": {"operationId": "sendMessage", "summary": "Send one outbound message"}
@@ -823,7 +868,11 @@ pub fn validate_openapi(document: &serde_json::Value) -> Result<(), String> {
         "/v0/evolution/propose",
         "/v0/evolution/transition",
         "/v0/memory/recall",
+        "/v0/memory/forget",
         "/v0/skills",
+        "/v0/skills/enable",
+        "/v0/skills/disable",
+        "/v0/skills/rollback",
         "/v0/messages",
         "/v0/events",
     ] {
