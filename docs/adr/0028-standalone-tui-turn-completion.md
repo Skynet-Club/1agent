@@ -23,8 +23,11 @@ advertised without a small-talk rule.
    `frame`; `/frame` is no longer the default.
 4. The system prompt tells the model not to call tools for greetings,
    connectivity checks or purely conversational turns.
-5. A PTY-level interaction check (`scripts/tui-interaction-check.sh`) renders a
-   standalone greeting, `/help` and `/status`, and fails if the greeting opens
+5. Because many terminals do not report Ctrl+Tab separately, the mode menu is
+   also bound to Ctrl+T and Shift+Tab, and a `/mode` command opens the same menu
+   from the drawer. The status line advertises Ctrl+T.
+6. A PTY-level interaction check (`scripts/tui-interaction-check.sh`) renders a
+   standalone greeting, `/help`, `/status`, `/mode` and Ctrl+T, and fails if the greeting opens
    the next-action menu or the command panels do not render.
 
 ## Consequences

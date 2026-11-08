@@ -286,6 +286,10 @@ normalized error code; complete remote responses are not persisted or printed.
 The tool probe uses only an inert echo tool and validates the complete call/observation/final
 answer round trip.
 
+In the TUI, `Ctrl+T` or `/mode` opens the mode menu (automatic, direct answer,
+evidence research, decision analysis, execute, diagnosis). `/` opens the command
+drawer; `Ctrl+Tab` and `Shift+Tab` also work when the terminal reports them.
+
 The default provider is deterministic and must not be treated as a reasoning model.
 For an offline read-only smoke test, use `@read-file:"<path>"` in the task objective.
 

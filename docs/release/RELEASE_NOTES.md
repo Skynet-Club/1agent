@@ -20,7 +20,8 @@ Status: **release candidate, not publicly releasable**
 - **Restart continuity**: goals, commitments, memory, delegation and evolution
   survive a full reopen; the context graph explains goal/commitment links.
 - **TUI**: standalone turns no longer open a modal `/next` menu; `/` commands
-  remain discoverable, and greetings/connectivity checks stay tool-free.
+  remain discoverable; greetings/connectivity checks stay tool-free. The mode
+  menu is reachable by `/mode`, Ctrl+T (portable) or Ctrl+Tab, with six modes.
 - **Packaging**: reproducible Linux/Windows archives, release manifest,
   installer and third-party license inventory.
 

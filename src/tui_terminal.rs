@@ -99,6 +99,7 @@ fn map_key(key: KeyEvent) -> Option<TuiInput> {
             KeyCode::Tab => return Some(TuiInput::CtrlTab),
             KeyCode::Char('c') | KeyCode::Char('C') => return Some(TuiInput::CtrlC),
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(TuiInput::CtrlQ),
+            KeyCode::Char('t') | KeyCode::Char('T') => return Some(TuiInput::CtrlTab),
             KeyCode::Char('v') | KeyCode::Char('V') => {
                 return Some(TuiInput::PasteClipboard);
             }
@@ -393,6 +394,10 @@ mod tests {
         );
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::CONTROL)),
+            Some(TuiInput::CtrlTab)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
             Some(TuiInput::CtrlTab)
         );
         assert_eq!(

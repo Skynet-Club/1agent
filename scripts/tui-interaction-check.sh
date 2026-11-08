@@ -40,4 +40,16 @@ if [[ "$status" != *"模型与运行限制"* || "$status" != *"刷新状态"* ]]
   exit 1
 fi
 
-echo "tui-interaction-check: passed (greeting has no modal next menu; /help and /status render)"
+mode="$(render --keys $'/mode\r' --settle 2)"
+if [[ "$mode" != *"切换模式"* || "$mode" != *"证据研究"* ]]; then
+  echo "tui-interaction-check: /mode did not render the mode menu" >&2
+  exit 1
+fi
+
+mode_key="$(render --keys $'\x14' --settle 2)"
+if [[ "$mode_key" != *"切换模式"* ]]; then
+  echo "tui-interaction-check: Ctrl+T did not open the portable mode menu" >&2
+  exit 1
+fi
+
+echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode and Ctrl+T render)"

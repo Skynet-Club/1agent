@@ -1902,7 +1902,7 @@ impl TuiState {
             .map(|(_, model)| model)
             .unwrap_or(&self.provider_label);
         let left = format!(
-            " {model} · {} · / 命令 · Ctrl+Tab 切换",
+            " {model} · {} · / 命令 · Ctrl+T 模式",
             self.displayed_mode().label_zh()
         );
         let right = format!("上下文 {}% ", self.context_percent());
@@ -4069,7 +4069,7 @@ mod tests {
         let tight: String = row.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(tight.contains("deepseek-flash"), "model: {row}");
         assert!(tight.contains("证据研究"), "mode: {row}");
-        assert!(tight.contains("Ctrl+Tab切换"), "hint: {row}");
+        assert!(tight.contains("Ctrl+T模式"), "hint: {row}");
         assert!(tight.contains("上下文25%"), "usage: {row}");
     }
 

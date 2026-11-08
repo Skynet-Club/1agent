@@ -5736,6 +5736,10 @@ async fn run_tui_line_mode(
                         approve_tui_plan(state, session, args);
                         continue;
                     }
+                    TuiCommandId::Mode => {
+                        state.info("对话模式：自动 / 直接回答 / 证据研究 / 决策分析 / 执行任务 / 诊断分析。交互 TUI 使用 Ctrl+T 或 Ctrl+Tab 切换。");
+                        continue;
+                    }
                     TuiCommandId::Model => {
                         handle_model_command(state, runtime, settings, args);
                         continue;
@@ -5977,6 +5981,7 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
             command_menu_action("成本", "查看 Token 与成本汇总", "/cost", false),
         ],
         TuiCommandId::Details => Vec::new(),
+        TuiCommandId::Mode => Vec::new(),
         TuiCommandId::Journal => vec![
             command_menu_action("刷新日志路径", "重新显示最近的日志", "/journal", false),
             command_menu_action("运行状态", "查看会话和运行状态", "/status", false),
@@ -6595,6 +6600,7 @@ fn epistemic_request(
 
 fn command_name(command: TuiCommandId) -> &'static str {
     match command {
+        TuiCommandId::Mode => "/mode",
         TuiCommandId::Frame => "/frame",
         TuiCommandId::Challenge => "/challenge",
         TuiCommandId::Decide => "/decide",
@@ -10055,6 +10061,7 @@ async fn run_tui_interactive(
                             TuiCommandId::Details => {
                                 state.open_details();
                             }
+                            TuiCommandId::Mode => state.toggle_mode_menu(),
                             TuiCommandId::Clear => {
                                 state.clear();
                                 state.info("Conversation cleared.");

@@ -41,6 +41,7 @@ pub enum TuiCommandId {
     Decide,
     Report,
     Postmortem,
+    Mode,
     Model,
     Permissions,
     Session,
@@ -81,6 +82,7 @@ impl TuiCommandId {
                 | Self::Challenge
                 | Self::Decide
                 | Self::Postmortem
+                | Self::Mode
         )
     }
 }
@@ -222,6 +224,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         TuiCommandScope::Core,
         CommandStage::Any,
         true,
+        false,
+    ),
+    command(
+        TuiCommandId::Mode,
+        "/mode",
+        "切换自动、直接回答、证据研究、决策分析、执行或诊断模式",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
         false,
     ),
     command(
@@ -856,23 +867,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 25);
+        assert_eq!(standalone.len(), 26);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            27
+            28
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            29
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             30
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            31
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            35
+            36
         );
     }
 
@@ -903,6 +914,7 @@ mod tests {
                 "/decide",
                 "/report",
                 "/postmortem",
+                "/mode",
                 "/model",
                 "/permissions",
                 "/session",
