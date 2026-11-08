@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""PTY acceptance for the end-of-turn next-action menu.
+"""PTY acceptance for standalone turn completion.
 
 Drives the real TUI in a pseudo terminal with the deterministic provider, sends
-one task, and asserts that the menu panel appears with a default entry. Offline,
-no credentials, no model calls.
+one task, and asserts that a standalone turn finishes without an unsolicited
+next-action panel (the old behavior defaulted to `/frame`). Workshop hosts keep
+the panel; that path is covered by unit tests. Offline, no credentials, no model
+calls.
 
     python3 scripts/pty_next_actions.py
 
-Exits 0 only if the panel is observed. Text matching is done on the ANSI-stripped
-stream, so it tolerates repaint noise.
+Text matching is done on the ANSI-stripped stream, so it tolerates repaint noise.
 """
 
 import fcntl
@@ -74,8 +75,9 @@ def main():
     screen = drive()
     checks = {
         "welcome rendered": "1-Agent" in screen or "会话" in screen,
-        "next-action panel": "下一步" in screen,
-        "default entry marked": "（默认）" in screen,
+        "turn completed": "已完成" in screen,
+        "no next-action panel": "下一步" not in screen,
+        "no default /frame menu": "（默认）" not in screen,
     }
     for label, passed in checks.items():
         print(f"  {'ok  ' if passed else 'FAIL'}  {label}")
