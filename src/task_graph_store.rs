@@ -21,12 +21,20 @@ pub enum TaskGraphStoreError {
     Replay(#[from] TaskGraphError),
     #[error("task graph event sequence is not contiguous")]
     NonContiguousSequence,
+    #[error(
+        "task graph was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
+    )]
+    ConcurrentWrite {
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct TaskGraphStore {
     path: PathBuf,
     next_seq: u64,
+    persisted_bytes: u64,
 }
 
 impl TaskGraphStore {
@@ -43,6 +51,11 @@ impl TaskGraphStore {
     }
 
     fn open_with(path: PathBuf, repair: bool) -> Result<(Self, TaskGraph), TaskGraphStoreError> {
+        let _lock = if repair {
+            Some(crate::jsonl::FileLock::exclusive(&path)?)
+        } else {
+            None
+        };
         if repair {
             crate::jsonl::repair_torn_tail(&path)?;
         }
@@ -59,7 +72,18 @@ impl TaskGraphStore {
         }
         let graph = TaskGraph::replay(&events)?;
         let next_seq = events.last().map(|event| event.seq).unwrap_or(0);
-        Ok((Self { path, next_seq }, graph))
+        let persisted_bytes = std::fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        drop(_lock);
+        Ok((
+            Self {
+                path,
+                next_seq,
+                persisted_bytes,
+            },
+            graph,
+        ))
     }
 
     pub fn path(&self) -> &Path {
@@ -82,6 +106,16 @@ impl TaskGraphStore {
         if new_events.is_empty() {
             return Ok(0);
         }
+        let _lock = crate::jsonl::FileLock::exclusive(&self.path)?;
+        let actual_bytes = std::fs::metadata(&self.path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if actual_bytes != self.persisted_bytes {
+            return Err(TaskGraphStoreError::ConcurrentWrite {
+                expected_bytes: self.persisted_bytes,
+                actual_bytes,
+            });
+        }
         let mut buffer = String::new();
         for event in &new_events {
             buffer.push_str(&serde_json::to_string(event)?);
@@ -91,6 +125,9 @@ impl TaskGraphStore {
         if let Some(last) = new_events.last() {
             self.next_seq = last.seq;
         }
+        self.persisted_bytes = std::fs::metadata(&self.path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(self.persisted_bytes);
         Ok(new_events.len())
     }
 }
@@ -212,6 +249,29 @@ mod tests {
         );
         assert_eq!(reopened.snapshot().approvals.len(), 1);
         assert_eq!(reopened.snapshot().reports.len(), 1);
+    }
+
+    #[test]
+    fn stale_writer_fails_closed_after_another_writer_appends() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task-graph.jsonl");
+        let mut first = TaskGraphService::open(&path).unwrap();
+        let mut second = TaskGraphService::open(&path).unwrap();
+        first
+            .with_graph_mut(|graph| graph.open_thread("first", 10))
+            .unwrap();
+        let error = second
+            .with_graph_mut(|graph| graph.open_thread("second", 11))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TaskGraphStoreError::ConcurrentWrite {
+                expected_bytes: 0,
+                actual_bytes: _
+            }
+        ));
+        let reopened = TaskGraphService::open(&path).unwrap();
+        assert_eq!(reopened.snapshot().threads.len(), 1);
     }
 
     #[test]

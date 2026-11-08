@@ -2,7 +2,41 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Cross-process advisory lock for an append-only store. The lock file is a
+/// sibling named `<store>.lock`; callers must hold the guard for the whole
+/// read-check-write section.
+pub struct FileLock {
+    _file: File,
+}
+
+impl FileLock {
+    pub fn exclusive(path: &Path) -> std::io::Result<Self> {
+        let mut lock_path = path.as_os_str().to_os_string();
+        lock_path.push(".lock");
+        let lock_path = PathBuf::from(lock_path);
+        ensure_parent_private(&lock_path)?;
+        let mut options = OpenOptions::new();
+        options.create(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(&lock_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            if result != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(Self { _file: file })
+    }
+}
 
 pub fn repair_torn_tail(path: &Path) -> std::io::Result<()> {
     let metadata = match std::fs::symlink_metadata(path) {
