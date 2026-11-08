@@ -4,9 +4,8 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$project_dir/Cargo.toml" | head -1)"
 prefix="${PREFIX:-$HOME/.local}"
-binary="$project_dir/dist/1agent-$version/linux-x86_64/1agent"
+binary=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +23,22 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "$binary" ]]; then
+  packaged_binary="$project_dir/linux-x86_64/1agent"
+  repo_binary=""
+  if [[ -f "$project_dir/Cargo.toml" ]]; then
+    version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$project_dir/Cargo.toml" | head -1)"
+    repo_binary="$project_dir/dist/1agent-$version/linux-x86_64/1agent"
+  fi
+  if [[ -x "$packaged_binary" ]]; then
+    binary="$packaged_binary"
+  elif [[ -n "$repo_binary" ]]; then
+    binary="$repo_binary"
+  else
+    binary="$packaged_binary"
+  fi
+fi
 
 if [[ ! -x "$binary" ]]; then
   echo "packaged binary not found: $binary" >&2

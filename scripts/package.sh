@@ -41,6 +41,8 @@ SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
   --output "$package_root/provenance/windows-x86_64.json" \
   >/dev/null
 install -m 0644 README.md LICENSE CHANGELOG.md "$package_root/"
+mkdir -p "$package_root/scripts"
+install -m 0755 scripts/install.sh "$package_root/scripts/install.sh"
 cp -R docs evals configs "$package_root/"
 
 (
