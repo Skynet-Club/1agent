@@ -170,6 +170,27 @@ Current V0 assumptions:
 
 ## Commands
 
+Runtime home (defaults to `$ONEAGENT_HOME` or `$HOME/.1a`; explicit flags still
+override it):
+
+```bash
+cargo run --offline -- init
+cargo run --offline -- doctor --json
+cargo run --offline -- export --output ~/1agent-export
+cargo run --offline -- restore --bundle ~/1agent-export
+cargo run --offline -- key escrow --output ~/1agent-keys.escrow.json \
+  --recovery-key ~/1agent-recovery.key
+cargo run --offline -- key restore --escrow ~/1agent-keys.escrow.json \
+  --recovery-key ~/1agent-recovery.key
+cargo run --offline -- uninstall            # keeps data
+cargo run --offline -- uninstall --purge --yes
+```
+
+`export` excludes key material and credential-looking files and records a
+SHA-256 manifest. `key escrow` stores the master key and KEK ledger encrypted
+under a separate recovery key; keep the escrow and recovery key apart. Both
+commands are local recovery mechanisms, not HSM/quorum custody.
+
 ```bash
 cargo run --offline -- run --task "Compare A and B"
 cargo run --offline -- tui

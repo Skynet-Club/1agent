@@ -418,6 +418,8 @@ fn check_private_key_file(root: &Path, id: &str, name: &str) -> DoctorCheck {
             format!("{name} is not a regular file"),
         ),
         Ok(meta) => {
+            #[cfg(not(unix))]
+            let _ = &meta;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
