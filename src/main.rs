@@ -9894,6 +9894,14 @@ async fn run_tui_interactive(
         if !matches!(&input, TuiInput::MouseUp { .. }) {
             state.clear_notice();
         }
+        if state.pending_confirmation().is_some()
+            && !matches!(
+                &input,
+                TuiInput::Enter | TuiInput::Escape | TuiInput::CtrlQ | TuiInput::Resize
+            )
+        {
+            state.clear_confirmation();
+        }
         if state.mode_menu_open() {
             match input {
                 TuiInput::CtrlQ => break,
