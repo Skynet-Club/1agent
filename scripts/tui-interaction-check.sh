@@ -52,4 +52,16 @@ if [[ "$mode_key" != *"切换模式"* ]]; then
   exit 1
 fi
 
-echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode and Ctrl+T render)"
+drawer="$(render --keys $'/' --settle 2)"
+if [[ "$drawer" != *"/help"* || "$drawer" != *"命令"* ]]; then
+  echo "tui-interaction-check: slash drawer did not render the command list" >&2
+  exit 1
+fi
+
+completion="$(render --keys $'/fra\t' --settle 2)"
+if [[ "$completion" != *"/frame"* || "$completion" != *"参数"* ]]; then
+  echo "tui-interaction-check: Tab completion did not add the argument hint" >&2
+  exit 1
+fi
+
+echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, drawer and Tab completion render)"

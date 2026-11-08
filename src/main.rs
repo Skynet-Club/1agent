@@ -9887,17 +9887,19 @@ async fn run_tui_interactive(
                 continue;
             }
         };
-        let Some(input) = input else { break };
+        let Some(mut input) = input else { break };
         if !matches!(&input, TuiInput::MouseUp { .. }) {
             state.clear_notice();
         }
         if state.mode_menu_open() {
             match input {
                 TuiInput::CtrlQ => break,
-                TuiInput::CtrlTab | TuiInput::Escape => state.close_mode_menu(),
+                TuiInput::CtrlTab | TuiInput::Escape | TuiInput::Left => {
+                    state.close_mode_menu();
+                }
                 TuiInput::Up => state.move_mode_menu_selection(-1),
                 TuiInput::Down => state.move_mode_menu_selection(1),
-                TuiInput::Enter => state.apply_mode_menu(),
+                TuiInput::Enter | TuiInput::Right => state.apply_mode_menu(),
                 TuiInput::Resize => {}
                 _ => {}
             }
@@ -9920,6 +9922,18 @@ async fn run_tui_interactive(
             draw_tui_frame(&mut terminal, &mut state)?;
             continue;
         }
+        if state.command_panel_open() {
+            if matches!(&input, TuiInput::Left) {
+                if !state.back_command_panel() {
+                    state.close_command_panel();
+                }
+                draw_tui_frame(&mut terminal, &mut state)?;
+                continue;
+            }
+            if matches!(&input, TuiInput::Right) {
+                input = TuiInput::Enter;
+            }
+        }
         match input {
             TuiInput::Char(character) => state.insert_char(character),
             TuiInput::Backspace => state.backspace(),
@@ -9938,6 +9952,10 @@ async fn run_tui_interactive(
             }
             TuiInput::Up if state.command_panel_open() => state.scroll_command_panel_up(1),
             TuiInput::Down if state.command_panel_open() => state.scroll_command_panel_down(1),
+            TuiInput::Up
+                if (state.input().is_empty() || state.history_active())
+                    && state.history_previous() => {}
+            TuiInput::Down if state.history_active() && state.history_next() => {}
             TuiInput::Up => state.scroll_up(1),
             TuiInput::Down => state.scroll_down(1),
             TuiInput::PageUp if state.command_panel_open() => {
@@ -9948,10 +9966,12 @@ async fn run_tui_interactive(
             }
             TuiInput::PageUp => state.scroll_up(8),
             TuiInput::PageDown => state.scroll_down(8),
-            TuiInput::Tab => {
+            TuiInput::Tab if state.slash_drawer_open() => {
                 state.complete_selected_command();
             }
+            TuiInput::Tab => {}
             TuiInput::CtrlTab => state.toggle_mode_menu(),
+            TuiInput::CommandPalette => state.set_input("/"),
             TuiInput::MouseDown { column, row } => {
                 if !state.handle_follow_control(column, row) {
                     state.begin_selection_drag(column, row);
@@ -9984,7 +10004,7 @@ async fn run_tui_interactive(
             }
             TuiInput::Escape => {
                 if state.slash_drawer_open() {
-                    state.clear_input();
+                    state.dismiss_slash_drawer();
                 } else if state.command_panel_open() {
                     if !state.back_command_panel() {
                         state.close_command_panel();
@@ -10026,6 +10046,7 @@ async fn run_tui_interactive(
                     draw_tui_frame(&mut terminal, &mut state)?;
                     continue;
                 }
+                state.record_input(instruction);
                 let resolution = resolve_input(
                     instruction,
                     state.host_binding(),

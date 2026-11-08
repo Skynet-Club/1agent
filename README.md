@@ -288,7 +288,9 @@ answer round trip.
 
 In the TUI, `Ctrl+T` or `/mode` opens the mode menu (automatic, direct answer,
 evidence research, decision analysis, execute, diagnosis). `/` opens the command
-drawer; `Ctrl+Tab` and `Shift+Tab` also work when the terminal reports them.
+drawer (or `Ctrl+K`); disabled stage/running commands are shown with a reason,
+`Tab` completes argument commands, and `Ctrl+Tab`/`Shift+Tab` work when the
+terminal reports them.
 
 The default provider is deterministic and must not be treated as a reasoning model.
 For an offline read-only smoke test, use `@read-file:"<path>"` in the task objective.

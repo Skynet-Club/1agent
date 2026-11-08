@@ -1,6 +1,8 @@
 use crate::domain::{CognitiveMode, RiskLevel};
 use crate::safety::is_disallowed_control;
-use crate::tui_commands::{CommandStage, TuiCommandSpec, visible_commands};
+use crate::tui_commands::{
+    CommandEntry, CommandStage, TuiCommandSpec, command_entries, command_usage, visible_commands,
+};
 use crate::tui_host::HostBinding;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
@@ -234,6 +236,9 @@ pub struct TuiState {
     command_panel_scroll: usize,
     welcome_visible: bool,
     transcript: Vec<TranscriptEntry>,
+    slash_drawer_dismissed: bool,
+    input_history: Vec<String>,
+    history_cursor: Option<usize>,
     input: String,
     input_cursor: usize,
     input_scroll: usize,
@@ -285,6 +290,9 @@ impl TuiState {
             command_panel_scroll: 0,
             welcome_visible: true,
             transcript: Vec::new(),
+            slash_drawer_dismissed: false,
+            input_history: Vec::new(),
+            history_cursor: None,
             input: String::new(),
             input_cursor: 0,
             input_scroll: 0,
@@ -740,6 +748,8 @@ impl TuiState {
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.selected_command = 0;
+        self.slash_drawer_dismissed = false;
+        self.history_cursor = None;
     }
 
     pub fn input(&self) -> String {
@@ -753,6 +763,8 @@ impl TuiState {
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.selected_command = 0;
+        self.slash_drawer_dismissed = false;
+        self.history_cursor = None;
     }
 
     pub fn take_input(&mut self) -> String {
@@ -761,10 +773,70 @@ impl TuiState {
         input
     }
 
+    pub fn record_input(&mut self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        if self.input_history.last().map(String::as_str) != Some(text) {
+            self.input_history.push(text.to_string());
+            if self.input_history.len() > 100 {
+                self.input_history.remove(0);
+            }
+        }
+        self.history_cursor = None;
+    }
+
+    pub fn history_active(&self) -> bool {
+        self.history_cursor.is_some()
+    }
+
+    pub fn history_previous(&mut self) -> bool {
+        if self.input_history.is_empty() {
+            return false;
+        }
+        let index = match self.history_cursor {
+            Some(index) => index.saturating_sub(1),
+            None => self.input_history.len() - 1,
+        };
+        self.input = self.input_history[index].clone();
+        self.input_cursor = self.input.len();
+        self.input_scroll = 0;
+        self.selected_command = 0;
+        self.slash_drawer_dismissed = false;
+        self.history_cursor = Some(index);
+        true
+    }
+
+    pub fn history_next(&mut self) -> bool {
+        let Some(index) = self.history_cursor else {
+            return false;
+        };
+        if index + 1 < self.input_history.len() {
+            self.history_cursor = Some(index + 1);
+            self.input = self.input_history[index + 1].clone();
+            self.input_cursor = self.input.len();
+            self.input_scroll = 0;
+            self.selected_command = 0;
+            self.slash_drawer_dismissed = false;
+        } else {
+            self.history_cursor = None;
+            self.clear_input();
+        }
+        true
+    }
+
     pub fn take_submission(&mut self) -> String {
-        let commands = self.filtered_commands();
-        if !commands.is_empty() && !commands.iter().any(|command| command.name == self.input) {
-            self.complete_selected_command();
+        if self.slash_drawer_open() {
+            let entries = self.filtered_command_entries();
+            if !entries.iter().any(|entry| entry.spec.name == self.input) {
+                if entries.is_empty() {
+                    self.dismiss_slash_drawer();
+                } else {
+                    self.complete_selected_command();
+                }
+                return String::new();
+            }
         }
         self.take_input()
     }
@@ -791,6 +863,8 @@ impl TuiState {
         self.clear_transcript_selection();
         self.input_scroll = self.input_scroll.min(self.input_cursor);
         self.selected_command = 0;
+        self.slash_drawer_dismissed = false;
+        self.history_cursor = None;
     }
 
     pub fn backspace(&mut self) {
@@ -988,6 +1062,15 @@ impl TuiState {
         self.details_scroll = 0;
     }
 
+    pub fn filtered_command_entries(&self) -> Vec<CommandEntry> {
+        command_entries(
+            &self.input,
+            &self.host_binding,
+            self.command_stage,
+            self.status == TuiStatus::Running,
+        )
+    }
+
     pub fn filtered_commands(&self) -> Vec<TuiCommandSpec> {
         visible_commands(
             &self.input,
@@ -998,12 +1081,19 @@ impl TuiState {
     }
 
     pub fn slash_drawer_open(&self) -> bool {
+        if self.slash_drawer_dismissed {
+            return false;
+        }
         let input = self.input.trim_start();
         input.starts_with('/') && !input.chars().any(char::is_whitespace)
     }
 
+    pub fn dismiss_slash_drawer(&mut self) {
+        self.slash_drawer_dismissed = true;
+    }
+
     pub fn move_command_selection(&mut self, delta: isize) {
-        let count = self.filtered_commands().len();
+        let count = self.filtered_command_entries().len();
         if count == 0 {
             return;
         }
@@ -1012,16 +1102,26 @@ impl TuiState {
     }
 
     pub fn complete_selected_command(&mut self) -> bool {
-        let commands = self.filtered_commands();
-        let Some(command) =
-            commands.get(self.selected_command.min(commands.len().saturating_sub(1)))
+        let entries = self.filtered_command_entries();
+        let Some(entry) = entries.get(self.selected_command.min(entries.len().saturating_sub(1)))
         else {
             return false;
         };
-        self.input = command.name.to_string();
+        if let Some(reason) = entry.unavailable {
+            self.set_notice(format!("{}  {}", entry.spec.name, reason));
+            return false;
+        }
+        self.input = entry.spec.name.to_string();
+        if entry.spec.supports_inline_args {
+            self.input.push(' ');
+        }
         self.input_cursor = self.input.len();
         self.input_scroll = 0;
         self.selection_anchor = None;
+        self.slash_drawer_dismissed = false;
+        if let Some(usage) = command_usage(entry.spec.id) {
+            self.set_notice(format!("参数：{usage}"));
+        }
         true
     }
 
@@ -1247,7 +1347,7 @@ impl TuiState {
         self.draw_status_bar(frame, chunks[5]);
 
         if self.slash_drawer_open() {
-            let popup_height = (self.filtered_commands().len().clamp(1, 8) + 2) as u16;
+            let popup_height = (self.filtered_command_entries().len().clamp(1, 8) + 2) as u16;
             let popup_height = popup_height.min(chunks[0].height);
             let popup_width = chunks[0].width.min(86);
             let popup = Rect {
@@ -2174,29 +2274,38 @@ impl TuiState {
     }
 
     fn draw_command_drawer(&self, frame: &mut Frame, area: Rect) {
-        let commands = self.filtered_commands();
-        let items = if commands.is_empty() {
+        let entries = self.filtered_command_entries();
+        let items = if entries.is_empty() {
             vec![ListItem::new(Line::styled(
                 " 没有匹配的命令",
                 Style::default().fg(MUTED_TEXT),
             ))]
         } else {
-            let selected = self.selected_command.min(commands.len().saturating_sub(1));
-            commands
+            let selected = self.selected_command.min(entries.len().saturating_sub(1));
+            entries
                 .iter()
                 .enumerate()
-                .map(|(index, command)| {
+                .map(|(index, entry)| {
                     let bar = if index == selected { "▌ " } else { "  " };
+                    let (name_style, description_style) = if entry.unavailable.is_some() {
+                        (
+                            Style::default().fg(MUTED_TEXT),
+                            Style::default().fg(MUTED_TEXT),
+                        )
+                    } else {
+                        (
+                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+                            Style::default().fg(COMMAND_DESCRIPTION),
+                        )
+                    };
+                    let detail = match entry.unavailable {
+                        Some(reason) => format!("{}  [{reason}]", entry.spec.description),
+                        None => entry.spec.description.to_string(),
+                    };
                     ListItem::new(Line::from(vec![
                         Span::styled(bar, Style::default().fg(UI_ACCENT)),
-                        Span::styled(
-                            fit_row(command.name, 16),
-                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            command.description.to_string(),
-                            Style::default().fg(COMMAND_DESCRIPTION),
-                        ),
+                        Span::styled(fit_row(entry.spec.name, 16), name_style),
+                        Span::styled(detail, description_style),
                     ]))
                 })
                 .collect::<Vec<_>>()
@@ -3730,6 +3839,74 @@ mod tests {
         assert!(state.slash_drawer_open());
         assert!(state.complete_selected_command());
         assert_eq!(state.input(), "/help");
+    }
+
+    #[test]
+    fn incomplete_drawer_input_completes_before_it_submits() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("/he");
+        assert_eq!(state.take_submission(), "");
+        assert_eq!(state.input(), "/help");
+        assert_eq!(state.take_submission(), "/help");
+    }
+
+    #[test]
+    fn escape_dismisses_the_drawer_without_losing_input() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("/he");
+        assert!(state.slash_drawer_open());
+        state.dismiss_slash_drawer();
+        assert!(!state.slash_drawer_open());
+        assert_eq!(state.input(), "/he");
+        state.insert_char('l');
+        assert!(state.slash_drawer_open());
+    }
+
+    #[test]
+    fn disabled_stage_commands_are_shown_with_a_reason() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_host_binding(HostBinding::workshop_context(
+            "master",
+            "main-coordinator",
+            "1agent",
+            "term-1790000000000-1234-1",
+        ));
+        state.set_input("/app");
+        let entries = state.filtered_command_entries();
+        let approve = entries
+            .iter()
+            .find(|entry| entry.spec.name == "/approve")
+            .expect("approve should be listed");
+        assert_eq!(approve.unavailable, Some("Approval"));
+        assert!(
+            state
+                .filtered_commands()
+                .iter()
+                .all(|command| command.name != "/approve")
+        );
+    }
+
+    #[test]
+    fn argument_commands_complete_with_a_trailing_space() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("/fra");
+        assert!(state.complete_selected_command());
+        assert_eq!(state.input(), "/frame ");
+    }
+
+    #[test]
+    fn input_history_recalls_previous_submissions() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.record_input("first task");
+        state.record_input("second task");
+        assert!(state.history_previous());
+        assert_eq!(state.input(), "second task");
+        assert!(state.history_previous());
+        assert_eq!(state.input(), "first task");
+        assert!(state.history_next());
+        assert_eq!(state.input(), "second task");
+        assert!(state.history_next());
+        assert_eq!(state.input(), "");
     }
 
     #[test]

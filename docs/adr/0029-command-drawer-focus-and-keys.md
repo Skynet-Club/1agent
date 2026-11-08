@@ -1,0 +1,43 @@
+# ADR 0029: Command Drawer, Focus and Arrow-Key Semantics
+
+- Status: accepted for the interaction slice
+- Date: 2026-11-08
+
+## Context
+
+The slash drawer only matched command-name prefixes, hid stage/running-disabled
+commands, closed as soon as an argument was typed, and Enter could silently
+complete and execute a partial command. Escape cleared the whole input. Command
+panels had no horizontal-key semantics, and Enter on a partial command could
+submit something the user had not selected.
+
+## Decision
+
+1. `command_entries` keeps Master commands hidden outside a Workshop master, but
+   shows stage-gated and running-disabled commands with a reason. Scope is still
+   filtered; reason is rendered as `[Approval]`, `[运行中不可用]`, etc.
+2. Drawer search scores exact name, name prefix, name substring and (for queries
+   of at least three ASCII characters or any non-ASCII query) description
+   substring. Registry order is preserved within a score.
+3. `Tab` completes the selected command. Commands with arguments get a trailing
+   space and a usage hint such as `/frame <请求或当前任务>`.
+4. `Enter` on an incomplete command only completes it; a second Enter executes
+   the exact command. Disabled selections show the reason and do not submit.
+5. `Esc` dismisses the drawer but keeps the typed input; further edits reopen it.
+6. `Ctrl+K` opens the drawer with `/`.
+7. Empty-input Up/Down recalls submission history; text editing, panels and
+   drawers keep their existing selection/scroll behavior.
+8. In the mode picker, Left closes and Right applies. In a command panel, Left
+   returns to the parent panel or closes, and Right is equivalent to Enter.
+   Composer Left/Right continue to move the text cursor.
+9. PTY checks cover a greeting without a modal next menu, `/help`, `/status`,
+   `/mode`, Ctrl+T, the drawer and Tab argument completion.
+
+## Consequences
+
+- The drawer explains what exists but is unavailable instead of silently hiding
+  it; completion no longer executes a command by accident.
+- The command panel remains a transcript-replacing view. Splitting inline
+  output, pickers and forms into separate surfaces is still future work.
+- Mouse selection, category headers, recent commands and a preview pane are not
+  implemented yet.

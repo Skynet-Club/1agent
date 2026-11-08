@@ -556,19 +556,127 @@ pub fn commands_for_surface(
         .collect()
 }
 
+/// One drawer row: an available command or a command that exists for this
+/// scope but is gated by stage or a running task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandEntry {
+    pub spec: TuiCommandSpec,
+    pub unavailable: Option<&'static str>,
+}
+
+fn stage_label(stage: CommandStage) -> &'static str {
+    match stage {
+        CommandStage::Any => "任意",
+        CommandStage::NoMission => "无使命",
+        CommandStage::Framing => "Framing",
+        CommandStage::Approval => "Approval",
+        CommandStage::Running => "Running",
+        CommandStage::Verification => "Verification",
+        CommandStage::Delivery => "Delivery",
+    }
+}
+
+fn command_score(spec: &TuiCommandSpec, query: &str) -> Option<u8> {
+    let query = query.trim_start_matches('/').to_ascii_lowercase();
+    if query.is_empty() {
+        return Some(0);
+    }
+    let name = spec.name.trim_start_matches('/').to_ascii_lowercase();
+    if name == query {
+        Some(0)
+    } else if name.starts_with(&query) {
+        Some(1)
+    } else if name.contains(&query) {
+        Some(2)
+    } else if (query.chars().count() >= 3 || !query.is_ascii())
+        && spec.description.to_lowercase().contains(&query)
+    {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+/// Drawer rows including disabled stage/running commands. Master commands stay
+/// hidden outside a Workshop master context.
+pub fn command_entries(
+    prefix: &str,
+    host: &HostBinding,
+    stage: CommandStage,
+    running: bool,
+) -> Vec<CommandEntry> {
+    if !prefix.starts_with('/') || prefix.chars().any(char::is_whitespace) {
+        return Vec::new();
+    }
+    let mut entries = COMMANDS
+        .iter()
+        .copied()
+        .filter(|spec| spec.scope == TuiCommandScope::Core || host.is_workshop_master())
+        .filter_map(|spec| {
+            let score = command_score(&spec, prefix)?;
+            let unavailable = if spec.scope == TuiCommandScope::Master
+                && spec.stage != CommandStage::Any
+                && spec.stage != stage
+            {
+                Some(stage_label(spec.stage))
+            } else if running && !spec.available_during_run {
+                Some("运行中不可用")
+            } else {
+                None
+            };
+            Some((score, CommandEntry { spec, unavailable }))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(score, _)| *score);
+    entries.into_iter().map(|(_, entry)| entry).collect()
+}
+
+/// Available commands only, used by completion and existing callers.
 pub fn visible_commands(
     prefix: &str,
     host: &HostBinding,
     stage: CommandStage,
     running: bool,
 ) -> Vec<TuiCommandSpec> {
-    if !prefix.starts_with('/') || prefix.chars().any(char::is_whitespace) {
-        return Vec::new();
-    }
-    commands_for_surface(host, stage, running)
+    command_entries(prefix, host, stage, running)
         .into_iter()
-        .filter(|spec| spec.name.starts_with(prefix))
+        .filter(|entry| entry.unavailable.is_none())
+        .map(|entry| entry.spec)
         .collect()
+}
+
+pub fn command_usage(id: TuiCommandId) -> Option<&'static str> {
+    match id {
+        TuiCommandId::Frame => Some("/frame <请求或当前任务>"),
+        TuiCommandId::Challenge => Some("/challenge [计划或结论]"),
+        TuiCommandId::Evidence => Some("/evidence [run|master]"),
+        TuiCommandId::Audit => Some("/audit [run|master]"),
+        TuiCommandId::Decide => Some("/decide <决策主题>"),
+        TuiCommandId::Report => Some("/report [task|production]"),
+        TuiCommandId::Postmortem => Some("/postmortem <失败任务或 run>"),
+        TuiCommandId::Model => Some("/model [show|<provider>/<model>]"),
+        TuiCommandId::Permissions => Some("/permissions [show|set …]"),
+        TuiCommandId::Session => Some("/session [list|new|resume|…]"),
+        TuiCommandId::Workspace => Some("/workspace [set|diff|files|worktree]"),
+        TuiCommandId::Context => Some("/context [show|compact|summarize]"),
+        TuiCommandId::Preset => Some("/preset [list|save|load|delete]"),
+        TuiCommandId::Tools => Some("/tools [show|…]"),
+        TuiCommandId::Export => Some("/export [session|report|evidence]"),
+        TuiCommandId::Config => Some("/config [show|set …]"),
+        TuiCommandId::Reframe => Some("/reframe <请求>"),
+        TuiCommandId::Mission => Some("/mission [show|set|…]"),
+        TuiCommandId::Plan => Some("/plan [show|revise]"),
+        TuiCommandId::Agents => Some("/agents [list|refresh]"),
+        TuiCommandId::Assign => Some("/assign [show|apply]"),
+        TuiCommandId::Dispatch => Some("/dispatch [dry-run|start]"),
+        TuiCommandId::Board => Some("/board [list|detail]"),
+        TuiCommandId::Watch => Some("/watch [once|loop]"),
+        TuiCommandId::Respond => Some("/respond <task> <回复>"),
+        TuiCommandId::Control => Some("/control [pause|resume|cancel|takeover|retry|replan]"),
+        TuiCommandId::Artifacts => Some("/artifacts <task>"),
+        TuiCommandId::Verify => Some("/verify <task> <验收文件>"),
+        _ => None,
+    }
 }
 
 /// One selectable next step shown at the end of a turn.

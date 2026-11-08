@@ -22,6 +22,8 @@ Status: **release candidate, not publicly releasable**
 - **TUI**: standalone turns no longer open a modal `/next` menu; `/` commands
   remain discoverable; greetings/connectivity checks stay tool-free. The mode
   menu is reachable by `/mode`, Ctrl+T (portable) or Ctrl+Tab, with six modes.
+  The slash drawer supports fuzzy/name+description matching, disabled-command
+  reasons, Tab argument completion and non-executing completion on Enter.
 - **Packaging**: reproducible Linux/Windows archives, release manifest,
   installer and third-party license inventory.
 
