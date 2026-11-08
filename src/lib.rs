@@ -2,6 +2,7 @@ mod jsonl;
 
 pub mod action_log;
 pub mod action_log_journal;
+pub mod alerts;
 pub mod annotation;
 pub mod approval;
 pub mod attention;
@@ -78,6 +79,7 @@ pub mod workshop_worker;
 
 pub use action_log::*;
 pub use action_log_journal::*;
+pub use alerts::*;
 pub use annotation::*;
 pub use approval::*;
 pub use attention::*;

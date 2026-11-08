@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::alerts::{AlertLog, provider_health_alert};
 use crate::context::compact_messages_at;
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
@@ -57,6 +58,7 @@ pub struct AgentRuntime {
     selected_route: Option<ProviderRouteKey>,
     tool_gate: Option<ToolGateContext>,
     provider_health: Option<Arc<Mutex<ProviderHealth>>>,
+    alerts: Option<Arc<Mutex<AlertLog>>>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -104,11 +106,17 @@ impl AgentRuntime {
             selected_route: None,
             tool_gate: None,
             provider_health: None,
+            alerts: None,
         }
     }
 
     pub fn with_provider_health(mut self, health: Arc<Mutex<ProviderHealth>>) -> Self {
         self.provider_health = Some(health);
+        self
+    }
+
+    pub fn with_alert_log(mut self, alerts: Arc<Mutex<AlertLog>>) -> Self {
+        self.alerts = Some(alerts);
         self
     }
 
@@ -952,17 +960,42 @@ impl AgentRuntime {
                         break;
                     }
                     Ok(Err(source)) if source.retryable => {
+                        let health_now_ms = initial_elapsed
+                            .saturating_add(started_at.elapsed())
+                            .as_millis();
+                        let mut alert_info = None;
                         if let Some(health) = &self.provider_health
                             && let Ok(mut health) = health.lock()
                         {
-                            let now_ms = initial_elapsed
-                                .saturating_add(started_at.elapsed())
-                                .as_millis();
-                            health.record_failure(
+                            let crossed = health.record_failure(
                                 &route.manifest.provider_id,
                                 &route.manifest.model,
-                                now_ms,
+                                health_now_ms,
                             );
+                            if crossed {
+                                let failures = health
+                                    .snapshot()
+                                    .into_iter()
+                                    .find(|entry| {
+                                        entry.provider_id == route.manifest.provider_id
+                                            && entry.model == route.manifest.model
+                                    })
+                                    .map(|entry| entry.consecutive_failures)
+                                    .unwrap_or(1);
+                                alert_info = Some((failures, health.policy().failure_threshold));
+                            }
+                        }
+                        if let Some((failures, threshold)) = alert_info
+                            && let Some(alerts) = &self.alerts
+                            && let Ok(alerts) = alerts.lock()
+                        {
+                            let _ = alerts.append(&provider_health_alert(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                health_now_ms,
+                                failures,
+                                threshold,
+                            ));
                         }
                         append_provider_failure(
                             &mut journal,
@@ -2183,6 +2216,68 @@ mod tests {
             .unwrap();
         assert_eq!(result.stop_reason, StopReason::NeedsAuthorization);
         assert!(result.answer.action_receipts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn provider_failure_records_health_alert_and_falls_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified evidence").unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let health = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::provider_health::ProviderHealth::new(
+                crate::provider_health::ProviderHealthPolicy {
+                    failure_threshold: 1,
+                    cooldown_ms: 60_000,
+                },
+            )
+            .unwrap(),
+        ));
+        let alert_path = workspace.path().join("alerts.jsonl");
+        let alerts = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::alerts::AlertLog::open(&alert_path).unwrap(),
+        ));
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_provider_health(health.clone())
+        .with_alert_log(alerts);
+        let mut request = TaskRequest::from_objective(
+            format!(
+                "Compare options using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            workspace.path().into(),
+        );
+        request.budget.provider_retry_backoff_ms = 0;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let alerts = crate::alerts::AlertLog::open(&alert_path).unwrap();
+        let records = alerts.read().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].kind, "provider_health");
+        let health = health.lock().unwrap();
+        assert!(
+            !health.available("failing", "fail-v1", 1),
+            "failing provider should be demoted"
+        );
     }
 
     #[tokio::test]
