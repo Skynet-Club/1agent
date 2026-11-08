@@ -108,6 +108,16 @@ enum Command {
         #[arg(long)]
         route_objective: Option<String>,
         #[arg(long)]
+        authority: Option<PathBuf>,
+        #[arg(long, default_value = "operator")]
+        actor_id: String,
+        #[arg(long, default_value = "workspace")]
+        authority_scope: String,
+        #[arg(long)]
+        provider_health: bool,
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+        #[arg(long)]
         json: bool,
     },
     Tui {
@@ -1345,6 +1355,11 @@ async fn main() -> Result<()> {
             max_unit_cost_micros_per_k,
             evidence_max_age_ms,
             route_objective,
+            authority,
+            actor_id,
+            authority_scope,
+            provider_health,
+            alert_log,
             json,
         } => {
             let mut request = load_request(task, input)?;
@@ -1402,6 +1417,33 @@ async fn main() -> Result<()> {
             };
             let (objective, objective_source) =
                 resolve_route_objective(route_objective.as_deref())?;
+            let gate = if let Some(path) = authority {
+                let bytes = std::fs::read(&path)
+                    .with_context(|| format!("cannot read {}", path.display()))?;
+                let config: first_principles_agent::AuthorityConfig =
+                    serde_json::from_slice(&bytes).context("invalid authority config")?;
+                let mut registry = first_principles_agent::AuthorityRegistry::default();
+                registry.apply_config(&config)?;
+                Some(first_principles_agent::ExecutionGate::new(registry, &tools))
+            } else {
+                None
+            };
+            let health = if provider_health || alert_log.is_some() {
+                Some(std::sync::Arc::new(std::sync::Mutex::new(
+                    first_principles_agent::ProviderHealth::new(
+                        first_principles_agent::ProviderHealthPolicy::default(),
+                    )
+                    .map_err(anyhow::Error::msg)?,
+                )))
+            } else {
+                None
+            };
+            let alerts = match alert_log {
+                Some(path) => Some(std::sync::Arc::new(std::sync::Mutex::new(
+                    first_principles_agent::AlertLog::open(path)?,
+                ))),
+                None => None,
+            };
             let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
                 .with_route_objective(objective)
                 .with_route_policy_sources(RoutePolicySources {
@@ -1409,6 +1451,21 @@ async fn main() -> Result<()> {
                     latency_budget: latency_budget_source,
                     unit_cost_budget: unit_cost_budget_source,
                 });
+            if let Some(gate) = gate {
+                runtime = runtime.with_execution_gate(
+                    gate,
+                    actor_id,
+                    authority_scope,
+                    first_principles_agent::MandateStrength::ReadOnly,
+                    now_unix_ms(),
+                );
+            }
+            if let Some(health) = health {
+                runtime = runtime.with_provider_health(health);
+            }
+            if let Some(alerts) = alerts {
+                runtime = runtime.with_alert_log(alerts);
+            }
             if let Some(experience_dir) = experience_dir {
                 runtime = runtime.with_experience_dir(experience_dir);
             }
