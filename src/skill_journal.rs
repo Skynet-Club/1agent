@@ -18,12 +18,20 @@ pub enum SkillJournalError {
     Verify(#[from] SkillError),
     #[error("skill journal event sequence is not contiguous")]
     NonContiguousSequence,
+    #[error(
+        "skill journal was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
+    )]
+    ConcurrentWrite {
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct SkillJournalStore {
     path: PathBuf,
     next_seq: u64,
+    persisted_bytes: u64,
     events: Vec<SkillEvent>,
 }
 
@@ -37,6 +45,11 @@ impl SkillJournalStore {
     }
 
     fn open_with(path: PathBuf, repair: bool) -> Result<Self, SkillJournalError> {
+        let _lock = if repair {
+            Some(crate::jsonl::FileLock::exclusive(&path)?)
+        } else {
+            None
+        };
         if repair {
             crate::jsonl::repair_torn_tail(&path)?;
         }
@@ -53,9 +66,14 @@ impl SkillJournalStore {
         }
         SkillStore::verify_events(&events)?;
         let next_seq = events.last().map(|event| event.seq).unwrap_or(0);
+        let persisted_bytes = std::fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        drop(_lock);
         Ok(Self {
             path,
             next_seq,
+            persisted_bytes,
             events,
         })
     }
@@ -89,7 +107,19 @@ impl SkillJournalStore {
             buffer.push_str(&serde_json::to_string(event)?);
             buffer.push('\n');
         }
-        crate::jsonl::append_batch(&self.path, &buffer)?;
+        self.persisted_bytes =
+            crate::jsonl::append_batch_locked(&self.path, self.persisted_bytes, &buffer).map_err(
+                |error| match error {
+                    crate::jsonl::LockedAppendError::Io(error) => SkillJournalError::Io(error),
+                    crate::jsonl::LockedAppendError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    } => SkillJournalError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    },
+                },
+            )?;
         for event in new_events {
             self.next_seq = event.seq;
             self.events.push(event.clone());
@@ -132,6 +162,25 @@ mod tests {
         let replayed = SkillStore::replay(reopened.events()).unwrap();
         assert_eq!(replayed.active("release").unwrap().version, "1.0.0");
         assert_eq!(replayed.events().len(), 2);
+    }
+
+    #[test]
+    fn stale_writer_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skill-journal.jsonl");
+        let mut first = SkillJournalStore::open(&path).unwrap();
+        let mut second = SkillJournalStore::open(&path).unwrap();
+        let mut store = SkillStore::default();
+        store.register(manifest("1.0.0"), 10).unwrap();
+        assert_eq!(first.persist(&store).unwrap(), 1);
+        let error = second.persist(&store).unwrap_err();
+        assert!(matches!(
+            error,
+            SkillJournalError::ConcurrentWrite {
+                expected_bytes: 0,
+                actual_bytes: _
+            }
+        ));
     }
 
     #[test]

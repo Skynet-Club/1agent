@@ -106,28 +106,27 @@ impl TaskGraphStore {
         if new_events.is_empty() {
             return Ok(0);
         }
-        let _lock = crate::jsonl::FileLock::exclusive(&self.path)?;
-        let actual_bytes = std::fs::metadata(&self.path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if actual_bytes != self.persisted_bytes {
-            return Err(TaskGraphStoreError::ConcurrentWrite {
-                expected_bytes: self.persisted_bytes,
-                actual_bytes,
-            });
-        }
         let mut buffer = String::new();
         for event in &new_events {
             buffer.push_str(&serde_json::to_string(event)?);
             buffer.push('\n');
         }
-        crate::jsonl::append_batch(&self.path, &buffer)?;
+        self.persisted_bytes =
+            crate::jsonl::append_batch_locked(&self.path, self.persisted_bytes, &buffer).map_err(
+                |error| match error {
+                    crate::jsonl::LockedAppendError::Io(error) => TaskGraphStoreError::Io(error),
+                    crate::jsonl::LockedAppendError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    } => TaskGraphStoreError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    },
+                },
+            )?;
         if let Some(last) = new_events.last() {
             self.next_seq = last.seq;
         }
-        self.persisted_bytes = std::fs::metadata(&self.path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(self.persisted_bytes);
         Ok(new_events.len())
     }
 }

@@ -21,12 +21,20 @@ pub enum MemoryJournalError {
     Verify(#[from] MemoryError),
     #[error("memory journal event sequence is not contiguous")]
     NonContiguousSequence,
+    #[error(
+        "memory journal was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
+    )]
+    ConcurrentWrite {
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct MemoryJournalStore {
     path: PathBuf,
     next_seq: u64,
+    persisted_bytes: u64,
     events: Vec<MemoryEvent>,
 }
 
@@ -40,6 +48,11 @@ impl MemoryJournalStore {
     }
 
     fn open_with(path: PathBuf, repair: bool) -> Result<Self, MemoryJournalError> {
+        let _lock = if repair {
+            Some(crate::jsonl::FileLock::exclusive(&path)?)
+        } else {
+            None
+        };
         if repair {
             crate::jsonl::repair_torn_tail(&path)?;
         }
@@ -56,9 +69,14 @@ impl MemoryJournalStore {
         }
         MemoryStore::verify_events(&events)?;
         let next_seq = events.last().map(|event| event.seq).unwrap_or(0);
+        let persisted_bytes = std::fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        drop(_lock);
         Ok(Self {
             path,
             next_seq,
+            persisted_bytes,
             events,
         })
     }
@@ -92,7 +110,19 @@ impl MemoryJournalStore {
             buffer.push_str(&serde_json::to_string(event)?);
             buffer.push('\n');
         }
-        crate::jsonl::append_batch(&self.path, &buffer)?;
+        self.persisted_bytes =
+            crate::jsonl::append_batch_locked(&self.path, self.persisted_bytes, &buffer).map_err(
+                |error| match error {
+                    crate::jsonl::LockedAppendError::Io(error) => MemoryJournalError::Io(error),
+                    crate::jsonl::LockedAppendError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    } => MemoryJournalError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    },
+                },
+            )?;
         for event in new_events {
             self.next_seq = event.seq;
             self.events.push(event.clone());
@@ -140,6 +170,25 @@ mod tests {
         let reopened = MemoryJournalStore::open(&path).unwrap();
         assert_eq!(reopened.events().len(), 2);
         MemoryStore::verify_events(reopened.events()).unwrap();
+    }
+
+    #[test]
+    fn stale_writer_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memory-journal.jsonl");
+        let mut first = MemoryJournalStore::open(&path).unwrap();
+        let mut second = MemoryJournalStore::open(&path).unwrap();
+        let mut store = MemoryStore::default();
+        store.remember_at(memory(), 10).unwrap();
+        assert_eq!(first.persist(&store).unwrap(), 1);
+        let error = second.persist(&store).unwrap_err();
+        assert!(matches!(
+            error,
+            MemoryJournalError::ConcurrentWrite {
+                expected_bytes: 0,
+                actual_bytes: _
+            }
+        ));
     }
 
     #[test]

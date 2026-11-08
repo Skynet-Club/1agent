@@ -18,18 +18,27 @@ pub enum ActionLogJournalError {
     Verify(#[from] ActionLogError),
     #[error("action log sequence is not contiguous")]
     NonContiguousSequence,
+    #[error(
+        "action log was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
+    )]
+    ConcurrentWrite {
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct ActionLogJournal {
     path: PathBuf,
     next_seq: u64,
+    persisted_bytes: u64,
     log: ActionLog,
 }
 
 impl ActionLogJournal {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, ActionLogJournalError> {
         let path = path.into();
+        let _lock = crate::jsonl::FileLock::exclusive(&path)?;
         crate::jsonl::repair_torn_tail(&path)?;
         let mut entries = Vec::new();
         if path.exists() {
@@ -44,9 +53,14 @@ impl ActionLogJournal {
         }
         let log = ActionLog::from_entries(entries)?;
         let next_seq = log.entries().last().map(|entry| entry.seq).unwrap_or(0);
+        let persisted_bytes = std::fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        drop(_lock);
         Ok(Self {
             path,
             next_seq,
+            persisted_bytes,
             log,
         })
     }
@@ -84,7 +98,19 @@ impl ActionLogJournal {
             buffer.push_str(&serde_json::to_string(entry)?);
             buffer.push('\n');
         }
-        crate::jsonl::append_batch(&self.path, &buffer)?;
+        self.persisted_bytes =
+            crate::jsonl::append_batch_locked(&self.path, self.persisted_bytes, &buffer).map_err(
+                |error| match error {
+                    crate::jsonl::LockedAppendError::Io(error) => ActionLogJournalError::Io(error),
+                    crate::jsonl::LockedAppendError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    } => ActionLogJournalError::ConcurrentWrite {
+                        expected_bytes,
+                        actual_bytes,
+                    },
+                },
+            )?;
         self.next_seq = self.log.entries().last().map(|e| e.seq).unwrap_or(0);
         Ok(count)
     }
@@ -128,6 +154,38 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn stale_writer_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("actions.jsonl");
+        let mut first = ActionLogJournal::open(&path).unwrap();
+        let mut second = ActionLogJournal::open(&path).unwrap();
+        first
+            .log_mut()
+            .record("owner", ActionKind::Approve, "ticket-1", "allowed", "ok", 1)
+            .unwrap();
+        second
+            .log_mut()
+            .record(
+                "owner",
+                ActionKind::Retry,
+                "ticket-1",
+                "allowed",
+                "retry",
+                1,
+            )
+            .unwrap();
+        assert_eq!(first.persist().unwrap(), 1);
+        let error = second.persist().unwrap_err();
+        assert!(matches!(
+            error,
+            ActionLogJournalError::ConcurrentWrite {
+                expected_bytes: 0,
+                actual_bytes: _
+            }
+        ));
     }
 
     #[test]

@@ -11,6 +11,39 @@ pub struct FileLock {
     _file: File,
 }
 
+#[derive(Debug)]
+pub enum LockedAppendError {
+    Io(std::io::Error),
+    ConcurrentWrite {
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
+}
+
+/// Lock, verify that the log still has the expected length, append, and return
+/// the new length. A stale caller fails closed instead of duplicating a
+/// sequence.
+pub fn append_batch_locked(
+    path: &Path,
+    expected_bytes: u64,
+    buffer: &str,
+) -> Result<u64, LockedAppendError> {
+    let _lock = FileLock::exclusive(path).map_err(LockedAppendError::Io)?;
+    let actual_bytes = std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if actual_bytes != expected_bytes {
+        return Err(LockedAppendError::ConcurrentWrite {
+            expected_bytes,
+            actual_bytes,
+        });
+    }
+    append_batch(path, buffer).map_err(LockedAppendError::Io)?;
+    Ok(std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(expected_bytes))
+}
+
 impl FileLock {
     pub fn exclusive(path: &Path) -> std::io::Result<Self> {
         let mut lock_path = path.as_os_str().to_os_string();

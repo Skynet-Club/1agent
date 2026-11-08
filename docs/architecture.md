@@ -127,10 +127,11 @@ key, master, experience, annotations) resolve inside it; explicit flags still
 override. Uninitialized worktrees keep historical relative paths. `key escrow`
 encrypts the master key and KEK ledger under a separate 0600 recovery key;
 `key restore` verifies and restores them without overwriting existing material.
-The task-graph store takes a sibling `flock` around tail repair/replay and
-append, and rejects a stale writer by byte length; other journals remain
-single-writer. See ADR-0024 for the export boundary, ADR-0025 for the local
-key-escrow boundary and ADR-0026 for the cross-process task-graph lock.
+The task-graph, memory, skill, goal and action stores take a sibling `flock`
+around tail repair/replay and append, and reject a stale writer by byte length.
+There is no cross-process index or automatic merge. See ADR-0024 for the export
+boundary, ADR-0025 for the local key-escrow boundary and ADR-0026 for the
+cross-process journal lock.
 
 ## Master-Agent V1
 

@@ -45,6 +45,13 @@ pub enum GoalError {
     HashMismatch(u64),
     #[error("goal log sequence is not contiguous")]
     NonContiguousSequence,
+    #[error(
+        "goal log was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
+    )]
+    ConcurrentWrite {
+        expected_bytes: u64,
+        actual_bytes: u64,
+    },
     #[error("goal log io: {0}")]
     Io(#[from] std::io::Error),
     #[error("goal log json: {0}")]
@@ -457,12 +464,14 @@ impl GoalGraph {
 pub struct GoalStore {
     path: PathBuf,
     next_seq: u64,
+    persisted_bytes: u64,
     graph: GoalGraph,
 }
 
 impl GoalStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, GoalError> {
         let path = path.into();
+        let _lock = crate::jsonl::FileLock::exclusive(&path)?;
         crate::jsonl::repair_torn_tail(&path)?;
         let mut events = Vec::new();
         if path.exists() {
@@ -478,9 +487,14 @@ impl GoalStore {
         }
         let graph = GoalGraph::replay(&events)?;
         let next_seq = events.last().map(|event| event.seq).unwrap_or(0);
+        let persisted_bytes = std::fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        drop(_lock);
         Ok(Self {
             path,
             next_seq,
+            persisted_bytes,
             graph,
         })
     }
@@ -494,31 +508,12 @@ impl GoalStore {
     }
 
     pub fn persist(&mut self) -> Result<usize, GoalError> {
-        let new_events: Vec<&GoalEvent> = self
-            .graph
-            .events
-            .iter()
-            .filter(|event| event.seq > self.next_seq)
-            .collect();
-        for (index, event) in new_events.iter().enumerate() {
-            if event.seq != self.next_seq + 1 + index as u64 {
-                return Err(GoalError::NonContiguousSequence);
-            }
-        }
-        if new_events.is_empty() {
-            return Ok(0);
-        }
-        let mut buffer = String::new();
-        for event in &new_events {
-            buffer.push_str(&serde_json::to_string(event)?);
-            buffer.push('\n');
-        }
-        crate::jsonl::append_batch(&self.path, &buffer)?;
-        self.next_seq = new_events
-            .last()
-            .map(|event| event.seq)
-            .unwrap_or(self.next_seq);
-        Ok(new_events.len())
+        append_events(
+            &self.path,
+            &mut self.next_seq,
+            &mut self.persisted_bytes,
+            &self.graph.events,
+        )
     }
 
     pub fn with_graph_mut<R>(
@@ -527,31 +522,58 @@ impl GoalStore {
     ) -> Result<R, GoalError> {
         let mut candidate = self.graph.clone();
         let result = operation(&mut candidate)?;
-        let new_events: Vec<&GoalEvent> = candidate
-            .events
-            .iter()
-            .filter(|event| event.seq > self.next_seq)
-            .collect();
-        for (index, event) in new_events.iter().enumerate() {
-            if event.seq != self.next_seq + 1 + index as u64 {
-                return Err(GoalError::NonContiguousSequence);
-            }
-        }
-        if !new_events.is_empty() {
-            let mut buffer = String::new();
-            for event in &new_events {
-                buffer.push_str(&serde_json::to_string(event)?);
-                buffer.push('\n');
-            }
-            crate::jsonl::append_batch(&self.path, &buffer)?;
-            self.next_seq = new_events
-                .last()
-                .map(|event| event.seq)
-                .unwrap_or(self.next_seq);
-        }
+        append_events(
+            &self.path,
+            &mut self.next_seq,
+            &mut self.persisted_bytes,
+            &candidate.events,
+        )?;
         self.graph = candidate;
         Ok(result)
     }
+}
+
+fn append_events(
+    path: &Path,
+    next_seq: &mut u64,
+    persisted_bytes: &mut u64,
+    events: &[GoalEvent],
+) -> Result<usize, GoalError> {
+    let new_events: Vec<&GoalEvent> = events
+        .iter()
+        .filter(|event| event.seq > *next_seq)
+        .collect();
+    for (index, event) in new_events.iter().enumerate() {
+        if event.seq != *next_seq + 1 + index as u64 {
+            return Err(GoalError::NonContiguousSequence);
+        }
+    }
+    if new_events.is_empty() {
+        return Ok(0);
+    }
+    let mut buffer = String::new();
+    for event in &new_events {
+        buffer.push_str(&serde_json::to_string(event)?);
+        buffer.push('\n');
+    }
+    *persisted_bytes =
+        crate::jsonl::append_batch_locked(path, *persisted_bytes, &buffer).map_err(|error| {
+            match error {
+                crate::jsonl::LockedAppendError::Io(error) => GoalError::Io(error),
+                crate::jsonl::LockedAppendError::ConcurrentWrite {
+                    expected_bytes,
+                    actual_bytes,
+                } => GoalError::ConcurrentWrite {
+                    expected_bytes,
+                    actual_bytes,
+                },
+            }
+        })?;
+    *next_seq = new_events
+        .last()
+        .map(|event| event.seq)
+        .unwrap_or(*next_seq);
+    Ok(new_events.len())
 }
 
 fn valid_goal_transition(from: GoalStatus, to: GoalStatus) -> bool {
@@ -666,6 +688,27 @@ mod tests {
                 .set_goal_status("goal-1", GoalStatus::Active, "reopen", 6)
                 .unwrap_err(),
             GoalError::InvalidGoalTransition(_, _)
+        ));
+    }
+
+    #[test]
+    fn stale_writer_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("goals.jsonl");
+        let mut first = GoalStore::open(&path).unwrap();
+        let mut second = GoalStore::open(&path).unwrap();
+        first
+            .with_graph_mut(|graph| graph.create_goal("goal-1", "owner-1", "ship", None, 1))
+            .unwrap();
+        let error = second
+            .with_graph_mut(|graph| graph.create_goal("goal-2", "owner-1", "other", None, 2))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            GoalError::ConcurrentWrite {
+                expected_bytes: 0,
+                actual_bytes: _
+            }
         ));
     }
 

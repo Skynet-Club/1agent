@@ -1263,6 +1263,9 @@ fn map_goal_error(error: GoalError) -> SurfaceError {
         | GoalError::InvalidGoalTransition(_, _) => {
             SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
         }
+        GoalError::ConcurrentWrite { .. } => {
+            SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), true)
+        }
         GoalError::UnknownGoal(_) | GoalError::UnknownCommitment(_) => {
             SurfaceError::new(SurfaceErrorCode::NotFound, error.to_string(), false)
         }

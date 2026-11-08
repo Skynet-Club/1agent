@@ -25,9 +25,9 @@ store was explicitly documented as single-writer, but nothing enforced it.
    integrity-checked.
 5. The guarantee is Linux/Unix only. On other platforms the lock is a no-op and
    only the byte-length check remains, which cannot close the race.
-6. Only the task graph is covered in this slice. Memory, skill, goal and action
-   logs still rely on single-writer operation and need the same treatment
-   before R1 can claim cross-process write safety across all stores.
+6. The task graph, memory journal, skill journal, goal log and action log all
+   use the same lock-and-length-check append path. Memory payload files and
+   cross-process indexes are still outside this guarantee.
 
 ## Consequences
 
