@@ -9230,7 +9230,7 @@ fn show_workspace_set_menu(
     settings: &TuiRunSettings,
     notice: Option<String>,
 ) {
-    state.begin_command_subpanel("/workspace › 设置工作区");
+    state.begin_command_subpanel("设置工作区");
     state.info(format!(
         "当前运行目录：{}\n选择授权根目录，或输入自定义路径。",
         settings.cwd.display()

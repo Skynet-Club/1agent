@@ -2162,7 +2162,21 @@ impl TuiState {
         );
     }
 
+    pub fn command_panel_breadcrumb(&self) -> Option<String> {
+        let panel = self.command_panel.as_ref()?;
+        let mut parts = self
+            .command_panel_history
+            .iter()
+            .map(|entry| entry.title.clone())
+            .collect::<Vec<_>>();
+        parts.push(panel.title.clone());
+        Some(parts.join(" › "))
+    }
+
     fn draw_command_panel(&mut self, frame: &mut Frame, area: Rect) {
+        let breadcrumb = self
+            .command_panel_breadcrumb()
+            .unwrap_or_else(|| " 命令 ".to_string());
         let Some(panel) = self.command_panel.clone() else {
             return;
         };
@@ -2172,7 +2186,7 @@ impl TuiState {
         } else {
             "↑↓ 选择 · Enter 确认 · Esc 返回"
         };
-        let block = menu_block(&panel.title, hint, Color::Reset);
+        let block = menu_block(&breadcrumb, hint, Color::Reset);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.is_empty() {
@@ -4998,6 +5012,21 @@ int main(int argc, char **argv) {
         state.close_command_panel();
         let conversation = state.render_screen(100, 30);
         assert!(conversation.contains("existing conversation"));
+    }
+
+    #[test]
+    fn command_panel_breadcrumb_tracks_subpanels() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.begin_command_panel("/workspace");
+        assert_eq!(
+            state.command_panel_breadcrumb().as_deref(),
+            Some("/workspace")
+        );
+        state.begin_command_subpanel("设置工作区");
+        assert_eq!(
+            state.command_panel_breadcrumb().as_deref(),
+            Some("/workspace › 设置工作区")
+        );
     }
 
     #[test]

@@ -35,8 +35,8 @@ if [[ "$help" != *"命令"* || "$help" != *"/frame"* ]]; then
 fi
 
 status="$(render --keys $'/status\r' --settle 2)"
-if [[ "$status" != *"模型与运行限制"* || "$status" != *"刷新状态"* ]]; then
-  echo "tui-interaction-check: /status did not render actionable state" >&2
+if [[ "$status" != *"模型与运行限制"* || "$status" != *"剩余空间"* ]]; then
+  echo "tui-interaction-check: /status did not render inline state" >&2
   exit 1
 fi
 

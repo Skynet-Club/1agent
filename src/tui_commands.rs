@@ -83,6 +83,14 @@ impl TuiCommandId {
                 | Self::Decide
                 | Self::Postmortem
                 | Self::Mode
+                | Self::Status
+                | Self::Journal
+                | Self::Evidence
+                | Self::Audit
+                | Self::Report
+                | Self::Tools
+                | Self::Cost
+                | Self::Copy
         )
     }
 }
@@ -949,6 +957,24 @@ mod tests {
                 TuiInputResolution::UnavailableMaster(spec) if spec.id == id
             ));
         }
+    }
+
+    #[test]
+    fn read_only_output_commands_stay_in_the_transcript() {
+        for id in [
+            TuiCommandId::Status,
+            TuiCommandId::Journal,
+            TuiCommandId::Evidence,
+            TuiCommandId::Audit,
+            TuiCommandId::Report,
+            TuiCommandId::Tools,
+            TuiCommandId::Cost,
+            TuiCommandId::Copy,
+        ] {
+            assert!(!id.uses_command_panel(), "{id:?} should be inline");
+        }
+        assert!(TuiCommandId::Workspace.uses_command_panel());
+        assert!(TuiCommandId::Model.uses_command_panel());
     }
 
     #[test]

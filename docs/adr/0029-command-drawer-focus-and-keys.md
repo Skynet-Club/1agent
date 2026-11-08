@@ -37,7 +37,10 @@ submit something the user had not selected.
 
 - The drawer explains what exists but is unavailable instead of silently hiding
   it; completion no longer executes a command by accident.
-- The command panel remains a transcript-replacing view. Splitting inline
-  output, pickers and forms into separate surfaces is still future work.
-- Mouse selection, category headers, recent commands and a preview pane are not
-  implemented yet.
+- Read-only output commands (`/status`, `/journal`, `/evidence`, `/audit`,
+  `/report`, `/tools`, `/cost`, `/copy`) now append to the transcript instead of
+  replacing it. Pickers and hierarchical panels still use the command panel.
+- Nested command panels render a breadcrumb such as
+  `/workspace › 设置工作区`.
+- Mouse selection, category headers, recent commands, a preview pane and the
+  full picker/form split are not implemented yet.
