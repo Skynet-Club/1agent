@@ -120,10 +120,11 @@ events or provider/tool contracts.
 `home.json`. `doctor` reports marker/version, permissions, layout, master-key and
 writability checks; `export`/`restore` use a hash-manifest bundle that excludes key
 and credential files; `upgrade` repairs the current layout and rejects unknown
-versions; `uninstall` requires `--purge --yes` and refuses unsafe paths. Existing
-commands still accept explicit paths, so home adoption is incremental. See
-ADR-0024 for the boundary and for why an export alone is not a key-escrow
-recovery.
+versions; `uninstall` requires `--purge --yes` and refuses unsafe paths. Once a
+home is initialized, CLI path defaults (journals, task graph, memory payloads and
+key, master, experience, annotations) resolve inside it; explicit flags still
+override. Uninitialized worktrees keep historical relative paths. See ADR-0024
+for the boundary and for why an export alone is not a key-escrow recovery.
 
 ## Master-Agent V1
 

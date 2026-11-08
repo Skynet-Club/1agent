@@ -243,3 +243,84 @@ fn uninstall_keeps_data_until_purge_and_confirmation() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("not a 1Agent"));
     assert!(plain.join("keep.txt").is_file());
 }
+
+#[test]
+fn initialized_home_becomes_default_state_root() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_first-principles-agent"))
+        .args(["task-graph", "demo", "--json"])
+        .env("ONEAGENT_HOME", &home)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(home.join("task-graph.jsonl").is_file());
+
+    let evidence = workspace.path().join("evidence.txt");
+    std::fs::write(&evidence, "home default journal evidence").unwrap();
+    let config = workspace.path().join("agent.json");
+    std::fs::write(
+        &config,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "providers": [{
+                "id": "deterministic",
+                "adapter": "deterministic",
+                "model": "offline-v1",
+                "quality_score": 1,
+                "max_risk": "high"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_first-principles-agent"))
+        .args([
+            "run",
+            "--config",
+            &config.display().to_string(),
+            "--task",
+            &format!("Research @read-file:\"{}\"", evidence.display()),
+            "--read-root",
+            &workspace.path().display().to_string(),
+            "--json",
+        ])
+        .env("ONEAGENT_HOME", &home)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["stop_reason"], "completed");
+    assert!(
+        contains_jsonl(&home.join("journals")),
+        "run journal was not written under the initialized home"
+    );
+}
+
+fn contains_jsonl(dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && contains_jsonl(&path) {
+            return true;
+        }
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "jsonl")
+        {
+            return true;
+        }
+    }
+    false
+}

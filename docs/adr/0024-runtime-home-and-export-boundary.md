@@ -44,9 +44,10 @@ because the memory master key lives beside encrypted payloads.
 ## Consequences
 
 - The product has a single, testable home lifecycle without adopting the key.
-- Existing commands still accept explicit paths and relative defaults; moving
-  every default onto the runtime home is incremental and must not silently
-  reinterpret old data.
+- CLI path defaults resolve against an initialized home; explicit flags still
+  override them. Uninitialized worktrees keep the historical relative paths, so
+  starting `1agent init` is the opt-in boundary and old data is not silently
+  reinterpreted.
 - `upgrade` currently has no historical version to migrate. S-Gate evidence for
   migration and rollback requires a future schema bump plus a registered
   migration, not a no-op claim.

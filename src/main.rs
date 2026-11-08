@@ -29,18 +29,18 @@ use first_principles_agent::{
     create_goldset_manifest, create_trust_anchor, current_time_ms, default_home, default_registry,
     doctor, epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
     filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
-    infer_mode, init, init_agents_file, inspect_artifacts, interactive_terminal_available,
-    list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
-    master_audit_summary, master_evidence_summary, master_report, next_actions, parse_model_output,
-    print_session_banner, probe_provider, probe_provider_tools, prompt_sha256, read_clipboard,
-    read_events, read_master_journal_events, rebuild_and_compare, remote_manifest,
-    render_capability_report, render_receipt, render_usage_ledger, replay_events,
-    replay_master_journal, resolve_input, restore, risk_for_mode, run_capability_suite, run_report,
-    run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
-    stage_next_actions, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
-    uninstall, upgrade, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
-    write_capability_report,
+    home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
+    interactive_terminal_available, list_presets, load_agent_profiles, load_eval_report,
+    load_preset, load_suite, local_manifest, master_audit_summary, master_evidence_summary,
+    master_report, next_actions, parse_model_output, print_session_banner, probe_provider,
+    probe_provider_tools, prompt_sha256, read_clipboard, read_events, read_master_journal_events,
+    rebuild_and_compare, remote_manifest, render_capability_report, render_receipt,
+    render_usage_ledger, replay_events, replay_master_journal, resolve_input, restore,
+    risk_for_mode, run_capability_suite, run_report, run_suite_with_providers, save_preset,
+    scan_history, schedule_ready, spawn_input_reader, stage_next_actions, summarize_route_trace,
+    terminal_dimensions, trash_preset, triage_goal, uninstall, upgrade, verify_goldset_manifest,
+    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
+    verify_snapshot_chain_with_anchor, write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -82,7 +82,7 @@ enum Command {
         allow_network: bool,
         #[arg(long)]
         read_root: Vec<PathBuf>,
-        #[arg(long, default_value = ".journal")]
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long)]
         experience_dir: Option<PathBuf>,
@@ -141,7 +141,7 @@ enum Command {
         allow_write: bool,
         #[arg(long)]
         read_root: Vec<PathBuf>,
-        #[arg(long, default_value = ".journal")]
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long)]
         session: Option<String>,
@@ -259,7 +259,7 @@ enum Command {
         api_key: Option<String>,
         #[arg(long)]
         allow_network: bool,
-        #[arg(long, default_value = ".journal")]
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
@@ -305,7 +305,7 @@ enum Command {
         json: bool,
     },
     History {
-        #[arg(long, default_value = ".journal")]
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long, default_value_t = 20)]
         limit: usize,
@@ -346,7 +346,7 @@ enum Command {
         api_key: Option<String>,
         #[arg(long)]
         allow_network: bool,
-        #[arg(long, default_value = ".journal")]
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
@@ -390,7 +390,7 @@ enum Command {
         reject: Option<String>,
         #[arg(long)]
         defer: bool,
-        #[arg(long, default_value = ".journal")]
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long)]
         json: bool,
@@ -460,7 +460,7 @@ enum MasterCommand {
     ProductionTaskList {
         #[arg(long)]
         plan: PathBuf,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         json: bool,
@@ -541,7 +541,7 @@ enum MasterCommand {
         workshop_prefix: Option<String>,
         #[arg(long)]
         output: Option<PathBuf>,
-        #[arg(long, default_value = ".master-plans")]
+        #[arg(long, default_value_os_t = home_or_legacy("master-plans", ".master-plans"))]
         planner_journal_dir: PathBuf,
         #[arg(long)]
         json: bool,
@@ -555,7 +555,7 @@ enum MasterCommand {
         workshop_prefix: Option<String>,
         #[arg(long)]
         trace_id: Option<String>,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         json: bool,
@@ -563,7 +563,7 @@ enum MasterCommand {
     Status {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         json: bool,
@@ -571,7 +571,7 @@ enum MasterCommand {
     Approve {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long, default_value = "user")]
         actor: String,
@@ -581,7 +581,7 @@ enum MasterCommand {
     Reject {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long, default_value = "user")]
         actor: String,
@@ -593,7 +593,7 @@ enum MasterCommand {
     Revise {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         plan: PathBuf,
@@ -609,7 +609,7 @@ enum MasterCommand {
     Run {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         runtime_profiles: PathBuf,
@@ -627,7 +627,7 @@ enum MasterCommand {
     Poll {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long, default_value = "skynet-workshop")]
         workshop_prefix: String,
@@ -637,7 +637,7 @@ enum MasterCommand {
     Verify {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         input: PathBuf,
@@ -647,7 +647,7 @@ enum MasterCommand {
     Retry {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         task: String,
@@ -663,7 +663,7 @@ enum MasterCommand {
     ReplanRequest {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         task: String,
@@ -679,7 +679,7 @@ enum MasterCommand {
     ReplanApply {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         plan: PathBuf,
@@ -695,7 +695,7 @@ enum MasterCommand {
     Pause {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long, default_value = "user")]
         actor: String,
@@ -705,7 +705,7 @@ enum MasterCommand {
     Resume {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long, default_value = "user")]
         actor: String,
@@ -715,7 +715,7 @@ enum MasterCommand {
     Takeover {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         task: String,
@@ -729,7 +729,7 @@ enum MasterCommand {
     Accept {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long, default_value = "user")]
         actor: String,
@@ -741,7 +741,7 @@ enum MasterCommand {
     Return {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         task: String,
@@ -755,7 +755,7 @@ enum MasterCommand {
     Reclaim {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         task: String,
@@ -774,7 +774,7 @@ enum MasterCommand {
     Cancel {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         task: String,
@@ -790,7 +790,7 @@ enum MasterCommand {
     Audit {
         #[arg(long)]
         trace_id: String,
-        #[arg(long, default_value = ".master")]
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
         state_root: PathBuf,
         #[arg(long)]
         json: bool,
@@ -822,13 +822,13 @@ enum MasterCommand {
 #[derive(Subcommand)]
 enum TaskGraphCommand {
     Snapshot {
-        #[arg(long, default_value = ".1a/task-graph.jsonl")]
+        #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
     },
     Demo {
-        #[arg(long, default_value = ".1a/task-graph.jsonl")]
+        #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
@@ -838,9 +838,9 @@ enum TaskGraphCommand {
 #[derive(Subcommand)]
 enum MemoryCommand {
     Export {
-        #[arg(long, default_value = ".1a/memory-journal.jsonl")]
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
-        #[arg(long, default_value = ".1a/payloads")]
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
         #[arg(long)]
         out: PathBuf,
@@ -854,9 +854,9 @@ enum MemoryCommand {
         json: bool,
     },
     RotateKey {
-        #[arg(long, default_value = ".1a/payloads")]
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
-        #[arg(long, default_value = ".1a/memory.key")]
+        #[arg(long, default_value_os_t = home_or_legacy("memory.key", ".1a/memory.key"))]
         key: PathBuf,
         #[arg(long, conflicts_with = "bot_id")]
         scope: Option<String>,
@@ -866,9 +866,9 @@ enum MemoryCommand {
         json: bool,
     },
     RotateMasterKey {
-        #[arg(long, default_value = ".1a/payloads")]
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
-        #[arg(long, default_value = ".1a/memory.key")]
+        #[arg(long, default_value_os_t = home_or_legacy("memory.key", ".1a/memory.key"))]
         key: PathBuf,
         #[arg(long)]
         json: bool,
@@ -886,7 +886,7 @@ enum SurfaceCommand {
     Serve {
         #[arg(long, default_value = "127.0.0.1:8788")]
         addr: String,
-        #[arg(long, default_value = ".1a/task-graph.jsonl")]
+        #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
         #[arg(long)]
         token: Option<String>,
@@ -922,7 +922,7 @@ enum SurfaceCommand {
 #[derive(Subcommand)]
 enum ExperienceCommand {
     Propose {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         journal: PathBuf,
@@ -930,7 +930,7 @@ enum ExperienceCommand {
         input: PathBuf,
     },
     Review {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -940,7 +940,7 @@ enum ExperienceCommand {
         journal: Option<PathBuf>,
     },
     Verify {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -948,7 +948,7 @@ enum ExperienceCommand {
         input: PathBuf,
     },
     Evaluate {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -962,7 +962,7 @@ enum ExperienceCommand {
         output: Option<PathBuf>,
     },
     Approve {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -972,7 +972,7 @@ enum ExperienceCommand {
         journal: Option<PathBuf>,
     },
     Reject {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -982,7 +982,7 @@ enum ExperienceCommand {
         reason: String,
     },
     Activate {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -990,7 +990,7 @@ enum ExperienceCommand {
         journal: Option<PathBuf>,
     },
     Degrade {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -998,7 +998,7 @@ enum ExperienceCommand {
         reason: String,
     },
     Rollback {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         id: Uuid,
@@ -1006,11 +1006,11 @@ enum ExperienceCommand {
         reason: String,
     },
     List {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
     },
     Audit {
-        #[arg(long, default_value = ".experience")]
+        #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
@@ -1020,7 +1020,7 @@ enum ExperienceCommand {
 #[derive(Subcommand)]
 enum AnnotateCommand {
     Add {
-        #[arg(long, default_value = ".annotations")]
+        #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
         #[arg(long)]
         case_id: String,
@@ -1034,17 +1034,17 @@ enum AnnotateCommand {
         note: String,
     },
     Agreement {
-        #[arg(long, default_value = ".annotations")]
+        #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
     },
     List {
-        #[arg(long, default_value = ".annotations")]
+        #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
     },
     Calibrate {
-        #[arg(long, default_value = ".annotations")]
+        #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
         #[arg(long)]
         predictions: PathBuf,

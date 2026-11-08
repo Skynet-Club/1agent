@@ -150,6 +150,25 @@ pub fn default_home() -> PathBuf {
     base.join(".1a")
 }
 
+pub fn is_initialized(root: &Path) -> bool {
+    matches!(
+        fs::symlink_metadata(root.join(MANIFEST_NAME)),
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink()
+    )
+}
+
+/// Resolve a command default against the initialized home, falling back to the
+/// historical relative path when no home exists. This keeps existing worktrees
+/// working while making an initialized home the single state root.
+pub fn home_or_legacy(relative: &str, legacy: &str) -> PathBuf {
+    let home = default_home();
+    if is_initialized(&home) {
+        home.join(relative)
+    } else {
+        PathBuf::from(legacy)
+    }
+}
+
 pub fn init(root: &Path, now_ms: u128) -> Result<InitOutcome, HomeError> {
     let root = absolute(root)?;
     if let Some(metadata) = existing_metadata(&root)? {
