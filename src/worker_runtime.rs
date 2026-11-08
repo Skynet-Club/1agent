@@ -5,9 +5,16 @@
 //! Workshop adapter is a later integration step.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::ffi::OsStr;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
+
+const ROUTER_SNAPSHOT_SCHEMA: u32 = 1;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WorkerRuntimeError {
@@ -50,6 +57,41 @@ pub struct Dispatch {
 struct WorkerSlot {
     active: usize,
     max_concurrency: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerSnapshot {
+    pub worker_id: String,
+    pub active: usize,
+    pub max_concurrency: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct QueuedTaskSnapshot {
+    pub task: WorkerTask,
+    pub preferred_worker: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RouterSnapshot {
+    pub schema_version: u32,
+    pub queue_capacity: usize,
+    pub workers: Vec<WorkerSnapshot>,
+    pub thread_workers: BTreeMap<String, String>,
+    pub queue: Vec<QueuedTaskSnapshot>,
+}
+
+#[derive(Debug, Error)]
+pub enum WorkerStoreError {
+    #[error("worker store io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("worker store json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("worker store is corrupt: {0}")]
+    Corrupt(String),
 }
 
 #[derive(Debug, Default)]
@@ -231,6 +273,153 @@ impl RouterRuntime {
     }
 }
 
+impl RouterRuntime {
+    pub fn snapshot(&self) -> RouterSnapshot {
+        RouterSnapshot {
+            schema_version: ROUTER_SNAPSHOT_SCHEMA,
+            queue_capacity: self.queue_capacity,
+            workers: self
+                .workers
+                .iter()
+                .map(|(worker_id, slot)| WorkerSnapshot {
+                    worker_id: worker_id.clone(),
+                    active: slot.active,
+                    max_concurrency: slot.max_concurrency,
+                })
+                .collect(),
+            thread_workers: self.thread_workers.clone(),
+            queue: self
+                .queue
+                .iter()
+                .map(|(task, preferred_worker)| QueuedTaskSnapshot {
+                    task: task.clone(),
+                    preferred_worker: preferred_worker.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    pub fn from_snapshot(snapshot: RouterSnapshot) -> Result<Self, WorkerStoreError> {
+        if snapshot.schema_version != ROUTER_SNAPSHOT_SCHEMA {
+            return Err(WorkerStoreError::Corrupt(
+                "unsupported router snapshot schema".into(),
+            ));
+        }
+        if snapshot.queue_capacity == 0 || snapshot.queue.len() > snapshot.queue_capacity {
+            return Err(WorkerStoreError::Corrupt(
+                "router queue capacity is invalid".into(),
+            ));
+        }
+        let mut runtime = Self::new(snapshot.queue_capacity);
+        for worker in snapshot.workers {
+            if !safe_id(&worker.worker_id)
+                || !(1..=64).contains(&worker.max_concurrency)
+                || worker.active > worker.max_concurrency
+            {
+                return Err(WorkerStoreError::Corrupt(
+                    "router worker snapshot is invalid".into(),
+                ));
+            }
+            if runtime
+                .workers
+                .insert(
+                    worker.worker_id,
+                    WorkerSlot {
+                        active: worker.active,
+                        max_concurrency: worker.max_concurrency,
+                    },
+                )
+                .is_some()
+            {
+                return Err(WorkerStoreError::Corrupt("duplicate router worker".into()));
+            }
+        }
+        for (thread_id, worker_id) in snapshot.thread_workers {
+            if !safe_id(&thread_id) || !runtime.workers.contains_key(&worker_id) {
+                return Err(WorkerStoreError::Corrupt(
+                    "router thread binding is invalid".into(),
+                ));
+            }
+            runtime.thread_workers.insert(thread_id, worker_id);
+        }
+        for queued in snapshot.queue {
+            if !safe_id(&queued.task.task_id) || !safe_id(&queued.task.thread_id) {
+                return Err(WorkerStoreError::Corrupt(
+                    "router queued task is invalid".into(),
+                ));
+            }
+            if let Some(preferred) = &queued.preferred_worker
+                && !runtime.workers.contains_key(preferred)
+            {
+                return Err(WorkerStoreError::Corrupt(
+                    "router queued task has unknown worker".into(),
+                ));
+            }
+            runtime
+                .queue
+                .push_back((queued.task, queued.preferred_worker));
+        }
+        Ok(runtime)
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), WorkerStoreError> {
+        let bytes = serde_json::to_vec_pretty(&self.snapshot())?;
+        write_private_atomic(path.as_ref(), &bytes)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, WorkerStoreError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(WorkerStoreError::Corrupt(
+                "router store must be a regular file".into(),
+            ));
+        }
+        let bytes = std::fs::read(path)?;
+        let snapshot: RouterSnapshot = serde_json::from_slice(&bytes)?;
+        Self::from_snapshot(snapshot)
+    }
+}
+
+fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorkerStoreError> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        crate::jsonl::ensure_parent_private(path)?;
+    }
+    let name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("router.json");
+    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<(), WorkerStoreError> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_data()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        if let Some(parent) = path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
 fn safe_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -297,6 +486,24 @@ mod tests {
         let next = runtime.complete("worker-a").unwrap().unwrap();
         assert_eq!(next.worker_id, "worker-a");
         assert_eq!(next.task_id, "task-3");
+    }
+
+    #[test]
+    fn snapshot_round_trips_active_and_queued_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("router.json");
+        let mut runtime = RouterRuntime::new(2);
+        runtime.register_worker("worker-1", 1).unwrap();
+        runtime.dispatch(task("task-1", "thread-1")).unwrap();
+        runtime.dispatch(task("task-2", "thread-1")).unwrap();
+        runtime.save(&path).unwrap();
+
+        let mut loaded = RouterRuntime::load(&path).unwrap();
+        assert_eq!(loaded.active("worker-1"), Some(1));
+        assert_eq!(loaded.queued(), 1);
+        let next = loaded.complete("worker-1").unwrap().unwrap();
+        assert_eq!(next.task_id, "task-2");
+        assert_eq!(next.worker_id, "worker-1");
     }
 
     #[test]
