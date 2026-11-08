@@ -266,6 +266,9 @@ impl SurfaceService {
                 include_missed,
             } => self.attention_candidates(auth, *lead_ms, *limit, *include_missed, now_ms),
             SurfaceMethod::ContextSummary { bot_id } => self.context_summary(auth, bot_id, now_ms),
+            SurfaceMethod::ContextExplain { node_id, bot_id } => {
+                self.context_explain(auth, node_id, bot_id, now_ms)
+            }
             SurfaceMethod::DelegationGet { actor_id, domain } => {
                 self.delegation_get(auth, actor_id, domain)
             }
@@ -629,6 +632,32 @@ impl SurfaceService {
         bot_id: &str,
         now_ms: u128,
     ) -> Result<serde_json::Value, SurfaceError> {
+        let graph = self.context_graph(auth, bot_id, now_ms)?;
+        serde_json::to_value(graph)
+            .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "context encode", false))
+    }
+
+    fn context_explain(
+        &self,
+        auth: &AuthContext,
+        node_id: &str,
+        bot_id: &str,
+        now_ms: u128,
+    ) -> Result<serde_json::Value, SurfaceError> {
+        let graph = self.context_graph(auth, bot_id, now_ms)?;
+        let explanation = graph.explain(node_id).ok_or_else(|| {
+            SurfaceError::new(SurfaceErrorCode::NotFound, "context node not found", false)
+        })?;
+        serde_json::to_value(explanation)
+            .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "context encode", false))
+    }
+
+    fn context_graph(
+        &self,
+        auth: &AuthContext,
+        bot_id: &str,
+        now_ms: u128,
+    ) -> Result<crate::context_graph::ContextGraph, SurfaceError> {
         auth.require("context:read")?;
         auth.require("memory:read")?;
         let empty = crate::goal::GoalGraph::default();
@@ -652,9 +681,12 @@ impl SurfaceService {
                     .collect()
             })
             .unwrap_or_default();
-        let graph = build_context_graph(goals, &self.graph.snapshot(), &memories, now_ms);
-        serde_json::to_value(graph)
-            .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "context encode", false))
+        Ok(build_context_graph(
+            goals,
+            &self.graph.snapshot(),
+            &memories,
+            now_ms,
+        ))
     }
 
     fn delegation_get(
@@ -1716,6 +1748,42 @@ mod tests {
             .collect();
         assert_eq!(memory_nodes.len(), 1);
         assert_eq!(memory_nodes[0]["id"], "memory:mem-bot-1");
+
+        let explained = service.handle(
+            &SurfaceRequest {
+                protocol_version: "v0".into(),
+                request_id: "req-context-explain".into(),
+                trace_id: "trace".into(),
+                idempotency_key: None,
+                method: SurfaceMethod::ContextExplain {
+                    node_id: "commitment:commit-1".into(),
+                    bot_id: "bot-1".into(),
+                },
+            },
+            &auth,
+            100,
+        );
+        assert!(explained.ok, "{explained:?}");
+        let explained = explained.result.unwrap();
+        assert_eq!(explained["node"]["id"], "commitment:commit-1");
+        assert_eq!(explained["incoming"].as_array().unwrap().len(), 1);
+
+        let hidden = service.handle(
+            &SurfaceRequest {
+                protocol_version: "v0".into(),
+                request_id: "req-context-hidden".into(),
+                trace_id: "trace".into(),
+                idempotency_key: None,
+                method: SurfaceMethod::ContextExplain {
+                    node_id: "memory:mem-bot-2".into(),
+                    bot_id: "bot-1".into(),
+                },
+            },
+            &auth,
+            100,
+        );
+        assert!(!hidden.ok);
+        assert_eq!(hidden.error.unwrap().code, SurfaceErrorCode::NotFound);
 
         let without_memory_scope = AuthContext {
             actor_id: "owner-1".into(),

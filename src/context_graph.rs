@@ -50,6 +50,14 @@ pub struct ContextGraph {
     pub edges: Vec<ContextEdge>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ContextExplanation {
+    pub node: ContextNode,
+    pub incoming: Vec<ContextEdge>,
+    pub outgoing: Vec<ContextEdge>,
+}
+
 impl ContextGraph {
     pub fn node(&self, id: &str) -> Option<&ContextNode> {
         self.nodes.iter().find(|node| node.id == id)
@@ -61,6 +69,15 @@ impl ContextGraph {
 
     pub fn edges_to(&self, id: &str) -> Vec<&ContextEdge> {
         self.edges.iter().filter(|edge| edge.to == id).collect()
+    }
+
+    pub fn explain(&self, id: &str) -> Option<ContextExplanation> {
+        let node = self.node(id)?.clone();
+        Some(ContextExplanation {
+            node,
+            incoming: self.edges_to(id).into_iter().cloned().collect(),
+            outgoing: self.edges_from(id).into_iter().cloned().collect(),
+        })
     }
 
     pub fn counts(&self) -> BTreeMap<ContextNodeKind, usize> {

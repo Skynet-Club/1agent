@@ -132,6 +132,10 @@ pub enum SurfaceMethod {
     ContextSummary {
         bot_id: String,
     },
+    ContextExplain {
+        node_id: String,
+        bot_id: String,
+    },
     DelegationGet {
         actor_id: String,
         domain: String,
@@ -355,6 +359,10 @@ impl SurfaceMethod {
                 safe_id(actor_id, "actor_id")
             }
             Self::ContextSummary { bot_id } => safe_id(bot_id, "bot_id"),
+            Self::ContextExplain { node_id, bot_id } => {
+                safe_node_id(node_id)?;
+                safe_id(bot_id, "bot_id")
+            }
             Self::CommitmentList { goal_id } => {
                 if let Some(goal_id) = goal_id {
                     safe_id(goal_id, "goal_id")?;
@@ -680,6 +688,19 @@ fn safe_id(value: &str, label: &str) -> Result<(), SurfaceError> {
     Ok(())
 }
 
+fn safe_node_id(value: &str) -> Result<(), SurfaceError> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+        || value.starts_with('.')
+    {
+        return Err(SurfaceError::invalid("node_id is unsafe"));
+    }
+    Ok(())
+}
+
 fn safe_domain(value: &str) -> Result<(), SurfaceError> {
     if value.is_empty()
         || value.len() > 128
@@ -779,6 +800,13 @@ pub fn openapi_document() -> serde_json::Value {
                     "description": "Scoped to one bot_id; requires context:read and memory:read."
                 }
             },
+            "/v0/context/explain": {
+                "post": {
+                    "operationId": "explainContextNode",
+                    "summary": "Explain one context node and its edges",
+                    "description": "Scoped to one bot_id; requires context:read and memory:read."
+                }
+            },
             "/v0/delegation/{actor_id}/{domain}": {
                 "get": {"operationId": "getDelegation", "summary": "Read one delegation profile"}
             },
@@ -861,6 +889,7 @@ pub fn validate_openapi(document: &serde_json::Value) -> Result<(), String> {
         "/v0/commitments/link",
         "/v0/attention/candidates",
         "/v0/context/summary",
+        "/v0/context/explain",
         "/v0/delegation/{actor_id}/{domain}",
         "/v0/delegation/register",
         "/v0/delegation/revoke",
