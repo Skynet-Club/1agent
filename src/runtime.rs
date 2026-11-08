@@ -12,8 +12,9 @@ use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
     MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
     ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest,
-    UnknownItem,
+    ToolObservation, ToolStatus, UnknownItem,
 };
+use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
 use crate::journal::{
     Journal, JournalEventKind, ProviderFailure, ResumablePrefix, RetryOutcome, RetryTiming,
@@ -24,12 +25,22 @@ use crate::router::{
     PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
     RouteRequest, Router,
 };
+use crate::task_graph::MandateStrength;
 use crate::tools::ToolRegistry;
 
 #[derive(Clone)]
 pub struct ProviderCandidate {
     pub provider: Arc<dyn ModelProvider>,
     pub manifest: ProviderManifest,
+}
+
+#[derive(Clone)]
+struct ToolGateContext {
+    gate: ExecutionGate,
+    actor_id: String,
+    scope: String,
+    strength: MandateStrength,
+    now_ms: u128,
 }
 
 #[derive(Clone)]
@@ -43,6 +54,7 @@ pub struct AgentRuntime {
     route_objective: Option<RouteObjective>,
     route_policy_sources: RoutePolicySources,
     selected_route: Option<ProviderRouteKey>,
+    tool_gate: Option<ToolGateContext>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -88,7 +100,28 @@ impl AgentRuntime {
                 unit_cost_budget: PolicyValueSource::Unset,
             },
             selected_route: None,
+            tool_gate: None,
         }
+    }
+
+    /// Require an Authority/Policy check before every tool call. The gate is
+    /// opt-in so the read-only V0 runtime remains unchanged by default.
+    pub fn with_execution_gate(
+        mut self,
+        gate: ExecutionGate,
+        actor_id: impl Into<String>,
+        scope: impl Into<String>,
+        strength: MandateStrength,
+        now_ms: u128,
+    ) -> Self {
+        self.tool_gate = Some(ToolGateContext {
+            gate,
+            actor_id: actor_id.into(),
+            scope: scope.into(),
+            strength,
+            now_ms,
+        });
+        self
     }
 
     pub fn with_route_objective(mut self, objective: RouteObjective) -> Self {
@@ -155,6 +188,37 @@ impl AgentRuntime {
 
     pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
         self.tools.capabilities()
+    }
+
+    async fn execute_tool(
+        &self,
+        call: &crate::domain::ToolCall,
+        permissions: &crate::domain::PermissionSet,
+        cancellation: &CancellationToken,
+    ) -> ToolObservation {
+        if let Some(context) = &self.tool_gate
+            && let Err(error) = context.gate.authorize(
+                &ToolCallRequest {
+                    actor_id: context.actor_id.clone(),
+                    tool: call.name.clone(),
+                    scope: context.scope.clone(),
+                    strength: context.strength,
+                    risk: RiskLevel::Low,
+                },
+                context.now_ms,
+            )
+        {
+            return ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status: ToolStatus::PermissionDenied,
+                summary: error.to_string(),
+                content: String::new(),
+                error_code: Some("authority_denied".into()),
+                metadata: Default::default(),
+            };
+        }
+        self.tools.execute(call, permissions, cancellation).await
     }
 
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
@@ -1139,8 +1203,7 @@ impl AgentRuntime {
                                 source,
                             })?;
                         let observation = self
-                            .tools
-                            .execute(&call, &request.permissions, &cancellation)
+                            .execute_tool(&call, &request.permissions, &cancellation)
                             .await;
                         journal
                             .append(JournalEventKind::ToolObserved {
@@ -1519,7 +1582,9 @@ fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{AgentAnswer, PermissionSet, RunBudget, Usage};
+    use crate::authority::{AuthorityProfile, AuthorityRegistry};
+    use crate::domain::{AgentAnswer, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage};
+    use crate::execution_gate::ExecutionGate;
     use crate::experience::{
         ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
     };
@@ -1627,6 +1692,64 @@ mod tests {
     }
 
     struct RetryableFailureProvider;
+
+    fn gated_runtime(dir: &std::path::Path, allowed_tool: &str) -> AgentRuntime {
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "tool-profile".into(),
+                actor_id: "owner-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: crate::task_graph::MandateStrength::ReadOnly,
+                allowed_tools: vec![allowed_tool.into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::Low,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("owner-1", "tool-profile").unwrap();
+        let mut registry = default_registry();
+        registry.register(std::sync::Arc::new(EchoTool));
+        let gate = ExecutionGate::new(authority, &registry);
+        AgentRuntime::new(Vec::new(), registry, dir.join(".journal")).with_execution_gate(
+            gate,
+            "owner-1",
+            "repo:1-agent",
+            crate::task_graph::MandateStrength::ReadOnly,
+            10,
+        )
+    }
+
+    #[tokio::test]
+    async fn execution_gate_denies_tools_before_they_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let denied = gated_runtime(dir.path(), "read_file")
+            .execute_tool(
+                &ToolCall {
+                    id: "call-1".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "hi"}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(denied.status, ToolStatus::PermissionDenied);
+        assert_eq!(denied.error_code.as_deref(), Some("authority_denied"));
+
+        let allowed = gated_runtime(dir.path(), "echo")
+            .execute_tool(
+                &ToolCall {
+                    id: "call-2".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "hi"}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(allowed.status, ToolStatus::Ok, "{allowed:?}");
+    }
 
     #[test]
     fn manifest_pricing_is_applied_when_provider_cost_is_unknown() {
