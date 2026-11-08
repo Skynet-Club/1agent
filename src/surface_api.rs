@@ -88,8 +88,11 @@ pub enum SurfaceMethod {
         actor: Option<String>,
         kind: Option<String>,
         target: Option<String>,
+        #[serde(default)]
+        after_seq: Option<u64>,
         limit: usize,
     },
+    ActionLogSummary,
     GoalList,
     GoalCreate {
         goal_id: String,
@@ -244,6 +247,7 @@ impl SurfaceMethod {
                 actor,
                 kind,
                 target,
+                after_seq: _,
                 limit,
             } => {
                 if let Some(actor) = actor {
@@ -258,7 +262,7 @@ impl SurfaceMethod {
                 }
                 validate_limit(Some(*limit), false)
             }
-            Self::GoalList | Self::EvolutionLedger => Ok(()),
+            Self::GoalList | Self::EvolutionLedger | Self::ActionLogSummary => Ok(()),
             Self::EvolutionPropose {
                 proposal_id,
                 proposer,
@@ -769,6 +773,9 @@ pub fn openapi_document() -> serde_json::Value {
             "/v0/action-log/query": {
                 "post": {"operationId": "queryActionLog", "summary": "Query security actions"}
             },
+            "/v0/action-log/summary": {
+                "post": {"operationId": "summarizeActionLog", "summary": "Summarize security actions"}
+            },
             "/v0/goals": {
                 "get": {"operationId": "listGoals", "summary": "List goals and commitments"}
             },
@@ -880,6 +887,7 @@ pub fn validate_openapi(document: &serde_json::Value) -> Result<(), String> {
         "/v0/tickets/{ticket_id}/approve",
         "/v0/audit/query",
         "/v0/action-log/query",
+        "/v0/action-log/summary",
         "/v0/goals",
         "/v0/goals/create",
         "/v0/goals/status",

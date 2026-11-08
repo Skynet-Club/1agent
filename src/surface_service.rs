@@ -208,14 +208,17 @@ impl SurfaceService {
                 actor,
                 kind,
                 target,
+                after_seq,
                 limit,
             } => self.action_log_query(
                 auth,
                 actor.as_deref(),
                 kind.as_deref(),
                 target.as_deref(),
+                *after_seq,
                 *limit,
             ),
+            SurfaceMethod::ActionLogSummary => self.action_log_summary(auth),
             SurfaceMethod::GoalList => self.goal_list(auth),
             SurfaceMethod::GoalCreate {
                 goal_id,
@@ -860,6 +863,7 @@ impl SurfaceService {
         actor: Option<&str>,
         kind: Option<&str>,
         target: Option<&str>,
+        after_seq: Option<u64>,
         limit: usize,
     ) -> Result<serde_json::Value, SurfaceError> {
         auth.require("audit:read")?;
@@ -870,8 +874,17 @@ impl SurfaceService {
             ),
             None => None,
         };
-        let entries = self.graph.actions().query(actor, kind, target, limit);
+        let entries = self
+            .graph
+            .actions()
+            .query_page(actor, kind, target, after_seq, limit);
         serde_json::to_value(entries)
+            .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "action log encode", false))
+    }
+
+    fn action_log_summary(&self, auth: &AuthContext) -> Result<serde_json::Value, SurfaceError> {
+        auth.require("audit:read")?;
+        serde_json::to_value(self.graph.actions().summary())
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "action log encode", false))
     }
 
@@ -2167,6 +2180,7 @@ mod tests {
                 actor: Some("owner-1".into()),
                 kind: Some("approve".into()),
                 target: Some(ticket_id.clone()),
+                after_seq: None,
                 limit: 10,
             },
         };
@@ -2177,6 +2191,20 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["kind"], "approve");
         assert_eq!(entries[0]["actor"], "owner-1");
+
+        let summary = service.handle(
+            &SurfaceRequest {
+                protocol_version: "v0".into(),
+                request_id: "request-action-summary".into(),
+                trace_id: "trace-actions".into(),
+                idempotency_key: None,
+                method: SurfaceMethod::ActionLogSummary,
+            },
+            &auth,
+            22,
+        );
+        assert!(summary.ok, "{summary:?}");
+        assert_eq!(summary.result.unwrap()["total"], 1);
 
         let mut invalid = query;
         if let SurfaceMethod::ActionLogQuery { kind, .. } = &mut invalid.method {

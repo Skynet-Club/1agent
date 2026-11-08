@@ -1,5 +1,7 @@
 //! Hash-chained action log for security-relevant operations.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -15,7 +17,7 @@ pub enum ActionLogError {
     HashMismatch(u64),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
     Approve,
@@ -62,6 +64,28 @@ impl std::str::FromStr for ActionKind {
             other => Err(format!("unknown action kind {other}")),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ActionActorCount {
+    pub actor: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ActionKindCount {
+    pub kind: ActionKind,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ActionLogSummary {
+    pub total: u64,
+    pub actors: Vec<ActionActorCount>,
+    pub kinds: Vec<ActionKindCount>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -169,6 +193,46 @@ impl ActionLog {
             .collect()
     }
 
+    pub fn query_page(
+        &self,
+        actor: Option<&str>,
+        kind: Option<ActionKind>,
+        target: Option<&str>,
+        after_seq: Option<u64>,
+        limit: usize,
+    ) -> Vec<&ActionLogEntry> {
+        self.entries
+            .iter()
+            .filter(|entry| {
+                after_seq.is_none_or(|after| entry.seq > after)
+                    && actor.is_none_or(|actor| entry.actor == actor)
+                    && kind.is_none_or(|kind| entry.kind == kind)
+                    && target.is_none_or(|target| entry.target == target)
+            })
+            .take(limit)
+            .collect()
+    }
+
+    pub fn summary(&self) -> ActionLogSummary {
+        let mut actors = BTreeMap::<String, u64>::new();
+        let mut kinds = BTreeMap::<ActionKind, u64>::new();
+        for entry in &self.entries {
+            *actors.entry(entry.actor.clone()).or_insert(0) += 1;
+            *kinds.entry(entry.kind).or_insert(0) += 1;
+        }
+        ActionLogSummary {
+            total: self.entries.len() as u64,
+            actors: actors
+                .into_iter()
+                .map(|(actor, count)| ActionActorCount { actor, count })
+                .collect(),
+            kinds: kinds
+                .into_iter()
+                .map(|(kind, count)| ActionKindCount { kind, count })
+                .collect(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -242,6 +306,25 @@ mod tests {
                 .len(),
             1
         );
+        assert_eq!(
+            log.query_page(None, None, None, Some(1), 10)
+                .iter()
+                .map(|entry| entry.seq)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+        let summary = log.summary();
+        assert_eq!(summary.total, 3);
+        assert_eq!(
+            summary
+                .actors
+                .iter()
+                .find(|actor| actor.actor == "owner")
+                .unwrap()
+                .count,
+            2
+        );
+        assert_eq!(summary.kinds.len(), 3);
         assert_eq!(log.len(), 3);
     }
 
