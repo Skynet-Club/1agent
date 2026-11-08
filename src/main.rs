@@ -6480,6 +6480,9 @@ fn finish_tui_reframe(
 }
 
 fn display_tui_next_actions(state: &mut TuiState) -> bool {
+    if state.host_binding().kind() == first_principles_agent::HostKind::Standalone {
+        return false;
+    }
     let stage = state.command_stage();
     let host = state.host_binding().clone();
     let candidates = stage_next_actions(stage);
@@ -12818,10 +12821,23 @@ mod next_action_panel_tests {
     use super::*;
 
     #[test]
-    fn the_next_action_panel_opens_with_a_default_entry() {
+    fn the_next_action_panel_opens_for_a_master_with_a_default_entry() {
         let mut state = TuiState::new("mock", 6, 120);
+        state.set_host_binding(HostBinding::workshop_context(
+            "master",
+            "main-coordinator",
+            "1agent",
+            "term-1790000000000-1234-1",
+        ));
         assert!(display_tui_next_actions(&mut state));
         assert!(state.command_panel_open());
         assert!(state.command_panel_menu_open());
+    }
+
+    #[test]
+    fn a_standalone_turn_does_not_open_the_next_action_panel() {
+        let mut state = TuiState::new("mock", 6, 120);
+        assert!(!display_tui_next_actions(&mut state));
+        assert!(!state.command_panel_open());
     }
 }

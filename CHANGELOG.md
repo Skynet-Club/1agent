@@ -8,6 +8,7 @@
   SHA-256 snapshot locks for delegation/evolution stores.
 - Added best-effort HTTPS alert webhooks for provider health from `run` and
   `serve`.
+- Fixed standalone TUI turns opening a modal `/frame` next-action menu and small-talk turns calling tools.
 - Added a single runtime home (`$ONEAGENT_HOME` or `$HOME/.1a`) with
   `init`, `doctor`, `export`, `restore`, `upgrade` and `uninstall`; exports use
   a SHA-256 manifest and exclude key/credential files.

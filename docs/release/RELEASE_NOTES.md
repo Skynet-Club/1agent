@@ -19,6 +19,8 @@ Status: **release candidate, not publicly releasable**
   health events.
 - **Restart continuity**: goals, commitments, memory, delegation and evolution
   survive a full reopen; the context graph explains goal/commitment links.
+- **TUI**: standalone turns no longer open a modal `/next` menu; `/` commands
+  remain discoverable, and greetings/connectivity checks stay tool-free.
 - **Packaging**: reproducible Linux/Windows archives, release manifest,
   installer and third-party license inventory.
 

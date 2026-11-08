@@ -585,9 +585,9 @@ pub fn stage_next_actions(stage: CommandStage) -> &'static [TuiCommandId] {
             TuiCommandId::Tools,
         ],
         CommandStage::NoMission => &[
-            TuiCommandId::Frame,
-            TuiCommandId::Evidence,
             TuiCommandId::Status,
+            TuiCommandId::Evidence,
+            TuiCommandId::Frame,
         ],
         CommandStage::Framing => &[
             TuiCommandId::Decide,

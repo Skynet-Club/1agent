@@ -1902,7 +1902,7 @@ impl TuiState {
             .map(|(_, model)| model)
             .unwrap_or(&self.provider_label);
         let left = format!(
-            " {model} · {} · Ctrl+Tab 切换",
+            " {model} · {} · / 命令 · Ctrl+Tab 切换",
             self.displayed_mode().label_zh()
         );
         let right = format!("上下文 {}% ", self.context_percent());

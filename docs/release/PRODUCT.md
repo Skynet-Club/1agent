@@ -36,6 +36,8 @@ The product is split into three layers:
   typed Surface API for local integrations.
 - Optional Workshop adapter for real execution; without Workshop, the product is
   analysis/planning only.
+- A conversational standalone TUI: answers do not open unsolicited command
+  menus; `/` exposes the command surface.
 
 ## What it is not
 

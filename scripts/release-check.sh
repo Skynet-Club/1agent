@@ -24,6 +24,9 @@ cargo test --offline --test http_surface_e2e -- --ignored
 echo "== ci"
 ./scripts/ci.sh
 
+echo "== tui interaction"
+./scripts/tui-interaction-check.sh
+
 if [[ "${1:-}" == "--soak" ]]; then
     cycles="${SOAK_CYCLES:-5}"
     echo "== soak cycles=$cycles"

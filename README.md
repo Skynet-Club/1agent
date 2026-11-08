@@ -297,6 +297,7 @@ cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline
 ./scripts/verify.sh
 ./scripts/verify-reproducible-package.sh
+./scripts/tui-interaction-check.sh
 cargo run --offline -- release verify --manifest dist/1agent-0.95.0-release.json
 ```
 
