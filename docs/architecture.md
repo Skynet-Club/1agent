@@ -117,8 +117,9 @@ events or provider/tool contracts.
 ## Product runtime home
 
 `1agent init` creates one private home (`$ONEAGENT_HOME` or `$HOME/.1a`) marked by
-`home.json`. `doctor` reports marker/version, permissions, layout, master-key and
-writability checks and verifies any task-graph/memory/skill journal hash chain;
+`home.json` (layout version 2 keeps key material under `keys/`). `doctor`
+reports marker/version, permissions, layout, master-key and writability checks
+and verifies any task-graph/memory/skill journal hash chain;
 `export`/`restore` use a hash-manifest bundle that excludes key
 and credential files; `upgrade` repairs the current layout and rejects unknown
 versions; `uninstall` requires `--purge --yes` and refuses unsafe paths. Once a
@@ -129,9 +130,13 @@ encrypts the master key and KEK ledger under a separate 0600 recovery key;
 `key restore` verifies and restores them without overwriting existing material.
 The task-graph, memory, skill, goal and action stores take a sibling `flock`
 around tail repair/replay and append, and reject a stale writer by byte length.
-There is no cross-process index or automatic merge. See ADR-0024 for the export
-boundary, ADR-0025 for the local key-escrow boundary and ADR-0026 for the
-cross-process journal lock.
+Memory payload/key operations take `<memory.key>.lock` and reload the keyring
+under it; delegation/evolution snapshots use a lock plus SHA-256 version check.
+Long-lived services reload after a conflict and surface a retryable error. There
+is no cross-process index or automatic merge. Provider health alerts can be
+posted to an HTTPS webhook from `run`/`serve`. See ADR-0024 for the home/export
+boundary, ADR-0025 for key escrow, ADR-0026 for cross-process locks and ADR-0027
+for the alert webhook.
 
 ## Master-Agent V1
 
