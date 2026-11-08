@@ -572,6 +572,90 @@ pub struct CommandEntry {
     pub unavailable: Option<&'static str>,
 }
 
+/// Drawer sections, in display order. Recent commands form their own section
+/// and are removed from the category they would otherwise appear in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandGroup {
+    Session,
+    Reasoning,
+    Evidence,
+    Model,
+    Master,
+}
+
+impl CommandGroup {
+    pub const ORDER: [Self; 5] = [
+        Self::Session,
+        Self::Reasoning,
+        Self::Evidence,
+        Self::Model,
+        Self::Master,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Session => "会话",
+            Self::Reasoning => "思考",
+            Self::Evidence => "证据",
+            Self::Model => "模型与权限",
+            Self::Master => "总控",
+        }
+    }
+}
+
+pub fn command_group(id: TuiCommandId) -> CommandGroup {
+    match id {
+        TuiCommandId::Help
+        | TuiCommandId::Status
+        | TuiCommandId::Details
+        | TuiCommandId::Journal
+        | TuiCommandId::Clear
+        | TuiCommandId::Quit
+        | TuiCommandId::Session
+        | TuiCommandId::Workspace
+        | TuiCommandId::Context
+        | TuiCommandId::Preset
+        | TuiCommandId::Export
+        | TuiCommandId::Copy
+        | TuiCommandId::Cost
+        | TuiCommandId::Config => CommandGroup::Session,
+        TuiCommandId::Frame
+        | TuiCommandId::Challenge
+        | TuiCommandId::Decide
+        | TuiCommandId::Postmortem
+        | TuiCommandId::Reframe => CommandGroup::Reasoning,
+        TuiCommandId::Evidence | TuiCommandId::Audit | TuiCommandId::Report => {
+            CommandGroup::Evidence
+        }
+        TuiCommandId::Mode
+        | TuiCommandId::Model
+        | TuiCommandId::Permissions
+        | TuiCommandId::Tools => CommandGroup::Model,
+        TuiCommandId::Mission
+        | TuiCommandId::Triage
+        | TuiCommandId::Plan
+        | TuiCommandId::Approve
+        | TuiCommandId::Agents
+        | TuiCommandId::Assign
+        | TuiCommandId::Dispatch
+        | TuiCommandId::Board
+        | TuiCommandId::Watch
+        | TuiCommandId::Attention
+        | TuiCommandId::Respond
+        | TuiCommandId::Control
+        | TuiCommandId::Artifacts
+        | TuiCommandId::Verify
+        | TuiCommandId::Timeline => CommandGroup::Master,
+    }
+}
+
+/// A command row plus the section heading that precedes it, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandDrawerRow {
+    pub heading: Option<&'static str>,
+    pub entry: CommandEntry,
+}
+
 fn stage_label(stage: CommandStage) -> &'static str {
     match stage {
         CommandStage::Any => "任意",
@@ -637,6 +721,84 @@ pub fn command_entries(
         .collect::<Vec<_>>();
     entries.sort_by_key(|(score, _)| *score);
     entries.into_iter().map(|(_, entry)| entry).collect()
+}
+
+/// Drawer rows for the empty `/` query: recent commands first, then category
+/// sections. A non-empty query keeps the flat fuzzy-match order.
+pub fn drawer_rows(
+    prefix: &str,
+    host: &HostBinding,
+    stage: CommandStage,
+    running: bool,
+    recent: &[TuiCommandId],
+) -> Vec<CommandDrawerRow> {
+    let entries = command_entries(prefix, host, stage, running);
+    if prefix.trim() != "/" {
+        return entries
+            .into_iter()
+            .map(|entry| CommandDrawerRow {
+                heading: None,
+                entry,
+            })
+            .collect();
+    }
+
+    let mut used = vec![false; entries.len()];
+    let mut rows = Vec::new();
+    let mut recent_entries = Vec::new();
+    for id in recent.iter().take(5) {
+        let Some((index, entry)) = entries
+            .iter()
+            .enumerate()
+            .find(|(index, entry)| !used[*index] && entry.spec.id == *id)
+        else {
+            continue;
+        };
+        used[index] = true;
+        recent_entries.push(*entry);
+        if recent_entries.len() == 3 {
+            break;
+        }
+    }
+    for (index, entry) in recent_entries.into_iter().enumerate() {
+        rows.push(CommandDrawerRow {
+            heading: (index == 0).then_some("最近"),
+            entry,
+        });
+    }
+
+    for group in CommandGroup::ORDER {
+        let mut first = true;
+        for (index, entry) in entries.iter().enumerate() {
+            if used[index] || command_group(entry.spec.id) != group {
+                continue;
+            }
+            rows.push(CommandDrawerRow {
+                heading: first.then_some(group.label()),
+                entry: *entry,
+            });
+            first = false;
+        }
+    }
+    rows
+}
+
+/// Commands that need a second Enter because they discard work or change a
+/// running master's task state.
+pub fn is_destructive_input(input: &str) -> bool {
+    let (name, args) = input
+        .trim()
+        .split_once(char::is_whitespace)
+        .map_or((input.trim(), ""), |(name, args)| (name, args.trim()));
+    match name {
+        "/clear" => true,
+        "/dispatch" => args.split_whitespace().next() != Some("dry-run"),
+        "/control" => matches!(
+            args.split_whitespace().next(),
+            Some("cancel") | Some("takeover")
+        ),
+        _ => false,
+    }
 }
 
 /// Available commands only, used by completion and existing callers.
@@ -1282,5 +1444,65 @@ mod next_action_stage_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn drawer_groups_standalone_commands_and_keeps_recent_first() {
+        let rows = drawer_rows(
+            "/",
+            &host(HostKind::Standalone),
+            CommandStage::NoMission,
+            false,
+            &[TuiCommandId::Mode, TuiCommandId::Status],
+        );
+        assert_eq!(rows[0].heading, Some("最近"));
+        assert_eq!(rows[0].entry.spec.id, TuiCommandId::Mode);
+        assert_eq!(rows[1].entry.spec.id, TuiCommandId::Status);
+        assert!(
+            rows.iter()
+                .all(|row| row.entry.spec.scope == TuiCommandScope::Core)
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.heading == Some(CommandGroup::Session.label()))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.heading == Some(CommandGroup::Evidence.label()))
+        );
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.entry.spec.id == TuiCommandId::Mode)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn drawer_keeps_a_flat_order_when_the_query_has_content() {
+        let rows = drawer_rows(
+            "/st",
+            &host(HostKind::Standalone),
+            CommandStage::NoMission,
+            false,
+            &[],
+        );
+        assert!(rows.iter().all(|row| row.heading.is_none()));
+        assert!(
+            rows.iter()
+                .any(|row| row.entry.spec.id == TuiCommandId::Status)
+        );
+    }
+
+    #[test]
+    fn destructive_inputs_require_confirmation() {
+        assert!(is_destructive_input("/clear"));
+        assert!(is_destructive_input("/dispatch"));
+        assert!(is_destructive_input("/dispatch start task-1"));
+        assert!(!is_destructive_input("/dispatch dry-run"));
+        assert!(is_destructive_input("/control cancel task-1"));
+        assert!(is_destructive_input("/control takeover task-1"));
+        assert!(!is_destructive_input("/control pause task-1"));
+        assert!(!is_destructive_input("build a report"));
     }
 }

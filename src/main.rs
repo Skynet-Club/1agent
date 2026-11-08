@@ -30,7 +30,7 @@ use first_principles_agent::{
     doctor, epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
     filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
     home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
-    interactive_terminal_available, key_escrow::escrow as escrow_keys,
+    interactive_terminal_available, is_destructive_input, key_escrow::escrow as escrow_keys,
     key_escrow::restore as restore_keys, list_presets, load_agent_profiles, load_eval_report,
     load_preset, load_suite, local_manifest, master_audit_summary, master_evidence_summary,
     master_report, next_actions, parse_model_output, print_session_banner, probe_provider,
@@ -9312,10 +9312,12 @@ fn activate_workspace_menu_item(
     match id {
         "workspace.set" => show_workspace_set_menu(state, session, settings, None),
         "workspace.set.manual" => {
+            state.close_command_panel();
             state.set_input("/workspace cd ");
             state.set_notice("输入工作区路径后按 Enter");
         }
         "workspace.mention" => {
+            state.close_command_panel();
             state.set_input("/workspace mention ");
             state.set_notice("输入要引用的路径后按 Enter");
         }
@@ -9323,6 +9325,7 @@ fn activate_workspace_menu_item(
         "workspace.init" => handle_workspace_command(state, session, settings, "init"),
         "workspace.worktree" => handle_workspace_command(state, session, settings, "worktree"),
         "workspace.worktree.add" => {
+            state.close_command_panel();
             state.set_input("/workspace worktree add ");
             state.set_notice("输入 worktree 路径和分支后按 Enter");
         }
@@ -9933,6 +9936,21 @@ async fn run_tui_interactive(
             if matches!(&input, TuiInput::Right) {
                 input = TuiInput::Enter;
             }
+            // A panel owns the keyboard until it closes; otherwise typing
+            // silently edits the composer hidden behind the panel.
+            if matches!(
+                &input,
+                TuiInput::Char(_)
+                    | TuiInput::Backspace
+                    | TuiInput::Delete
+                    | TuiInput::Tab
+                    | TuiInput::Home
+                    | TuiInput::End
+                    | TuiInput::Paste(_)
+                    | TuiInput::PasteClipboard
+            ) {
+                continue;
+            }
         }
         match input {
             TuiInput::Char(character) => state.insert_char(character),
@@ -9971,7 +9989,10 @@ async fn run_tui_interactive(
             }
             TuiInput::Tab => {}
             TuiInput::CtrlTab => state.toggle_mode_menu(),
-            TuiInput::CommandPalette => state.set_input("/"),
+            TuiInput::CommandPalette => {
+                state.close_command_panel();
+                state.set_input("/");
+            }
             TuiInput::MouseDown { column, row } => {
                 if !state.handle_follow_control(column, row) {
                     state.begin_selection_drag(column, row);
@@ -10011,13 +10032,25 @@ async fn run_tui_interactive(
                     }
                 } else if state.selected_text().is_some() {
                     state.clear_selection();
+                } else if let Some(command) = state.take_confirmation() {
+                    state.info(format!("已取消：{command}"));
                 } else {
                     state.scroll_to_bottom();
                 }
             }
             TuiInput::Resize => {}
             TuiInput::Enter => {
-                let submission = state.take_submission();
+                let mut confirmed = false;
+                let submission = if state.input().trim().is_empty() {
+                    if let Some(command) = state.take_confirmation() {
+                        confirmed = true;
+                        command
+                    } else {
+                        state.take_submission()
+                    }
+                } else {
+                    state.take_submission()
+                };
                 let mut queued_instruction = None;
                 if submission.trim().is_empty()
                     && let Some(item) = state.selected_command_panel_item()
@@ -10025,6 +10058,7 @@ async fn run_tui_interactive(
                     if let Some(command_line) = item.id.strip_prefix("open:") {
                         queued_instruction = Some(command_line.to_string());
                     } else if let Some(command_line) = item.id.strip_prefix("prompt:") {
+                        state.close_command_panel();
                         state.set_input(command_line);
                         state.set_notice("继续输入命令参数后按 Enter");
                         draw_tui_frame(&mut terminal, &mut state)?;
@@ -10046,6 +10080,12 @@ async fn run_tui_interactive(
                     draw_tui_frame(&mut terminal, &mut state)?;
                     continue;
                 }
+                if !confirmed && is_destructive_input(instruction) {
+                    state.close_command_panel();
+                    state.arm_confirmation(instruction);
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
                 state.record_input(instruction);
                 let resolution = resolve_input(
                     instruction,
@@ -10062,6 +10102,7 @@ async fn run_tui_interactive(
                             state.info(format!("无法写入 session event log：{error}"));
                             continue;
                         }
+                        state.record_command_use(spec.id);
                         if spec.id.uses_command_panel() {
                             state.begin_command_panel(spec.name);
                             state.set_command_panel_menu(command_menu_actions(spec.id));

@@ -27,7 +27,10 @@ The command surface is host-aware. A `HostBinding` distinguishes standalone 1A,
 Workshop Master and Workshop Worker. Core commands are available everywhere; Master
 production-control commands are visible and executable only in the Workshop Master
 binding. Command visibility is a UX rule, not an authorization boundary, so Master
-handlers must revalidate state and adapter authority.
+handlers must revalidate state and adapter authority. The drawer groups the empty
+query by category and puts recent commands first; an open command panel owns the
+keyboard, and destructive clear/dispatch/control actions require a second Enter.
+These are interaction guards, not a replacement for authority checks.
 
 The TUI session store uses version 2 metadata with a version 1 compatibility path and a
 separate append-only `events.jsonl` for host binding, command decisions, task submission

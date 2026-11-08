@@ -1,7 +1,8 @@
 use crate::domain::{CognitiveMode, RiskLevel};
 use crate::safety::is_disallowed_control;
 use crate::tui_commands::{
-    CommandEntry, CommandStage, TuiCommandSpec, command_entries, command_usage, visible_commands,
+    CommandDrawerRow, CommandEntry, CommandStage, TuiCommandId, TuiCommandSpec, command_usage,
+    drawer_rows, visible_commands,
 };
 use crate::tui_host::HostBinding;
 use ratatui::Frame;
@@ -237,6 +238,8 @@ pub struct TuiState {
     welcome_visible: bool,
     transcript: Vec<TranscriptEntry>,
     slash_drawer_dismissed: bool,
+    recent_commands: Vec<TuiCommandId>,
+    pending_confirmation: Option<String>,
     input_history: Vec<String>,
     history_cursor: Option<usize>,
     input: String,
@@ -291,6 +294,8 @@ impl TuiState {
             welcome_visible: true,
             transcript: Vec::new(),
             slash_drawer_dismissed: false,
+            recent_commands: Vec::new(),
+            pending_confirmation: None,
             input_history: Vec::new(),
             history_cursor: None,
             input: String::new(),
@@ -749,6 +754,7 @@ impl TuiState {
         self.clear_transcript_selection();
         self.selected_command = 0;
         self.slash_drawer_dismissed = false;
+        self.pending_confirmation = None;
         self.history_cursor = None;
     }
 
@@ -764,6 +770,7 @@ impl TuiState {
         self.clear_transcript_selection();
         self.selected_command = 0;
         self.slash_drawer_dismissed = false;
+        self.pending_confirmation = None;
         self.history_cursor = None;
     }
 
@@ -804,6 +811,7 @@ impl TuiState {
         self.input_scroll = 0;
         self.selected_command = 0;
         self.slash_drawer_dismissed = false;
+        self.pending_confirmation = None;
         self.history_cursor = Some(index);
         true
     }
@@ -864,10 +872,12 @@ impl TuiState {
         self.input_scroll = self.input_scroll.min(self.input_cursor);
         self.selected_command = 0;
         self.slash_drawer_dismissed = false;
+        self.pending_confirmation = None;
         self.history_cursor = None;
     }
 
     pub fn backspace(&mut self) {
+        self.pending_confirmation = None;
         if let Some((start, end)) = self.selection_range() {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
@@ -882,6 +892,7 @@ impl TuiState {
     }
 
     pub fn delete(&mut self) {
+        self.pending_confirmation = None;
         if let Some((start, end)) = self.selection_range() {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
@@ -1062,13 +1073,44 @@ impl TuiState {
         self.details_scroll = 0;
     }
 
-    pub fn filtered_command_entries(&self) -> Vec<CommandEntry> {
-        command_entries(
+    pub fn filtered_drawer_rows(&self) -> Vec<CommandDrawerRow> {
+        drawer_rows(
             &self.input,
             &self.host_binding,
             self.command_stage,
             self.status == TuiStatus::Running,
+            &self.recent_commands,
         )
+    }
+
+    pub fn filtered_command_entries(&self) -> Vec<CommandEntry> {
+        self.filtered_drawer_rows()
+            .into_iter()
+            .map(|row| row.entry)
+            .collect()
+    }
+
+    pub fn record_command_use(&mut self, id: TuiCommandId) {
+        self.recent_commands.retain(|recent| *recent != id);
+        self.recent_commands.insert(0, id);
+        self.recent_commands.truncate(5);
+    }
+
+    pub fn arm_confirmation(&mut self, command: &str) {
+        self.pending_confirmation = Some(command.to_string());
+        self.set_notice(format!("危险操作：再次按 Enter 执行 {command}，Esc 取消"));
+    }
+
+    pub fn pending_confirmation(&self) -> Option<&str> {
+        self.pending_confirmation.as_deref()
+    }
+
+    pub fn take_confirmation(&mut self) -> Option<String> {
+        self.pending_confirmation.take()
+    }
+
+    pub fn clear_confirmation(&mut self) {
+        self.pending_confirmation = None;
     }
 
     pub fn filtered_commands(&self) -> Vec<TuiCommandSpec> {
@@ -1347,7 +1389,13 @@ impl TuiState {
         self.draw_status_bar(frame, chunks[5]);
 
         if self.slash_drawer_open() {
-            let popup_height = (self.filtered_command_entries().len().clamp(1, 8) + 2) as u16;
+            let rows = self.filtered_drawer_rows();
+            let display_rows = rows
+                .iter()
+                .map(|row| 1 + usize::from(row.heading.is_some()))
+                .sum::<usize>()
+                .clamp(1, 12);
+            let popup_height = (display_rows + 2) as u16;
             let popup_height = popup_height.min(chunks[0].height);
             let popup_width = chunks[0].width.min(86);
             let popup = Rect {
@@ -2288,46 +2336,56 @@ impl TuiState {
     }
 
     fn draw_command_drawer(&self, frame: &mut Frame, area: Rect) {
-        let entries = self.filtered_command_entries();
-        let items = if entries.is_empty() {
-            vec![ListItem::new(Line::styled(
+        let rows = self.filtered_drawer_rows();
+        let selected = rows
+            .len()
+            .checked_sub(1)
+            .map(|last| self.selected_command.min(last));
+        let mut items = Vec::new();
+        let mut selected_item = None;
+        for (index, row) in rows.iter().enumerate() {
+            if let Some(heading) = row.heading {
+                items.push(ListItem::new(Line::styled(
+                    format!("  {heading}"),
+                    Style::default().fg(MUTED_TEXT).add_modifier(Modifier::BOLD),
+                )));
+            }
+            let entry = row.entry;
+            let is_selected = selected == Some(index);
+            let bar = if is_selected { "▌ " } else { "  " };
+            let (name_style, description_style) = if entry.unavailable.is_some() {
+                (
+                    Style::default().fg(MUTED_TEXT),
+                    Style::default().fg(MUTED_TEXT),
+                )
+            } else {
+                (
+                    Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(COMMAND_DESCRIPTION),
+                )
+            };
+            let detail = match entry.unavailable {
+                Some(reason) => format!("{}  [{reason}]", entry.spec.description),
+                None => entry.spec.description.to_string(),
+            };
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(bar, Style::default().fg(UI_ACCENT)),
+                Span::styled(fit_row(entry.spec.name, 16), name_style),
+                Span::styled(detail, description_style),
+            ])));
+            if is_selected {
+                selected_item = Some(items.len() - 1);
+            }
+        }
+        if items.is_empty() {
+            items.push(ListItem::new(Line::styled(
                 " 没有匹配的命令",
                 Style::default().fg(MUTED_TEXT),
-            ))]
-        } else {
-            let selected = self.selected_command.min(entries.len().saturating_sub(1));
-            entries
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| {
-                    let bar = if index == selected { "▌ " } else { "  " };
-                    let (name_style, description_style) = if entry.unavailable.is_some() {
-                        (
-                            Style::default().fg(MUTED_TEXT),
-                            Style::default().fg(MUTED_TEXT),
-                        )
-                    } else {
-                        (
-                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
-                            Style::default().fg(COMMAND_DESCRIPTION),
-                        )
-                    };
-                    let detail = match entry.unavailable {
-                        Some(reason) => format!("{}  [{reason}]", entry.spec.description),
-                        None => entry.spec.description.to_string(),
-                    };
-                    ListItem::new(Line::from(vec![
-                        Span::styled(bar, Style::default().fg(UI_ACCENT)),
-                        Span::styled(fit_row(entry.spec.name, 16), name_style),
-                        Span::styled(detail, description_style),
-                    ]))
-                })
-                .collect::<Vec<_>>()
-        };
+            )));
+            selected_item = Some(0);
+        }
         let mut state = ListState::default();
-        state.select(Some(
-            self.selected_command.min(items.len().saturating_sub(1)),
-        ));
+        state.select(selected_item);
         frame.render_widget(Clear, area);
         let block = menu_block(
             self.command_drawer_title(),
@@ -3906,6 +3964,37 @@ mod tests {
         state.set_input("/fra");
         assert!(state.complete_selected_command());
         assert_eq!(state.input(), "/frame ");
+    }
+
+    #[test]
+    fn recent_commands_are_deduplicated_and_lead_the_drawer() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.record_command_use(TuiCommandId::Status);
+        state.record_command_use(TuiCommandId::Mode);
+        state.record_command_use(TuiCommandId::Status);
+        state.set_input("/");
+        let rows = state.filtered_drawer_rows();
+        assert_eq!(rows[0].heading, Some("最近"));
+        assert_eq!(rows[0].entry.spec.id, TuiCommandId::Status);
+        assert_eq!(rows[1].entry.spec.id, TuiCommandId::Mode);
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.entry.spec.id == TuiCommandId::Status)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn typing_cancels_an_armed_confirmation() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.arm_confirmation("/clear");
+        assert_eq!(state.pending_confirmation(), Some("/clear"));
+        state.insert_char('x');
+        assert_eq!(state.pending_confirmation(), None);
+        state.arm_confirmation("/dispatch");
+        assert_eq!(state.take_confirmation().as_deref(), Some("/dispatch"));
+        assert_eq!(state.pending_confirmation(), None);
     }
 
     #[test]

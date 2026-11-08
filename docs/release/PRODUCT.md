@@ -37,7 +37,8 @@ The product is split into three layers:
 - Optional Workshop adapter for real execution; without Workshop, the product is
   analysis/planning only.
 - A conversational standalone TUI: answers do not open unsolicited command
-  menus; `/` exposes the command surface.
+  menus; `/` exposes a categorized command surface with recent commands,
+  keyboard-isolated panels and confirmation for destructive actions.
 
 ## What it is not
 

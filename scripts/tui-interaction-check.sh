@@ -53,8 +53,8 @@ if [[ "$mode_key" != *"切换模式"* ]]; then
 fi
 
 drawer="$(render --keys $'/' --settle 2)"
-if [[ "$drawer" != *"/help"* || "$drawer" != *"命令"* ]]; then
-  echo "tui-interaction-check: slash drawer did not render the command list" >&2
+if [[ "$drawer" != *"/help"* || "$drawer" != *"命令"* || "$drawer" != *"会话"* ]]; then
+  echo "tui-interaction-check: slash drawer did not render categories" >&2
   exit 1
 fi
 
@@ -64,4 +64,16 @@ if [[ "$completion" != *"/frame"* || "$completion" != *"参数"* ]]; then
   exit 1
 fi
 
-echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, drawer and Tab completion render)"
+confirmation="$(render --keys $'/clear\r' --settle 2)"
+if [[ "$confirmation" != *"危险操作"* || "$confirmation" != *"/clear"* ]]; then
+  echo "tui-interaction-check: destructive command did not ask for confirmation" >&2
+  exit 1
+fi
+
+panel_focus="$(render --keys $'/help\rabc' --settle 2)"
+if [[ "$panel_focus" != *"命令"* || "$panel_focus" == *"abc"* ]]; then
+  echo "tui-interaction-check: command panel did not isolate the composer" >&2
+  exit 1
+fi
+
+echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation and panel focus render)"

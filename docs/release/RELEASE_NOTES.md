@@ -23,7 +23,10 @@ Status: **release candidate, not publicly releasable**
   remain discoverable; greetings/connectivity checks stay tool-free. The mode
   menu is reachable by `/mode`, Ctrl+T (portable) or Ctrl+Tab, with six modes.
   The slash drawer supports fuzzy/name+description matching, disabled-command
-  reasons, Tab argument completion and non-executing completion on Enter.
+  reasons, Tab argument completion and non-executing completion on Enter. The
+  empty drawer is grouped by category with the three most recent commands first;
+  command panels own the keyboard; destructive clear/dispatch/control actions
+  require a second Enter.
 - **Packaging**: reproducible Linux/Windows archives, release manifest,
   installer and third-party license inventory.
 
@@ -38,7 +41,7 @@ Status: **release candidate, not publicly releasable**
 
 ## Verification
 
-- 632 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
+- 646 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
   HTTP and loopback runs.
 - `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
   cycles.
