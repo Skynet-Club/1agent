@@ -4,6 +4,8 @@
 //! messages or create work. A caller decides which candidates to surface and
 //! records that decision elsewhere.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::goal::{CommitmentStatus, GoalGraph, GoalStatus};
@@ -44,6 +46,70 @@ impl Default for AttentionPolicy {
             max_candidates: 10,
             include_missed: true,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct AttentionEntry {
+    last_surfaced_ms: Option<u128>,
+    snoozed_until_ms: Option<u128>,
+}
+
+/// In-memory delivery state for dedupe/silence. Persistence is the caller's
+/// responsibility; without a state the projection remains stateless.
+#[derive(Debug, Default)]
+pub struct AttentionState {
+    entries: BTreeMap<String, AttentionEntry>,
+    min_interval_ms: u128,
+}
+
+impl AttentionState {
+    pub fn new(min_interval_ms: u128) -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            min_interval_ms,
+        }
+    }
+
+    pub fn min_interval_ms(&self) -> u128 {
+        self.min_interval_ms
+    }
+
+    pub fn snooze(&mut self, candidate_id: &str, until_ms: u128) {
+        self.entries
+            .entry(candidate_id.into())
+            .or_default()
+            .snoozed_until_ms = Some(until_ms);
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Filter candidates already surfaced inside `min_interval_ms` or snoozed.
+    /// Returned candidates are marked as surfaced at `now_ms`.
+    pub fn filter_new(
+        &mut self,
+        candidates: Vec<AttentionCandidate>,
+        now_ms: u128,
+        min_interval_ms: u128,
+    ) -> Vec<AttentionCandidate> {
+        let mut delivered = Vec::new();
+        for candidate in candidates {
+            let entry = self.entries.entry(candidate.id.clone()).or_default();
+            if entry.snoozed_until_ms.is_some_and(|until| until > now_ms) {
+                continue;
+            }
+            if entry
+                .last_surfaced_ms
+                .is_some_and(|last| now_ms.saturating_sub(last) < min_interval_ms)
+            {
+                continue;
+            }
+            entry.last_surfaced_ms = Some(now_ms);
+            delivered.push(candidate);
+        }
+        delivered
     }
 }
 
@@ -231,6 +297,31 @@ mod tests {
             ..policy
         };
         assert!(attention_candidates(&graph, 1_000, &empty).is_empty());
+    }
+
+    #[test]
+    fn delivery_state_dedupes_and_honors_snooze() {
+        let graph = graph();
+        let candidates = attention_candidates(&graph, 1_000, &AttentionPolicy::default());
+        let mut state = AttentionState::default();
+        let first = state.filter_new(candidates.clone(), 1_000, 100);
+        assert_eq!(first.len(), candidates.len());
+        assert!(state.filter_new(candidates.clone(), 1_050, 100).is_empty());
+        assert!(!state.filter_new(candidates.clone(), 1_100, 100).is_empty());
+
+        state.snooze("commit-overdue", 2_000);
+        let after_snooze = state.filter_new(candidates.clone(), 1_500, 0);
+        assert!(
+            after_snooze
+                .iter()
+                .all(|candidate| candidate.id != "commit-overdue")
+        );
+        let after_expiry = state.filter_new(candidates, 2_000, 0);
+        assert!(
+            after_expiry
+                .iter()
+                .any(|candidate| candidate.id == "commit-overdue")
+        );
     }
 
     #[test]

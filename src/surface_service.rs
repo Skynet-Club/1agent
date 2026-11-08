@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde_json::json;
 
 use crate::action_log::ActionKind;
-use crate::attention::{AttentionPolicy, attention_candidates};
+use crate::attention::{AttentionPolicy, AttentionState, attention_candidates};
 use crate::audit::{AuditError, AuditKind, AuditQuery, audit_export};
 use crate::context_graph::build_context_graph;
 use crate::delegation::{
@@ -35,6 +35,7 @@ pub struct SurfaceResources {
     pub memory: Option<MemoryService>,
     pub skills: Option<SkillService>,
     pub goals: Option<GoalStore>,
+    pub attention: Option<AttentionState>,
     pub delegation: Option<DelegationStore>,
     pub evolution: Option<EvolutionStore>,
     pub audit_paths: BTreeMap<AuditKind, PathBuf>,
@@ -592,7 +593,7 @@ impl SurfaceService {
     }
 
     fn attention_candidates(
-        &self,
+        &mut self,
         auth: &AuthContext,
         lead_ms: u128,
         limit: usize,
@@ -613,6 +614,11 @@ impl SurfaceService {
                 include_missed,
             },
         );
+        let candidates = if let Some(state) = self.resources.attention.as_mut() {
+            state.filter_new(candidates, now_ms, state.min_interval_ms())
+        } else {
+            candidates
+        };
         serde_json::to_value(candidates)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "attention encode", false))
     }
@@ -1538,6 +1544,7 @@ mod tests {
     #[test]
     fn surface_v1_goal_attention_context_delegation_and_evolution() {
         use crate::MemoryService;
+        use crate::attention::AttentionState;
         use crate::delegation::{DelegationMode, DelegationProfile, DelegationStore};
         use crate::domain::RiskLevel;
         use crate::evolution::{EvolutionKind, EvolutionProposalDraft, EvolutionStore};
@@ -1610,6 +1617,7 @@ mod tests {
         service = service.with_resources(SurfaceResources {
             memory: Some(memory),
             goals: Some(goals),
+            attention: Some(AttentionState::new(1_000)),
             delegation: Some(delegation),
             evolution: Some(evolution),
             ..SurfaceResources::default()
@@ -1665,6 +1673,24 @@ mod tests {
         assert!(attention.ok, "{attention:?}");
         let candidates = attention.result.unwrap();
         assert_eq!(candidates.as_array().unwrap().len(), 2);
+
+        let repeated = service.handle(
+            &SurfaceRequest {
+                protocol_version: "v0".into(),
+                request_id: "req-attention-repeat".into(),
+                trace_id: "trace".into(),
+                idempotency_key: None,
+                method: SurfaceMethod::AttentionCandidates {
+                    lead_ms: 1_000,
+                    limit: 10,
+                    include_missed: true,
+                },
+            },
+            &auth,
+            100,
+        );
+        assert!(repeated.ok, "{repeated:?}");
+        assert!(repeated.result.unwrap().as_array().unwrap().is_empty());
 
         let context = service.handle(
             &SurfaceRequest {
