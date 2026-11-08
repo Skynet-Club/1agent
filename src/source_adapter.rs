@@ -6,9 +6,16 @@
 //! health so a silent source can be escalated by maintenance.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
+
+const SOURCE_SNAPSHOT_SCHEMA: u32 = 1;
 
 use crate::governed_task_graph::GovernedTaskGraph;
 use crate::task_graph::{Trigger, TriggerIngest, TriggerSource};
@@ -76,6 +83,26 @@ pub enum SourceWarning {
         idle_ms: u128,
         at_ms: u128,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceAdapterSnapshot {
+    pub schema_version: u32,
+    pub specs: Vec<SourceAdapterSpec>,
+    pub health: Vec<(String, SourceHealth)>,
+}
+
+#[derive(Debug, Error)]
+pub enum SourceStoreError {
+    #[error("source store io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("source store json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("source adapter: {0}")]
+    Adapter(#[from] SourceAdapterError),
+    #[error("source store is corrupt: {0}")]
+    Corrupt(String),
 }
 
 #[derive(Debug, Default)]
@@ -177,6 +204,60 @@ impl SourceAdapterRegistry {
         warnings
     }
 
+    pub fn snapshot(&self) -> SourceAdapterSnapshot {
+        SourceAdapterSnapshot {
+            schema_version: SOURCE_SNAPSHOT_SCHEMA,
+            specs: self.specs.values().cloned().collect(),
+            health: self
+                .health
+                .iter()
+                .map(|(id, h)| (id.clone(), h.clone()))
+                .collect(),
+        }
+    }
+
+    pub fn from_snapshot(snapshot: SourceAdapterSnapshot) -> Result<Self, SourceStoreError> {
+        if snapshot.schema_version != SOURCE_SNAPSHOT_SCHEMA {
+            return Err(SourceStoreError::Corrupt(
+                "unsupported source snapshot schema".into(),
+            ));
+        }
+        let mut registry = Self::default();
+        for spec in snapshot.specs {
+            registry.register(spec)?;
+        }
+        for (adapter_id, health) in snapshot.health {
+            if !registry.health.contains_key(&adapter_id) {
+                return Err(SourceStoreError::Corrupt(
+                    "health entry has no adapter spec".into(),
+                ));
+            }
+            registry.health.insert(adapter_id, health);
+        }
+        Ok(registry)
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), SourceStoreError> {
+        let bytes = serde_json::to_vec_pretty(&self.snapshot())?;
+        write_private_atomic(path.as_ref(), &bytes)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, SourceStoreError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(SourceStoreError::Corrupt(
+                "source store must be a regular file".into(),
+            ));
+        }
+        let bytes = std::fs::read(path)?;
+        let snapshot: SourceAdapterSnapshot = serde_json::from_slice(&bytes)?;
+        Self::from_snapshot(snapshot)
+    }
+
     fn build_trigger(&self, event: &SourceEvent) -> Result<Trigger, SourceAdapterError> {
         let spec = self
             .specs
@@ -204,6 +285,42 @@ impl SourceAdapterRegistry {
             received_ms: event.received_ms,
         })
     }
+}
+
+fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), SourceStoreError> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        crate::jsonl::ensure_parent_private(path)?;
+    }
+    let name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("sources.json");
+    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<(), SourceStoreError> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_data()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        if let Some(parent) = path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -289,6 +406,33 @@ mod tests {
             SourceAdapterError::SummaryTooLong(32)
         );
         assert_eq!(registry.health("webhook").unwrap().deliveries, 0);
+    }
+
+    #[test]
+    fn registry_persists_specs_and_health() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sources.json");
+        let mut registry = SourceAdapterRegistry::default();
+        registry.register(spec("webhook", true, Some(100))).unwrap();
+        let mut graph = GovernedTaskGraph::open(dir.path().join("graph.jsonl")).unwrap();
+        let thread_id = graph.open_thread("persist", 1).unwrap();
+        registry
+            .ingest(&mut graph, &thread_id, event("webhook", "e-1", "x"), 11)
+            .unwrap();
+        registry.save(&path).unwrap();
+
+        let loaded = SourceAdapterRegistry::load(&path).unwrap();
+        assert!(loaded.spec("webhook").is_some());
+        assert_eq!(loaded.health("webhook").unwrap().deliveries, 1);
+        assert_eq!(loaded.health("webhook").unwrap().last_delivery_ms, Some(11));
+        assert_eq!(
+            loaded.maintain(200),
+            vec![SourceWarning::Stale {
+                adapter_id: "webhook".into(),
+                idle_ms: 189,
+                at_ms: 200
+            }]
+        );
     }
 
     #[test]
