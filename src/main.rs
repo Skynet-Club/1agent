@@ -842,6 +842,10 @@ enum SurfaceCommand {
         #[arg(long)]
         goal_journal: Option<PathBuf>,
         #[arg(long)]
+        delegation_store: Option<PathBuf>,
+        #[arg(long)]
+        evolution_store: Option<PathBuf>,
+        #[arg(long)]
         audit_task_graph: Option<PathBuf>,
         #[arg(long)]
         audit_memory: Option<PathBuf>,
@@ -2287,6 +2291,8 @@ async fn main() -> Result<()> {
                 memory_key,
                 skill_journal,
                 goal_journal,
+                delegation_store,
+                evolution_store,
                 audit_task_graph,
                 audit_memory,
                 audit_skill,
@@ -2314,6 +2320,13 @@ async fn main() -> Result<()> {
                         first_principles_agent::GoalStore::open(path)
                             .map_err(anyhow::Error::msg)?,
                     );
+                }
+                if let Some(path) = delegation_store {
+                    resources.delegation =
+                        Some(first_principles_agent::DelegationStore::open(path)?);
+                }
+                if let Some(path) = evolution_store {
+                    resources.evolution = Some(first_principles_agent::EvolutionStore::open(path)?);
                 }
                 match (memory_journal, memory_payloads, memory_key) {
                     (Some(journal), Some(payloads), Some(key)) => {

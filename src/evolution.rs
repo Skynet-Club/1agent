@@ -7,14 +7,20 @@
 //! hash-chained receipt.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use uuid::Uuid;
 
 use crate::domain::RiskLevel;
 
 const MAX_TEXT_CHARS: usize = 2_000;
+const EVOLUTION_SNAPSHOT_SCHEMA: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum EvolutionError {
@@ -40,10 +46,14 @@ pub enum EvolutionError {
     SelfApproval,
     #[error("receipt hash mismatch at {0}")]
     HashMismatch(u64),
+    #[error("proposal digest mismatch for {0}")]
+    ProposalDigestMismatch(String),
     #[error("receipt sequence is not contiguous")]
     NonContiguousSequence,
     #[error("evolution json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("evolution ledger is corrupt: {0}")]
+    Corrupt(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -106,6 +116,7 @@ pub struct EvolutionReceipt {
     pub seq: u64,
     pub receipt_id: String,
     pub proposal_id: String,
+    pub proposal_sha256: String,
     pub action: EvolutionAction,
     pub actor_id: String,
     pub at_ms: u128,
@@ -118,6 +129,31 @@ pub struct EvolutionReceipt {
 pub struct EvolutionLedger {
     pub proposals: Vec<EvolutionProposal>,
     pub receipts: Vec<EvolutionReceipt>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionSnapshot {
+    pub schema_version: u32,
+    pub ledger: EvolutionLedger,
+}
+
+#[derive(Debug, Error)]
+pub enum EvolutionStoreError {
+    #[error("evolution store io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("evolution store json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("evolution: {0}")]
+    Evolution(#[from] EvolutionError),
+    #[error("evolution store is corrupt: {0}")]
+    Corrupt(String),
+}
+
+#[derive(Debug)]
+pub struct EvolutionStore {
+    path: PathBuf,
+    registry: EvolutionRegistry,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -163,10 +199,12 @@ impl EvolutionRegistry {
         };
         let receipt_proposal_id = proposal.proposal_id.clone();
         let receipt_actor = proposal.proposer.clone();
+        let proposal_sha256 = proposal_digest(&proposal)?;
         self.proposals
             .insert(proposal.proposal_id.clone(), proposal);
         self.receipt(
             receipt_proposal_id,
+            proposal_sha256,
             EvolutionAction::Proposed,
             receipt_actor,
             now_ms,
@@ -290,6 +328,53 @@ impl EvolutionRegistry {
         }
     }
 
+    pub fn from_ledger(ledger: EvolutionLedger) -> Result<Self, EvolutionError> {
+        let mut proposals = BTreeMap::new();
+        for proposal in ledger.proposals {
+            if proposals
+                .insert(proposal.proposal_id.clone(), proposal)
+                .is_some()
+            {
+                return Err(EvolutionError::Corrupt(
+                    "duplicate proposal in ledger".into(),
+                ));
+            }
+        }
+        let mut registry = Self {
+            proposals,
+            receipts: ledger.receipts,
+            last_sha256: None,
+        };
+        registry.verify()?;
+        let mut last_action = BTreeMap::new();
+        for receipt in &registry.receipts {
+            last_action.insert(receipt.proposal_id.clone(), receipt.action);
+        }
+        for (proposal_id, proposal) in &registry.proposals {
+            let action = last_action.get(proposal_id).ok_or_else(|| {
+                EvolutionError::Corrupt(format!("proposal {proposal_id} has no receipt"))
+            })?;
+            let expected = match action {
+                EvolutionAction::Proposed => EvolutionStatus::Proposed,
+                EvolutionAction::Approved => EvolutionStatus::Approved,
+                EvolutionAction::Applied => EvolutionStatus::Applied,
+                EvolutionAction::Rejected => EvolutionStatus::Rejected,
+                EvolutionAction::RolledBack => EvolutionStatus::RolledBack,
+            };
+            if proposal.status != expected {
+                return Err(EvolutionError::InvalidState(
+                    proposal_id.clone(),
+                    proposal.status,
+                ));
+            }
+        }
+        registry.last_sha256 = registry
+            .receipts
+            .last()
+            .map(|receipt| receipt.receipt_sha256.clone());
+        Ok(registry)
+    }
+
     pub fn verify(&self) -> Result<(), EvolutionError> {
         let mut previous = None;
         for (index, receipt) in self.receipts.iter().enumerate() {
@@ -301,6 +386,14 @@ impl EvolutionRegistry {
             }
             if receipt.receipt_sha256 != hash_receipt(receipt)? {
                 return Err(EvolutionError::HashMismatch(receipt.seq));
+            }
+            let proposal = self.proposals.get(&receipt.proposal_id).ok_or_else(|| {
+                EvolutionError::ProposalDigestMismatch(receipt.proposal_id.clone())
+            })?;
+            if proposal_digest(proposal)? != receipt.proposal_sha256 {
+                return Err(EvolutionError::ProposalDigestMismatch(
+                    receipt.proposal_id.clone(),
+                ));
             }
             previous = Some(receipt.receipt_sha256.clone());
         }
@@ -320,12 +413,21 @@ impl EvolutionRegistry {
             .get_mut(proposal_id)
             .ok_or_else(|| EvolutionError::UnknownProposal(proposal_id.into()))?;
         proposal.status = status;
-        self.receipt(proposal_id.into(), action, actor_id.into(), now_ms)
+        let proposal_sha256 = proposal_digest(proposal)?;
+        let proposal_id = proposal.proposal_id.clone();
+        self.receipt(
+            proposal_id,
+            proposal_sha256,
+            action,
+            actor_id.into(),
+            now_ms,
+        )
     }
 
     fn receipt(
         &mut self,
         proposal_id: String,
+        proposal_sha256: String,
         action: EvolutionAction,
         actor_id: String,
         at_ms: u128,
@@ -335,6 +437,7 @@ impl EvolutionRegistry {
             seq,
             receipt_id: format!("receipt-{seq}"),
             proposal_id,
+            proposal_sha256,
             action,
             actor_id,
             at_ms,
@@ -449,12 +552,38 @@ fn validate_text(value: &str, error: EvolutionError) -> Result<(), EvolutionErro
     }
 }
 
+fn proposal_digest(proposal: &EvolutionProposal) -> Result<String, EvolutionError> {
+    #[derive(Serialize)]
+    struct Payload<'a> {
+        proposal_id: &'a str,
+        proposer: &'a str,
+        kind: EvolutionKind,
+        summary: &'a str,
+        evidence: &'a [String],
+        rollback_plan: &'a str,
+        risk: RiskLevel,
+        created_ms: u128,
+    }
+    let payload = Payload {
+        proposal_id: &proposal.proposal_id,
+        proposer: &proposal.proposer,
+        kind: proposal.kind,
+        summary: &proposal.summary,
+        evidence: &proposal.evidence,
+        rollback_plan: &proposal.rollback_plan,
+        risk: proposal.risk,
+        created_ms: proposal.created_ms,
+    };
+    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&payload)?)))
+}
+
 fn hash_receipt(receipt: &EvolutionReceipt) -> Result<String, EvolutionError> {
     #[derive(Serialize)]
     struct Payload<'a> {
         seq: u64,
         receipt_id: &'a str,
         proposal_id: &'a str,
+        proposal_sha256: &'a str,
         action: EvolutionAction,
         actor_id: &'a str,
         at_ms: u128,
@@ -464,12 +593,98 @@ fn hash_receipt(receipt: &EvolutionReceipt) -> Result<String, EvolutionError> {
         seq: receipt.seq,
         receipt_id: &receipt.receipt_id,
         proposal_id: &receipt.proposal_id,
+        proposal_sha256: &receipt.proposal_sha256,
         action: receipt.action,
         actor_id: &receipt.actor_id,
         at_ms: receipt.at_ms,
         previous_sha256: &receipt.previous_sha256,
     };
     Ok(hex::encode(Sha256::digest(serde_json::to_vec(&payload)?)))
+}
+
+impl EvolutionStore {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, EvolutionStoreError> {
+        let path = path.into();
+        let registry = if path.exists() {
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(EvolutionStoreError::Corrupt(
+                    "evolution store must be a regular file".into(),
+                ));
+            }
+            let bytes = std::fs::read(&path)?;
+            let snapshot: EvolutionSnapshot = serde_json::from_slice(&bytes)?;
+            if snapshot.schema_version != EVOLUTION_SNAPSHOT_SCHEMA {
+                return Err(EvolutionStoreError::Corrupt(
+                    "unsupported evolution snapshot schema".into(),
+                ));
+            }
+            EvolutionRegistry::from_ledger(snapshot.ledger)?
+        } else {
+            EvolutionRegistry::default()
+        };
+        Ok(Self { path, registry })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn registry(&self) -> &EvolutionRegistry {
+        &self.registry
+    }
+
+    pub fn with_registry_mut<R>(
+        &mut self,
+        operation: impl FnOnce(&mut EvolutionRegistry) -> Result<R, EvolutionError>,
+    ) -> Result<R, EvolutionStoreError> {
+        let mut candidate = self.registry.clone();
+        let result = operation(&mut candidate)?;
+        let snapshot = EvolutionSnapshot {
+            schema_version: EVOLUTION_SNAPSHOT_SCHEMA,
+            ledger: candidate.ledger(),
+        };
+        let bytes = serde_json::to_vec_pretty(&snapshot)?;
+        write_private_atomic(&self.path, &bytes)?;
+        self.registry = candidate;
+        Ok(result)
+    }
+}
+
+fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), EvolutionStoreError> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        crate::jsonl::ensure_parent_private(path)?;
+    }
+    let name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("evolution.json");
+    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<(), EvolutionStoreError> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_data()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        if let Some(parent) = path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -544,6 +759,47 @@ mod tests {
             last_sha256: registry.last_sha256.clone(),
         };
         assert!(tampered.verify().is_err());
+    }
+
+    #[test]
+    fn store_persists_and_detects_body_or_status_tampering() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evolution.json");
+        let mut store = EvolutionStore::open(&path).unwrap();
+        store
+            .with_registry_mut(|registry| {
+                registry.propose(draft("proposal-1"), 10)?;
+                registry.approve("proposal-1", "owner-2", 20)?;
+                registry.apply("proposal-1", "owner-2", 30)
+            })
+            .unwrap();
+        drop(store);
+
+        let reopened = EvolutionStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.registry().proposal("proposal-1").unwrap().status,
+            EvolutionStatus::Applied
+        );
+        reopened.registry().verify().unwrap();
+
+        let mut snapshot: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        snapshot["ledger"]["proposals"][0]["summary"] = "tampered".into();
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        assert!(matches!(
+            EvolutionStore::open(&path).unwrap_err(),
+            EvolutionStoreError::Evolution(EvolutionError::ProposalDigestMismatch(_))
+        ));
+
+        let mut snapshot: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        snapshot["ledger"]["proposals"][0]["status"] = "proposed".into();
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        assert!(matches!(
+            EvolutionStore::open(&path).unwrap_err(),
+            EvolutionStoreError::Evolution(EvolutionError::ProposalDigestMismatch(_))
+                | EvolutionStoreError::Evolution(EvolutionError::InvalidState(_, _))
+        ));
     }
 
     #[test]

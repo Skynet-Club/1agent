@@ -6,9 +6,16 @@
 //! a reversible action.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
+
+const DELEGATION_SNAPSHOT_SCHEMA: u32 = 1;
 
 use crate::authority::{AuthorityRegistry, PolicyAction, PolicyOutcome, PolicyRequest};
 use crate::domain::RiskLevel;
@@ -121,10 +128,44 @@ pub struct DelegationGrant {
     pub requires_report: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DelegationRegistry {
     profiles: BTreeMap<(String, String), DelegationProfile>,
     revoked: BTreeMap<(String, String), u128>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RevokedDelegation {
+    pub actor_id: String,
+    pub domain: String,
+    pub at_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DelegationSnapshot {
+    pub schema_version: u32,
+    pub profiles: Vec<DelegationProfile>,
+    pub revoked: Vec<RevokedDelegation>,
+}
+
+#[derive(Debug, Error)]
+pub enum DelegationStoreError {
+    #[error("delegation store io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("delegation store json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("delegation: {0}")]
+    Delegation(#[from] DelegationError),
+    #[error("delegation store is corrupt: {0}")]
+    Corrupt(String),
+}
+
+#[derive(Debug)]
+pub struct DelegationStore {
+    path: PathBuf,
+    registry: DelegationRegistry,
 }
 
 impl DelegationRegistry {
@@ -171,6 +212,48 @@ impl DelegationRegistry {
         }
         self.revoked.insert(key, now_ms);
         Ok(())
+    }
+
+    pub fn snapshot(&self) -> DelegationSnapshot {
+        DelegationSnapshot {
+            schema_version: DELEGATION_SNAPSHOT_SCHEMA,
+            profiles: self.profiles.values().cloned().collect(),
+            revoked: self
+                .revoked
+                .iter()
+                .map(|((actor_id, domain), at_ms)| RevokedDelegation {
+                    actor_id: actor_id.clone(),
+                    domain: domain.clone(),
+                    at_ms: *at_ms,
+                })
+                .collect(),
+        }
+    }
+
+    pub fn from_snapshot(snapshot: DelegationSnapshot) -> Result<Self, DelegationStoreError> {
+        if snapshot.schema_version != DELEGATION_SNAPSHOT_SCHEMA {
+            return Err(DelegationStoreError::Corrupt(
+                "unsupported delegation snapshot schema".into(),
+            ));
+        }
+        let mut registry = Self::default();
+        for profile in snapshot.profiles {
+            registry.register(profile)?;
+        }
+        for revoked in snapshot.revoked {
+            let key = (revoked.actor_id, revoked.domain);
+            if !registry.profiles.contains_key(&key) {
+                return Err(DelegationStoreError::Corrupt(
+                    "revoked delegation has no profile".into(),
+                ));
+            }
+            if registry.revoked.insert(key, revoked.at_ms).is_some() {
+                return Err(DelegationStoreError::Corrupt(
+                    "duplicate revoked delegation".into(),
+                ));
+            }
+        }
+        Ok(registry)
     }
 
     pub fn authorize(
@@ -243,6 +326,82 @@ impl DelegationRegistry {
             }),
         }
     }
+}
+
+impl DelegationStore {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, DelegationStoreError> {
+        let path = path.into();
+        let registry = if path.exists() {
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(DelegationStoreError::Corrupt(
+                    "delegation store must be a regular file".into(),
+                ));
+            }
+            let bytes = std::fs::read(&path)?;
+            let snapshot: DelegationSnapshot = serde_json::from_slice(&bytes)?;
+            DelegationRegistry::from_snapshot(snapshot)?
+        } else {
+            DelegationRegistry::default()
+        };
+        Ok(Self { path, registry })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn registry(&self) -> &DelegationRegistry {
+        &self.registry
+    }
+
+    pub fn with_registry_mut<R>(
+        &mut self,
+        operation: impl FnOnce(&mut DelegationRegistry) -> Result<R, DelegationError>,
+    ) -> Result<R, DelegationStoreError> {
+        let mut candidate = self.registry.clone();
+        let result = operation(&mut candidate)?;
+        let bytes = serde_json::to_vec_pretty(&candidate.snapshot())?;
+        write_private_atomic(&self.path, &bytes)?;
+        self.registry = candidate;
+        Ok(result)
+    }
+}
+
+fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), DelegationStoreError> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        crate::jsonl::ensure_parent_private(path)?;
+    }
+    let name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("delegation.json");
+    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<(), DelegationStoreError> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_data()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        if let Some(parent) = path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -350,6 +509,38 @@ mod tests {
             registry.authorize(&attacker, &authority(), 10).unwrap_err(),
             DelegationError::UnknownProfile(_, _)
         ));
+    }
+
+    #[test]
+    fn store_persists_profiles_and_revocations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delegation.json");
+        let mut store = DelegationStore::open(&path).unwrap();
+        store
+            .with_registry_mut(|registry| registry.register(profile(DelegationMode::Suggest)))
+            .unwrap();
+        drop(store);
+
+        let mut reopened = DelegationStore::open(&path).unwrap();
+        assert!(
+            reopened
+                .registry()
+                .profile("owner-1", "repo:1-agent")
+                .is_some()
+        );
+        reopened
+            .with_registry_mut(|registry| registry.revoke("owner-1", "repo:1-agent", 20))
+            .unwrap();
+        drop(reopened);
+
+        let reopened = DelegationStore::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .registry()
+                .authorize(&request(DelegationMode::Suggest), &authority(), 21)
+                .unwrap_err(),
+            DelegationError::Revoked
+        );
     }
 
     #[test]

@@ -12,9 +12,13 @@ use crate::action_log::ActionKind;
 use crate::attention::{AttentionPolicy, attention_candidates};
 use crate::audit::{AuditError, AuditKind, AuditQuery, audit_export};
 use crate::context_graph::build_context_graph;
-use crate::delegation::{DelegationError, DelegationMode, DelegationProfile, DelegationRegistry};
+use crate::delegation::{
+    DelegationError, DelegationMode, DelegationProfile, DelegationStore, DelegationStoreError,
+};
 use crate::domain::RiskLevel;
-use crate::evolution::{EvolutionError, EvolutionKind, EvolutionProposalDraft, EvolutionRegistry};
+use crate::evolution::{
+    EvolutionError, EvolutionKind, EvolutionProposalDraft, EvolutionStore, EvolutionStoreError,
+};
 use crate::goal::{CommitmentStatus, GoalError, GoalStatus, GoalStore};
 use crate::governed_task_graph::{GovernedTaskGraph, GovernedTaskGraphError};
 use crate::memory_service::MemoryService;
@@ -31,8 +35,8 @@ pub struct SurfaceResources {
     pub memory: Option<MemoryService>,
     pub skills: Option<SkillService>,
     pub goals: Option<GoalStore>,
-    pub delegation: Option<DelegationRegistry>,
-    pub evolution: Option<EvolutionRegistry>,
+    pub delegation: Option<DelegationStore>,
+    pub evolution: Option<EvolutionStore>,
     pub audit_paths: BTreeMap<AuditKind, PathBuf>,
 }
 
@@ -645,13 +649,16 @@ impl SurfaceService {
         let registry = self.resources.delegation.as_ref().ok_or_else(|| {
             SurfaceError::new(SurfaceErrorCode::Unavailable, "delegation registry", false)
         })?;
-        let profile = registry.profile(actor_id, domain).ok_or_else(|| {
-            SurfaceError::new(
-                SurfaceErrorCode::NotFound,
-                "delegation profile not found",
-                false,
-            )
-        })?;
+        let profile = registry
+            .registry()
+            .profile(actor_id, domain)
+            .ok_or_else(|| {
+                SurfaceError::new(
+                    SurfaceErrorCode::NotFound,
+                    "delegation profile not found",
+                    false,
+                )
+            })?;
         serde_json::to_value(profile)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "delegation encode", false))
     }
@@ -672,17 +679,20 @@ impl SurfaceService {
             SurfaceError::new(SurfaceErrorCode::Unavailable, "delegation registry", false)
         })?;
         registry
-            .register(DelegationProfile {
-                profile_id: input.profile_id.into(),
-                actor_id: input.actor_id.into(),
-                domain: input.domain.into(),
-                mode,
-                max_risk,
-                allowed_tools: input.allowed_tools.to_vec(),
-                expires_ms: input.expires_ms,
+            .with_registry_mut(|registry| {
+                registry.register(DelegationProfile {
+                    profile_id: input.profile_id.into(),
+                    actor_id: input.actor_id.into(),
+                    domain: input.domain.into(),
+                    mode,
+                    max_risk,
+                    allowed_tools: input.allowed_tools.to_vec(),
+                    expires_ms: input.expires_ms,
+                })
             })
-            .map_err(map_delegation_error)?;
+            .map_err(map_delegation_store_error)?;
         let profile = registry
+            .registry()
             .profile(input.actor_id, input.domain)
             .cloned()
             .ok_or_else(|| {
@@ -705,8 +715,8 @@ impl SurfaceService {
             SurfaceError::new(SurfaceErrorCode::Unavailable, "delegation registry", false)
         })?;
         registry
-            .revoke(actor_id, domain, now_ms)
-            .map_err(map_delegation_error)?;
+            .with_registry_mut(|registry| registry.revoke(actor_id, domain, now_ms))
+            .map_err(map_delegation_store_error)?;
         Ok(serde_json::json!({"actor_id": actor_id, "domain": domain, "revoked": true}))
     }
 
@@ -720,22 +730,25 @@ impl SurfaceService {
         ensure_actor(auth, input.proposer)?;
         let kind = parse_evolution_kind(input.kind)?;
         let risk = parse_risk(input.risk)?;
-        let registry = self.evolution_registry_mut()?;
-        registry
-            .propose(
-                EvolutionProposalDraft {
-                    proposal_id: input.proposal_id.into(),
-                    proposer: input.proposer.into(),
-                    kind,
-                    summary: input.summary.into(),
-                    evidence: input.evidence.to_vec(),
-                    rollback_plan: input.rollback_plan.into(),
-                    risk,
-                },
-                now_ms,
-            )
-            .map_err(map_evolution_error)?;
-        let proposal = registry
+        let store = self.evolution_store_mut()?;
+        store
+            .with_registry_mut(|registry| {
+                registry.propose(
+                    EvolutionProposalDraft {
+                        proposal_id: input.proposal_id.into(),
+                        proposer: input.proposer.into(),
+                        kind,
+                        summary: input.summary.into(),
+                        evidence: input.evidence.to_vec(),
+                        rollback_plan: input.rollback_plan.into(),
+                        risk,
+                    },
+                    now_ms,
+                )
+            })
+            .map_err(map_evolution_store_error)?;
+        let proposal = store
+            .registry()
             .proposal(input.proposal_id)
             .cloned()
             .ok_or_else(|| {
@@ -755,23 +768,28 @@ impl SurfaceService {
     ) -> Result<serde_json::Value, SurfaceError> {
         auth.require("evolution:write")?;
         ensure_actor(auth, actor_id)?;
-        let registry = self.evolution_registry_mut()?;
-        match action {
-            "approve" => registry.approve(proposal_id, actor_id, now_ms),
-            "reject" => registry.reject(proposal_id, actor_id, now_ms),
-            "apply" => registry.apply(proposal_id, actor_id, now_ms),
-            "rollback" => registry.rollback(proposal_id, actor_id, now_ms),
-            _ => return Err(SurfaceError::invalid("unknown evolution action")),
-        }
-        .map_err(map_evolution_error)?;
-        let proposal = registry.proposal(proposal_id).cloned().ok_or_else(|| {
-            SurfaceError::new(SurfaceErrorCode::Internal, "proposal missing", false)
-        })?;
+        let store = self.evolution_store_mut()?;
+        store
+            .with_registry_mut(|registry| match action {
+                "approve" => registry.approve(proposal_id, actor_id, now_ms),
+                "reject" => registry.reject(proposal_id, actor_id, now_ms),
+                "apply" => registry.apply(proposal_id, actor_id, now_ms),
+                "rollback" => registry.rollback(proposal_id, actor_id, now_ms),
+                _ => Err(EvolutionError::Corrupt("unknown evolution action".into())),
+            })
+            .map_err(map_evolution_store_error)?;
+        let proposal = store
+            .registry()
+            .proposal(proposal_id)
+            .cloned()
+            .ok_or_else(|| {
+                SurfaceError::new(SurfaceErrorCode::Internal, "proposal missing", false)
+            })?;
         serde_json::to_value(proposal)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "proposal encode", false))
     }
 
-    fn evolution_registry_mut(&mut self) -> Result<&mut EvolutionRegistry, SurfaceError> {
+    fn evolution_store_mut(&mut self) -> Result<&mut EvolutionStore, SurfaceError> {
         self.resources.evolution.as_mut().ok_or_else(|| {
             SurfaceError::new(SurfaceErrorCode::Unavailable, "evolution registry", false)
         })
@@ -779,10 +797,10 @@ impl SurfaceService {
 
     fn evolution_ledger(&self, auth: &AuthContext) -> Result<serde_json::Value, SurfaceError> {
         auth.require("evolution:read")?;
-        let registry = self.resources.evolution.as_ref().ok_or_else(|| {
+        let store = self.resources.evolution.as_ref().ok_or_else(|| {
             SurfaceError::new(SurfaceErrorCode::Unavailable, "evolution registry", false)
         })?;
-        serde_json::to_value(registry.ledger())
+        serde_json::to_value(store.registry().ledger())
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "evolution encode", false))
     }
 
@@ -973,6 +991,17 @@ fn parse_evolution_kind(value: &str) -> Result<EvolutionKind, SurfaceError> {
     }
 }
 
+fn map_evolution_store_error(error: EvolutionStoreError) -> SurfaceError {
+    match error {
+        EvolutionStoreError::Evolution(error) => map_evolution_error(error),
+        EvolutionStoreError::Io(_)
+        | EvolutionStoreError::Json(_)
+        | EvolutionStoreError::Corrupt(_) => {
+            SurfaceError::new(SurfaceErrorCode::Internal, error.to_string(), false)
+        }
+    }
+}
+
 fn map_evolution_error(error: EvolutionError) -> SurfaceError {
     match error {
         EvolutionError::EmptyProposalId
@@ -989,8 +1018,10 @@ fn map_evolution_error(error: EvolutionError) -> SurfaceError {
         }
         EvolutionError::SelfApproval => SurfaceError::forbidden(error.to_string()),
         EvolutionError::HashMismatch(_)
+        | EvolutionError::ProposalDigestMismatch(_)
         | EvolutionError::NonContiguousSequence
-        | EvolutionError::Json(_) => {
+        | EvolutionError::Json(_)
+        | EvolutionError::Corrupt(_) => {
             SurfaceError::new(SurfaceErrorCode::Internal, error.to_string(), false)
         }
     }
@@ -1002,6 +1033,17 @@ fn parse_risk(value: &str) -> Result<RiskLevel, SurfaceError> {
         "medium" => Ok(RiskLevel::Medium),
         "high" => Ok(RiskLevel::High),
         _ => Err(SurfaceError::invalid("unknown risk level")),
+    }
+}
+
+fn map_delegation_store_error(error: DelegationStoreError) -> SurfaceError {
+    match error {
+        DelegationStoreError::Delegation(error) => map_delegation_error(error),
+        DelegationStoreError::Io(_)
+        | DelegationStoreError::Json(_)
+        | DelegationStoreError::Corrupt(_) => {
+            SurfaceError::new(SurfaceErrorCode::Internal, error.to_string(), false)
+        }
     }
 }
 
@@ -1345,9 +1387,9 @@ mod tests {
     #[test]
     fn surface_v1_goal_attention_context_delegation_and_evolution() {
         use crate::MemoryService;
-        use crate::delegation::{DelegationMode, DelegationProfile, DelegationRegistry};
+        use crate::delegation::{DelegationMode, DelegationProfile, DelegationStore};
         use crate::domain::RiskLevel;
-        use crate::evolution::{EvolutionKind, EvolutionProposalDraft, EvolutionRegistry};
+        use crate::evolution::{EvolutionKind, EvolutionProposalDraft, EvolutionStore};
         use crate::goal::GoalStore;
         use crate::memory::{
             MemoryKind, MemoryLayer, MemoryRecord, MemoryScope, MemorySource, MemorySourceKind,
@@ -1383,32 +1425,36 @@ mod tests {
                 graph.add_commitment("commit-1", "goal-1", "write notes", Some(200), 11)
             })
             .unwrap();
-        let mut delegation = DelegationRegistry::default();
+        let mut delegation = DelegationStore::open(dir.path().join("delegation-v1.json")).unwrap();
         delegation
-            .register(DelegationProfile {
-                profile_id: "delegation-1".into(),
-                actor_id: "owner-1".into(),
-                domain: "repo:1-agent".into(),
-                mode: DelegationMode::Suggest,
-                max_risk: RiskLevel::Low,
-                allowed_tools: Vec::new(),
-                expires_ms: None,
+            .with_registry_mut(|registry| {
+                registry.register(DelegationProfile {
+                    profile_id: "delegation-1".into(),
+                    actor_id: "owner-1".into(),
+                    domain: "repo:1-agent".into(),
+                    mode: DelegationMode::Suggest,
+                    max_risk: RiskLevel::Low,
+                    allowed_tools: Vec::new(),
+                    expires_ms: None,
+                })
             })
             .unwrap();
-        let mut evolution = EvolutionRegistry::default();
+        let mut evolution = EvolutionStore::open(dir.path().join("evolution-v1.json")).unwrap();
         evolution
-            .propose(
-                EvolutionProposalDraft {
-                    proposal_id: "proposal-1".into(),
-                    proposer: "owner-1".into(),
-                    kind: EvolutionKind::StrategyNote,
-                    summary: "tune reminders".into(),
-                    evidence: vec!["journal:1".into()],
-                    rollback_plan: "restore previous policy".into(),
-                    risk: RiskLevel::Low,
-                },
-                12,
-            )
+            .with_registry_mut(|registry| {
+                registry.propose(
+                    EvolutionProposalDraft {
+                        proposal_id: "proposal-1".into(),
+                        proposer: "owner-1".into(),
+                        kind: EvolutionKind::StrategyNote,
+                        summary: "tune reminders".into(),
+                        evidence: vec!["journal:1".into()],
+                        rollback_plan: "restore previous policy".into(),
+                        risk: RiskLevel::Low,
+                    },
+                    12,
+                )
+            })
             .unwrap();
         service = service.with_resources(SurfaceResources {
             memory: Some(memory),
