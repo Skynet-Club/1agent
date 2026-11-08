@@ -170,7 +170,7 @@ impl TaskGraphService {
     /// Replay the log again after another writer appended. Governance state
     /// (authority, standing approvals, action log) is preserved; only the
     /// graph snapshot is replaced.
-    pub fn reload(&mut self) -> Result<(), TaskGraphStoreError> {
+    fn reload(&mut self) -> Result<(), TaskGraphStoreError> {
         let (store, graph) = TaskGraphStore::open(self.store.path())?;
         self.store = store;
         self.graph = graph;
