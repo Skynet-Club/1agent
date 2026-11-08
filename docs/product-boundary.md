@@ -2,7 +2,7 @@
 
 Date: 2026-11-03
 
-Status: bounded Master-Agent V1; runtime quality matrix still pending
+Status: A0 frozen; ADR-003 accepted; execution remains default-off under rollout
 
 ## Product role
 
@@ -32,7 +32,7 @@ default and where unsupported certainty is treated as a failure.
 
 - claiming that the deterministic provider is a reasoning model;
 - claiming production model quality without configured-provider held-out results;
-- autonomous writes or process execution without a new permission model;
+- autonomous writes or process execution outside the ADR-003 permission model;
 - unrestricted or unbounded multi-agent orchestration beyond eight Work Items and three runtimes;
 - training or fine-tuning a foundation model;
 - changing Skynet Workshop execution authority or duplicating its scheduler;
@@ -46,7 +46,7 @@ default and where unsupported certainty is treated as a failure.
 - Read roots must be explicit.
 - Canonical paths must remain inside configured roots.
 - Network access is opt-in.
-- Execute-mode requests stop before tool execution without explicit authorization.
+- Execute-mode requests stop before tool execution unless AuthorityProfile/Policy/Approval and the Workshop sandbox allow them; execution remains default-off under ADR-003 rollout.
 - Provider credentials are referenced through environment variables and never written into
   configuration or reports.
 - Tool observations are untrusted data with control-character and volume limits.

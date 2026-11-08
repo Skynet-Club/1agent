@@ -137,14 +137,22 @@ fn render(
 }
 
 fn task_session_id(task: Option<&TaskRuntimeState>) -> Option<String> {
+    let env_session_id = std::env::var("SKYTERM_SESSION_ID").ok();
+    task_session_id_with(task, env_session_id.as_deref())
+}
+
+fn task_session_id_with(
+    task: Option<&TaskRuntimeState>,
+    env_session_id: Option<&str>,
+) -> Option<String> {
     task.and_then(|task| task.execution_target.as_ref())
         .and_then(|target| target.session_id.as_deref())
         .filter(|value| safe_id(value))
         .map(str::to_string)
         .or_else(|| {
-            std::env::var("SKYTERM_SESSION_ID")
-                .ok()
+            env_session_id
                 .filter(|value| safe_id(value))
+                .map(str::to_string)
         })
 }
 
@@ -282,7 +290,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            task_session_id(Some(&task)).as_deref(),
+            task_session_id_with(Some(&task), None).as_deref(),
             Some("term-1790000000000-1234-1")
         );
         task.execution_target = Some(crate::master_coordination::ExecutionTarget {
@@ -290,8 +298,13 @@ mod tests {
             pane_id: None,
             job_id: None,
         });
-        assert_eq!(task_session_id(Some(&task)), None);
-        assert_eq!(task_session_id(None), None);
+        assert_eq!(task_session_id_with(Some(&task), None), None);
+        assert_eq!(task_session_id_with(None, None), None);
+        assert_eq!(
+            task_session_id_with(None, Some("term-env-1")).as_deref(),
+            Some("term-env-1")
+        );
+        assert_eq!(task_session_id_with(None, Some("bad/id")), None);
     }
 
     #[test]

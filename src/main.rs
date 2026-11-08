@@ -165,6 +165,42 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    AuditStore {
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        thread: Option<String>,
+        #[arg(long)]
+        ticket: Option<String>,
+        #[arg(long)]
+        memory: Option<String>,
+        #[arg(long)]
+        scope: Option<String>,
+        #[arg(long)]
+        skill: Option<String>,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        export: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    TaskGraph {
+        #[command(subcommand)]
+        command: TaskGraphCommand,
+    },
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommand,
+    },
+    Surface {
+        #[command(subcommand)]
+        command: SurfaceCommand,
+    },
     Replay {
         #[arg(long)]
         journal: PathBuf,
@@ -727,6 +763,94 @@ enum MasterCommand {
 }
 
 #[derive(Subcommand)]
+enum TaskGraphCommand {
+    Snapshot {
+        #[arg(long, default_value = ".1a/task-graph.jsonl")]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Demo {
+        #[arg(long, default_value = ".1a/task-graph.jsonl")]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryCommand {
+    Export {
+        #[arg(long, default_value = ".1a/memory-journal.jsonl")]
+        journal: PathBuf,
+        #[arg(long, default_value = ".1a/payloads")]
+        payloads: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Verify {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    RotateKey {
+        #[arg(long, default_value = ".1a/payloads")]
+        payloads: PathBuf,
+        #[arg(long, default_value = ".1a/memory.key")]
+        key: PathBuf,
+        #[arg(long, conflicts_with = "bot_id")]
+        scope: Option<String>,
+        #[arg(long, conflicts_with = "scope")]
+        bot_id: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
+enum SurfaceCommand {
+    Openapi,
+    Validate {
+        #[arg(long)]
+        request: PathBuf,
+    },
+    Serve {
+        #[arg(long, default_value = "127.0.0.1:8788")]
+        addr: String,
+        #[arg(long, default_value = ".1a/task-graph.jsonl")]
+        store: PathBuf,
+        #[arg(long)]
+        token: Option<String>,
+        #[arg(long, default_value = "operator")]
+        actor_id: String,
+        #[arg(long = "scope", default_value = "*")]
+        scopes: Vec<String>,
+        #[arg(long)]
+        authority: Option<PathBuf>,
+        #[arg(long)]
+        memory_journal: Option<PathBuf>,
+        #[arg(long)]
+        memory_payloads: Option<PathBuf>,
+        #[arg(long)]
+        memory_key: Option<PathBuf>,
+        #[arg(long)]
+        skill_journal: Option<PathBuf>,
+        #[arg(long)]
+        goal_journal: Option<PathBuf>,
+        #[arg(long)]
+        audit_task_graph: Option<PathBuf>,
+        #[arg(long)]
+        audit_memory: Option<PathBuf>,
+        #[arg(long)]
+        audit_skill: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ExperienceCommand {
     Propose {
         #[arg(long, default_value = ".experience")]
@@ -1074,6 +1198,113 @@ enum ReleaseCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn run_task_graph_demo(store: &std::path::Path, json: bool) -> Result<()> {
+    use first_principles_agent::{
+        ApprovalDecision, MandateStrength, ReportStatus, SideEffectDraft, SideEffectStatus,
+        TaskGraphService, TicketDraft, Trigger, TriggerSource,
+    };
+
+    let mut service = TaskGraphService::open(store)
+        .with_context(|| format!("cannot open {}", store.display()))?;
+    if !service.snapshot().threads.is_empty() {
+        bail!(
+            "task graph store {} already contains data; use a fresh path",
+            store.display()
+        );
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis();
+    let (thread_id, ticket_id, report_id) = service
+        .with_graph_mut(|graph| {
+            let thread_id = graph.open_thread("A1 demo", now)?;
+            let trigger_id = graph
+                .ingest_trigger(
+                    &thread_id,
+                    Trigger {
+                        trigger_id: format!("trigger-demo-{now}"),
+                        source: TriggerSource::Web,
+                        source_event_id: format!("event-demo-{now}"),
+                        summary: "A1 acceptance demo".into(),
+                        received_ms: now,
+                    },
+                    now + 1,
+                )?
+                .trigger_id;
+            let eval_id = graph.begin_eval(&thread_id, &trigger_id, now + 2)?;
+            graph.decide_eval(
+                &eval_id,
+                first_principles_agent::Decision::Accept,
+                "accepted",
+                now + 3,
+            )?;
+            let ticket_id = graph.create_ticket_from_eval(
+                &eval_id,
+                TicketDraft {
+                    owner_id: "demo-owner".into(),
+                    scope: "read demo input".into(),
+                    strength: MandateStrength::ReadOnly,
+                    policy_version: "policy-v1".into(),
+                    requires_approval: true,
+                },
+                now + 4,
+            )?;
+            graph.approve_ticket(
+                &ticket_id,
+                "demo-owner",
+                ApprovalDecision::AllowOnce,
+                None,
+                now + 5,
+            )?;
+            graph.assign_ticket(&ticket_id, "fake-worker", None, now + 6)?;
+            graph.start_ticket(&ticket_id, "fake-worker", now + 7)?;
+            graph.record_side_effect(
+                &ticket_id,
+                SideEffectDraft {
+                    action: "write".into(),
+                    target: "demo/result.txt".into(),
+                    idempotency_key: format!("demo-effect-{now}"),
+                    reversible: true,
+                    compensation: Some("remove demo/result.txt".into()),
+                    status: SideEffectStatus::Applied,
+                },
+                now + 8,
+            )?;
+            let report_id = graph.report_ticket(
+                &ticket_id,
+                "fake-worker",
+                ReportStatus::Ready,
+                "demo artifact ready",
+                Some("sha256:demo".into()),
+                now + 9,
+            )?;
+            Ok((thread_id, ticket_id, report_id))
+        })
+        .map_err(anyhow::Error::msg)?;
+    let snapshot = service.snapshot();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    } else {
+        println!(
+            "A1 demo: thread={thread_id} ticket={ticket_id} report={report_id} tickets={} reports={}",
+            snapshot.tickets.len(),
+            snapshot.reports.len()
+        );
+    }
+    drop(service);
+    let reopened = TaskGraphService::open(store)
+        .with_context(|| format!("cannot reopen {}", store.display()))?;
+    if reopened.snapshot().tickets.is_empty() {
+        bail!("task graph demo did not survive replay");
+    }
+    if json {
+        eprintln!("replay: ok ({})", reopened.store_path().display());
+    } else {
+        println!("replay: ok ({})", reopened.store_path().display());
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -1890,6 +2121,248 @@ async fn main() -> Result<()> {
                 bail!("journal audit failed");
             }
         }
+        Command::AuditStore {
+            kind,
+            path,
+            thread,
+            ticket,
+            memory,
+            scope,
+            skill,
+            version,
+            limit,
+            export,
+            json,
+        } => {
+            let kind: first_principles_agent::AuditKind =
+                kind.parse().map_err(anyhow::Error::msg)?;
+            let query = first_principles_agent::AuditQuery {
+                thread_id: thread,
+                ticket_id: ticket,
+                memory_id: memory,
+                scope,
+                skill,
+                version,
+                limit,
+            };
+            let result = first_principles_agent::audit_export(
+                kind,
+                &path,
+                &query,
+                export.as_deref(),
+                now_unix_ms(),
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!(
+                    "kind: {}\npath: {}\nevents: {}\nmatched: {}\nverified: {}\nhead: {}\nexported: {}",
+                    result.receipt.kind.as_str(),
+                    result.receipt.path,
+                    result.receipt.events,
+                    result.matched,
+                    result.receipt.verified,
+                    result.receipt.head_sha256.as_deref().unwrap_or("-"),
+                    result.exported.as_deref().unwrap_or("-")
+                );
+            }
+        }
+        Command::TaskGraph { command } => match command {
+            TaskGraphCommand::Snapshot { store, json } => {
+                let service = first_principles_agent::TaskGraphService::open_read_only(&store)
+                    .with_context(|| format!("cannot open {}", store.display()))?;
+                let snapshot = service.snapshot();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+                } else {
+                    println!(
+                        "store: {}\nthreads={} evals={} tickets={} reports={} side_effects={}",
+                        service.store_path().display(),
+                        snapshot.threads.len(),
+                        snapshot.evals.len(),
+                        snapshot.tickets.len(),
+                        snapshot.reports.len(),
+                        snapshot.side_effects.len()
+                    );
+                }
+            }
+            TaskGraphCommand::Demo { store, json } => {
+                run_task_graph_demo(&store, json)?;
+            }
+        },
+        Command::Memory { command } => match command {
+            MemoryCommand::Export {
+                journal,
+                payloads,
+                out,
+                json,
+            } => {
+                let manifest = first_principles_agent::export_memory_backup(
+                    &journal,
+                    &payloads,
+                    &out,
+                    now_unix_ms(),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&manifest)?);
+                } else {
+                    println!(
+                        "backup: {}\nfiles={}\nkey_included=false\nhard_forget_covers_backup=false",
+                        out.display(),
+                        manifest.files.len()
+                    );
+                }
+            }
+            MemoryCommand::Verify { backup, json } => {
+                let manifest = first_principles_agent::verify_memory_backup(&backup)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&manifest)?);
+                } else {
+                    println!(
+                        "verified: {}\nfiles={}\nkey_included=false\nhard_forget_covers_backup=false",
+                        backup.display(),
+                        manifest.files.len()
+                    );
+                }
+            }
+            MemoryCommand::RotateKey {
+                payloads,
+                key,
+                scope,
+                bot_id,
+                json,
+            } => {
+                let scope = match (scope, bot_id) {
+                    (Some(scope), None) => scope,
+                    (None, Some(bot_id)) => {
+                        first_principles_agent::MemoryScope::bot(bot_id).scope_id()
+                    }
+                    _ => anyhow::bail!("provide exactly one of --scope or --bot-id"),
+                };
+                let store = first_principles_agent::MemoryPayloadStore::open(&payloads, &key)
+                    .map_err(anyhow::Error::msg)?;
+                let rotation = store.rotate_scope_key(&scope).map_err(anyhow::Error::msg)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&rotation)?);
+                } else {
+                    println!(
+                        "rotated scope {}\nnew_version={}\npayloads={}\nretired_versions={:?}\nlegacy_migrated={}",
+                        rotation.scope_id,
+                        rotation.new_version,
+                        rotation.rotated,
+                        rotation.retired_versions,
+                        rotation.legacy_migrated
+                    );
+                }
+            }
+        },
+        Command::Surface { command } => match command {
+            SurfaceCommand::Openapi => {
+                let document = first_principles_agent::openapi_document();
+                first_principles_agent::validate_openapi(&document).map_err(anyhow::Error::msg)?;
+                println!("{}", serde_json::to_string_pretty(&document)?);
+            }
+            SurfaceCommand::Validate { request } => {
+                let bytes = std::fs::read(&request)
+                    .with_context(|| format!("cannot read {}", request.display()))?;
+                let request: first_principles_agent::SurfaceRequest =
+                    serde_json::from_slice(&bytes).context("invalid surface request")?;
+                request.validate().map_err(anyhow::Error::msg)?;
+                println!(
+                    "ok: request_id={} trace_id={} fingerprint={}",
+                    request.request_id,
+                    request.trace_id,
+                    request.fingerprint().map_err(anyhow::Error::msg)?
+                );
+            }
+            SurfaceCommand::Serve {
+                addr,
+                store,
+                token,
+                actor_id,
+                scopes,
+                authority,
+                memory_journal,
+                memory_payloads,
+                memory_key,
+                skill_journal,
+                goal_journal,
+                audit_task_graph,
+                audit_memory,
+                audit_skill,
+            } => {
+                let token = token
+                    .or_else(|| std::env::var("SURFACE_TOKEN").ok())
+                    .filter(|token| !token.is_empty())
+                    .context("surface serve requires --token or SURFACE_TOKEN")?;
+                let mut service = first_principles_agent::SurfaceService::open(&store)
+                    .with_context(|| format!("cannot open {}", store.display()))?;
+                if let Some(path) = authority {
+                    let bytes = std::fs::read(&path)
+                        .with_context(|| format!("cannot read {}", path.display()))?;
+                    let config: first_principles_agent::AuthorityConfig =
+                        serde_json::from_slice(&bytes).context("invalid authority config")?;
+                    service
+                        .graph_mut()
+                        .authority_mut()
+                        .apply_config(&config)
+                        .map_err(anyhow::Error::msg)?;
+                }
+                let mut resources = first_principles_agent::SurfaceResources::default();
+                if let Some(path) = goal_journal {
+                    resources.goals = Some(
+                        first_principles_agent::GoalStore::open(path)
+                            .map_err(anyhow::Error::msg)?,
+                    );
+                }
+                match (memory_journal, memory_payloads, memory_key) {
+                    (Some(journal), Some(payloads), Some(key)) => {
+                        resources.memory = Some(
+                            first_principles_agent::MemoryService::open(journal, payloads, key)
+                                .map_err(anyhow::Error::msg)?,
+                        );
+                    }
+                    (None, None, None) => {}
+                    _ => bail!(
+                        "surface serve requires --memory-journal, --memory-payloads and --memory-key together"
+                    ),
+                }
+                if let Some(path) = skill_journal {
+                    resources.skills = Some(
+                        first_principles_agent::SkillService::open(path)
+                            .map_err(anyhow::Error::msg)?,
+                    );
+                }
+                resources.audit_paths.insert(
+                    first_principles_agent::AuditKind::TaskGraph,
+                    audit_task_graph.unwrap_or_else(|| store.clone()),
+                );
+                if let Some(path) = audit_memory {
+                    resources
+                        .audit_paths
+                        .insert(first_principles_agent::AuditKind::Memory, path);
+                }
+                if let Some(path) = audit_skill {
+                    resources
+                        .audit_paths
+                        .insert(first_principles_agent::AuditKind::Skill, path);
+                }
+                service = service.with_resources(resources);
+                let service = std::sync::Arc::new(std::sync::Mutex::new(service));
+                let events = std::sync::Arc::new(std::sync::Mutex::new(
+                    first_principles_agent::SurfaceEventBus::default(),
+                ));
+                let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                first_principles_agent::serve_surface_http(
+                    &addr,
+                    token,
+                    first_principles_agent::AuthContext { actor_id, scopes },
+                    service,
+                    events,
+                    shutdown,
+                )?;
+            }
+        },
         Command::Replay { journal } => {
             let events = read_events(&journal)
                 .with_context(|| format!("cannot read {}", journal.display()))?;

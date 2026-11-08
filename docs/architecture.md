@@ -168,8 +168,35 @@ workspace with optional SHA-256 matching.
 - `ApprovalEnvelope`: HMAC-authenticated binding to exact report bytes, constrained by
   approval key registry state.
 
+## Memory key hierarchy
+
+- Schema-2 payloads use a random per-scope KEK in `<key-file>-keks.json`, wrapped by a
+  master-derived AEAD key; payloads record `kek_version`.
+- `rotate_scope_key` rewraps live payloads, then retires older versions. A pre-rotation
+  backup referencing a retired version is unrecoverable even with the master key.
+- Schema-1 payloads remain readable via the legacy derivation; rotation migrates them but
+  cannot retire legacy derivation until master-key rotation (ADR-0023).
+
+## Agent intent, attention and evolution
+
+- `GoalGraph`/`GoalStore`: append-only, hash-chained Goal/Commitment events with JSONL
+  replay; commitments can reference a Ticket but do not grant execution authority.
+- `attention_candidates`: deterministic, read-only projections over due, overdue and
+  missed commitments plus due goals; fixed urgency ordering and a caller budget.
+- `DelegationRegistry`: observe/suggest/draft/ask/act_and_report profiles intersected with
+  Authority, live approval and reversibility; `act_silently` is not representable.
+- `build_context_graph`: rebuildable Goal/Commitment/Ticket/Thread/Memory view with
+  explicit edges; hard-forgotten memory is absent and superseded memory is marked.
+- `EvolutionRegistry`: human-gated proposals for skills/routines/strategy only, with
+  hash-chained receipts; authority/policy/persona changes are not representable.
+
 ## Security behavior
 
+- Surface HTTP derives its `AuthContext` from the server configuration (bearer principal),
+  not from the request body. A caller cannot claim another actor or extra scopes.
+- `ContextSummary` requires `context:read` + `memory:read` and filters memory by `bot_id`.
+- `SurfaceService::open` persists security actions to a sibling
+  `<graph-stem>-action-log.jsonl`; the log is verified on open and tampering fails closed.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
 - Write authority is false by default.
@@ -210,6 +237,23 @@ The report trust chain separates four claims:
 These claims do not establish evaluation truth or model reasoning quality. Unsigned reports
 remain inspectable for diagnostic use, while hosts may require content binding or authenticity.
 See `docs/adr/0004-evaluation-report-trust.md`.
+
+## 1Agent A1/A2 contracts
+
+The A1/A2 slices add domain modules that are independent of hosts, providers and UI:
+
+- `task_graph`: hash-chained, append-only events for Trigger, Thread, Eval, Decision,
+  Ticket, Mandate, Approval, Assignment, Report and SideEffect. Replay verifies the
+  chain; write operations persist through `TaskGraphService`.
+- `memory`: scoped records with source, taint, TTL, soft/hard forget, plus a metadata
+  journal and AES-256-GCM payloads (per-record DEK, per-scope KEK). The journal never
+  contains body text. Backup export excludes the key and, under ADR-0021, hard forget
+  does not claim coverage of existing backups.
+- `skill`: SKILL.md registry with versions, scanning, activation/rollback and a
+  hash-chained journal. Replay rescans manifests and verifies body hashes.
+
+Read-only inspection uses `TaskGraphService::open_read_only`; it never repairs or rewrites
+the log. Writers assume a single process and enforce private file modes.
 
 ## Cross-platform rules
 

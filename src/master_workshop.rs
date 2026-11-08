@@ -53,6 +53,8 @@ pub enum WorkshopAdapterError {
     InvalidProfiles(String),
     #[error("production lease denied: {0}")]
     LeaseDenied(String),
+    #[error("invalid Workshop request: {0}")]
+    InvalidRequest(String),
 }
 
 struct ProductionLeaseGuard<'a> {
@@ -336,6 +338,11 @@ impl WorkshopCliAdapter {
                 profile.agent_id.clone(),
             ));
         }
+        if item.title.len() > 128 {
+            return Err(WorkshopAdapterError::InvalidRequest(
+                "work item title exceeds the 128-byte Workshop limit".into(),
+            ));
+        }
         if !item.workspace.is_dir() {
             return Err(WorkshopAdapterError::Spawn {
                 command: self.command_name("agent-run"),
@@ -384,11 +391,40 @@ impl WorkshopCliAdapter {
         );
         args.push(shell_quote(&task));
         let references = args.iter().map(String::as_str).collect::<Vec<_>>();
-        let output = self.run(
+        let output = self.run_raw(
             &references,
             Duration::from_millis(item.budget.timeout_ms).saturating_add(Duration::from_secs(10)),
         )?;
-        let response = parse_value("agent-run", &output.stdout)?;
+        let response = match parse_value("agent-run", &output.stdout.bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                if !output.status.success() {
+                    return Err(WorkshopAdapterError::Command {
+                        command: self.command_name("agent-run"),
+                        exit: output.status.code().unwrap_or(1),
+                        message: String::from_utf8_lossy(&output.stderr.bytes)
+                            .trim()
+                            .to_string(),
+                    });
+                }
+                return Err(error);
+            }
+        };
+        if !output.status.success() && response.get("exec").is_none() {
+            return Err(WorkshopAdapterError::Command {
+                command: self.command_name("agent-run"),
+                exit: output.status.code().unwrap_or(1),
+                message: String::from_utf8_lossy(&output.stderr.bytes)
+                    .trim()
+                    .to_string(),
+            });
+        }
+        if response.get("schema").and_then(Value::as_str) != Some("skynet.term.agent-run/v1") {
+            return Err(WorkshopAdapterError::InvalidResponse {
+                command: self.command_name("agent-run"),
+                message: "response schema is not skynet.term.agent-run/v1".into(),
+            });
+        }
         let session_id = response.get("session_id").and_then(Value::as_str);
         let exec = response
             .get("exec")
@@ -834,21 +870,29 @@ impl WorkshopCliAdapter {
 
     pub fn cancel_session(&self, session_id: &str) -> Result<(), WorkshopAdapterError> {
         validate_text("session_id", session_id)?;
-        self.run(
+        let _ = self.run(
             &["session", "kill", session_id, "--signal", "15"],
             self.timeout,
-        )?;
+        );
         std::thread::sleep(Duration::from_millis(100));
         if let Ok(status) = self.run(&["session", "status", session_id], self.timeout)
             && let Ok(status) = parse_value("session", &status.stdout)
             && status.get("running").and_then(Value::as_bool) == Some(true)
         {
-            self.run(
+            let _ = self.run(
                 &["session", "kill", session_id, "--signal", "9"],
                 self.timeout,
-            )?;
+            );
         }
-        Ok(())
+        match self.run(&["session", "destroy", session_id], self.timeout) {
+            Ok(_) => Ok(()),
+            Err(WorkshopAdapterError::Command { message, .. })
+                if message.contains("not found") || message.contains("not_found") =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn write_session(
@@ -881,6 +925,23 @@ impl WorkshopCliAdapter {
     }
 
     fn run(&self, args: &[&str], timeout: Duration) -> Result<BoundedOutput, WorkshopAdapterError> {
+        let raw = self.run_raw(args, timeout)?;
+        if !raw.status.success() {
+            return Err(WorkshopAdapterError::Command {
+                command: self.command_name(args.first().copied().unwrap_or_default()),
+                exit: raw.status.code().unwrap_or(1),
+                message: String::from_utf8_lossy(&raw.stderr.bytes)
+                    .trim()
+                    .to_string(),
+            });
+        }
+        Ok(BoundedOutput {
+            stdout: raw.stdout.bytes,
+            _stdout_truncated: raw.stdout.truncated,
+        })
+    }
+
+    fn run_raw(&self, args: &[&str], timeout: Duration) -> Result<RawOutput, WorkshopAdapterError> {
         let command_name = self.command_name(args.first().copied().unwrap_or_default());
         let mut command = Command::new(&command_name);
         command
@@ -920,16 +981,10 @@ impl WorkshopCliAdapter {
         };
         let stdout = stdout_reader.join().unwrap_or_default();
         let stderr = stderr_reader.join().unwrap_or_default();
-        if !status.success() {
-            return Err(WorkshopAdapterError::Command {
-                command: command_name,
-                exit: status.code().unwrap_or(1),
-                message: String::from_utf8_lossy(&stderr.bytes).trim().to_string(),
-            });
-        }
-        Ok(BoundedOutput {
-            stdout: stdout.bytes,
-            _stdout_truncated: stdout.truncated,
+        Ok(RawOutput {
+            status,
+            stdout,
+            stderr,
         })
     }
 
@@ -1010,6 +1065,12 @@ impl WorkshopAgentView {
 struct BoundedOutput {
     stdout: Vec<u8>,
     _stdout_truncated: bool,
+}
+
+struct RawOutput {
+    status: std::process::ExitStatus,
+    stdout: LimitedReader,
+    stderr: LimitedReader,
 }
 
 #[derive(Debug, Default)]
@@ -1602,6 +1663,77 @@ fi
         };
         assert_eq!(receipt.status, ExecutionStatus::TimedOut);
         assert_eq!(receipt.exit_code, None);
+    }
+
+    #[test]
+    fn nonzero_agent_run_with_valid_receipt_keeps_failure_evidence() {
+        let root = tempdir().unwrap();
+        let prefix = root.path().join("fake");
+        write_executable(
+            &root.path().join("fake-agent-run"),
+            r#"#!/bin/sh
+printf '%s\n' '{"schema":"skynet.term.agent-run/v1","agent":{"agent_id":"worker"},"session_id":"term-failed","gui":{"started":false},"exec":{"status":"fail","exit":7,"duration_ms":12,"artifact":{"path":"/tmp/out","sha256":"abc"}}}'
+exit 7
+"#,
+        );
+        let adapter =
+            WorkshopCliAdapter::new(prefix.display().to_string(), Duration::from_secs(2), false)
+                .unwrap();
+        let profile = AgentProfile {
+            agent_id: "worker".into(),
+            runtime: "pi".into(),
+            display_name: None,
+            capabilities: vec!["rust".into()],
+            tools: Vec::new(),
+            runtime_command: vec!["pi".into()],
+            permissions: PermissionSet::default(),
+            availability: AgentAvailability::Idle,
+            current_load: 0,
+            observed_success_permille: None,
+            observed_runs: 0,
+            cost_micros: None,
+            max_risk: RiskLevel::Low,
+        };
+        let item = WorkItem {
+            id: "task-1".into(),
+            title: "Fail".into(),
+            objective: "Fail".into(),
+            dependencies: Vec::new(),
+            required_capabilities: Vec::new(),
+            required_tools: Vec::new(),
+            permissions: PermissionSet::default(),
+            acceptance_criteria: Vec::new(),
+            expected_artifacts: Vec::new(),
+            workspace: root.path().into(),
+            budget: WorkBudget::default(),
+            deadline_unix_ms: None,
+            risk: RiskLevel::Low,
+            status: WorkItemStatus::Pending,
+        };
+        let receipt = adapter.dispatch(&item, &profile, 1, "key", 10).unwrap();
+        assert_eq!(receipt.status, ExecutionStatus::Failed);
+        assert_eq!(receipt.exit_code, Some(7));
+        assert_eq!(
+            receipt.execution_target.session_id.as_deref(),
+            Some("term-failed")
+        );
+        assert_eq!(receipt.result_digest.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn cancel_session_destroys_the_session() {
+        let root = tempdir().unwrap();
+        let prefix = root.path().join("fake");
+        write_executable(
+            &root.path().join("fake-session"),
+            "#!/bin/sh\ncommand=$1; shift\nprintf '%s %s\\n' \"$command\" \"$*\" >> \"$0.args\"\nif [ \"$command\" = status ]; then printf '%s\\n' '{\"running\":false}'; else printf '%s\\n' '{\"ok\":true}'; fi\n",
+        );
+        let adapter =
+            WorkshopCliAdapter::new(prefix.display().to_string(), Duration::from_secs(2), false)
+                .unwrap();
+        adapter.cancel_session("term-test").unwrap();
+        let args = std::fs::read_to_string(root.path().join("fake-session.args")).unwrap();
+        assert!(args.contains("destroy term-test"), "{args}");
     }
 
     fn write_executable(path: &Path, body: &str) {
