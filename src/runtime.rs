@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
@@ -21,6 +21,7 @@ use crate::journal::{
     find_resumable_prefix, read_events,
 };
 use crate::provider::{ModelProvider, ProviderError, agent_system_prompt};
+use crate::provider_health::ProviderHealth;
 use crate::router::{
     PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
     RouteRequest, Router,
@@ -55,6 +56,7 @@ pub struct AgentRuntime {
     route_policy_sources: RoutePolicySources,
     selected_route: Option<ProviderRouteKey>,
     tool_gate: Option<ToolGateContext>,
+    provider_health: Option<Arc<Mutex<ProviderHealth>>>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -101,7 +103,13 @@ impl AgentRuntime {
             },
             selected_route: None,
             tool_gate: None,
+            provider_health: None,
         }
+    }
+
+    pub fn with_provider_health(mut self, health: Arc<Mutex<ProviderHealth>>) -> Self {
+        self.provider_health = Some(health);
+        self
     }
 
     /// Require an Authority/Policy check before every tool call. The gate is
@@ -760,6 +768,31 @@ impl AgentRuntime {
             (initial_messages, 0, BTreeSet::new(), 0, 0, Duration::ZERO)
         };
         let max_provider_attempts = request.budget.max_provider_attempts.clamp(1, 16);
+        let mut routes = routes;
+        if let Some(health) = &self.provider_health {
+            let now_ms = initial_elapsed
+                .saturating_add(started_at.elapsed())
+                .as_millis();
+            let available: Vec<_> = routes
+                .iter()
+                .filter(|route| {
+                    health
+                        .lock()
+                        .map(|health| {
+                            health.available(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                now_ms,
+                            )
+                        })
+                        .unwrap_or(true)
+                })
+                .cloned()
+                .collect();
+            if !available.is_empty() {
+                routes = available;
+            }
+        }
 
         for step in start_step..request.budget.max_steps {
             if cancellation.is_cancelled() {
@@ -903,10 +936,34 @@ impl AgentRuntime {
                             });
                         }
                         apply_manifest_cost(&mut candidate_response, &route.manifest);
+                        if let Some(health) = &self.provider_health
+                            && let Ok(mut health) = health.lock()
+                        {
+                            let now_ms = initial_elapsed
+                                .saturating_add(started_at.elapsed())
+                                .as_millis();
+                            health.record_success(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                now_ms,
+                            );
+                        }
                         response = Some(candidate_response);
                         break;
                     }
                     Ok(Err(source)) if source.retryable => {
+                        if let Some(health) = &self.provider_health
+                            && let Ok(mut health) = health.lock()
+                        {
+                            let now_ms = initial_elapsed
+                                .saturating_add(started_at.elapsed())
+                                .as_millis();
+                            health.record_failure(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                now_ms,
+                            );
+                        }
                         append_provider_failure(
                             &mut journal,
                             &journal_path,
