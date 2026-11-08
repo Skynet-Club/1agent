@@ -26,6 +26,7 @@ pub mod host_events;
 pub mod http_surface;
 pub mod identity;
 pub mod journal;
+pub mod key_escrow;
 pub mod master;
 pub mod master_coordination;
 pub mod master_planner;

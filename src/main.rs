@@ -30,7 +30,8 @@ use first_principles_agent::{
     doctor, epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
     filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
     home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
-    interactive_terminal_available, list_presets, load_agent_profiles, load_eval_report,
+    interactive_terminal_available, key_escrow::escrow as escrow_keys,
+    key_escrow::restore as restore_keys, list_presets, load_agent_profiles, load_eval_report,
     load_preset, load_suite, local_manifest, master_audit_summary, master_evidence_summary,
     master_report, next_actions, parse_model_output, print_session_banner, probe_provider,
     probe_provider_tools, prompt_sha256, read_clipboard, read_events, read_master_journal_events,
@@ -169,6 +170,10 @@ enum Command {
     Master {
         #[command(subcommand)]
         command: MasterCommand,
+    },
+    Key {
+        #[command(subcommand)]
+        command: KeyCommand,
     },
     Audit {
         #[arg(long)]
@@ -870,6 +875,30 @@ enum MemoryCommand {
         payloads: PathBuf,
         #[arg(long, default_value_os_t = home_or_legacy("memory.key", ".1a/memory.key"))]
         key: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum KeyCommand {
+    Escrow {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        recovery_key: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Restore {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        escrow: PathBuf,
+        #[arg(long)]
+        recovery_key: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -3437,6 +3466,45 @@ async fn main() -> Result<()> {
                 println!("{}", outcome.message);
             }
         }
+        Command::Key { command } => match command {
+            KeyCommand::Escrow {
+                root,
+                output,
+                recovery_key,
+                json,
+            } => {
+                let root = root.unwrap_or_else(default_home);
+                let outcome = escrow_keys(&root, &output, &recovery_key, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&outcome)?);
+                } else {
+                    println!(
+                        "escrowed {} key files to {} (recovery key: {})",
+                        outcome.files.len(),
+                        outcome.output.display(),
+                        outcome.recovery_key.display()
+                    );
+                }
+            }
+            KeyCommand::Restore {
+                root,
+                escrow,
+                recovery_key,
+                json,
+            } => {
+                let root = root.unwrap_or_else(default_home);
+                let outcome = restore_keys(&root, &escrow, &recovery_key)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&outcome)?);
+                } else {
+                    println!(
+                        "restored key files ({}) into {}",
+                        outcome.files.join(", "),
+                        outcome.root.display()
+                    );
+                }
+            }
+        },
         Command::Release { command } => {
             handle_release(command)?;
         }

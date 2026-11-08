@@ -124,8 +124,11 @@ and credential files; `upgrade` repairs the current layout and rejects unknown
 versions; `uninstall` requires `--purge --yes` and refuses unsafe paths. Once a
 home is initialized, CLI path defaults (journals, task graph, memory payloads and
 key, master, experience, annotations) resolve inside it; explicit flags still
-override. Uninitialized worktrees keep historical relative paths. See ADR-0024
-for the boundary and for why an export alone is not a key-escrow recovery.
+override. Uninitialized worktrees keep historical relative paths. `key escrow`
+encrypts the master key and KEK ledger under a separate 0600 recovery key;
+`key restore` verifies and restores them without overwriting existing material.
+See ADR-0024 for the export boundary and ADR-0025 for the local key-escrow
+boundary.
 
 ## Master-Agent V1
 
