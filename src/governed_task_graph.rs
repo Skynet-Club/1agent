@@ -699,10 +699,20 @@ impl GovernedTaskGraph {
         now_ms: u128,
     ) -> Result<(), GovernedTaskGraphError> {
         if let Some(journal) = &mut self.action_journal {
-            journal
-                .log_mut()
-                .record(actor, kind, target, outcome, reason, now_ms)?;
-            journal.persist()?;
+            let reason = reason.into();
+            for attempt in 0..2 {
+                if attempt == 1 {
+                    journal.reload()?;
+                }
+                journal
+                    .log_mut()
+                    .record(actor, kind, target, outcome, reason.clone(), now_ms)?;
+                match journal.persist() {
+                    Ok(_) => break,
+                    Err(ActionLogJournalError::ConcurrentWrite { .. }) if attempt == 0 => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
         } else {
             self.actions
                 .record(actor, kind, target, outcome, reason, now_ms)?;

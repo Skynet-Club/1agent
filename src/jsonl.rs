@@ -49,7 +49,7 @@ impl FileLock {
         let mut lock_path = path.as_os_str().to_os_string();
         lock_path.push(".lock");
         let lock_path = PathBuf::from(lock_path);
-        ensure_parent_private(&lock_path)?;
+        ensure_parent_exists(&lock_path)?;
         let mut options = OpenOptions::new();
         options.create(true).write(true);
         #[cfg(unix)]
@@ -159,6 +159,16 @@ pub fn open_append_private(path: &Path) -> std::io::Result<File> {
         file.set_permissions(permissions)?;
     }
     Ok(file)
+}
+
+fn ensure_parent_exists(path: &Path) -> std::io::Result<()> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(parent)
 }
 
 pub fn ensure_parent_private(path: &Path) -> std::io::Result<()> {

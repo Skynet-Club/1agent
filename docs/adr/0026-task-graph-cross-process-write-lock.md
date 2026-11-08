@@ -18,22 +18,30 @@ store was explicitly documented as single-writer, but nothing enforced it.
    replaying the log. `persist` holds it again, compares the file's byte length
    with the length observed at open/last persist, and only then appends.
 3. A mismatch returns `TaskGraphStoreError::ConcurrentWrite` with both lengths.
-   The writer does not auto-merge or retry; the caller must reopen the service
-   and reapply the operation. This is fail-closed: a stale in-memory graph can
-   never append after another writer.
-4. Lock files are runtime artifacts, not state. They are empty and are not
+   The service reloads the graph before returning the error and the Surface layer
+   maps it to a retryable conflict, so the next request succeeds instead of the
+   long-lived server staying wedged. The operation is not auto-merged; the
+   caller retries it.
+4. `open_read_only` stores reject `persist`/`with_graph_mut`, closing the hazard
+   where an unlocked read followed by a stale append could pass the length check.
+5. Opening a store does not change its parent directory's mode. Append still
+   creates/chmods a private state parent as before.
+6. Lock files are runtime artifacts, not state. They are empty and are not
    integrity-checked.
-5. The guarantee is Linux/Unix only. On other platforms the lock is a no-op and
+7. The guarantee is Linux/Unix only. On other platforms the lock is a no-op and
    only the byte-length check remains, which cannot close the race.
-6. The task graph, memory journal, skill journal, goal log and action log all
-   use the same lock-and-length-check append path. Memory payload files and
-   cross-process indexes are still outside this guarantee.
+8. The task graph, memory journal, skill journal, goal log and action log all
+   use the same lock-and-length-check append path. Memory payload files, scope
+   key creation and cross-process indexes are still outside this guarantee.
 
 ## Consequences
 
 - Two cooperating 1Agent processes can no longer corrupt the task-graph log;
-  the loser fails with an actionable error.
+  the loser gets a retryable error and the next request uses the reloaded state.
 - Concurrent operations are not merged. Live multi-process scheduling would
-  need a reload/retry protocol and an index, neither of which is claimed here.
+  need an index and conflict-aware retry policy, neither of which is claimed.
 - A non-cooperating writer that ignores the lock can still race; the length
   check detects it only when it wins before the append.
+- Cross-process memory payload/key creation remains a known race: journal
+  ordering is protected, but two processes creating the first scope key can
+  still overwrite each other's ledger entry.

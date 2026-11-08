@@ -21,6 +21,8 @@ pub enum TaskGraphStoreError {
     Replay(#[from] TaskGraphError),
     #[error("task graph event sequence is not contiguous")]
     NonContiguousSequence,
+    #[error("task graph store was opened read-only")]
+    ReadOnly,
     #[error(
         "task graph was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
     )]
@@ -35,6 +37,7 @@ pub struct TaskGraphStore {
     path: PathBuf,
     next_seq: u64,
     persisted_bytes: u64,
+    writable: bool,
 }
 
 impl TaskGraphStore {
@@ -81,6 +84,7 @@ impl TaskGraphStore {
                 path,
                 next_seq,
                 persisted_bytes,
+                writable: repair,
             },
             graph,
         ))
@@ -92,6 +96,9 @@ impl TaskGraphStore {
 
     /// Append events that are newer than the last persisted sequence.
     pub fn persist(&mut self, graph: &TaskGraph) -> Result<usize, TaskGraphStoreError> {
+        if !self.writable {
+            return Err(TaskGraphStoreError::ReadOnly);
+        }
         let new_events: Vec<&TaskGraphEvent> = graph
             .events()
             .iter()
@@ -160,6 +167,16 @@ impl TaskGraphService {
         self.store.path()
     }
 
+    /// Replay the log again after another writer appended. Governance state
+    /// (authority, standing approvals, action log) is preserved; only the
+    /// graph snapshot is replaced.
+    pub fn reload(&mut self) -> Result<(), TaskGraphStoreError> {
+        let (store, graph) = TaskGraphStore::open(self.store.path())?;
+        self.store = store;
+        self.graph = graph;
+        Ok(())
+    }
+
     /// Mutate a candidate graph and persist any newly appended events. On
     /// failure the candidate is discarded, so the in-memory graph never carries
     /// events that are absent from the log; the caller may retry the operation.
@@ -169,9 +186,17 @@ impl TaskGraphService {
     ) -> Result<R, TaskGraphStoreError> {
         let mut candidate = self.graph.clone();
         let result = operation(&mut candidate)?;
-        self.store.persist(&candidate)?;
-        self.graph = candidate;
-        Ok(result)
+        match self.store.persist(&candidate) {
+            Ok(_) => {
+                self.graph = candidate;
+                Ok(result)
+            }
+            Err(error @ TaskGraphStoreError::ConcurrentWrite { .. }) => {
+                let _ = self.reload();
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -250,6 +275,30 @@ mod tests {
         assert_eq!(reopened.snapshot().reports.len(), 1);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn read_only_service_cannot_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task-graph.jsonl");
+        let mut service = TaskGraphService::open_read_only(&path).unwrap();
+        let error = service
+            .with_graph_mut(|graph| graph.open_thread("blocked", 1))
+            .unwrap_err();
+        assert!(matches!(error, TaskGraphStoreError::ReadOnly));
+    }
+
+    #[test]
+    fn opening_a_store_does_not_change_parent_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o775)).unwrap();
+        let path = dir.path().join("task-graph.jsonl");
+        TaskGraphService::open(&path).unwrap();
+        let mode = std::fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o775);
+    }
+
     #[test]
     fn stale_writer_fails_closed_after_another_writer_appends() {
         let dir = tempfile::tempdir().unwrap();
@@ -269,8 +318,11 @@ mod tests {
                 actual_bytes: _
             }
         ));
+        second
+            .with_graph_mut(|graph| graph.open_thread("second", 11))
+            .unwrap();
         let reopened = TaskGraphService::open(&path).unwrap();
-        assert_eq!(reopened.snapshot().threads.len(), 1);
+        assert_eq!(reopened.snapshot().threads.len(), 2);
     }
 
     #[test]

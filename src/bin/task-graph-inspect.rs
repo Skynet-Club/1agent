@@ -2,7 +2,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use clap::Parser;
-use first_principles_agent::TaskGraphService;
+use first_principles_agent::{TaskGraphService, home_or_legacy};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -10,7 +10,7 @@ use first_principles_agent::TaskGraphService;
     about = "Read-only inspector for the 1Agent task-graph event log"
 )]
 struct Cli {
-    #[arg(long, default_value = ".1a/task-graph.jsonl")]
+    #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
     store: PathBuf,
     #[arg(long)]
     json: bool,

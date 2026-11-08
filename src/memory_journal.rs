@@ -21,6 +21,8 @@ pub enum MemoryJournalError {
     Verify(#[from] MemoryError),
     #[error("memory journal event sequence is not contiguous")]
     NonContiguousSequence,
+    #[error("memory journal was opened read-only")]
+    ReadOnly,
     #[error(
         "memory journal was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
     )]
@@ -35,6 +37,7 @@ pub struct MemoryJournalStore {
     path: PathBuf,
     next_seq: u64,
     persisted_bytes: u64,
+    writable: bool,
     events: Vec<MemoryEvent>,
 }
 
@@ -77,6 +80,7 @@ impl MemoryJournalStore {
             path,
             next_seq,
             persisted_bytes,
+            writable: repair,
             events,
         })
     }
@@ -90,6 +94,9 @@ impl MemoryJournalStore {
     }
 
     pub fn persist(&mut self, store: &MemoryStore) -> Result<usize, MemoryJournalError> {
+        if !self.writable {
+            return Err(MemoryJournalError::ReadOnly);
+        }
         let new_events: Vec<&MemoryEvent> = store
             .events()
             .iter()
@@ -170,6 +177,19 @@ mod tests {
         let reopened = MemoryJournalStore::open(&path).unwrap();
         assert_eq!(reopened.events().len(), 2);
         MemoryStore::verify_events(reopened.events()).unwrap();
+    }
+
+    #[test]
+    fn read_only_journal_cannot_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memory-journal.jsonl");
+        let mut journal = MemoryJournalStore::open_read_only(&path).unwrap();
+        let mut store = MemoryStore::default();
+        store.remember_at(memory(), 10).unwrap();
+        assert!(matches!(
+            journal.persist(&store).unwrap_err(),
+            MemoryJournalError::ReadOnly
+        ));
     }
 
     #[test]

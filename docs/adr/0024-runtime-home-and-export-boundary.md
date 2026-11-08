@@ -28,7 +28,8 @@ because the memory master key lives beside encrypted payloads.
    containing relative path, size and SHA-256 for every file. Key material
    (including `memory.key-keks.json`) and credential-looking files are excluded
    and listed under `excluded`. Files are written 0600 and the output must be
-   empty and outside the home.
+   empty and outside the home. A non-UTF-8 filename is rejected before any file
+   is written, because a lossy manifest path cannot be restored.
 5. `1agent restore` verifies the manifest, rejects absolute/`..` paths, extra
    files, symlinks, key material and hash mismatches, and writes only into an
    empty or nonexistent home. The home marker is written last, so a partial

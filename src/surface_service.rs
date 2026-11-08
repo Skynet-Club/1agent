@@ -21,13 +21,16 @@ use crate::evolution::{
 };
 use crate::goal::{CommitmentStatus, GoalError, GoalStatus, GoalStore};
 use crate::governed_task_graph::{GovernedTaskGraph, GovernedTaskGraphError};
-use crate::memory_service::MemoryService;
-use crate::skill_service::SkillService;
+use crate::memory_journal::MemoryJournalError;
+use crate::memory_service::{MemoryService, MemoryServiceError};
+use crate::skill_journal::SkillJournalError;
+use crate::skill_service::{SkillService, SkillServiceError};
 use crate::surface_api::{
     AuditFilter, AuthContext, OutboundMessage, SurfaceError, SurfaceErrorCode, SurfaceMethod,
     SurfaceRequest, SurfaceResponse,
 };
 use crate::task_graph::{ApprovalDecision, TaskGraphError};
+use crate::task_graph_store::TaskGraphStoreError;
 use uuid::Uuid;
 
 #[derive(Debug, Default)]
@@ -932,7 +935,11 @@ impl SurfaceService {
         memory
             .forget(memory_id, scope, mode, now_ms)
             .map_err(|error| {
-                SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
+                let retryable = matches!(
+                    &error,
+                    MemoryServiceError::Journal(MemoryJournalError::ConcurrentWrite { .. })
+                );
+                SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), retryable)
             })?;
         Ok(serde_json::json!({"memory_id": memory_id, "forgotten": true, "mode": mode_label}))
     }
@@ -1090,6 +1097,14 @@ fn map_governed_error(error: GovernedTaskGraphError) -> SurfaceError {
         | GovernedTaskGraphError::Graph(TaskGraphError::ApprovalRequired(_)) => {
             SurfaceError::new(SurfaceErrorCode::Conflict, "approval is not active", false)
         }
+        GovernedTaskGraphError::Store(TaskGraphStoreError::ConcurrentWrite { .. })
+        | GovernedTaskGraphError::ActionJournal(
+            crate::action_log_journal::ActionLogJournalError::ConcurrentWrite { .. },
+        ) => SurfaceError::new(
+            SurfaceErrorCode::Conflict,
+            "store changed concurrently; retry the request",
+            true,
+        ),
         _ => SurfaceError::new(
             SurfaceErrorCode::Internal,
             "governed task graph error",
@@ -1171,8 +1186,12 @@ fn map_evolution_error(error: EvolutionError) -> SurfaceError {
     }
 }
 
-fn map_skill_error(error: crate::skill_service::SkillServiceError) -> SurfaceError {
-    SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
+fn map_skill_error(error: SkillServiceError) -> SurfaceError {
+    let retryable = matches!(
+        &error,
+        SkillServiceError::Journal(SkillJournalError::ConcurrentWrite { .. })
+    );
+    SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), retryable)
 }
 
 fn parse_risk(value: &str) -> Result<RiskLevel, SurfaceError> {
@@ -1289,6 +1308,18 @@ mod tests {
     use crate::skill::{SkillManifest, SkillRisk};
     use crate::task_graph::{Decision, MandateStrength, TicketDraft, Trigger, TriggerSource};
 
+    #[test]
+    fn concurrent_task_graph_conflict_maps_to_retryable_conflict() {
+        let error = map_governed_error(GovernedTaskGraphError::Store(
+            TaskGraphStoreError::ConcurrentWrite {
+                expected_bytes: 1,
+                actual_bytes: 2,
+            },
+        ));
+        assert_eq!(error.code, SurfaceErrorCode::Conflict);
+        assert!(error.retryable);
+    }
+
     fn service(dir: &std::path::Path) -> (SurfaceService, String) {
         let mut graph = GovernedTaskGraph::open(dir.join("task-graph.jsonl")).unwrap();
         graph
@@ -1364,6 +1395,30 @@ mod tests {
                 "thread:read".into(),
             ],
         }
+    }
+
+    #[test]
+    fn concurrent_external_write_is_retryable_not_wedged() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut service, ticket_id) = service(dir.path());
+        let mut external =
+            crate::task_graph_store::TaskGraphService::open(dir.path().join("task-graph.jsonl"))
+                .unwrap();
+        external
+            .with_graph_mut(|graph| graph.open_thread("external", 20))
+            .unwrap();
+
+        let response = service.handle(&request(&ticket_id), &auth(), 20);
+        assert!(!response.ok);
+        let error = response.error.unwrap();
+        assert_eq!(error.code, SurfaceErrorCode::Conflict);
+        assert!(error.retryable);
+
+        let mut retry = request(&ticket_id);
+        retry.request_id = "request-2".into();
+        retry.idempotency_key = Some("idem-2".into());
+        let response = service.handle(&retry, &auth(), 21);
+        assert!(response.ok, "{:?}", response.error);
     }
 
     #[test]

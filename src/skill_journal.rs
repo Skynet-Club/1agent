@@ -18,6 +18,8 @@ pub enum SkillJournalError {
     Verify(#[from] SkillError),
     #[error("skill journal event sequence is not contiguous")]
     NonContiguousSequence,
+    #[error("skill journal was opened read-only")]
+    ReadOnly,
     #[error(
         "skill journal was modified by another writer (expected {expected_bytes} bytes, found {actual_bytes})"
     )]
@@ -32,6 +34,7 @@ pub struct SkillJournalStore {
     path: PathBuf,
     next_seq: u64,
     persisted_bytes: u64,
+    writable: bool,
     events: Vec<SkillEvent>,
 }
 
@@ -74,6 +77,7 @@ impl SkillJournalStore {
             path,
             next_seq,
             persisted_bytes,
+            writable: repair,
             events,
         })
     }
@@ -87,6 +91,9 @@ impl SkillJournalStore {
     }
 
     pub fn persist(&mut self, store: &SkillStore) -> Result<usize, SkillJournalError> {
+        if !self.writable {
+            return Err(SkillJournalError::ReadOnly);
+        }
         let new_events: Vec<&SkillEvent> = store
             .events()
             .iter()
@@ -162,6 +169,19 @@ mod tests {
         let replayed = SkillStore::replay(reopened.events()).unwrap();
         assert_eq!(replayed.active("release").unwrap().version, "1.0.0");
         assert_eq!(replayed.events().len(), 2);
+    }
+
+    #[test]
+    fn read_only_journal_cannot_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skill-journal.jsonl");
+        let mut journal = SkillJournalStore::open_read_only(&path).unwrap();
+        let mut store = SkillStore::default();
+        store.register(manifest("1.0.0"), 10).unwrap();
+        assert!(matches!(
+            journal.persist(&store).unwrap_err(),
+            SkillJournalError::ReadOnly
+        ));
     }
 
     #[test]

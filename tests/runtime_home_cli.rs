@@ -440,3 +440,56 @@ fn invalid_home_marker_does_not_become_the_default_state_root() {
     assert!(!home.join("task-graph.jsonl").exists());
     assert!(workspace.path().join(".1a/task-graph.jsonl").is_file());
 }
+
+#[cfg(unix)]
+#[test]
+fn export_rejects_non_utf8_filenames() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+    let name = OsStr::from_bytes(b"bad\xff.json");
+    std::fs::write(home.join("payloads").join(name), "opaque").unwrap();
+    let bundle = workspace.path().join("bundle");
+    let output = run(&[
+        "export",
+        "--root",
+        &home.display().to_string(),
+        "--output",
+        &bundle.display().to_string(),
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("UTF-8"));
+    assert!(!bundle.join("export.json").exists());
+}
+
+#[test]
+fn task_graph_inspect_uses_the_initialized_home() {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    run_ok(&["init", "--root", &home.display().to_string(), "--json"]);
+    run_ok(&[
+        "task-graph",
+        "demo",
+        "--store",
+        &home.join("task-graph.jsonl").display().to_string(),
+        "--json",
+    ]);
+    let elsewhere = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_task-graph-inspect"))
+        .args(["--json"])
+        .current_dir(elsewhere.path())
+        .env("ONEAGENT_HOME", &home)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let snapshot: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(snapshot["threads"].as_array().unwrap().len(), 1);
+}

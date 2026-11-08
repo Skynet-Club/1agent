@@ -45,6 +45,27 @@ impl SkillService {
         self.journal.path()
     }
 
+    pub fn reload(&mut self) -> Result<(), SkillServiceError> {
+        let path = self.journal.path().to_path_buf();
+        *self = Self::open(path)?;
+        Ok(())
+    }
+
+    fn persist_candidate(&mut self, candidate: &SkillStore) -> Result<(), SkillServiceError> {
+        match self.journal.persist(candidate) {
+            Ok(_) => {
+                self.store = candidate.clone();
+                Ok(())
+            }
+            Err(error) => {
+                if matches!(error, SkillJournalError::ConcurrentWrite { .. }) {
+                    let _ = self.reload();
+                }
+                Err(error.into())
+            }
+        }
+    }
+
     pub fn register(
         &mut self,
         manifest: SkillManifest,
@@ -52,8 +73,7 @@ impl SkillService {
     ) -> Result<(), SkillServiceError> {
         let mut candidate = self.store.clone();
         candidate.register(manifest, now_ms)?;
-        self.journal.persist(&candidate)?;
-        self.store = candidate;
+        self.persist_candidate(&candidate)?;
         Ok(())
     }
 
@@ -65,16 +85,14 @@ impl SkillService {
     ) -> Result<(), SkillServiceError> {
         let mut candidate = self.store.clone();
         candidate.activate(name, version, now_ms)?;
-        self.journal.persist(&candidate)?;
-        self.store = candidate;
+        self.persist_candidate(&candidate)?;
         Ok(())
     }
 
     pub fn disable(&mut self, name: &str, now_ms: u128) -> Result<(), SkillServiceError> {
         let mut candidate = self.store.clone();
         candidate.disable_at(name, now_ms)?;
-        self.journal.persist(&candidate)?;
-        self.store = candidate;
+        self.persist_candidate(&candidate)?;
         Ok(())
     }
 
@@ -225,5 +243,22 @@ mod tests {
             SkillServiceError::EvalFailed(_)
         ));
         assert_eq!(service.active("release").unwrap().version, "1.0.0");
+    }
+
+    #[test]
+    fn stale_writer_reloads_and_retry_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skill-journal.jsonl");
+        let mut first = SkillService::open(&path).unwrap();
+        let mut second = SkillService::open(&path).unwrap();
+        first.register(manifest("1.0.0"), 10).unwrap();
+        let error = second.register(manifest("2.0.0"), 11).unwrap_err();
+        assert!(matches!(
+            error,
+            SkillServiceError::Journal(SkillJournalError::ConcurrentWrite { .. })
+        ));
+        second.register(manifest("2.0.0"), 12).unwrap();
+        let reopened = SkillService::open(&path).unwrap();
+        assert_eq!(reopened.events().len(), 2);
     }
 }

@@ -31,6 +31,9 @@ pub struct MemoryService {
     store: MemoryStore,
     journal: MemoryJournalStore,
     payload: MemoryPayloadStore,
+    journal_path: PathBuf,
+    payload_root: PathBuf,
+    key_path: PathBuf,
 }
 
 impl MemoryService {
@@ -39,9 +42,12 @@ impl MemoryService {
         payload_root: impl Into<PathBuf>,
         key_path: impl AsRef<Path>,
     ) -> Result<Self, MemoryServiceError> {
-        let journal = MemoryJournalStore::open(journal_path)?;
+        let journal_path = journal_path.into();
+        let payload_root = payload_root.into();
+        let key_path = key_path.as_ref().to_path_buf();
+        let journal = MemoryJournalStore::open(&journal_path)?;
         let mut store = MemoryStore::from_events(journal.events())?;
-        let payload = MemoryPayloadStore::open(payload_root, key_path)?;
+        let payload = MemoryPayloadStore::open(&payload_root, &key_path)?;
         for memory_id in store.record_ids() {
             let record = store
                 .get(&memory_id)
@@ -70,7 +76,35 @@ impl MemoryService {
             store,
             journal,
             payload,
+            journal_path,
+            payload_root,
+            key_path,
         })
+    }
+
+    pub fn reload(&mut self) -> Result<(), MemoryServiceError> {
+        let fresh = Self::open(
+            self.journal_path.clone(),
+            self.payload_root.clone(),
+            self.key_path.clone(),
+        )?;
+        *self = fresh;
+        Ok(())
+    }
+
+    fn persist_candidate(&mut self, candidate: &MemoryStore) -> Result<(), MemoryServiceError> {
+        match self.journal.persist(candidate) {
+            Ok(_) => {
+                self.store = candidate.clone();
+                Ok(())
+            }
+            Err(error) => {
+                if matches!(error, MemoryJournalError::ConcurrentWrite { .. }) {
+                    let _ = self.reload();
+                }
+                Err(error.into())
+            }
+        }
     }
 
     pub fn store(&self) -> &MemoryStore {
@@ -94,11 +128,10 @@ impl MemoryService {
         let scope_id = record.scope.scope_id();
         self.payload
             .put(&record.memory_id, &scope_id, &record.content)?;
-        if let Err(error) = self.journal.persist(&candidate) {
+        if let Err(error) = self.persist_candidate(&candidate) {
             let _ = self.payload.forget(&record.memory_id);
-            return Err(error.into());
+            return Err(error);
         }
-        self.store = candidate;
         Ok(())
     }
 
@@ -140,8 +173,7 @@ impl MemoryService {
         self.ensure_scope(memory_id, scope)?;
         let mut candidate = self.store.clone();
         candidate.forget(memory_id, mode, now_ms)?;
-        self.journal.persist(&candidate)?;
-        self.store = candidate;
+        self.persist_candidate(&candidate)?;
         if mode == ForgetMode::Hard {
             self.payload.forget(memory_id)?;
         }
@@ -157,8 +189,7 @@ impl MemoryService {
         self.ensure_scope(memory_id, scope)?;
         let mut candidate = self.store.clone();
         candidate.restore_soft_at(memory_id, now_ms)?;
-        self.journal.persist(&candidate)?;
-        self.store = candidate;
+        self.persist_candidate(&candidate)?;
         Ok(())
     }
 
@@ -172,8 +203,7 @@ impl MemoryService {
         self.ensure_scope(memory_id, scope)?;
         let mut candidate = self.store.clone();
         candidate.record_use(memory_id, accepted, now_ms)?;
-        self.journal.persist(&candidate)?;
-        self.store = candidate;
+        self.persist_candidate(&candidate)?;
         Ok(())
     }
 
@@ -417,6 +447,37 @@ mod tests {
                 .payload_contains("mem-1", &MemoryScope::bot("bot-1"))
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn stale_writer_reloads_and_retry_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut first = service(dir.path());
+        first.remember_at(record("first"), 10).unwrap();
+        let mut second = service(dir.path());
+
+        let mut external = record("external");
+        external.memory_id = "mem-2".into();
+        first.remember_at(external, 11).unwrap();
+
+        let mut next = record("second");
+        next.memory_id = "mem-3".into();
+        let error = second.remember_at(next.clone(), 12).unwrap_err();
+        assert!(matches!(
+            error,
+            MemoryServiceError::Journal(MemoryJournalError::ConcurrentWrite { .. })
+        ));
+        second.remember_at(next, 13).unwrap();
+        let reopened = service(dir.path());
+        assert_eq!(
+            reopened
+                .get("mem-3", &MemoryScope::bot("bot-1"))
+                .unwrap()
+                .content,
+            "second"
+        );
+        assert!(reopened.get("mem-1", &MemoryScope::bot("bot-1")).is_some());
+        assert!(reopened.get("mem-2", &MemoryScope::bot("bot-1")).is_some());
     }
 
     #[test]

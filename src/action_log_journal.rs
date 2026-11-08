@@ -77,6 +77,12 @@ impl ActionLogJournal {
         &self.path
     }
 
+    pub fn reload(&mut self) -> Result<(), ActionLogJournalError> {
+        let path = self.path.clone();
+        *self = Self::open(path)?;
+        Ok(())
+    }
+
     pub fn persist(&mut self) -> Result<usize, ActionLogJournalError> {
         let new_entries: Vec<&ActionLogEntry> = self
             .log
@@ -186,6 +192,46 @@ mod tests {
                 actual_bytes: _
             }
         ));
+    }
+
+    #[test]
+    fn reload_allows_retry_after_another_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("actions.jsonl");
+        let mut first = ActionLogJournal::open(&path).unwrap();
+        let mut second = ActionLogJournal::open(&path).unwrap();
+        first
+            .log_mut()
+            .record("owner", ActionKind::Approve, "ticket-1", "allowed", "ok", 1)
+            .unwrap();
+        first.persist().unwrap();
+        second
+            .log_mut()
+            .record(
+                "owner",
+                ActionKind::Retry,
+                "ticket-1",
+                "allowed",
+                "retry",
+                1,
+            )
+            .unwrap();
+        assert!(second.persist().is_err());
+        second.reload().unwrap();
+        second
+            .log_mut()
+            .record(
+                "owner",
+                ActionKind::Retry,
+                "ticket-1",
+                "allowed",
+                "retry",
+                2,
+            )
+            .unwrap();
+        assert_eq!(second.persist().unwrap(), 1);
+        let reopened = ActionLogJournal::open(&path).unwrap();
+        assert_eq!(reopened.log().len(), 2);
     }
 
     #[test]

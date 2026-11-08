@@ -507,13 +507,27 @@ impl GoalStore {
         &self.graph
     }
 
+    pub fn reload(&mut self) -> Result<(), GoalError> {
+        let path = self.path.clone();
+        *self = Self::open(path)?;
+        Ok(())
+    }
+
     pub fn persist(&mut self) -> Result<usize, GoalError> {
-        append_events(
+        let events = self.graph.events.clone();
+        match append_events(
             &self.path,
             &mut self.next_seq,
             &mut self.persisted_bytes,
-            &self.graph.events,
-        )
+            &events,
+        ) {
+            Ok(count) => Ok(count),
+            Err(error @ GoalError::ConcurrentWrite { .. }) => {
+                let _ = self.reload();
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn with_graph_mut<R>(
@@ -522,14 +536,22 @@ impl GoalStore {
     ) -> Result<R, GoalError> {
         let mut candidate = self.graph.clone();
         let result = operation(&mut candidate)?;
-        append_events(
+        match append_events(
             &self.path,
             &mut self.next_seq,
             &mut self.persisted_bytes,
             &candidate.events,
-        )?;
-        self.graph = candidate;
-        Ok(result)
+        ) {
+            Ok(_) => {
+                self.graph = candidate;
+                Ok(result)
+            }
+            Err(error @ GoalError::ConcurrentWrite { .. }) => {
+                let _ = self.reload();
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -710,6 +732,11 @@ mod tests {
                 actual_bytes: _
             }
         ));
+        second
+            .with_graph_mut(|graph| graph.create_goal("goal-2", "owner-1", "other", None, 2))
+            .unwrap();
+        let reopened = GoalStore::open(&path).unwrap();
+        assert_eq!(reopened.graph().snapshot().goals.len(), 2);
     }
 
     #[test]

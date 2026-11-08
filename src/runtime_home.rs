@@ -457,14 +457,19 @@ pub fn export(root: &Path, output: &Path, now_ms: u128) -> Result<ExportOutcome,
     collect_files(&root, &mut paths)?;
     paths.sort();
 
-    let mut files = Vec::new();
-    let mut excluded = Vec::new();
+    let mut entries = Vec::new();
     for path in paths {
         let relative = path
             .strip_prefix(&root)
             .map_err(|_| HomeError::UnsafeLayout(format!("{} escapes the home", path.display())))?
             .to_path_buf();
-        let display = relative_display(&relative);
+        let display = relative_display(&relative)?;
+        entries.push((path, relative, display));
+    }
+
+    let mut files = Vec::new();
+    let mut excluded = Vec::new();
+    for (path, relative, display) in entries {
         if is_secret_name(&display) {
             excluded.push(display);
             continue;
@@ -584,7 +589,7 @@ pub fn verify_export(output: &Path) -> Result<ExportManifest, HomeError> {
         let relative = path
             .strip_prefix(&output)
             .map_err(|_| HomeError::InvalidBundle("path escapes bundle".to_string()))?;
-        let display = relative_display(relative);
+        let display = relative_display(relative)?;
         if display == EXPORT_MANIFEST_NAME {
             continue;
         }
@@ -1038,11 +1043,28 @@ fn safe_relative(path: &str) -> Option<PathBuf> {
     (!out.as_os_str().is_empty()).then_some(out)
 }
 
-fn relative_display(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
+fn relative_display(path: &Path) -> Result<String, HomeError> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => {
+                let part = part.to_str().ok_or_else(|| {
+                    HomeError::UnsafeLayout(format!(
+                        "filename is not valid UTF-8: {}",
+                        path.display()
+                    ))
+                })?;
+                parts.push(part);
+            }
+            _ => {
+                return Err(HomeError::UnsafeLayout(format!(
+                    "unsafe relative path: {}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(parts.join("/"))
 }
 
 fn is_secret_name(path: &str) -> bool {
