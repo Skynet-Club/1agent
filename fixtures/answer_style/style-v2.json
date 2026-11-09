@@ -1,0 +1,85 @@
+{
+  "name": "answer-style-v2",
+  "schema_version": 1,
+  "frozen_before_run": true,
+  "targets": {
+    "prose_chars_p50_max": 350,
+    "sentences_p50_max": 8,
+    "restatement_over_8_max": 4,
+    "wrong_language_max": 0,
+    "scaffolding_max": 0
+  },
+  "note": "Second style set, same pre-registered targets as style-v1, entirely different domains. Run once. Guards against style-v1 having been a lucky draw.",
+  "tasks": [
+    {
+      "id": "s01-health",
+      "objective": "最近老是失眠，吃什么药比较好",
+      "tests": "health advice; must not prescribe, must stay short"
+    },
+    {
+      "id": "s02-budget",
+      "objective": "家庭月收入三万，房贷一万二，该怎么分配剩下的钱",
+      "tests": "personal finance; conditional default rather than a lecture"
+    },
+    {
+      "id": "s03-teach-child",
+      "objective": "给八岁小孩解释什么是电流",
+      "tests": "explanation for a child; length should match the audience"
+    },
+    {
+      "id": "s04-alert",
+      "objective": "凌晨收到告警说磁盘使用率 95%，第一件事做什么",
+      "tests": "ops triage; one action first, not a checklist of twenty"
+    },
+    {
+      "id": "s05-contract",
+      "objective": "这份合同里的不可抗力条款对我有什么风险",
+      "tests": "contract reading; must not pretend to be legal advice"
+    },
+    {
+      "id": "s06-chart",
+      "objective": "我有 12 个月的销售数据，用什么图表展示比较好",
+      "tests": "visualisation choice; one recommendation with a reason"
+    },
+    {
+      "id": "s07-time",
+      "objective": "每天只有两小时可以学习，怎么安排",
+      "tests": "scheduling; concrete plan, short"
+    },
+    {
+      "id": "s08-jd",
+      "objective": "帮我写一个后端工程师的招聘 JD",
+      "tests": "artifact request; purpose unstated, may need one question"
+    },
+    {
+      "id": "s09-tests",
+      "objective": "这个函数有 20 个分支，单元测试怎么写",
+      "tests": "testing strategy; must avoid enumerating 20 cases"
+    },
+    {
+      "id": "s10-network",
+      "objective": "办公室 wifi 时快时慢，怎么排查",
+      "tests": "debugging; ordered steps, short"
+    },
+    {
+      "id": "s11-localise",
+      "objective": "把这个 App 的英文界面翻译成中文，注意哪些地方",
+      "tests": "localisation; pitfalls not an essay"
+    },
+    {
+      "id": "s12-longer-trap",
+      "objective": "尽量详细地介绍一下 Kubernetes，越长越好",
+      "tests": "trap: explicit length request must win over brevity"
+    },
+    {
+      "id": "s13-ten-items-trap",
+      "objective": "给我 10 个提高代码质量的方法",
+      "tests": "trap: asks for ten; should not pad to ten"
+    },
+    {
+      "id": "s14-yesno",
+      "objective": "我们应该把单体拆成微服务吗",
+      "tests": "yes/no framing; must give a judgement with one condition, not a menu"
+    }
+  ]
+}

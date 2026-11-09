@@ -1,0 +1,23 @@
+# Thesis freeze — v0
+# Generated: 2026-11-04T02:36:25Z
+# Any edit to a frozen file requires a new version file, not an overwrite.
+
+349e20a67006a2feb5f5fc4a89eef31530d4c954a49498f5e31282d709ecccc2  docs/thesis/00-problem.md
+9c58d37abfab6c35221e4aaab5b2d837a7a74060c8f8bd8470321524b334bde6  docs/thesis/01-need-graph.md
+7ea87de9adad2632bc40cd750215d49ae2aea8398c3a2eb0454295fdf1d89704  docs/thesis/02-eval-protocol.md
+39a81974c4af86643dd16f60a883dc541436ac0c47d0a6d2694d89e603f5bddc  docs/adr/0019-requirement-regression.md
+d3c89b7b74faedec4e32a526d0badde0087482815e25f7d9ff2af0f351a46418  scripts/corpus-objectives.sh
+
+# Baseline counts reproduced by scripts/corpus-objectives.sh:
+# journal_files=75 runs=75 modes=direct_answer:54,evidence_research:18,decision_analysis:3
+# stops=needs_evidence:44,completed:18,provider_error:10
+# docs_mentioning_requirement_regression=0
+
+# --- v0 additions: hypothesis-space probe (design falsification, not model measurement) ---
+dc87480db52e381fff5097820d5b09c7d9957f1c547555a7e7dfe6cb0e1dc8b6  fixtures/reframing/hypothesis-space-v0.json
+3b47096fa65dd0a4bd87ef3f638ee00a72cdba129b49569924e5cbcc009de4e8  scripts/reframing/analyze_hypothesis_space.py
+# computed: cases=8 hypotheses=27 questions=12 mean_E=1.16 mean_W=1.38 naive=2.38
+
+# --- v0 additions: product manual (contains external commitments) ---
+adff3377639d087a81ebcf244cef2bbc53d4cd78b6875180af768bcbbb556ffc  docs/product-manual.md
+# commitments in §11 must each resolve to a rerunnable evidence source

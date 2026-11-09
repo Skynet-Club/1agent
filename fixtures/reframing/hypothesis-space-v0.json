@@ -1,0 +1,428 @@
+{
+  "name": "reframing-hypothesis-space-v0",
+  "schema_version": 1,
+  "execution_status": "template",
+  "max_questions_per_case": 3,
+  "max_branch_arity": 3,
+  "note": "Priors, hypotheses and question branches are author-constructed, not yet validated by external labelers. This fixture exists to falsify the DESIGN cheaply (can the branch be reached in <=2 questions?), not to measure model quality. See docs/thesis/02-eval-protocol.md.",
+  "cases": [
+    {
+      "id": "drill-001",
+      "source": "constructed",
+      "stated_request": "我要买个电钻，帮我推荐个型号",
+      "classification_expected": "means",
+      "constraints": ["墙面含承重结构", "不可改动结构", "两个房间各有一台电脑"],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "在墙上挂东西（书架、画）",
+          "prior": 0.3,
+          "action": "推荐免钉/膨胀螺栓方案，不买电钻",
+          "falsifier": "如果他要打的孔是为了穿过线缆，这个假设就是错的"
+        },
+        {
+          "id": "H2",
+          "statement": "穿网线，让两个房间的电脑联网",
+          "prior": 0.45,
+          "action": "提议无线路由器/电力猫，不买电钻",
+          "falsifier": "如果两台电脑本来就不需要联网，这个假设就是错的"
+        },
+        {
+          "id": "H3",
+          "statement": "长期施工/改造，需要持续用工具",
+          "prior": 0.15,
+          "action": "确认原方案：买电钻",
+          "falsifier": "如果这次只打一两个孔且以后不再用，这个假设就是错的"
+        },
+        {
+          "id": "H4",
+          "statement": "一次性使用，之后不再需要",
+          "prior": 0.1,
+          "action": "建议租借或找师傅，不买电钻",
+          "falsifier": "如果他有长期 DIY 习惯，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "这个孔是为了穿线、挂东西，还是施工改造？",
+          "branches": {
+            "穿线": ["H2"],
+            "挂东西": ["H1"],
+            "施工改造": ["H3", "H4"]
+          }
+        },
+        {
+          "id": "Q2",
+          "text": "以后还会经常用吗？",
+          "branches": {
+            "会长期用": ["H3"],
+            "就这一次": ["H4"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H2",
+        "acceptable_substitutes": ["无线路由器", "电力猫", "Mesh"],
+        "unacceptable_substitutes": ["拆墙", "明线经过客厅"]
+      }
+    },
+    {
+      "id": "weekly-report-002",
+      "source": "journal",
+      "stated_request": "周一有很多事情要做，要提交周报，要开发我们的1Agent，我先做哪个呢？",
+      "classification_expected": "end",
+      "constraints": [],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "想要一个明确的先后排序",
+          "prior": 0.35,
+          "action": "给出排序与理由",
+          "falsifier": "如果他说出排序后仍然不动，说明他要的不是排序"
+        },
+        {
+          "id": "H3",
+          "statement": "想让我替他决定并承担后果",
+          "prior": 0.2,
+          "action": "给出排序与理由",
+          "falsifier": "如果他说'我自己决定'，这个假设就是错的"
+        },
+        {
+          "id": "H2",
+          "statement": "担心漏掉某件事",
+          "prior": 0.3,
+          "action": "先把待办列全并核对遗漏",
+          "falsifier": "如果他能完整背出所有待办，这个假设就是错的"
+        },
+        {
+          "id": "H4",
+          "statement": "想知道哪件事对他的长期目标更重要",
+          "prior": 0.15,
+          "action": "先对齐目标再排序",
+          "falsifier": "如果他没有长期目标可言，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "你是想要个排序，还是先确认有没有漏掉的事，还是想知道哪件更重要？",
+          "branches": {
+            "排序": ["H1", "H3"],
+            "确认遗漏": ["H2"],
+            "哪件更重要": ["H4"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H1",
+        "acceptable_substitutes": [],
+        "unacceptable_substitutes": []
+      }
+    },
+    {
+      "id": "weekend-trip-003",
+      "source": "journal",
+      "stated_request": "周末去北京周边玩你有好的建议吗？",
+      "classification_expected": "means",
+      "constraints": ["周末两天", "北京出发"],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "想去没去过的地方，要新鲜感",
+          "prior": 0.35,
+          "action": "给目的地清单",
+          "falsifier": "如果他说'去哪都行'，这个假设就是错的"
+        },
+        {
+          "id": "H2",
+          "statement": "想休息，目的地不重要",
+          "prior": 0.3,
+          "action": "推荐就近、低强度方案",
+          "falsifier": "如果他明确排出想去的地方，这个假设就是错的"
+        },
+        {
+          "id": "H3",
+          "statement": "主要目的是陪家人",
+          "prior": 0.2,
+          "action": "先问同伴偏好，再给亲子方案",
+          "falsifier": "如果他是独自出行，这个假设就是错的"
+        },
+        {
+          "id": "H4",
+          "statement": "想拍好看的照片",
+          "prior": 0.15,
+          "action": "给出片地点清单",
+          "falsifier": "如果他说不拍照，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "这趟是想休息、想看点新鲜的，还是主要为了陪家人？",
+          "branches": {
+            "休息": ["H2"],
+            "新鲜感": ["H1", "H4"],
+            "陪家人": ["H3"]
+          }
+        },
+        {
+          "id": "Q2",
+          "text": "会拍照发出来吗？",
+          "branches": {
+            "会": ["H4"],
+            "不会": ["H1"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H2",
+        "acceptable_substitutes": ["京郊民宿两日", "市区公园+餐厅"],
+        "unacceptable_substitutes": []
+      }
+    },
+    {
+      "id": "database-004",
+      "source": "constructed",
+      "stated_request": "帮我选个数据库",
+      "classification_expected": "means",
+      "constraints": ["团队 5 人", "无专职 DBA"],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "需要长期运行的业务主库",
+          "prior": 0.35,
+          "action": "推荐 Postgres",
+          "falsifier": "如果只是临时 demo，这个假设就是错的"
+        },
+        {
+          "id": "H2",
+          "statement": "以分析和时序写入为主",
+          "prior": 0.35,
+          "action": "推荐 ClickHouse/Timescale",
+          "falsifier": "如果写入量很小、以事务为主，这个假设就是错的"
+        },
+        {
+          "id": "H3",
+          "statement": "只是先跑个 demo 验证想法",
+          "prior": 0.2,
+          "action": "推荐 SQLite",
+          "falsifier": "如果他说要上生产，这个假设就是错的"
+        },
+        {
+          "id": "H4",
+          "statement": "真实目的是应付评审或写文档",
+          "prior": 0.1,
+          "action": "先确认选型的约束来源",
+          "falsifier": "如果他自己就是决策人且要落地，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "写入峰值大概多少 QPS？",
+          "branches": {
+            "低（<1k）": ["H1", "H3"],
+            "高（>10k）": ["H2"],
+            "不知道": ["H4"]
+          }
+        },
+        {
+          "id": "Q2",
+          "text": "是长期生产用，还是先跑个 demo？",
+          "branches": {
+            "生产": ["H1"],
+            "demo": ["H3"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H1",
+        "acceptable_substitutes": ["Postgres"],
+        "unacceptable_substitutes": ["ClickHouse（若为 OLTP）"]
+      }
+    },
+    {
+      "id": "typo-005",
+      "source": "constructed",
+      "stated_request": "把 README 里那几个 typo 改掉",
+      "classification_expected": "end",
+      "constraints": ["不改动其他内容"],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "就是修正拼写错误",
+          "prior": 1.0,
+          "action": "直接改",
+          "falsifier": "如果他其实想重写 README，这个假设就是错的"
+        }
+      ],
+      "questions": [],
+      "answer_key": {
+        "terminal_need": null,
+        "acceptable_substitutes": [],
+        "unacceptable_substitutes": []
+      }
+    },
+    {
+      "id": "learn-rust-006",
+      "source": "constructed",
+      "stated_request": "我要学 Rust",
+      "classification_expected": "means",
+      "constraints": [],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "为了找工作/面试",
+          "prior": 0.3,
+          "action": "按面试考点规划",
+          "falsifier": "如果他已在职且不打算跳，这个假设就是错的"
+        },
+        {
+          "id": "H2",
+          "statement": "为了读懂某个现有代码库",
+          "prior": 0.3,
+          "action": "按该代码库定向讲解",
+          "falsifier": "如果没有具体代码库，这个假设就是错的"
+        },
+        {
+          "id": "H3",
+          "statement": "为了做点小工具",
+          "prior": 0.25,
+          "action": "以项目驱动快速出活",
+          "falsifier": "如果他只想要理论，这个假设就是错的"
+        },
+        {
+          "id": "H4",
+          "statement": "只是好奇，没有具体目的",
+          "prior": 0.15,
+          "action": "给最小认知地图，不做系统规划",
+          "falsifier": "如果他给出明确用途，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "你有具体想做的项目或想读的代码吗？",
+          "branches": {
+            "有": ["H2", "H3"],
+            "没有": ["H1", "H4"]
+          }
+        },
+        {
+          "id": "Q2a",
+          "text": "是读别人的代码，还是写自己的？",
+          "branches": {
+            "读别人的": ["H2"],
+            "写自己的": ["H3"]
+          }
+        },
+        {
+          "id": "Q2b",
+          "text": "是为了换工作吗？",
+          "branches": {
+            "是": ["H1"],
+            "不是": ["H4"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H3",
+        "acceptable_substitutes": ["以一个小 CLI 项目驱动的学习路径"],
+        "unacceptable_substitutes": ["从所有权与借用检查开始的 300 页教程"]
+      }
+    },
+    {
+      "id": "sensitive-topic-007",
+      "source": "journal",
+      "stated_request": "这里可以讨论军事政治敏感话题吗？",
+      "classification_expected": "end",
+      "constraints": [],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "想确认能力边界",
+          "prior": 0.45,
+          "action": "直接说明边界",
+          "falsifier": "如果他接着抛出具体话题，说明他真正想问的是后者"
+        },
+        {
+          "id": "H2",
+          "statement": "有具体话题想试探能否讨论",
+          "prior": 0.4,
+          "action": "请他说出具体话题再判断",
+          "falsifier": "如果他只是顺口一问，这个假设就是错的"
+        },
+        {
+          "id": "H3",
+          "statement": "在做合规或风控测试",
+          "prior": 0.15,
+          "action": "给出策略说明",
+          "falsifier": "如果他没有测试意图，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "你是在确认边界，还是有具体话题想聊，还是在做合规检查？",
+          "branches": {
+            "确认边界": ["H1"],
+            "具体话题": ["H2"],
+            "合规检查": ["H3"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H1",
+        "acceptable_substitutes": [],
+        "unacceptable_substitutes": []
+      }
+    },
+    {
+      "id": "hello-world-008",
+      "source": "journal",
+      "stated_request": "用 python/C/c#/java/rust 写个 Hello World，我看看语法的区别",
+      "classification_expected": "end",
+      "constraints": [],
+      "hypotheses": [
+        {
+          "id": "H1",
+          "statement": "想比较各语言语法写法",
+          "prior": 0.5,
+          "action": "给并排语法对比",
+          "falsifier": "如果他只关心一种语言，这个假设就是错的"
+        },
+        {
+          "id": "H2",
+          "statement": "想测终端代码围栏的渲染效果",
+          "prior": 0.3,
+          "action": "给一小段即可",
+          "falsifier": "如果他要求'全部五种'，这个假设就是错的"
+        },
+        {
+          "id": "H3",
+          "statement": "在选一门语言学",
+          "prior": 0.2,
+          "action": "按选型维度对比",
+          "falsifier": "如果他已经决定用某门语言，这个假设就是错的"
+        }
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "你是想比较语法、看渲染效果，还是在选语言？",
+          "branches": {
+            "比较语法": ["H1"],
+            "看渲染": ["H2"],
+            "选语言": ["H3"]
+          }
+        }
+      ],
+      "answer_key": {
+        "terminal_need": "H1",
+        "acceptable_substitutes": [],
+        "unacceptable_substitutes": []
+      }
+    }
+  ]
+}

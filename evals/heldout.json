@@ -1,0 +1,40 @@
+{
+  "name": "heldout-repository-v1",
+  "suite_version": "1",
+  "kind": "contract_fixture",
+  "cases": [
+    {
+      "id": "heldout-read-evidence",
+      "objective": "Compare options using @read-file:\"${workspace}/evidence.txt\"",
+      "experience_scope": "repository decisions",
+      "setup_files": [
+        {
+          "path": "evidence.txt",
+          "content": "Verified: option A has the lower total cost."
+        }
+      ],
+      "rubric": {
+        "required_conclusion_terms": [
+          "已读取证据源"
+        ],
+        "forbidden_conclusion_terms": [],
+        "required_sources": [
+          "evidence.txt"
+        ],
+        "required_claim_statuses": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "expect_checkpoint": true,
+        "tool_status": "ok",
+        "tool_error_code": null,
+        "audit_ok": true
+      }
+    }
+  ]
+}

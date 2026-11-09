@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-live-master",
+  "goal_id": "goal-live-master",
+  "version": 1,
+  "summary": "Create and independently verify one Workshop artifact",
+  "work_items": [
+    {
+      "id": "create-artifact",
+      "title": "Create live artifact",
+      "objective": "Write result.txt in the approved workspace",
+      "dependencies": [],
+      "required_capabilities": [
+        "shell"
+      ],
+      "required_tools": [
+        "shell"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent/target/master-live/workspace"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "result.txt exists and matches its recorded SHA-256"
+      ],
+      "expected_artifacts": [
+        "result.txt"
+      ],
+      "workspace": "/home/skynet/1-agent/target/master-live/workspace",
+      "budget": {
+        "max_steps": 2,
+        "timeout_ms": 30000,
+        "max_tool_calls": 2
+      },
+      "deadline_unix_ms": null,
+      "risk": "medium",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 1,
+  "approved": false
+}
