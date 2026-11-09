@@ -42,9 +42,9 @@ discussed and revised; the roadmap is not a one-time promise.
   reasons, Tab argument completion and non-executing completion on Enter. The
   empty drawer is grouped by category with the three most recent commands first;
   command panels own the keyboard; destructive clear/dispatch/control actions
-  require a second Enter. A bare `1agent tui` resumes the most recent non-archived
-  session with runs; `Ctrl+Q` now requires Enter confirmation, and the post-exit
-  banner explains how to resume.
+  require a second Enter. A bare `1agent tui` starts a new session; the post-exit
+  banner reports the session title and explicit `--session` continue command.
+  `Ctrl+Q` now requires Enter confirmation.
 - **Direct answers and run metrics**: Direct Answer mode shows only the conclusion
   in the transcript; structured evidence stays in `/details`. While running, the
   activity line shows `Working...`, elapsed time, input/output tokens and provider
@@ -67,7 +67,7 @@ discussed and revised; the roadmap is not a one-time promise.
 
 ## Verification
 
-- 649 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
+- 648 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
   HTTP and loopback runs.
 - `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
   cycles.

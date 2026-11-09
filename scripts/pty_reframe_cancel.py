@@ -12,7 +12,6 @@ Offline: the socket is on loopback and never sends anything.
 
 import fcntl
 import os
-import shutil
 import pty
 import re
 import select
@@ -26,7 +25,6 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BINARY = os.path.join(ROOT, "target/release/first-principles-agent")
 JOURNAL = os.path.join(ROOT, ".journal-pty-cancel")
-shutil.rmtree(JOURNAL, ignore_errors=True)
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]")
 
 

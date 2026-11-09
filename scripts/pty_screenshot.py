@@ -34,13 +34,11 @@ def main():
     parser.add_argument("--rows", type=int, default=40)
     parser.add_argument("--keys", default="", help="input to send after startup, \\r for Enter")
     parser.add_argument("--settle", type=float, default=2.5)
-    parser.add_argument("--journal-dir", help="reuse a session directory across renders")
     args = parser.parse_args()
 
     screen = pyte.Screen(args.cols, args.rows)
     stream = pyte.ByteStream(screen)
-    owned_journal = args.journal_dir is None
-    journal_dir = args.journal_dir or tempfile.mkdtemp(prefix="1agent-pty-")
+    journal_dir = tempfile.mkdtemp(prefix="1agent-pty-")
 
     pid, fd = pty.fork()
     if pid == 0:
@@ -81,8 +79,7 @@ def main():
         os.waitpid(pid, 0)
     except ChildProcessError:
         pass
-    if owned_journal:
-        shutil.rmtree(journal_dir, ignore_errors=True)
+    shutil.rmtree(journal_dir, ignore_errors=True)
 
     for line in rows:
         print(line)

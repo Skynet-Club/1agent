@@ -1,27 +1,25 @@
-# ADR 0030: TUI Session Resume, Guarded Quit and Run Metrics
+# ADR 0030: Guarded Quit, Direct Answers and Run Metrics
 
 - Status: accepted for the interaction slice
 - Date: 2026-11-09
 
 ## Context
 
-A bare `1agent tui` always created a new session ID, so quitting and relaunching
-lost the previous conversation even though journals and session metadata were
-present. A single `Ctrl+Q` closed the TUI immediately; on terminals or keymaps
-that report a control key unexpectedly, repeated Backspace could therefore end
-the session. Direct Answer mode appended evidence/caveat sections when the answer
-was not `Completed`, contradicting its conversation-first contract. The running
-activity line only said `正在运行` and exposed no elapsed time, token usage or
-provider cache statistics.
+A bare `1agent tui` starts a new session; reopening an earlier conversation is an
+explicit `--session <id>` action. A single `Ctrl+Q` closed the TUI immediately; on
+terminals or keymaps that report a control key unexpectedly, repeated Backspace
+could therefore end the session. Direct Answer mode appended evidence/caveat
+sections when the answer was not `Completed`, contradicting its conversation-first
+contract. The running activity line only said `正在运行` and exposed no elapsed
+time, token usage or provider cache statistics.
 
 ## Decision
 
-1. A bare `1agent tui` resumes the most recently active non-archived session that
-   has at least one run; `--session <id>` remains an explicit override. Session
-   ordering uses the newest of `session.json` and `events.jsonl` mtimes.
+1. A bare `1agent tui` starts a new session. `--session <id>` reopens an earlier
+   session explicitly. The post-exit banner reports the current session title and
+   continue command.
 2. `Ctrl+Q` only arms an exit request. `Enter` confirms, `Esc` or other input
-   cancels. The same rule applies while a run is active. The post-exit banner
-   states that `1agent tui` restores the recent session.
+   cancels. The same rule applies while a run is active.
 3. Direct Answer mode writes only the answer conclusion to the transcript for
    every answer status. Structured evidence, caveats and flip conditions remain
    available through `/details`; other modes keep their sections.
@@ -32,13 +30,12 @@ provider cache statistics.
 5. `Usage` gains defaulted `cache_hit_tokens` and `cache_miss_tokens` fields.
    The OpenAI-compatible adapter reads OpenAI `prompt_tokens_details.cached_tokens`
    and DeepSeek `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`.
-6. PTY checks cover repeated Backspace, repeated Ctrl+Q without confirmation, and
-   a bare TUI relaunch that must display the previous session.
+6. PTY checks cover repeated Backspace and repeated Ctrl+Q without confirmation.
 
 ## Consequences
 
-- Session history is visible after a normal quit without copying a session ID;
-  archived sessions are skipped.
+- A new launch remains a clean session; resuming an earlier conversation requires
+  the explicit `--session <id>` command printed in the exit banner.
 - Accidental or terminal-mapped quit keys no longer terminate the TUI; quitting
   takes one explicit confirmation.
 - Direct answers stay concise even when the answer is conditional or needs

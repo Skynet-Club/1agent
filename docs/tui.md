@@ -441,11 +441,11 @@ Ratatui while preserving all glyphs and hierarchy.
 
 ## Sessions
 
-A bare `1agent tui` resumes the most recently active non-archived session with at least one run,
-so the previous conversation is visible after restarting. `--session <id>` still opens an explicit
-session (creating it if needed). Completed runs are associated with that session, and the transcript
-is reconstructed from their journals. New requests in a resumed session receive a bounded summary of
-recent user requests and answer conclusions as `known_facts`; the full journal remains the audit source.
+Each bare TUI invocation starts a new session and prints its ID/continue command on exit.
+`--session <id>` reopens an explicit session (creating it if needed). Completed runs are associated
+with that session, and the transcript is reconstructed from their journals. New requests in a
+reopened session receive a bounded summary of recent user requests and answer conclusions as
+`known_facts`; the full journal remains the audit source.
 
 Session metadata is version 2 while version 1 remains readable. Each session also has an
 append-only `events.jsonl` with contiguous sequence numbers for host binding, accepted or
@@ -463,14 +463,12 @@ After leaving the alternate screen, the terminal prints:
 
   Session   Compare A and B
   Continue  1agent tui --session ses_...
-  Resume    run `1agent tui` to restore the most recent session
 ```
 
 The post-exit banner uses the same bright-green `1` and Codex-blue `Agent` wordmark as the welcome
 surface.
 
-A bare `1agent tui` restores the most recent session; the printed command can still target a
-specific session explicitly:
+A new bare `1agent tui` starts a new session. Run the printed command to restore the transcript:
 
 ```bash
 1agent tui --session ses_...

@@ -14,7 +14,6 @@ Text matching is done on the ANSI-stripped stream, so it tolerates repaint noise
 
 import fcntl
 import os
-import shutil
 import pty
 import re
 import select
@@ -26,7 +25,6 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BINARY = os.path.join(ROOT, "target/release/first-principles-agent")
 JOURNAL = os.path.join(ROOT, ".journal-pty")
-shutil.rmtree(JOURNAL, ignore_errors=True)
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]")
 
 

@@ -5508,11 +5508,7 @@ async fn run_tui(
     route_objective: Option<String>,
 ) -> Result<()> {
     let host_binding = HostBinding::from_env();
-    let requested_session = match session.as_deref() {
-        Some(id) => Some(id.to_string()),
-        None => TuiSession::latest_resumable(&journal_dir)?.map(|summary| summary.id),
-    };
-    let mut session = TuiSession::open(&journal_dir, requested_session.as_deref())
+    let mut session = TuiSession::open(&journal_dir, session.as_deref())
         .context("cannot initialize TUI session")?;
     session.record_event(SessionEvent::Opened {
         host_kind: host_binding.kind().as_str().into(),
