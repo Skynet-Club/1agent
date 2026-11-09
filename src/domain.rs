@@ -912,6 +912,13 @@ pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cost_micros: u64,
+    /// Prompt tokens served from a provider cache, when the provider reports it.
+    #[serde(default)]
+    pub cache_hit_tokens: u64,
+    /// Prompt tokens that missed the provider cache. Zero with a zero hit count
+    /// means the provider did not report cache statistics.
+    #[serde(default)]
+    pub cache_miss_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

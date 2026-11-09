@@ -204,6 +204,8 @@ mod tests {
             input_tokens: input,
             output_tokens: output,
             cost_micros: 0,
+            cache_hit_tokens: 0,
+            cache_miss_tokens: 0,
         }
     }
 

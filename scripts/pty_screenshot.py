@@ -15,8 +15,10 @@ import fcntl
 import os
 import pty
 import select
+import shutil
 import struct
 import sys
+import tempfile
 import termios
 import time
 
@@ -32,17 +34,20 @@ def main():
     parser.add_argument("--rows", type=int, default=40)
     parser.add_argument("--keys", default="", help="input to send after startup, \\r for Enter")
     parser.add_argument("--settle", type=float, default=2.5)
+    parser.add_argument("--journal-dir", help="reuse a session directory across renders")
     args = parser.parse_args()
 
     screen = pyte.Screen(args.cols, args.rows)
     stream = pyte.ByteStream(screen)
+    owned_journal = args.journal_dir is None
+    journal_dir = args.journal_dir or tempfile.mkdtemp(prefix="1agent-pty-")
 
     pid, fd = pty.fork()
     if pid == 0:
         os.environ["TERM"] = "xterm-256color"
         os.execv(
             BINARY,
-            [BINARY, "tui", "--provider", "mock", "--journal-dir", os.path.join(ROOT, ".journal-shot")],
+            [BINARY, "tui", "--provider", "mock", "--journal-dir", journal_dir],
         )
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", args.rows, args.cols, 0, 0))
 
@@ -70,12 +75,14 @@ def main():
     for y in range(screen.lines):
         rows.append("".join(screen.buffer[y][x].data or " " for x in range(screen.columns)).rstrip())
 
-    os.write(fd, b"\x11")
+    os.write(fd, b"\x11\r")
     drain(1.0)
     try:
         os.waitpid(pid, 0)
     except ChildProcessError:
         pass
+    if owned_journal:
+        shutil.rmtree(journal_dir, ignore_errors=True)
 
     for line in rows:
         print(line)

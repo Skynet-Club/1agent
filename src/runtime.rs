@@ -1870,6 +1870,8 @@ mod tests {
                 input_tokens: 1_500,
                 output_tokens: 500,
                 cost_micros: 0,
+                cache_hit_tokens: 0,
+                cache_miss_tokens: 0,
             },
         };
         apply_manifest_cost(&mut response, &manifest);

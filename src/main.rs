@@ -5508,7 +5508,11 @@ async fn run_tui(
     route_objective: Option<String>,
 ) -> Result<()> {
     let host_binding = HostBinding::from_env();
-    let mut session = TuiSession::open(&journal_dir, session.as_deref())
+    let requested_session = match session.as_deref() {
+        Some(id) => Some(id.to_string()),
+        None => TuiSession::latest_resumable(&journal_dir)?.map(|summary| summary.id),
+    };
+    let mut session = TuiSession::open(&journal_dir, requested_session.as_deref())
         .context("cannot initialize TUI session")?;
     session.record_event(SessionEvent::Opened {
         host_kind: host_binding.kind().as_str().into(),
@@ -6439,9 +6443,20 @@ async fn run_tui_reframe_interactive(
             _ = ticker.tick() => draw_tui_frame(terminal, state)?,
             input = inputs.recv() => match input {
                 Some(TuiInput::CtrlC) => cancellation.cancel(),
-                Some(TuiInput::CtrlQ) => {
+                Some(TuiInput::CtrlQ) => state.request_quit(),
+                Some(TuiInput::Enter) if state.quit_requested() => {
+                    state.take_quit_request();
                     quit = true;
                     cancellation.cancel();
+                }
+                Some(TuiInput::Escape) if state.quit_requested() => state.cancel_quit(),
+                Some(event) if state.quit_requested()
+                    && !matches!(
+                        event,
+                        TuiInput::Enter | TuiInput::Escape | TuiInput::CtrlQ
+                    ) =>
+                {
+                    state.cancel_quit();
                 }
                 Some(_) => {}
                 None => cancellation.cancel(),
@@ -9902,9 +9917,25 @@ async fn run_tui_interactive(
         {
             state.clear_confirmation();
         }
+        if matches!(&input, TuiInput::CtrlQ) {
+            state.close_mode_menu();
+            state.close_details();
+            state.close_command_panel();
+            state.clear_confirmation();
+            state.request_quit();
+            draw_tui_frame(&mut terminal, &mut state)?;
+            continue;
+        }
+        if state.quit_requested()
+            && !matches!(
+                &input,
+                TuiInput::Enter | TuiInput::Escape | TuiInput::CtrlQ | TuiInput::Resize
+            )
+        {
+            state.cancel_quit();
+        }
         if state.mode_menu_open() {
             match input {
-                TuiInput::CtrlQ => break,
                 TuiInput::CtrlTab | TuiInput::Escape | TuiInput::Left => {
                     state.close_mode_menu();
                 }
@@ -9919,7 +9950,6 @@ async fn run_tui_interactive(
         }
         if state.details_open() {
             match input {
-                TuiInput::CtrlQ => break,
                 TuiInput::Escape => state.close_details(),
                 TuiInput::Up => state.scroll_details_up(1),
                 TuiInput::Down => state.scroll_details_down(1),
@@ -10025,14 +10055,18 @@ async fn run_tui_interactive(
                 }
                 Err(error) => state.set_notice(format!("剪贴板粘贴失败：{error}")),
             },
-            TuiInput::CtrlQ => break,
+            // Ctrl+Q is handled before overlays and never reaches this dispatch.
+            TuiInput::CtrlQ => {}
             TuiInput::CtrlC => {
                 if copy_selected_text(&mut state) {
                     state.clear_selection();
                 }
             }
             TuiInput::Escape => {
-                if state.slash_drawer_open() {
+                if state.quit_requested() {
+                    state.cancel_quit();
+                    state.info("已取消退出");
+                } else if state.slash_drawer_open() {
                     state.dismiss_slash_drawer();
                 } else if state.command_panel_open() {
                     if !state.back_command_panel() {
@@ -10048,6 +10082,10 @@ async fn run_tui_interactive(
             }
             TuiInput::Resize => {}
             TuiInput::Enter => {
+                if state.quit_requested() {
+                    state.take_quit_request();
+                    break;
+                }
                 let mut confirmed = false;
                 let submission = if state.input().trim().is_empty() {
                     if let Some(command) = state.take_confirmation() {
@@ -10415,6 +10453,8 @@ async fn run_tui_task(
     requested_mode: Option<CognitiveMode>,
 ) -> Result<bool> {
     let cancellation = CancellationToken::new();
+    let run_started_ms = current_time_ms();
+    let mut active_journal: Option<(PathBuf, u64)> = None;
     let run = async {
         match requested_mode {
             Some(mode) => {
@@ -10452,15 +10492,30 @@ async fn run_tui_task(
                 return Ok(quit_after_run);
             }
             input = inputs.recv() => {
+                if let Some(event) = input.as_ref()
+                    && state.quit_requested()
+                    && !matches!(
+                        event,
+                        TuiInput::Enter | TuiInput::Escape | TuiInput::CtrlQ
+                    )
+                {
+                    state.cancel_quit();
+                }
                 match input {
                     Some(TuiInput::CtrlC) => {
                         if !copy_selected_text(state) {
                             cancellation.cancel();
                         }
                     }
-                    Some(TuiInput::CtrlQ) => {
+                    Some(TuiInput::CtrlQ) => state.request_quit(),
+                    Some(TuiInput::Enter) if state.quit_requested() => {
+                        state.take_quit_request();
                         quit_after_run = true;
                         cancellation.cancel();
+                    }
+                    Some(TuiInput::Escape) if state.quit_requested() => {
+                        state.cancel_quit();
+                        state.info("已取消退出");
                     }
                     Some(TuiInput::MouseDown { column, row }) => {
                         if !state.handle_follow_control(column, row) {
@@ -10496,6 +10551,18 @@ async fn run_tui_task(
             }
             _ = ticker.tick() => {
                 state.tick();
+                if let Some((path, size)) =
+                    newest_journal_since(runtime.journal_dir(), run_started_ms)
+                    && active_journal
+                        .as_ref()
+                        .is_none_or(|(active, active_size)| active != &path || *active_size != size)
+                {
+                    let metrics = run_metrics_from_journal(&path);
+                    if metrics.usage_seen {
+                        state.set_run_metrics(metrics);
+                    }
+                    active_journal = Some((path, size));
+                }
                 if state.selection_autoscroll_active() {
                     state.autoscroll_selection_once();
                 }
@@ -10607,6 +10674,8 @@ fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunR
     let answer = &result.answer;
     state.set_status(TuiStatus::Completed);
     state.set_last_journal(&result.journal_path);
+    state.set_run_metrics(run_metrics_from_journal(&result.journal_path));
+    state.finish_run_clock();
     if let Some(chars) = latest_context_chars(&result.journal_path) {
         state.set_context_chars(chars);
     }
@@ -10630,6 +10699,67 @@ fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunR
     } else {
         record_structured_answer(state, answer);
     }
+}
+
+fn newest_journal_since(directory: &std::path::Path, since_ms: u128) -> Option<(PathBuf, u64)> {
+    let since_ms = since_ms.saturating_sub(2_000);
+    let mut newest = None;
+    for entry in std::fs::read_dir(directory).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let modified_ms = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        if modified_ms < since_ms {
+            continue;
+        }
+        let size = metadata.len();
+        if newest
+            .as_ref()
+            .is_none_or(|(_, _, newest_ms)| modified_ms >= *newest_ms)
+        {
+            newest = Some((path, size, modified_ms));
+        }
+    }
+    newest.map(|(path, size, _)| (path, size))
+}
+
+fn run_metrics_from_journal(
+    journal_path: &std::path::Path,
+) -> first_principles_agent::TuiRunMetrics {
+    let mut metrics = first_principles_agent::TuiRunMetrics::default();
+    let Ok(events) = read_events(journal_path) else {
+        return metrics;
+    };
+    for event in events {
+        let JournalEventKind::ModelResponded { response } = event.event else {
+            continue;
+        };
+        metrics.input_tokens = metrics
+            .input_tokens
+            .saturating_add(response.usage.input_tokens);
+        metrics.output_tokens = metrics
+            .output_tokens
+            .saturating_add(response.usage.output_tokens);
+        metrics.cache_hit_tokens = metrics
+            .cache_hit_tokens
+            .saturating_add(response.usage.cache_hit_tokens);
+        metrics.cache_miss_tokens = metrics
+            .cache_miss_tokens
+            .saturating_add(response.usage.cache_miss_tokens);
+        if response.usage.input_tokens > 0 || response.usage.output_tokens > 0 {
+            metrics.usage_seen = true;
+        }
+    }
+    metrics
 }
 
 /// The character count of the most recent model request in a run journal. It
@@ -10779,85 +10909,10 @@ fn looks_like_structured_tool_output(content: &str) -> bool {
 }
 
 fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
+    // Direct mode is deliberately conversation-first: the answer is the
+    // conclusion. Structured evidence/claims/flip-condition sections are kept
+    // in /details, not appended to the transcript.
     state.assistant_markdown(&answer.conclusion);
-
-    if answer.status == first_principles_agent::AnswerStatus::Completed {
-        return;
-    }
-
-    if !answer.evidence.is_empty() {
-        state.assistant_heading("依据", TuiTone::Accent);
-        for evidence in &answer.evidence {
-            state.assistant_evidence(&evidence.source, &evidence.statement);
-        }
-    }
-
-    let important_impact = first_principles_agent::ImpactLevel::Medium;
-    let claims = answer
-        .claims
-        .iter()
-        .filter(|claim| claim.status != first_principles_agent::ClaimStatus::Verified)
-        .collect::<Vec<_>>();
-    let assumptions = answer
-        .assumptions
-        .iter()
-        .filter(|assumption| assumption.impact >= important_impact)
-        .collect::<Vec<_>>();
-    let unknowns = answer
-        .unknowns
-        .iter()
-        .filter(|unknown| unknown.impact >= important_impact)
-        .collect::<Vec<_>>();
-    let unresolved_conflicts = answer
-        .conflicts
-        .iter()
-        .filter(|conflict| conflict.status == first_principles_agent::ConflictStatus::Unresolved)
-        .collect::<Vec<_>>();
-
-    if !claims.is_empty()
-        || !assumptions.is_empty()
-        || !unknowns.is_empty()
-        || !unresolved_conflicts.is_empty()
-    {
-        state.assistant_heading("需要注意", TuiTone::Warning);
-        for claim in claims {
-            state.assistant_item(
-                format!("[{}]", claim_status_label(claim.status)),
-                tone_for_claim_status(claim.status),
-                &claim.text,
-            );
-        }
-        for assumption in assumptions {
-            state.assistant_item(
-                format!("[假设·{}]", answer_impact_label(assumption.impact)),
-                tone_for_impact(assumption.impact),
-                &assumption.description,
-            );
-        }
-        for unknown in unknowns {
-            state.assistant_item(
-                format!("[未知·{}]", answer_impact_label(unknown.impact)),
-                tone_for_impact(unknown.impact),
-                &unknown.description,
-            );
-        }
-        for conflict in unresolved_conflicts {
-            state.assistant_item("[冲突]", TuiTone::Danger, conflict.claim_ids.join(" ↔ "));
-        }
-    }
-
-    if answer.status != first_principles_agent::AnswerStatus::Completed
-        && !answer.flip_conditions.is_empty()
-    {
-        state.assistant_heading("如何确认", TuiTone::Accent);
-        for condition in &answer.flip_conditions {
-            state.assistant_item(
-                "⇒",
-                TuiTone::Accent,
-                format!("若 {}，则 {}", condition.if_observed, condition.then),
-            );
-        }
-    }
 }
 
 fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
@@ -12296,6 +12351,8 @@ mod tui_rendering_tests {
                         input_tokens: 100,
                         output_tokens: 50,
                         cost_micros: 10,
+                        cache_hit_tokens: 40,
+                        cache_miss_tokens: 60,
                     },
                 },
             })
@@ -12561,7 +12618,9 @@ mod tui_rendering_tests {
     fn direct_answer_hides_repetitive_schema_sections_but_keeps_details() {
         let mut state = TuiState::new("deepseek", 6, 120);
         state.begin("连接测试", CognitiveMode::DirectAnswer, RiskLevel::Low);
-        record_tui_result(&mut state, &result());
+        let mut run = result();
+        run.answer.status = first_principles_agent::AnswerStatus::Conditional;
+        record_tui_result(&mut state, &run);
         let visible = state.render_screen(80, 24);
         assert!(visible.contains("连接测试成功。"));
         assert!(!visible.contains("终止原因"));
@@ -12569,6 +12628,7 @@ mod tui_rendering_tests {
         assert!(!visible.contains("主张"));
         assert!(!visible.contains("依据"));
         assert!(!visible.contains("需要注意"));
+        assert!(!visible.contains("如何确认"));
         assert!(!visible.contains("翻转条件"));
 
         let details = state.last_details().unwrap();

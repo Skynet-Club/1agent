@@ -76,4 +76,17 @@ if [[ "$panel_focus" != *"命令"* || "$panel_focus" == *"abc"* ]]; then
   exit 1
 fi
 
-echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation and panel focus render)"
+"$PYTE_PYTHON" scripts/pty_backspace.py
+
+resume_dir="$(mktemp -d)"
+"${PYTE_PYTHON}" scripts/pty_screenshot.py --cols 120 --rows 40 \
+  --journal-dir "$resume_dir" --keys $'hello\r' --settle 4 >/dev/null 2>&1
+resumed="$("${PYTE_PYTHON}" scripts/pty_screenshot.py --cols 120 --rows 40 \
+  --journal-dir "$resume_dir" --settle 2 2>/dev/null | tr -d '[:space:]')"
+rm -rf "$resume_dir"
+if [[ "$resumed" != *"hello"* ]]; then
+  echo "tui-interaction-check: a bare TUI launch did not resume the previous session" >&2
+  exit 1
+fi
+
+echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation, panel focus, Backspace/Ctrl+Q safety and session resume render)"

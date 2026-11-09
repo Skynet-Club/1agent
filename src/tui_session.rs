@@ -463,18 +463,23 @@ impl TuiSession {
             {
                 continue;
             }
+            let modified_unix_ms = [
+                path.metadata(),
+                entry.path().join("events.jsonl").metadata(),
+            ]
+            .into_iter()
+            .flatten()
+            .filter_map(|metadata| metadata.modified().ok())
+            .filter_map(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis())
+            .max()
+            .unwrap_or_default();
             sessions.push(SessionSummary {
                 id: record.id,
                 title: record.title,
                 archived: record.archived,
                 runs: record.journals.len(),
-                modified_unix_ms: entry
-                    .metadata()
-                    .ok()
-                    .and_then(|metadata| metadata.modified().ok())
-                    .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-                    .map(|duration| duration.as_millis())
-                    .unwrap_or_default(),
+                modified_unix_ms,
             });
         }
         sessions.sort_by(|left, right| {
@@ -484,6 +489,20 @@ impl TuiSession {
                 .then_with(|| left.id.cmp(&right.id))
         });
         Ok(sessions)
+    }
+
+    /// Select the session a bare `1agent tui` should reopen. Prefer the most
+    /// recently active non-archived session with at least one run so the user
+    /// sees their previous conversation instead of a fresh empty transcript.
+    pub fn latest_resumable(
+        journal_dir: impl AsRef<Path>,
+    ) -> Result<Option<SessionSummary>, TuiSessionError> {
+        let sessions = Self::list(journal_dir)?;
+        let fallback = sessions.iter().find(|session| !session.archived).cloned();
+        Ok(sessions
+            .into_iter()
+            .find(|session| !session.archived && session.runs > 0)
+            .or(fallback))
     }
 
     pub fn start_mission(
@@ -1411,6 +1430,37 @@ mod tests {
                 .unwrap()
                 .archived
         );
+    }
+
+    #[test]
+    fn latest_resumable_prefers_a_recent_session_with_runs() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut first = TuiSession::open(workspace.path(), None).unwrap();
+        first
+            .record_journal(workspace.path().join("first.jsonl"))
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut second = TuiSession::open(workspace.path(), None).unwrap();
+
+        let latest = TuiSession::latest_resumable(workspace.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.id, first.id());
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        second
+            .record_journal(workspace.path().join("second.jsonl"))
+            .unwrap();
+        let latest = TuiSession::latest_resumable(workspace.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.id, second.id());
+
+        second.set_archived(true).unwrap();
+        let latest = TuiSession::latest_resumable(workspace.path())
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.id, first.id());
     }
 
     #[test]

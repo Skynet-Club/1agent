@@ -278,7 +278,8 @@ pub fn write_session_banner(
     }
     writeln!(writer)?;
     writeln!(writer, "  会话      {}", sanitize_inline(title))?;
-    writeln!(writer, "  继续      {}", sanitize_inline(continue_command))
+    writeln!(writer, "  继续      {}", sanitize_inline(continue_command))?;
+    writeln!(writer, "  恢复      直接运行 1agent tui 将恢复最近会话")
 }
 
 fn char_byte_index(text: &str, char_index: usize) -> usize {

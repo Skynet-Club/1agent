@@ -30,7 +30,11 @@ binding. Command visibility is a UX rule, not an authorization boundary, so Mast
 handlers must revalidate state and adapter authority. The drawer groups the empty
 query by category and puts recent commands first; an open command panel owns the
 keyboard, and destructive clear/dispatch/control actions require a second Enter.
-These are interaction guards, not a replacement for authority checks.
+These are interaction guards, not a replacement for authority checks. A bare TUI
+launch resumes the most recent non-archived session with runs; `Ctrl+Q` requires
+Enter confirmation; Direct Answer mode keeps only the conclusion in the
+transcript; and the running line reports elapsed time, input/output tokens and
+provider cache hit rate when reported.
 
 The TUI session store uses version 2 metadata with a version 1 compatibility path and a
 separate append-only `events.jsonl` for host binding, command decisions, task submission

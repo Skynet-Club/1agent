@@ -10,6 +10,7 @@ was recorded. Offline, no credentials, repeatable.
 
 import fcntl
 import os
+import shutil
 import pty
 import re
 import select
@@ -21,6 +22,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BINARY = os.path.join(ROOT, "target/release/first-principles-agent")
 JOURNAL = os.path.join(ROOT, ".journal-pty-reframe")
+shutil.rmtree(JOURNAL, ignore_errors=True)
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]")
 
 
@@ -57,7 +59,7 @@ def drive() -> str:
     # typing "/reframe accept 1" is the scripting path and is covered by tests.
     os.write(fd, b"\r")
     drain(3.0)
-    os.write(fd, b"\x11")
+    os.write(fd, b"\x11\r")
     drain(2.0)
     try:
         os.waitpid(pid, 0)

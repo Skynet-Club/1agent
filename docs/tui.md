@@ -323,7 +323,8 @@ section.
 - press `Esc` or click the follow control to return to the newest output;
 - hovering the follow control applies reverse-video highlighting;
 - the sticky prompt bar tracks the first visible answer and yields at prompt boundaries;
-- `Ctrl+Q` exits the interactive TTY;
+- `Ctrl+Q` requests exit; press `Enter` to confirm or `Esc` to cancel, so a stray
+  terminal key cannot close the session accidentally;
 - `/help` shows commands;
 - `/help` is an executable command palette rather than a static list; it is scoped to the
   current Core/Master surface and lifecycle stage, and `Enter` opens or runs the selected
@@ -348,10 +349,11 @@ grapheme boundaries, and East Asian text is measured by display width. Mouse cap
 terminal selection from treating background padding as copyable text; 1A copies only its internal
 text selection.
 
-Completed direct answers use a conversation-first layout: only the conclusion is shown as normal
-prose. Evidence, model priors, operational constraints, completion metadata and journal paths stay
-out of the primary transcript. Decision, evidence, diagnosis and execution modes retain their
-explicit reasoning sections. `/details` exposes the complete structured result on demand.
+Direct-answer mode uses a conversation-first layout for every answer status: only the conclusion is
+shown as normal prose. Evidence, caveats, flip conditions, model priors, operational constraints,
+completion metadata and journal paths stay out of the primary transcript. Decision, evidence,
+diagnosis and execution modes retain their explicit reasoning sections. `/details` exposes the
+complete structured result on demand.
 
 Markdown code and inferred code are shown as separate full-width dark blocks with a visible
 `╭─ / │ / ╰────` fence and an optional language label. Besides standard triple-backtick fences,
@@ -429,19 +431,21 @@ metadata is visually de-emphasized.
 | Composer background | ANSI-256 dark gray `236` |
 | Composer footer | ANSI black background, gray `245` text |
 | Status bar | terminal background, gray `245` text |
-| Running spinner | bright green, bold |
-| Running label `正在运行` | bright blue `75`, bold |
+| Running activity | bright blue `75`, bold |
 
-While running, the spinner is bright green and `正在运行` is bright blue; remaining activity hints
-use readable gray `245`. Bright-green copy/paste confirmations remain distinct. `NO_COLOR=1` disables terminal
-colors through Ratatui while preserving all glyphs and hierarchy.
+While running, the activity line shows `Working... <elapsed> · ↑<input> ↓<output> · cache <hit-rate>`
+and `Ctrl+C 取消`. Elapsed time updates from the run clock; token counts and cache hit rate update as
+provider responses are journaled. A provider that does not report cache statistics shows `cache —`.
+Bright-green copy/paste confirmations remain distinct. `NO_COLOR=1` disables terminal colors through
+Ratatui while preserving all glyphs and hierarchy.
 
 ## Sessions
 
-Each TUI invocation owns a persistent session ID. Completed runs are associated with that session,
-and the transcript is reconstructed from their journals when the session is reopened. New requests
-in a resumed session receive a bounded summary of recent user requests and answer conclusions as
-`known_facts`; the full journal remains the audit source.
+A bare `1agent tui` resumes the most recently active non-archived session with at least one run,
+so the previous conversation is visible after restarting. `--session <id>` still opens an explicit
+session (creating it if needed). Completed runs are associated with that session, and the transcript
+is reconstructed from their journals. New requests in a resumed session receive a bounded summary of
+recent user requests and answer conclusions as `known_facts`; the full journal remains the audit source.
 
 Session metadata is version 2 while version 1 remains readable. Each session also has an
 append-only `events.jsonl` with contiguous sequence numbers for host binding, accepted or
@@ -459,12 +463,14 @@ After leaving the alternate screen, the terminal prints:
 
   Session   Compare A and B
   Continue  1agent tui --session ses_...
+  Resume    run `1agent tui` to restore the most recent session
 ```
 
 The post-exit banner uses the same bright-green `1` and Codex-blue `Agent` wordmark as the welcome
 surface.
 
-Run the printed command to restore the transcript:
+A bare `1agent tui` restores the most recent session; the printed command can still target a
+specific session explicitly:
 
 ```bash
 1agent tui --session ses_...

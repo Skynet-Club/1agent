@@ -12,11 +12,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const INPUT_BG: Color = Color::Indexed(236);
-const PROMPT_GREEN: Color = Color::LightGreen;
 const UI_ACCENT: Color = Color::Indexed(75);
 const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
@@ -209,6 +209,16 @@ struct InputGeometry {
     visible_end: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TuiRunMetrics {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_hit_tokens: u64,
+    pub cache_miss_tokens: u64,
+    pub elapsed_ms: u128,
+    pub usage_seen: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiState {
     pub last_instruction: String,
@@ -240,6 +250,9 @@ pub struct TuiState {
     slash_drawer_dismissed: bool,
     recent_commands: Vec<TuiCommandId>,
     pending_confirmation: Option<String>,
+    quit_requested: bool,
+    run_started_unix_ms: Option<u128>,
+    run_metrics: TuiRunMetrics,
     input_history: Vec<String>,
     history_cursor: Option<usize>,
     input: String,
@@ -296,6 +309,9 @@ impl TuiState {
             slash_drawer_dismissed: false,
             recent_commands: Vec::new(),
             pending_confirmation: None,
+            quit_requested: false,
+            run_started_unix_ms: None,
+            run_metrics: TuiRunMetrics::default(),
             input_history: Vec::new(),
             history_cursor: None,
             input: String::new(),
@@ -323,6 +339,9 @@ impl TuiState {
 
     pub fn begin(&mut self, instruction: &str, mode: CognitiveMode, risk: RiskLevel) {
         self.close_command_panel();
+        self.quit_requested = false;
+        self.run_started_unix_ms = Some(now_unix_ms());
+        self.run_metrics = TuiRunMetrics::default();
         self.last_instruction = sanitize_inline(instruction);
         self.status = TuiStatus::Running;
         self.welcome_visible = false;
@@ -341,6 +360,7 @@ impl TuiState {
 
     pub fn finish(&mut self, status: TuiStatus, output: impl Into<String>) {
         self.status = status;
+        self.finish_run_clock();
         let (kind, tone) = if status == TuiStatus::Failed {
             (TranscriptKind::Error, TuiTone::Danger)
         } else {
@@ -1111,6 +1131,39 @@ impl TuiState {
 
     pub fn clear_confirmation(&mut self) {
         self.pending_confirmation = None;
+    }
+
+    pub fn request_quit(&mut self) {
+        self.quit_requested = true;
+        self.set_notice("再次按 Enter 退出，Esc 取消");
+    }
+
+    pub fn quit_requested(&self) -> bool {
+        self.quit_requested
+    }
+
+    pub fn cancel_quit(&mut self) {
+        self.quit_requested = false;
+    }
+
+    pub fn take_quit_request(&mut self) -> bool {
+        let requested = self.quit_requested;
+        self.quit_requested = false;
+        requested
+    }
+
+    pub fn set_run_metrics(&mut self, metrics: TuiRunMetrics) {
+        self.run_metrics = metrics;
+    }
+
+    pub fn run_metrics(&self) -> TuiRunMetrics {
+        self.run_metrics
+    }
+
+    pub fn finish_run_clock(&mut self) {
+        if let Some(started) = self.run_started_unix_ms {
+            self.run_metrics.elapsed_ms = now_unix_ms().saturating_sub(started);
+        }
     }
 
     pub fn filtered_commands(&self) -> Vec<TuiCommandSpec> {
@@ -1951,28 +2004,13 @@ impl TuiState {
         }
         self.follow_control_hovered = false;
         if self.notice.is_none() && self.status == TuiStatus::Running {
-            let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-            let spinner = frames[self.activity_frame % frames.len()];
             frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::styled(
-                        format!(" {spinner} "),
-                        Style::default()
-                            .fg(PROMPT_GREEN)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        "正在运行",
-                        Style::default()
-                            .fg(UI_ACCENT)
-                            .bg(BANNER_BG)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        " · Ctrl+C 取消 · PgUp/PgDn 滚动",
-                        Style::default().fg(MUTED_TEXT),
-                    ),
-                ])),
+                Paragraph::new(self.activity_line()).style(
+                    Style::default()
+                        .fg(UI_ACCENT)
+                        .bg(BANNER_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 area,
             );
             return;
@@ -2471,16 +2509,60 @@ impl TuiState {
         if let Some(notice) = &self.notice {
             return format!(" ✓ {notice}");
         }
+        let metrics = self.run_metrics_line();
         match self.status {
             TuiStatus::Running => {
                 let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-                format!(" {} 正在运行", frames[self.activity_frame % frames.len()])
+                format!(
+                    " {} Working... {} · {metrics} · Ctrl+C 取消",
+                    frames[self.activity_frame % frames.len()],
+                    self.elapsed_label()
+                )
             }
             TuiStatus::Idle => " 就绪".to_string(),
-            TuiStatus::Completed => " 已完成".to_string(),
-            TuiStatus::Failed => " 失败".to_string(),
-            TuiStatus::Cancelled => " 已取消".to_string(),
+            TuiStatus::Completed => format!(" ✓ 已完成 · {} · {metrics}", self.elapsed_label()),
+            TuiStatus::Failed => format!(" 失败 · {} · {metrics}", self.elapsed_label()),
+            TuiStatus::Cancelled => format!(" 已取消 · {} · {metrics}", self.elapsed_label()),
         }
+    }
+
+    fn elapsed_label(&self) -> String {
+        let elapsed = if self.status == TuiStatus::Running {
+            self.run_started_unix_ms
+                .map(|started| now_unix_ms().saturating_sub(started))
+                .unwrap_or_default()
+        } else {
+            self.run_metrics.elapsed_ms
+        };
+        let seconds = elapsed / 1000;
+        if seconds < 60 {
+            format!("{seconds}s")
+        } else {
+            format!("{}m{:02}s", seconds / 60, seconds % 60)
+        }
+    }
+
+    fn run_metrics_line(&self) -> String {
+        if !self.run_metrics.usage_seen {
+            return "↑— ↓— · cache —".to_string();
+        }
+        let total_cache = self
+            .run_metrics
+            .cache_hit_tokens
+            .saturating_add(self.run_metrics.cache_miss_tokens);
+        let cache = self
+            .run_metrics
+            .cache_hit_tokens
+            .saturating_mul(100)
+            .saturating_add(total_cache / 2)
+            .checked_div(total_cache)
+            .map(|percent| format!("cache {percent}%"))
+            .unwrap_or_else(|| "cache —".to_string());
+        format!(
+            "↑{} ↓{} · {cache}",
+            format_token_count(self.run_metrics.input_tokens),
+            format_token_count(self.run_metrics.output_tokens)
+        )
     }
 
     fn push_entry(
@@ -2589,6 +2671,23 @@ pub fn sanitize_input(text: &str) -> String {
             }
         })
         .collect()
+}
+
+fn now_unix_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
+fn format_token_count(value: u64) -> String {
+    if value < 1_000 {
+        value.to_string()
+    } else if value < 1_000_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    }
 }
 
 fn previous_grapheme_boundary(text: &str, cursor: usize) -> usize {
@@ -3986,6 +4085,18 @@ mod tests {
     }
 
     #[test]
+    fn quit_requires_an_explicit_confirmation() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.request_quit();
+        assert!(state.quit_requested());
+        state.cancel_quit();
+        assert!(!state.quit_requested());
+        state.request_quit();
+        assert!(state.take_quit_request());
+        assert!(!state.quit_requested());
+    }
+
+    #[test]
     fn typing_cancels_an_armed_confirmation() {
         let mut state = TuiState::new("mock", 6, 120);
         state.arm_confirmation("/clear");
@@ -4237,8 +4348,8 @@ mod tests {
     }
 
     #[test]
-    fn running_activity_uses_green_spinner_and_blue_status() {
-        let backend = TestBackend::new(80, 18);
+    fn running_activity_uses_working_label_and_run_metrics() {
+        let backend = TestBackend::new(120, 18);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
         state.begin(
@@ -4246,15 +4357,34 @@ mod tests {
             CognitiveMode::DirectAnswer,
             RiskLevel::Low,
         );
+        state.set_run_metrics(TuiRunMetrics {
+            input_tokens: 1_200,
+            output_tokens: 340,
+            cache_hit_tokens: 40,
+            cache_miss_tokens: 60,
+            elapsed_ms: 0,
+            usage_seen: true,
+        });
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
         let activity_y = 18 - 3 - 1 - 1 - 1;
+        let row = (0..120)
+            .map(|x| {
+                terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, activity_y))
+                    .unwrap()
+                    .symbol()
+            })
+            .collect::<String>();
+        assert!(row.contains("Working..."), "row: {row}");
+        assert!(row.contains("↑1.2k"), "row: {row}");
+        assert!(row.contains("↓340"), "row: {row}");
+        assert!(row.contains("cache 40%"), "row: {row}");
         let spinner = terminal.backend().buffer().cell((2, activity_y)).unwrap();
-        assert_eq!(spinner.fg, Color::LightGreen);
+        assert_eq!(spinner.fg, Color::Indexed(75));
         assert!(spinner.modifier.contains(Modifier::BOLD));
-        let status = terminal.backend().buffer().cell((4, activity_y)).unwrap();
-        assert_eq!(status.fg, Color::Indexed(75));
-        assert!(status.modifier.contains(Modifier::BOLD));
     }
 
     #[test]

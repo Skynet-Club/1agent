@@ -223,6 +223,8 @@ mod tests {
                     input_tokens: self.input_tokens,
                     output_tokens: self.output_tokens,
                     cost_micros: 0,
+                    cache_hit_tokens: 0,
+                    cache_miss_tokens: 0,
                 },
             })
         }

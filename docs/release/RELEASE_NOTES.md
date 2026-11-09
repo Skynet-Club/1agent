@@ -1,6 +1,6 @@
 # Release Notes — 0.95.0 R1 Candidate
 
-Date: 2026-11-08  
+Date: 2026-11-09  
 Status: **release candidate, not publicly releasable**
 
 ## Development status and community
@@ -42,7 +42,16 @@ discussed and revised; the roadmap is not a one-time promise.
   reasons, Tab argument completion and non-executing completion on Enter. The
   empty drawer is grouped by category with the three most recent commands first;
   command panels own the keyboard; destructive clear/dispatch/control actions
-  require a second Enter.
+  require a second Enter. A bare `1agent tui` resumes the most recent non-archived
+  session with runs; `Ctrl+Q` now requires Enter confirmation, and the post-exit
+  banner explains how to resume.
+- **Direct answers and run metrics**: Direct Answer mode shows only the conclusion
+  in the transcript; structured evidence stays in `/details`. While running, the
+  activity line shows `Working...`, elapsed time, input/output tokens and provider
+  cache hit rate when reported.
+- **Provider cache usage**: OpenAI-compatible and DeepSeek cache-token fields are
+  parsed into `Usage`; providers that do not report cache statistics render
+  `cache —` instead of a fabricated rate.
 - **Packaging**: reproducible Linux archive for publication, internal Windows
   build (untested, not published), release manifest, installer and third-party
   license inventory.
@@ -58,7 +67,7 @@ discussed and revised; the roadmap is not a one-time promise.
 
 ## Verification
 
-- 646 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
+- 649 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
   HTTP and loopback runs.
 - `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
   cycles.

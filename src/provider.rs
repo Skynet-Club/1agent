@@ -833,14 +833,7 @@ impl OpenAiCompatibleProvider {
                 false,
             )
         })?;
-        let usage = wire
-            .usage
-            .map(|usage| Usage {
-                input_tokens: usage.prompt_tokens,
-                output_tokens: usage.completion_tokens,
-                cost_micros: 0,
-            })
-            .unwrap_or_default();
+        let usage = wire.usage.map(usage_from_wire).unwrap_or_default();
 
         Ok((choice.message.content, choice.message.tool_calls, usage))
     }
@@ -1231,6 +1224,47 @@ struct WireUsage {
     prompt_tokens: u64,
     #[serde(default)]
     completion_tokens: u64,
+    #[serde(default)]
+    prompt_tokens_details: Option<WirePromptTokensDetails>,
+    #[serde(default)]
+    prompt_cache_hit_tokens: Option<u64>,
+    #[serde(default)]
+    prompt_cache_miss_tokens: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct WirePromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
+}
+
+fn usage_from_wire(usage: WireUsage) -> Usage {
+    let cache_reported = usage.prompt_cache_hit_tokens.is_some()
+        || usage.prompt_cache_miss_tokens.is_some()
+        || usage
+            .prompt_tokens_details
+            .as_ref()
+            .and_then(|details| details.cached_tokens)
+            .is_some();
+    let cache_hit_tokens = usage
+        .prompt_cache_hit_tokens
+        .or_else(|| {
+            usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|details| details.cached_tokens)
+        })
+        .unwrap_or(0);
+    let cache_miss_tokens = usage
+        .prompt_cache_miss_tokens
+        .unwrap_or_else(|| usage.prompt_tokens.saturating_sub(cache_hit_tokens));
+    Usage {
+        input_tokens: usage.prompt_tokens,
+        output_tokens: usage.completion_tokens,
+        cost_micros: 0,
+        cache_hit_tokens: if cache_reported { cache_hit_tokens } else { 0 },
+        cache_miss_tokens: if cache_reported { cache_miss_tokens } else { 0 },
+    }
 }
 
 #[cfg(test)]
@@ -1323,6 +1357,8 @@ mod tests {
                     input_tokens: 10,
                     output_tokens: 5,
                     cost_micros: 0,
+                    cache_hit_tokens: 0,
+                    cache_miss_tokens: 0,
                 },
             })
         }
@@ -1611,6 +1647,41 @@ mod tests {
         assert_eq!(result.input_tokens, 20);
         assert_eq!(result.output_tokens, 10);
         assert_eq!(result.error_code, None);
+    }
+
+    #[test]
+    fn parses_deepseek_and_openai_cache_usage() {
+        let deepseek: WireUsage = serde_json::from_value(serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "prompt_cache_hit_tokens": 40,
+            "prompt_cache_miss_tokens": 60
+        }))
+        .unwrap();
+        let usage = usage_from_wire(deepseek);
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 20);
+        assert_eq!(usage.cache_hit_tokens, 40);
+        assert_eq!(usage.cache_miss_tokens, 60);
+
+        let openai: WireUsage = serde_json::from_value(serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "prompt_tokens_details": { "cached_tokens": 30 }
+        }))
+        .unwrap();
+        let usage = usage_from_wire(openai);
+        assert_eq!(usage.cache_hit_tokens, 30);
+        assert_eq!(usage.cache_miss_tokens, 70);
+
+        let unknown: WireUsage = serde_json::from_value(serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 20
+        }))
+        .unwrap();
+        let usage = usage_from_wire(unknown);
+        assert_eq!(usage.cache_hit_tokens, 0);
+        assert_eq!(usage.cache_miss_tokens, 0);
     }
 }
 
