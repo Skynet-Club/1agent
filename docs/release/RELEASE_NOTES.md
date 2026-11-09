@@ -49,8 +49,10 @@ Status: **release candidate, not publicly releasable**
 - One-hour soak: 2922 cycles / 3600 seconds on the frozen core binary.
 - Linux package built for publication; Windows package is an internal untested
   build and is not published. `release verify` reports `verified` for the local
-  dual-platform manifest (development policy). A Linux-only manifest is needed
-  before an external release that omits the Windows asset.
+  dual-platform manifest (development policy). The current Linux archive still
+  contains the Windows binary because both platforms share one package root; a
+  platform-specific Linux archive and a Linux-only manifest are needed before an
+  external release that omits the Windows asset.
 - Install from the Linux archive was smoke-tested in a temporary prefix.
 
 ## Known limits
