@@ -3,6 +3,22 @@
 Date: 2026-11-08  
 Status: **release candidate, not publicly releasable**
 
+## Development status and community
+
+This project is still under active development. 0.95.0 is an R1 release
+candidate, not a finished or production-stable product; interfaces, configuration
+and data formats may still change.
+
+We welcome developers, testers, researchers, security specialists, product and
+design partners to test the Linux build, report issues, submit pull requests, and
+join **Skynet-Club** to help build the product and ecosystem:
+<https://skynet.club>.
+
+The future direction is open and iterative. Browser, subagent, always-on
+autonomy, tool ecosystem, Workshop and Bot capabilities have a public capability
+plan; each stage advances through testable milestones and evidence. Plans can be
+discussed and revised; the roadmap is not a one-time promise.
+
 ## Highlights
 
 - **Runtime home**: `init/doctor/export/restore/upgrade/uninstall` around
