@@ -1,0 +1,30 @@
+{
+  "providers": [
+    {
+      "id": "deterministic",
+      "adapter": "deterministic",
+      "model": "offline-v1",
+      "quality_score": 1,
+      "max_risk": "high"
+    },
+    {
+      "id": "deepseek-primary",
+      "adapter": "open_ai_compatible",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "privacy": "remote",
+      "quality_score": 100,
+      "max_risk": "high"
+    },
+    {
+      "id": "ollama-fallback",
+      "adapter": "open_ai_compatible",
+      "model": "qwen3",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "privacy": "local",
+      "quality_score": 50,
+      "max_risk": "medium"
+    }
+  ]
+}

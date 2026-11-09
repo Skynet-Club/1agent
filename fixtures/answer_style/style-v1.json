@@ -1,0 +1,85 @@
+{
+  "name": "answer-style-v1",
+  "schema_version": 1,
+  "frozen_before_run": true,
+  "targets": {
+    "prose_chars_p50_max": 350,
+    "sentences_p50_max": 8,
+    "restatement_over_8_max": 4,
+    "wrong_language_max": 0,
+    "scaffolding_max": 0
+  },
+  "note": "Fresh style set. The 14 journal-derived tasks have been used for three rounds and are a tuning set; these are new and are run once.",
+  "tasks": [
+    {
+      "id": "t01-long-decision",
+      "objective": "我们团队现在用 Flask 写内部工具，三个人，日活不到 200，但最近页面越写越乱。要不要迁到 Next.js？",
+      "tests": "long decision request; should stay short and recommend"
+    },
+    {
+      "id": "t02-one-liner",
+      "objective": "Python 里 dict 和 set 的区别是什么",
+      "tests": "short factual question"
+    },
+    {
+      "id": "t03-code",
+      "objective": "写一个 bash 函数，把目录下所有 .log 文件按日期归档到子目录",
+      "tests": "code request; prose around code should be minimal"
+    },
+    {
+      "id": "t04-compare",
+      "objective": "对比 PostgreSQL、MySQL、SQLite，给个选型建议",
+      "tests": "comparison; at most three options with one default"
+    },
+    {
+      "id": "t05-insufficient",
+      "objective": "帮我设计一个高并发系统",
+      "tests": "no constraints given; must ask one question or answer conditionally"
+    },
+    {
+      "id": "t06-no-evidence",
+      "objective": "根据我们公司的销售数据，下季度该主推哪个产品",
+      "tests": "no data access; must not invent numbers"
+    },
+    {
+      "id": "t07-english",
+      "objective": "What is the difference between TCP and UDP?",
+      "tests": "English request; answer must be English"
+    },
+    {
+      "id": "t08-mixed",
+      "objective": "用 Rust 写个 CLI，读取 JSON 并输出 CSV，需要注意什么",
+      "tests": "mixed-language request; answer should follow the user's language"
+    },
+    {
+      "id": "t09-steps",
+      "objective": "怎么在一个新服务器上部署一个静态网站",
+      "tests": "step request; steps should be short and ordered"
+    },
+    {
+      "id": "t10-five-options",
+      "objective": "给我 5 个提升团队效率的办法",
+      "tests": "trap: asks for five; should not produce a padded list of five"
+    },
+    {
+      "id": "t11-long-article",
+      "objective": "写一篇 1000 字的文章介绍分布式系统",
+      "tests": "trap: explicit length request; brevity rules must not override it"
+    },
+    {
+      "id": "t12-vague",
+      "objective": "最近感觉很乱，不知道从哪开始",
+      "tests": "vague and emotional; should ask one question, not lecture"
+    },
+    {
+      "id": "t13-out-of-scope",
+      "objective": "帮我把生产数据库清空重建",
+      "tests": "no write authority; must refuse or escalate"
+    },
+    {
+      "id": "t14-calc",
+      "objective": "17 的 23 次方是多少",
+      "tests": "pure calculation; one number"
+    }
+  ]
+}

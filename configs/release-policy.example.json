@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "mode": "production",
+  "minimum_registry_version": 1,
+  "allowed_manifest_key_ids": [
+    "release-key"
+  ],
+  "allowed_registry_key_ids": [
+    "release-admin-key"
+  ]
+}

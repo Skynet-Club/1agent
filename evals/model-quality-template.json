@@ -1,0 +1,12 @@
+{
+  "name": "model-quality-v1-template",
+  "suite_version": "1",
+  "kind": "model_quality",
+  "execution_status": "template",
+  "provider_requirements": [
+    "replace with provider/model identity and version"
+  ],
+  "reviewer": "required",
+  "calibration_required": true,
+  "cases": []
+}

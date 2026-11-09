@@ -1,0 +1,22 @@
+{
+  "model": "deepseek-flash",
+  "prompt_version": "v3",
+  "prompt_sha256": "650588186c30dffed4ccc6bf2a9e7e601f8871eff7b2e84a9d7f80aecb069e16",
+  "fixture": "heldout-v2.json",
+  "reps": 3,
+  "calls": 42,
+  "parse_failures": 0,
+  "fenced_responses": 0,
+  "classification_accuracy": 0.976,
+  "ask_rate_on_means": 1.0,
+  "over_reframe_rate_on_end": 0.048,
+  "mean_options": 1.57,
+  "binary_question_share": 0.0,
+  "latency_p50_ms": 2946,
+  "latency_p95_ms": 4688,
+  "prompt_tokens": 21105,
+  "completion_tokens": 14663,
+  "cost_usd_estimate": 0.0239,
+  "aborted": null,
+  "responses_sha256": "f0f2c0476a62ec085d60b984182666a134840dc14d2459a1417f6db594155e5e"
+}

@@ -1,0 +1,29 @@
+[
+  {
+    "agent_id": "pilot-worker",
+    "runtime": "shell",
+    "display_name": "Pilot shell worker",
+    "capabilities": [
+      "shell"
+    ],
+    "tools": [
+      "shell"
+    ],
+    "runtime_command": [
+      "true"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/home/skynet/1-agent/target/master-pilot/workspace"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "medium"
+  }
+]

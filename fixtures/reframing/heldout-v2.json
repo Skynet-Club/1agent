@@ -1,0 +1,235 @@
+{
+  "name": "reframing-heldout-v2",
+  "schema_version": 1,
+  "execution_status": "frozen",
+  "max_questions_per_case": 3,
+  "max_branch_arity": 3,
+  "frozen_before_run": true,
+  "note": "Second held-out set. Domains differ from heldout-v1. Two end cases deliberately re-test the failure classes that v2 missed (fully specified purchase, fully specified mechanical change) with new instances, to see whether the fix transfers rather than remembers.",
+  "cases": [
+    {
+      "id": "h2-end-csv-01",
+      "family": "END-literal",
+      "near_miss": false,
+      "stated_request": "把这份 CSV 转成 JSON",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "格式转换，输入输出都明确。",
+      "hypotheses": [
+        { "id": "H1", "statement": "就是要一份 JSON", "prior": 1.0, "action": "直接转换", "falsifier": "如果 JSON 要供某个特定系统消费，字段映射会不同，但仍不需要问目的" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-end-error-02",
+      "family": "END-diagnostic",
+      "near_miss": false,
+      "stated_request": "解释一下这个报错",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "诊断类，问题本身即目的。",
+      "hypotheses": [
+        { "id": "H1", "statement": "想知道报错原因与修法", "prior": 1.0, "action": "解释并给出修正", "falsifier": "如果他要的是把整套服务重构成不会报错，答案会不同" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-end-arithmetic-03",
+      "family": "END-literal",
+      "near_miss": false,
+      "stated_request": "帮我算一下 17 乘以 23",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "可判定的事实问题，无替代空间。",
+      "hypotheses": [
+        { "id": "H1", "statement": "要这个乘积", "prior": 1.0, "action": "直接给结果", "falsifier": "如果他在验算某个更大的公式，会自己说出来" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-end-why-sun-04",
+      "family": "END-fact",
+      "near_miss": false,
+      "stated_request": "为什么太阳会发光",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "知识性问题。",
+      "hypotheses": [
+        { "id": "H1", "statement": "想了解原因", "prior": 1.0, "action": "直接解释", "falsifier": "如果是给孩子准备科普材料，深度会不同" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-end-email-05",
+      "family": "END-edit",
+      "near_miss": false,
+      "stated_request": "把这封邮件改得更客气一点",
+      "constraints": ["不要改变原意"],
+      "classification_expected": "end",
+      "label_reason": "改写任务，目标与边界都写明。",
+      "hypotheses": [
+        { "id": "H1", "statement": "语气更客气，意思不变", "prior": 1.0, "action": "直接改写", "falsifier": "如果收件人是监管机构，措辞规范会完全不同" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-end-movie-06",
+      "family": "END-near-miss",
+      "near_miss": true,
+      "stated_request": "订两张下周三晚上八点的电影票",
+      "constraints": ["下周三", "20:00", "两张"],
+      "classification_expected": "end",
+      "label_reason": "近似购买请求，但时间、数量、对象全部指定；问\"看电影是为了什么\"不会改变任何执行动作。",
+      "hypotheses": [
+        { "id": "H1", "statement": "下周三晚八点看一场电影", "prior": 1.0, "action": "直接给可选影院与场次", "falsifier": "如果他对影院位置有偏好，属于执行细节，不是目的" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-end-port-07",
+      "family": "END-near-miss",
+      "near_miss": true,
+      "stated_request": "把 docker-compose 里的端口 8080 改成 9090",
+      "constraints": [],
+      "classification_expected": "end",
+      "label_reason": "近似机械改动，但范围与目标值都确定；追问用途不会改变执行，只会拖延。",
+      "hypotheses": [
+        { "id": "H1", "statement": "端口从 8080 换成 9090", "prior": 1.0, "action": "直接改并提示可能受影响的引用", "falsifier": "如果改端口是为了避开冲突，那个冲突信息属于执行风险提示，不是重构" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "h2-means-nas-08",
+      "family": "MEANS-tool",
+      "near_miss": false,
+      "stated_request": "推荐个 NAS",
+      "constraints": ["预算五千"],
+      "classification_expected": "means",
+      "label_reason": "指名一类设备，用途未说明；备份、影音、共享三种用途的配置完全不同。",
+      "hypotheses": [
+        { "id": "H1", "statement": "备份家庭照片", "prior": 0.45, "action": "移动硬盘或云备份", "falsifier": "如果要多人同时访问，这个假设就是错的" },
+        { "id": "H2", "statement": "做影音库", "prior": 0.35, "action": "小主机加硬盘", "falsifier": "如果只看照片，这个假设就是错的" },
+        { "id": "H3", "statement": "团队文件共享", "prior": 0.2, "action": "云盘", "falsifier": "如果只是家用，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "主要用来备份照片、看片，还是团队共享？", "branches": { "备份照片": ["H1"], "看片": ["H2"], "团队共享": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["移动硬盘", "云备份"], "unacceptable_substitutes": ["四盘位整机"] }
+    },
+    {
+      "id": "h2-means-dataanalysis-09",
+      "family": "MEANS-skill",
+      "near_miss": false,
+      "stated_request": "我想学数据分析",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "指名技能，用途未说明。",
+      "hypotheses": [
+        { "id": "H1", "statement": "工作要出报表", "prior": 0.45, "action": "Excel 加 BI 工具", "falsifier": "如果要建模，这个假设就是错的" },
+        { "id": "H2", "statement": "想转行", "prior": 0.35, "action": "系统课程加项目", "falsifier": "如果在职且不跳槽，这个假设就是错的" },
+        { "id": "H3", "statement": "做研究分析", "prior": 0.2, "action": "Python 或 R", "falsifier": "如果只是日常报表，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "学它是为了工作出报表、转行，还是做研究？", "branches": { "出报表": ["H1"], "转行": ["H2"], "做研究": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["Excel 透视表加 BI"], "unacceptable_substitutes": ["统计学硕士课程"] }
+    },
+    {
+      "id": "h2-means-speech-10",
+      "family": "MEANS-artifact",
+      "near_miss": false,
+      "stated_request": "帮我写个演讲稿",
+      "constraints": ["五分钟"],
+      "classification_expected": "means",
+      "label_reason": "指名一种文本，听众与场合未说明。",
+      "hypotheses": [
+        { "id": "H1", "statement": "内部汇报", "prior": 0.45, "action": "结论加数据", "falsifier": "如果是对外路演，这个假设就是错的" },
+        { "id": "H2", "statement": "对外路演", "prior": 0.35, "action": "故事加愿景", "falsifier": "如果是内部汇报，这个假设就是错的" },
+        { "id": "H3", "statement": "婚礼致辞", "prior": 0.2, "action": "情感加短", "falsifier": "如果是商务场合，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这个讲话是在内部汇报、对外路演，还是婚礼这类私人场合？", "branches": { "内部汇报": ["H1"], "对外路演": ["H2"], "私人场合": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["三分钟结论版"], "unacceptable_substitutes": ["通用演讲模板"] }
+    },
+    {
+      "id": "h2-means-okr-11",
+      "family": "MEANS-method",
+      "near_miss": false,
+      "stated_request": "公司要不要上 OKR",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "近似是非问句，但 OKR 是管理手段；对齐、考核、应付上级三种目的的落地方式相反。",
+      "hypotheses": [
+        { "id": "H1", "statement": "想对齐目标", "prior": 0.45, "action": "轻量目标清单", "falsifier": "如果目的是考核，这个假设就是错的" },
+        { "id": "H2", "statement": "想考核绩效", "prior": 0.35, "action": "KPI 方案", "falsifier": "如果只想对齐，这个假设就是错的" },
+        { "id": "H3", "statement": "上级或投资人要求", "prior": 0.2, "action": "最小合规版本", "falsifier": "如果没有外部要求，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "上 OKR 最想解决的是对齐、考核，还是外部要求？", "branches": { "对齐": ["H1"], "考核": ["H2"], "外部要求": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["季度目标清单"], "unacceptable_substitutes": ["全套 OKR 培训与软件"] }
+    },
+    {
+      "id": "h2-means-dinner-12",
+      "family": "MEANS-event",
+      "near_miss": true,
+      "stated_request": "周末想请人吃饭，去哪",
+      "constraints": ["预算人均 300"],
+      "classification_expected": "means",
+      "label_reason": "近似地点问题，但对象未说明；商务、朋友、约会三种场合的选店标准不同。",
+      "hypotheses": [
+        { "id": "H1", "statement": "商务宴请", "prior": 0.45, "action": "包间与安静", "falsifier": "如果是朋友聚会，这个假设就是错的" },
+        { "id": "H2", "statement": "朋友聚会", "prior": 0.35, "action": "氛围与性价比", "falsifier": "如果是商务场合，这个假设就是错的" },
+        { "id": "H3", "statement": "约会", "prior": 0.2, "action": "安静有情调", "falsifier": "如果是多人聚会，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这顿饭是商务宴请、朋友聚会，还是约会？", "branches": { "商务": ["H1"], "朋友": ["H2"], "约会": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["有包间的餐厅"], "unacceptable_substitutes": ["网红排队店"] }
+    },
+    {
+      "id": "h2-means-sewing-13",
+      "family": "MEANS-tool",
+      "near_miss": false,
+      "stated_request": "买台缝纫机",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "指名设备，用途未说明。",
+      "hypotheses": [
+        { "id": "H1", "statement": "改衣服补裤子", "prior": 0.45, "action": "基础机型或找裁缝", "falsifier": "如果要做手工创作，这个假设就是错的" },
+        { "id": "H2", "statement": "手工兴趣", "prior": 0.35, "action": "入门机", "falsifier": "如果是小生意，这个假设就是错的" },
+        { "id": "H3", "statement": "做小生意", "prior": 0.2, "action": "半工业机", "falsifier": "如果只是家用，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "买来是改衣服、做手工，还是做小生意？", "branches": { "改衣服": ["H1"], "手工": ["H2"], "小生意": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["找裁缝", "基础机型"], "unacceptable_substitutes": ["半工业机"] }
+    },
+    {
+      "id": "h2-means-pt-14",
+      "family": "MEANS-near-miss",
+      "near_miss": true,
+      "stated_request": "要不要报个健身私教课",
+      "constraints": [],
+      "classification_expected": "means",
+      "label_reason": "近似是非问句。减脂、康复、增肌三种目标下，私教是否必要结论不同。",
+      "hypotheses": [
+        { "id": "H1", "statement": "减脂", "prior": 0.45, "action": "饮食管理加团课", "falsifier": "如果需要康复，这个假设就是错的" },
+        { "id": "H2", "statement": "康复或体态问题", "prior": 0.35, "action": "物理治疗或专业教练", "falsifier": "如果只是增肌，这个假设就是错的" },
+        { "id": "H3", "statement": "增肌", "prior": 0.2, "action": "力量计划加偶尔指导", "falsifier": "如果是减脂，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "你的主要目标是减脂、康复体态，还是增肌？", "branches": { "减脂": ["H1"], "康复": ["H2"], "增肌": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["饮食管理加团课"], "unacceptable_substitutes": ["直接答要或不要"] }
+    }
+  ]
+}

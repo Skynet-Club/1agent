@@ -1,0 +1,10 @@
+Frozen before the first model call.
+generated 2026-11-04T04:22:26Z
+
+2cf887a42f135182f4e6d8fbd2cd0b799117321959dba70341da986a62e99695  fixtures/reframing/heldout-v1.json
+a01bb2ab05bc1ff5bb4462bc4d013647d344388bcf0881ce811111a59cb46d90  scripts/reframing/run_pilot.py
+
+prompt_version v2
+prompt_sha256 71c640a0c60f2adbd79f55c3a8401c799e118374c081e846c7e2e1b37cdced75
+
+rule: run once, no prompt edits afterwards, record the result even if it is bad.

@@ -1,0 +1,17 @@
+{
+  "task_id": "create-artifact",
+  "criteria_results": [
+    {
+      "criterion": "result.txt exists and matches its recorded SHA-256",
+      "passed": true,
+      "evidence": [
+        "Master verifier independently opened the regular file and computed SHA-256"
+      ]
+    }
+  ],
+  "test_results": [],
+  "evidence": [
+    "Workshop agent-run returned a session id and the verifier observed the artifact"
+  ],
+  "verified_by": "live-e2e-verifier"
+}

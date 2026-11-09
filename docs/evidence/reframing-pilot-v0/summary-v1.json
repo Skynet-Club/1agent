@@ -1,0 +1,20 @@
+{
+  "model": "deepseek-flash",
+  "fixture": "pilot-v0.json",
+  "reps": 3,
+  "calls": 42,
+  "parse_failures": 0,
+  "fenced_responses": 0,
+  "classification_accuracy": 0.286,
+  "ask_rate_on_means": 0.091,
+  "over_reframe_rate_on_end": 0.0,
+  "mean_options": 0.21,
+  "binary_question_share": 0.0,
+  "latency_p50_ms": 1977,
+  "latency_p95_ms": 4592,
+  "prompt_tokens": 12597,
+  "completion_tokens": 11664,
+  "cost_usd_estimate": 0.0178,
+  "aborted": null,
+  "responses_sha256": "024a4ab1f7d215c553d2533ba56d3ec506a5e832932533aea8e1b12d1a69c4ea"
+}

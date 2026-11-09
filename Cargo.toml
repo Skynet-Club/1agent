@@ -1,0 +1,29 @@
+[package]
+name = "first-principles-agent"
+version = "0.95.0"
+default-run = "first-principles-agent"
+edition = "2024"
+description = "Evidence-accountable, provider-neutral decision agent"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+crossterm = { version = "0.29.0", features = ["bracketed-paste", "event-stream"] }
+hex = "0.4.3"
+libc = "0.2.191"
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "unstable-rendered-line-info", "underline-color"] }
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls", "stream"] }
+ring = "0.17.14"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.10.9"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.53.1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7.20", features = ["rt"] }
+unicode-segmentation = "1.12.0"
+unicode-width = "0.2.2"
+uuid = { version = "1.29.0", features = ["serde", "v4"] }
+

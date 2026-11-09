@@ -1,0 +1,33 @@
+{
+  "protocol_version": 3,
+  "request_id": "req-example-1",
+  "task": {
+    "objective": "Compare the evidence in ${workspace}/evidence.txt",
+    "deliverable": "decision",
+    "known_facts": [],
+    "constraints": [
+      "read only"
+    ],
+    "unknowns": [],
+    "decision_criteria": [
+      "verified cost"
+    ],
+    "success_criteria": [
+      " cite evidence"
+    ],
+    "experience_scope": null,
+    "permissions": {
+      "read_roots": [
+        "${workspace}"
+      ],
+      "allow_network": false,
+      "allow_write": false
+    },
+    "budget": {
+      "max_steps": 6,
+      "max_tool_calls": 8,
+      "timeout_ms": 120000,
+      "max_context_chars": 100000
+    }
+  }
+}

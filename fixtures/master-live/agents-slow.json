@@ -1,0 +1,31 @@
+[
+  {
+    "agent_id": "live-slow-worker",
+    "runtime": "shell",
+    "display_name": "Live slow shell worker",
+    "capabilities": [
+      "shell"
+    ],
+    "tools": [
+      "shell"
+    ],
+    "runtime_command": [
+      "sh",
+      "-c",
+      "sleep 8; printf 'live master artifact\\n' > result.txt"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/home/skynet/1-agent/target/master-live/workspace"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "medium"
+  }
+]

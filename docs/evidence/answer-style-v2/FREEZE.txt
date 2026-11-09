@@ -1,0 +1,7 @@
+Frozen before the first model call.
+generated 2026-11-04T13:13:27Z
+
+2faf94685b31b755eb3571b989ea6d7917f241a4945226483f63f018d5657fe7  fixtures/answer_style/style-v2.json
+
+commit e49deb8
+targets: prose<=350 sentences<=8 restatement<=4 language=0 scaffolding=0

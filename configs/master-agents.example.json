@@ -1,0 +1,145 @@
+[
+  {
+    "agent_id": "pi-primary",
+    "runtime": "pi",
+    "display_name": "Pi",
+    "capabilities": [
+      "general",
+      "coding",
+      "shell",
+      "tests",
+      "long-context"
+    ],
+    "tools": [
+      "read",
+      "write",
+      "shell"
+    ],
+    "runtime_command": [
+      "pi",
+      "--print",
+      "--no-session",
+      "--no-mcp"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/home/skynet"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  },
+  {
+    "agent_id": "hermes-primary",
+    "runtime": "hermes",
+    "display_name": "Hermes",
+    "capabilities": [
+      "general",
+      "coding",
+      "shell",
+      "browser",
+      "mcp",
+      "long-context"
+    ],
+    "tools": [
+      "read",
+      "write",
+      "shell",
+      "browser"
+    ],
+    "runtime_command": [
+      "hermes",
+      "-z"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/home/skynet"
+      ],
+      "allow_network": true,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  },
+  {
+    "agent_id": "claude-primary",
+    "runtime": "claude",
+    "display_name": "Claude Code",
+    "capabilities": [
+      "coding",
+      "shell",
+      "tests",
+      "long-context"
+    ],
+    "tools": [
+      "read",
+      "write",
+      "shell"
+    ],
+    "runtime_command": [
+      "claude",
+      "--print",
+      "--permission-mode",
+      "acceptEdits"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/home/skynet"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  },
+  {
+    "agent_id": "codex-primary",
+    "runtime": "codex",
+    "display_name": "Codex CLI",
+    "capabilities": [
+      "coding",
+      "shell",
+      "tests",
+      "long-context"
+    ],
+    "tools": [
+      "read",
+      "write",
+      "shell"
+    ],
+    "runtime_command": [
+      "codex",
+      "exec",
+      "--skip-git-repo-check",
+      "--sandbox",
+      "workspace-write"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/home/skynet"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  }
+]

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "suite_id": "agent-core-capability-v1",
+  "agent_version": "0.94.0",
+  "environment": "linux-x86_64",
+  "manifest_sha256": "23564f6fb9dbc19601e81b7e5036df94e2331ca9de06bc2a4ccd39034e227f96",
+  "generated_unix_ms": 1793684921699,
+  "results": [
+    {
+      "runtime": "codex",
+      "command_sha256": "d069a2e4f459ef05e3fc164d545603a69675f68378a89a468357ce49ccf943b6",
+      "task_id": "exact_ok",
+      "status": "blocked",
+      "failure_kind": "blocked_filesystem",
+      "exit_code": 1,
+      "duration_ms": 140,
+      "stdout_bytes": 0,
+      "stderr_bytes": 236,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "eae080369e91b8869ecdd955b8e2a9840b501bc2c8dfb0889bae645cc549d4b5"
+    },
+    {
+      "runtime": "codex",
+      "command_sha256": "d069a2e4f459ef05e3fc164d545603a69675f68378a89a468357ce49ccf943b6",
+      "task_id": "json_object",
+      "status": "blocked",
+      "failure_kind": "blocked_filesystem",
+      "exit_code": 1,
+      "duration_ms": 141,
+      "stdout_bytes": 0,
+      "stderr_bytes": 236,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "eae080369e91b8869ecdd955b8e2a9840b501bc2c8dfb0889bae645cc549d4b5"
+    }
+  ]
+}

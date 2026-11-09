@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "suite_id": "agent-core-capability-v1",
+  "agent_version": "0.94.0",
+  "environment": "linux-x86_64",
+  "manifest_sha256": "3d122258da2c8df0515449645719ac51306b3b7fab7bdf32c329dfa6f5f6639c",
+  "generated_unix_ms": 1793684536202,
+  "results": [
+    {
+      "runtime": "deepseek-1agent",
+      "command_sha256": "857ea22727dcf3742685866e34095b64f0f070caf260b7c8d0a227afdedb2942",
+      "task_id": "exact_ok",
+      "status": "blocked",
+      "failure_kind": "blocked_network",
+      "exit_code": 1,
+      "duration_ms": 20,
+      "stdout_bytes": 0,
+      "stderr_bytes": 170,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e4b0e2d4b8121bf6d0f58bf67a6e51334710f58e72888c0f4a9ab1cb74e78f00"
+    },
+    {
+      "runtime": "deepseek-1agent",
+      "command_sha256": "857ea22727dcf3742685866e34095b64f0f070caf260b7c8d0a227afdedb2942",
+      "task_id": "json_object",
+      "status": "blocked",
+      "failure_kind": "blocked_network",
+      "exit_code": 1,
+      "duration_ms": 20,
+      "stdout_bytes": 0,
+      "stderr_bytes": 170,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "06146bfb41627481b3222e76c983882548972ea4f0d8cf63eee4f368a262c53c"
+    }
+  ]
+}
