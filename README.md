@@ -1,351 +1,167 @@
-# 1-Agent
+
+# 1Agent
 
 > **先问一句，再动手。**
 
-1-Agent 在动手之前，先判断：这是你要的事，还是这件事能带来的结果。
+**本地优先、可审计、可解释的 Super-Agent 运行时。**
 
-他走进店里说：我要买个电钻。店主只问了一句——打孔是为了穿线，还是挂东西？
-于是他没买电钻，买了一台路由器。
+[![Status: R1 release candidate](https://img.shields.io/badge/status-R1%20release%20candidate-orange)](#current-status)
+[![Platform: Linux x86_64](https://img.shields.io/badge/platform-Linux%20x86__64-blue)](docs/ecosystem.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://opensource.org/licenses/MIT)
+[![Rust 2024](https://img.shields.io/badge/rust-2024-orange)](https://www.rust-lang.org/)
 
-大多数 Agent 会给他一份很好的电钻推荐清单。1-Agent 先问那一句。
+1Agent 不是“接一个大模型就能聊天”的壳。它把**任务、证据、授权、执行、验收、审计**做成一条可回放的链路：  
+它先说清楚为什么做，再决定做什么；能分析；接上受控执行底座后，也能执行；每一步都留下可验证的记录。
 
-- 产品定位、行为准则与证据边界：[`docs/product-manual.md`](docs/product-manual.md)
-- 命题、停止规则与预注册评测协议：[`docs/thesis/`](docs/thesis/)
+大多数 Agent 会直接给你一份“电钻推荐清单”。  
+1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-技术定位：evidence-accountable, provider-neutral decision agent.
+> **项目仍在持续开发。** 0.95.0 是 R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
+> 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。
 
-## Status
+---
 
-Version `0.95.0` is an executable provider-neutral vertical slice:
+## 为什么是 1Agent
 
-- requirement regression: decide whether a request is a goal or a means, ask one
-  splitting question, propose a substitute, and record the human decision;
-- a durable receipt rebuilt from the journal alone, and a `reframe` command in both
-  the CLI and the TUI;
-- an Occam output contract with pre-registered style targets and measured evidence;
-- structured task input and deterministic cognitive-mode selection;
-- static capability-based provider routing;
-- canonical model messages and tool calls;
-- read-only, root-confined UTF-8 file evidence tool;
-- structured result-first answer contract;
-- append-only JSONL run journal;
-- replay and structural audit commands;
-- deterministic offline provider;
-- OpenAI-compatible HTTP adapter;
-- provider configuration with environment-referenced credentials;
-- ranked provider fallback with per-run failure memory;
-- audited L2 experience candidates with review, approval, activation, degradation and rollback;
-- context-budget tool-result pruning with an 80% automatic threshold;
-- journal-derived provider token and configured-cost ledger;
-- versioned capability probes for Pi, Hermes, Claude, Codex and the 1A DeepSeek route with
-  hash-only bounded evidence;
-- explicit claim records and evidence-to-claim audit;
-- durable checkpoints after complete tool batches;
-- interrupted-run resume from valid terminal-free journal prefixes;
-- active-experience retrieval by mode, scope and expiry with explicit unverified labeling;
-- bounded, read-root-confined workspace text search;
-- versioned offline evaluation suites with JSON and human-readable scorecards;
-- versioned JSONL host protocol v3 with request IDs, cancellation, status and bounded concurrency;
-- held-out experience verification with leakage and negative-transfer gates;
-- automated baseline-vs-shadow experience evaluation that generates verification reports;
-- human annotation storage and inter-rater agreement measurement;
-- opt-in calibration analysis gated by reliability and sample count;
-- frozen gold-set manifests with reviewer cohorts, redaction policy and batches;
-- HMAC approval envelopes bound to artifact digests;
-- approval-key rotation and revocation;
-- signed approval-registry snapshots with rollback floors;
-- hash-chained registry snapshot history;
-- external trust anchors for registry history;
-- reproducible build provenance for release artifacts;
-- fresh-target rebuild comparison with a fail-closed reproducibility gate;
-- byte-identical reproducible builds under the documented remapping profile;
-- byte-identical Linux tar.gz and Windows zip archives during consecutive packages;
-- fail-closed external release manifests binding source, toolchain and seven artifacts;
-- optional HMAC approval for release manifests with registry key-state enforcement;
-- explicit development and production release policies with anchored registry history;
-- versioned release-policy files with configured signer allowlists and JSON reports;
-- fail-fast provider credential readiness without printing secret values;
-- opt-in live provider conformance with sanitized structured-output and usage reports;
-- inert echo-tool conformance without filesystem, process or network authority;
-- explicit quality, balanced, latency and cost routing objectives over hard capability filters;
-- offline route plans with ranked candidates, rejection reasons and credential readiness;
-- provider p95-latency and unit-cost limits as hard route constraints;
-- journaled route plans with effective value sources, rejection reasons and replay;
-- checkpoint-bound route-plan digests with hard rejection of changed resume policy;
-- route-aware resume status and automatic recovery of the checkpoint objective;
-- concise human-readable route traces without endpoint or credential disclosure;
-- bounded route reasons and first-step fallback attempt counts;
-- normalized OpenAI-compatible assistant content and tool-call wire formats;
-- bounded JSON Schema validation before every tool execution;
-- bounded and control-safe tool observations at the registry boundary;
-- host-visible tool capability and schema inspection through the runtime registry;
-- tool-capability snapshots bound to journal and checkpoints;
-- six-case epistemic core evaluation with unknown and flip-condition gates;
-- scripted reasoning fixture coverage for conflicts, flips and external correction;
-- explicit contract-fixture versus model-quality evaluation suite kinds;
-- model-quality suite template with non-runnable and promotion-blocking status;
-- strict claim/evidence provenance invariants for epistemic answer validation;
-- impact-ranked unknowns with mandatory reduction methods for high-impact gaps;
-- structured, backward-compatible assumptions with impact and verification methods;
-- explicit unresolved/resolved conflict records with evidence-bound resolution;
-- resolution sources bound to conflict-side or explicit resolution claims;
-- freshness-aware evidence with expiration and task staleness policies;
-- explicit versioned answers with legacy v1 decoding and fail-closed future versions;
-- answer schema v2 with decision-completeness and target-bound flip conditions;
-- stable machine-readable audit finding codes with event indexes;
-- an 8 MiB streaming response ceiling for OpenAI-compatible providers;
-- normalized non-2xx provider errors without remote body excerpts;
-- endpoint-free transport errors with explicit fallback semantics;
-- journaled provider failures with replay and contradiction audit;
-- provider failure summaries and a checkpointed per-run attempt budget;
-- deterministic bounded provider retry backoff with journaled delay decisions;
-- audit invariants binding retry schedules to route plans and target selection;
-- replayable retry timing outcomes with bounded elapsed audit;
-- atomic versioned experience supersession with active-scope uniqueness;
-- content-bound experience evidence with transition-time digest validation;
-- evidence-class restrictions for experience proposals;
-- fail-closed experience-store replay hardening;
-- bounded experience text, modes and evidence-reference volume;
-- bounded and monotonic experience transition metadata;
-- machine-readable experience-store audit reports;
-- experience lifecycle graph and expiration audit;
-- concise human-readable experience lifecycle summaries;
-- decision-completeness rollups in evaluation scorecards;
-- suite-level decision-completeness aggregates and model-quality floor;
-- suite-configurable bounded decision-completeness thresholds;
-- versioned decision-completeness policy metadata with floor-source attribution;
-- fail-closed inspection of external evaluation reports and policy versions;
-- integrity-bound report inspection for counts, rubric and completeness aggregates;
-- case-content-free evaluation summaries for host integration;
-- versioned and bounded evaluation summary contracts;
-- report-content digests binding summaries to normalized evaluation payloads;
-- explicit integrity, content-binding and authenticity status in report summaries;
-- host-selectable content-binding and authenticity trust requirements;
-- HMAC-signed evaluation reports verified through the approval key registry;
-- negative-path coverage for wrong report signer kinds and revoked keys;
-- pre-inspection rejection of partial approval proofs and overflow-safe summary checks;
-- human-readable report summaries with explicit trust-state labels;
-- direct floor-pass labels in human-readable evaluation summaries;
-- HTTPS enforcement for non-loopback provider credentials;
-- readiness preflight consistent with provider credential transport rules;
-- Ratatui/Crossterm terminal UI with grapheme-aware editing, mouse selection and clipboard
-  actions, a slash-command drawer, wrapped transcript scrolling and a persistent
-  viewport-aware sticky prompt bar;
-- 1A Master-Agent triage, natural-language planning, capability-based Agent assignment,
-  approval, bounded execution, leases, idempotency, scoped replanning and Journal replay;
-- Skynet Workshop Agent/Job/event observation and controlled Session execution;
-- independent Artifact existence, containment and SHA-256 verification;
-- unit, integration, CLI end-to-end and loopback adapter tests.
+| 原则 | 具体做法 |
+|---|---|
+| **先问目的** | 区分“目标”与“手段”；必要时只问一个能改变方案的问题 |
+| **证据优先** | journal、receipt、replay 是产品原语；没有 journal 的“完成”不算完成 |
+| **人在回路** | 默认只读；写操作、网络、执行需要显式授权；不可逆动作逐次确认 |
+| **本地优先** | 单一 runtime home（`$HOME/.1a`）；数据可导出、可恢复；不要求云账户 |
+| **Provider 中立** | 确定性 provider、OpenAI-compatible provider；模型可替换，路由可解释 |
+| **可逆** | 记忆软/硬遗忘、技能回滚、进化回滚；变更必须能撤回 |
+| **简单优先** | Occam 输出契约：先给结论，再给证据；不堆砌无关分析 |
+| **一个声音** | Worker 不对用户说话；由 1Agent 统一组装最终答案 |
 
-Real-model reasoning quality and full cross-platform support are not yet verified. See
-[`docs/status-v0.93.md`](docs/status-v0.93.md).
-The evidence plan required before expanding autonomy is in
-[`docs/next-phase-evidence.md`](docs/next-phase-evidence.md).
-The latest cross-requirement audit is in [`docs/audit-v0.93.md`](docs/audit-v0.93.md).
-Current development state and resume instructions are in [`docs/handoff-v0.93.md`](docs/handoff-v0.93.md).
-The documentation index is [`docs/documentation-map.md`](docs/documentation-map.md).
-Supported behavior, explicit non-goals and claim boundaries are in
-[`docs/product-boundary.md`](docs/product-boundary.md).
-Canonical task, model, journal, answer and evaluation contracts are in
-[`docs/io-contracts.md`](docs/io-contracts.md).
-Master-Agent architecture, safety invariants, commands and live acceptance evidence are in
-[`docs/master-agent.md`](docs/master-agent.md).
-Provider capability filtering, ranking and fallback semantics are in
-[`docs/model-routing.md`](docs/model-routing.md).
-Evaluation suite types, metrics and promotion gates are in
-[`docs/evaluation.md`](docs/evaluation.md).
-Self-evolution levels, promotion gates and rollback rules are in
-[`docs/self-evolution.md`](docs/self-evolution.md).
-Research sources and the limits of their transfer are summarized in
-[`docs/research-foundations.md`](docs/research-foundations.md).
+更完整的设计取舍见 [DESIGN.md](docs/design-philosophy.md)。
 
-Current V0 assumptions:
+---
 
-- Primary task: evidence-backed decision analysis.
-- Master mode: bounded planning and controlled execution with independent Artifact acceptance.
-- Authority: read-only by default.
-- Initial platform: Linux validation with a platform-neutral Rust core.
-- Provider strategy: deterministic test provider plus OpenAI-compatible adapter for DeepSeek, Kimi, Qwen, Ollama and similar endpoints.
-- Experience evolution: L2, candidates require verification and approval before activation.
+## 现在能做什么
 
-## Commands
+- **交互式 TUI**：对话模式、`/` 命令抽屉、分类与最近命令、上下文滚动、复制、运行状态。
+- **Headless 运行**：`1agent run`，适合脚本、CI 和批处理。
+- **证据化任务**：任务图、Ticket、Mandate、审批、SideEffect、Report、Receipt。
+- **本地记忆**：四层记忆、scope/taint/TTL、加密 payload、软/硬遗忘。
+- **技能生命周期**：SKILL.md、版本、扫描、静态评测、运行时 canary、回滚。
+- **长期目标**：Goal/Commitment、确定性 Attention 基础、个人上下文视图、DelegationProfile。
+- **自我总结与进化**：Reflection/Lesson、EvolutionProposal、Ledger、人工审批与回滚。
+- **模型路由**：确定性 provider、OpenAI-compatible provider、成本/延迟账本、影子执行。
+- **审计**：哈希链 journal、replay、receipt、查询与导出。
+- **可选执行**：接入 Skynet Workshop 后，可在受控 Session/沙箱中执行并验收 Artifact。
 
-Build a verified package and install it into a prefix:
+当前**没有**浏览器工具、通用子 Agent、MCP 客户端、完整常驻 daemon 和 Bot。  
+这些不是“隐藏功能”，而是明确写在 [STATUS.md](docs/status.md) 里的研发中/未实现项。
+
+---
+
+## 快速开始（Linux x86_64）
+
+> 当前正式验证平台只有 **Linux x86_64**。Windows 版本尚未测试，**暂不发布、不提供下载**；macOS、Android、iOS 后续发布。
+
+从 Releases 下载 Linux 包后：
 
 ```bash
-./scripts/package.sh
-./scripts/install.sh --prefix ~/.local
+tar -xzf 1agent-0.95.0-linux-x86_64.tar.gz
+cd 1agent-0.95.0
+./scripts/install.sh --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+
+1agent --version
+1agent init
+1agent doctor
 ```
 
-Runtime home (defaults to `$ONEAGENT_HOME` or `$HOME/.1a`; explicit flags still
-override it):
+启动离线 TUI（确定性 provider，不需要网络）：
 
 ```bash
-cargo run --offline -- init
-cargo run --offline -- doctor --json
-cargo run --offline -- export --output ~/1agent-export
-cargo run --offline -- restore --bundle ~/1agent-export
-cargo run --offline -- upgrade              # v1 -> v2 key layout
-cargo run --offline -- upgrade --rollback   # v2 -> v1
-cargo run --offline -- key escrow --output ~/1agent-keys.escrow.json \
-  --recovery-key ~/1agent-recovery.key
-cargo run --offline -- key restore --escrow ~/1agent-keys.escrow.json \
-  --recovery-key ~/1agent-recovery.key
-cargo run --offline -- uninstall            # keeps data
-cargo run --offline -- uninstall --purge --yes
-```
-
-Home layout v2 keeps the master key and KEK ledger under `keys/`; `upgrade`
-migrates a v1 home and `upgrade --rollback` reverses it. `export` excludes key
-material and credential-looking files and records a SHA-256 manifest. `key escrow` stores the master key and KEK ledger encrypted
-under a separate recovery key; keep the escrow and recovery key apart. Both
-commands are local recovery mechanisms, not HSM/quorum custody.
-
-```bash
-cargo run --offline -- run --task "Compare A and B"
-cargo run --offline -- tui
-cargo run --offline -- tui --session ses_...
-cargo run --offline -- run --task "Compare A and B" --route-objective balanced
-cargo run --offline -- route-plan \
-  --config configs/example.json \
-  --task "Compare A and B" \
-  --max-provider-p95-latency-ms 3000 \
-  --max-unit-cost-micros-per-k 20 --json
-cargo run --offline -- audit --journal .journal/run.jsonl
-cargo run --offline -- replay --journal .journal/run.jsonl
-cargo run --offline -- eval --suite evals/core.json
-cargo run --offline -- eval-inspect --report report.json --json
-cargo run --offline -- eval-inspect --report report.json --summary --json
-cargo run --offline -- eval-inspect --report report.json --require-content-binding --json
-cargo run --offline -- eval-inspect --report report.json --require-authenticity \
-  --approval report.approval.json --approval-key-env REPORT_APPROVAL_KEY \
-  --approval-registry approval-registry.json --summary --json
-cargo run --offline -- experience list --store .experience
-cargo run --offline -- resume-status --journal .journal/run.jsonl --json
-cargo run --offline -- tools --json
-cargo run --offline -- master triage --task "先审计，然后修复，最后测试" --json
-cargo run --offline -- master validate --plan plan.json
-cargo run --offline -- master agents --json
-cargo run --offline -- master jobs --json
-```
-
-Pi-backed DeepSeek launcher in this workspace:
-
-```bash
-1agent
 1agent tui
-1agent run --task "Compare A and B"
-1agent master plan --task "先实现，然后测试" --workspace /path/to/project --write
 ```
 
-The launcher reads the existing Pi DeepSeek credential at runtime from
-`/home/skynet/.pi/agent/auth.json`. The secret is not copied into the repository, config or journal.
-
-Remote OpenAI-compatible provider:
+接入真实模型（示例为 DeepSeek-compatible endpoint；密钥只放环境变量）：
 
 ```bash
-AGENT_MODEL=deepseek-chat \
-AGENT_BASE_URL=https://api.deepseek.com/v1 \
-AGENT_API_KEY=... \
-cargo run --offline -- run \
-  --provider openai-compatible \
-  --task "Compare A and B"
+export DEEPSEEK_API_KEY="..."
+1agent tui --config configs/example.json --allow-network
 ```
 
-Provider health alerts can be sent to an HTTPS webhook (loopback HTTP is allowed
-for local integrations):
+Headless 运行：
 
 ```bash
-cargo run --offline -- run --config configs/example.json \
-  --task "Compare A and B" --provider-health \
-  --alert-log .1a/alerts.jsonl \
-  --alert-webhook https://alerts.example.com/1agent
+1agent run --task "比较方案 A 和方案 B，并给出翻转条件"
+1agent run --task "..." --config configs/example.json --allow-network
 ```
 
-Multi-provider configuration:
+完整的安装、provider、TUI、导出/恢复、升级和故障排查见 [MANUAL.md](docs/manual.md)。
 
-```bash
-cargo run --offline -- run \
-  --config configs/example.json \
-  --task "Compare A and B"
-cargo run --offline -- providers --config configs/example.json --check --json
-cargo run --offline -- providers \
-  --config configs/example.json \
-  --probe --allow-network --probe-timeout-seconds 30 --json
-cargo run --offline -- providers \
-  --config configs/example.json \
-  --probe-tools --allow-network --probe-timeout-seconds 30 --json
-```
+---
 
-`configs/example.json` references credentials through environment variable names. Provider
-values are never written into the configuration by the runtime. `providers --check` validates
-declared credentials, endpoint construction and adapter setup before a run. An omitted
-`api_key_env` means no Authorization header, which supports local Ollama endpoints.
-The probe is an explicit network action. It reports only status, latency, token usage and a
-normalized error code; complete remote responses are not persisted or printed.
-The tool probe uses only an inert echo tool and validates the complete call/observation/final
-answer round trip.
+## Current status
 
-In the TUI, `Ctrl+T` or `/mode` opens the mode menu (automatic, direct answer,
-evidence research, decision analysis, execute, diagnosis). `/` opens the command
-drawer (or `Ctrl+K`); disabled stage/running commands are shown with a reason,
-`Tab` completes argument commands, and `Ctrl+Tab`/`Shift+Tab` work when the
-terminal reports them.
+**R1 release candidate。不是 1.0，不是生产稳定版。**
 
-The default provider is deterministic and must not be treated as a reasoning model.
-For an offline read-only smoke test, use `@read-file:"<path>"` in the task objective.
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| 1Agent 核心运行时 | **R1 候选** | TUI/CLI、任务、授权、记忆、技能、审计、打包 |
+| Linux x86_64 | **当前验证平台** | 发布包、安装脚本、SHA256SUMS、provenance |
+| Windows x86_64 | **不发布（未测试）** | 仅内部构建；不提供下载，不作为支持平台 |
+| macOS / Android / iOS | **规划中** | 后续跟进；移动端与 Bot 一起推进 |
+| Skynet Workshop 执行 | **研发/联调中** | 可选执行底座；W-Gate 未正式通过 |
+| 浏览器 / computer-use | **未实现** | 计划见 [发布状态与路线图](docs/status.md) |
+| 通用子 Agent | **未实现** | 当前只有 Workshop 的有界 Master→Worker 调度 |
+| 常驻 daemon / Routine | **研发中** | G2 范围 |
+| 1A Bot | **研发中** | 人格化伙伴层；1Agent 不依赖 Bot |
+| MCP / 工具连接器 | **未实现** | 工具生态后续补齐 |
 
-## Verification
+完整状态见 [STATUS.md](docs/status.md)。
 
-```bash
-cargo fmt --check
-cargo clippy --offline --all-targets -- -D warnings
-cargo test --offline
-./scripts/verify.sh
-./scripts/verify-reproducible-package.sh
-./scripts/tui-interaction-check.sh
-cargo run --offline -- release verify --manifest dist/1agent-0.95.0-release.json
-```
+---
 
-A signed release check additionally requires the approval envelope, key environment variable and
-key registry:
+## 配套设施
 
-```bash
-cargo run --offline -- release verify \
-  --manifest dist/1agent-0.95.0-release.json \
-  --approval dist/1agent-0.95.0-release.approval.json \
-  --key-env RELEASE_APPROVAL_KEY \
-  --registry approval-registry.json
-```
+| 设施 | 角色 | 当前状态 |
+|---|---|---|
+| **Skynet Workshop** | 可选执行底座：Session、沙箱、租约、Artifact、恢复 | 研发/联调中，尚未作为稳定产品发布 |
+| **skyget** | 独立的大文件传输工具：断点续传、SHA-256、内容缓存 | 独立可用；不是 1Agent 的硬依赖 |
+| **1A Bot** | 人格化伙伴层：Web/IM/Voice、Companion Contract | 研发中，未发布 |
 
-A production check additionally requires `--production`, a registry signing key, one or more
-ordered registry snapshots and an external trust anchor. It fails before accepting an unsigned
-release or an unanchored key history.
+详见 [ECOSYSTEM.md](docs/ecosystem.md)。
 
-`configs/release-policy.example.json` defines a versioned production policy and signer
-allowlists. Use `--policy` with `--json` to produce a machine-readable verification report.
+---
 
-The package reproducibility gate performs four complete builds and compares both archives
-and the manifest byte-for-byte. It also extracts both archives, verifies their checksums and
-compares their contents. It validates local repeatability; cross-machine hermeticity is not yet
-claimed.
+## 文档
 
-The OpenAI-compatible loopback test requires a managed-sandbox exception:
+- [设计哲学](docs/design-philosophy.md) — 为什么先问目的、为什么证据优先
+- [产品功能](docs/features.md) — 当前能力、边界和明确未实现项
+- [操作手册](docs/manual.md) — 安装、初始化、provider、TUI、运行、导出/恢复
+- [配套设施](docs/ecosystem.md) — Workshop、skyget、Bot 与平台状态
+- [发布状态与路线图](docs/status.md) — 当前版本、平台计划、研发中能力
 
-```bash
-AGENT_RUN_LOOPBACK_TESTS=1 ./scripts/verify.sh
-```
+---
 
-## Product, release and license documents
+## 参与建设
 
-- Product brief: `docs/release/PRODUCT.md`
-- Release notes: `docs/release/RELEASE_NOTES.md`
-- License policy: `docs/release/LICENSE_POLICY.md`
-- Security: `SECURITY.md`
-- Privacy: `PRIVACY.md`
+1Agent 还在持续开发。我们欢迎各路开发者、测试者、研究者、安全专家、产品与设计伙伴参与：
+
+- **试用与反馈**：下载 Linux 包，报告安装、TUI、任务、记忆、技能、审计问题；
+- **贡献代码与文档**：提交 issue / PR，补充测试、Provider、工具、场景和文档；
+- **安全与评测**：参与红队、隔离测试、长周期任务和真实工作流验证；
+- **加入社区**：加入 [Skynet-Club](https://skynet.club)，一起完善产品、计划和生态。
+
+我们的未来构想是开放的：按公开计划分阶段迭代，每个阶段用测试、证据和真实反馈推进；路线图可以讨论、可以修正，不把愿景当成一次性承诺。
+
+---
+
+## 安全与隐私
+
+- 默认只读；写操作、网络、执行需要显式授权。
+- 密钥通过环境变量或本地密钥文件引用，不写入 journal、报告或配置。
+- 导出包不包含密钥材料；恢复和迁移有 SHA-256 校验。
+- 详细边界见仓库 `SECURITY.md`、`PRIVACY.md` 和 [DESIGN.md](docs/design-philosophy.md)。
+
+---
 
 ## License
 
-MIT. See `LICENSE`. Adapted-code notices are in `THIRD_PARTY_NOTICES.md`; the
-dependency inventory is `THIRD_PARTY_LICENSES.md`; the Apache-2.0 text is in
-`LICENSES/Apache-2.0.txt`.
+[MIT](https://opensource.org/licenses/MIT)。第三方 notices 与许可证清单随发布包提供。

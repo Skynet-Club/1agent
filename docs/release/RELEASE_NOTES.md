@@ -52,9 +52,18 @@ discussed and revised; the roadmap is not a one-time promise.
 - **Provider cache usage**: OpenAI-compatible and DeepSeek cache-token fields are
   parsed into `Usage`; providers that do not report cache statistics render
   `cache —` instead of a fabricated rate.
-- **Packaging**: reproducible Linux archive for publication, internal Windows
-  build (untested, not published), release manifest, installer and third-party
-  license inventory.
+- **Packaging**: reproducible Linux-only archive for publication, internal
+  Windows build (untested, not published), `SHA256SUMS`, provenance, installer
+  and third-party license inventory.
+
+## Published assets
+
+- `1agent-0.95.0-linux-x86_64.tar.gz` — Linux x86_64 package;
+- `SHA256SUMS` — archive and Linux provenance checksums;
+- `provenance/linux-x86_64.json` — Linux build provenance.
+
+Windows archives and the dual-platform manifest are intentionally not attached.
+GitHub's generated source archives are also available from the tag.
 
 ## Upgrade notes
 
@@ -62,8 +71,9 @@ discussed and revised; the roadmap is not a one-time promise.
   restore or key escrow use it.
 - `1agent upgrade --rollback` moves keys back to the v1 layout and requires
   `keys/` to contain only the expected key, ledger and lock files.
-- The release manifest for this candidate is verified in development policy.
-  Production signing, approval envelopes and an external registry are separate.
+- The local dual-platform release manifest remains an internal verification
+  artifact; it is not part of this Linux-only public pre-release. Production
+  signing, approval envelopes and an external registry are separate.
 
 ## Verification
 
@@ -72,12 +82,11 @@ discussed and revised; the roadmap is not a one-time promise.
 - `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
   cycles.
 - One-hour soak: 2922 cycles / 3600 seconds on the frozen core binary.
-- Linux package built for publication; Windows package is an internal untested
-  build and is not published. `release verify` reports `verified` for the local
-  dual-platform manifest (development policy). The current Linux archive still
-  contains the Windows binary because both platforms share one package root; a
-  platform-specific Linux archive and a Linux-only manifest are needed before an
-  external release that omits the Windows asset.
+- A platform-specific Linux-only archive is built for this pre-release; it does
+  not contain `windows-x86_64/1agent.exe`.
+- Windows remains an internal, untested build and is not published.
+- The local dual-platform `release verify` status remains an internal check; the
+  public pre-release uses the Linux archive, `SHA256SUMS` and Linux provenance.
 - Install from the Linux archive was smoke-tested in a temporary prefix.
 
 ## Known limits
