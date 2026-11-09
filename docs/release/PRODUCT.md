@@ -69,6 +69,9 @@ The product is split into three layers:
 ## Status and license
 
 Status: **R1 release candidate, not publicly releasable yet.**  
+Platform: **Linux x86_64 is the only validated and publishable platform.**
+Windows builds are internal only, untested and not published; macOS, Android and
+iOS are planned.
 License: **MIT** (see `LICENSE`). Third-party notices are in
 `THIRD_PARTY_NOTICES.md` and `THIRD_PARTY_LICENSES.md`.
 

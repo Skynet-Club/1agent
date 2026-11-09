@@ -27,8 +27,9 @@ Status: **release candidate, not publicly releasable**
   empty drawer is grouped by category with the three most recent commands first;
   command panels own the keyboard; destructive clear/dispatch/control actions
   require a second Enter.
-- **Packaging**: reproducible Linux/Windows archives, release manifest,
-  installer and third-party license inventory.
+- **Packaging**: reproducible Linux archive for publication, internal Windows
+  build (untested, not published), release manifest, installer and third-party
+  license inventory.
 
 ## Upgrade notes
 
@@ -46,8 +47,10 @@ Status: **release candidate, not publicly releasable**
 - `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
   cycles.
 - One-hour soak: 2922 cycles / 3600 seconds on the frozen core binary.
-- Linux and Windows packages built; `release verify` reports `verified`
-  (development policy).
+- Linux package built for publication; Windows package is an internal untested
+  build and is not published. `release verify` reports `verified` for the local
+  dual-platform manifest (development policy). A Linux-only manifest is needed
+  before an external release that omits the Windows asset.
 - Install from the Linux archive was smoke-tested in a temporary prefix.
 
 ## Known limits
