@@ -3,7 +3,7 @@
 
 [简体中文](features.md) · [English](features.en.md)
 
-> 当前版本：**0.95.0 R1 release candidate**  
+> 当前版本：**0.96.0 R1 release candidate**  
 > 正式验证平台：**Linux x86_64**  
 > 状态标记：**可用（RC）** / **基础可用** / **MVP** / **模块** / **实验性** / **研发中** / **未实现**
 
@@ -122,12 +122,13 @@
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 浏览器 / computer-use | **未实现** | 不是隐藏开关；计划见 Super-Agent 能力补齐计划 SA-01 |
-| 通用子 Agent | **未实现** | 当前只有 Workshop 的有界 Master→Worker 调度；没有 `spawn_subagent` |
-| MCP 客户端 | **未实现** | 外部 Agent 的 `browser`/`mcp` 能力不等于 1Agent 工具 |
-| 完整常驻 daemon/Routine/Trigger | **研发中** | G2 范围 |
-| 全量 Attention/Digest | **研发中** | 目前是确定性提醒基础 |
-| 自动进化/技能市场 | **研发中/规划** | 目前以人工审批和回滚为主 |
+| 浏览器 / computer-use | **部分** | `browser_read` 可用无头 Chrome 渲染并抽取正文；点击、输入、截图和视觉理解未实现 |
+| 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；Master→Worker 仍是独立路径 |
+| MCP 客户端 | **部分** | stdio MCP：发现并调用工具；HTTP/SSE、OAuth 和工具市场未实现 |
+| 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；升级阶梯和跨重启去重未实现 |
+| 全量 Attention/Digest | **部分** | `digest` 汇总最近运行、计划任务、健康状态与告警计数；维护循环和升级阶梯未实现 |
+| 自动进化/技能市场 | **部分** | 人工审批/回滚 + SHA-256 技能包分发；签名和远程市场索引未实现 |
+| 语音/图片理解 | **未实现** | `read_pdf` 只能抽取 PDF 文本；语音、图片、扫描件 OCR 未实现 |
 | 多租户/组织级审计 | **未实现** | 当前是单用户/本地优先 |
 | Android/iOS App | **规划中** | 与 Bot 一起推进 |
 | macOS 正式支持 | **规划中** | 当前只验证 Linux |
@@ -150,7 +151,7 @@
   --task "阅读这个项目的鉴权路径，列出风险最高的三个入口"
 ```
 
-当前工具是只读的 `read_file` / `search_files`；没有浏览器和 shell。
+可用 `read_file`、`read_pdf`、`search_files`、`fetch_url`、`web_search`、`browser_read`，以及默认开启的 `write_file`、`edit_file` 和真实 PTY 终端工具（`--read-only` 可关闭写入）。
 
 ### 场景 C：交互式调查
 
@@ -162,17 +163,16 @@
 
 ### 场景 D：受控执行（需要 Workshop）
 
-当 1Agent 接入 Skynet Workshop 后，才具备“在隔离 Session 中执行并验收 Artifact”的能力。  
-当前 Workshop 仍在研发/联调阶段，不应作为稳定生产依赖。
+本地 CLI/TUI 默认允许文件写入和终端执行；接入 Skynet Workshop 后，终端工具使用持久 PTY Session，并可执行、读取和销毁。Workshop 仍在研发/联调阶段，不应作为稳定生产依赖。
 
 ## 5. 当前版本的边界
 
 - **不是生产稳定版**：R1 release candidate，接口和行为仍可能变化。
-- **不是完整 Super-Agent**：浏览器、子 Agent、常驻自主尚未完成。
+- **不是完整 Super-Agent**：computer-use 操作、语音/图片理解、自动 Watchdog 和移动端尚未完成。
 - **不是 Bot**：没有人格、Web/IM/Voice 界面、Companion Contract。
 - **不是多租户产品**：没有组织 IdP、租户隔离和第三方审计。
-- **不是“任意网站操作”工具**：浏览器后端未实现。
-- **不是无授权执行器**：默认只读；写/网络/执行需要显式授权。
+- **不是“任意网站操作”工具**：只能渲染并读取页面，不能点击或截图。
+- **不是绕过授权**：本地写/执行默认开启；网络需 `--allow-network`，高风险动作仍受 Authority/Policy 和审批约束。
 
 ## 6. 相关文档
 

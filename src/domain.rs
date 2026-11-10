@@ -118,7 +118,7 @@ impl Default for RunBudget {
         Self {
             max_steps: 6,
             max_tool_calls: 8,
-            max_provider_attempts: 4,
+            max_provider_attempts: 8,
             provider_retry_backoff_ms: 50,
             timeout_ms: 120_000,
             max_context_chars: 100_000,

@@ -16,9 +16,9 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** 0.95.0 is an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
+> **This project is under active development.** 0.96.0 is an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> Current Linux pre-release: [v0.95.0-rc.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.95.0-rc.1).
+> Current Linux pre-release: [v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0).
 
 ---
 
@@ -64,8 +64,8 @@ These are listed honestly in [Status & Roadmap](docs/status.en.md).
 Download the Linux archive from Releases:
 
 ```bash
-tar -xzf 1agent-0.95.0-linux-x86_64.tar.gz
-cd 1agent-0.95.0
+tar -xzf 1agent-0.96.0-linux-x86_64.tar.gz
+cd 1agent-0.96.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 

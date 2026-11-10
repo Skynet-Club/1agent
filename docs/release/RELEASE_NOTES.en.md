@@ -1,109 +1,149 @@
-# Release Notes — 0.95.0 R1 Candidate
+# Release Notes — 0.96.0 Action Layer Preview
 
-Date: 2026-11-09  
+Date: 2026-11-10  
 Status: **R1 public pre-release (release candidate), not production-stable**
 
-GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.95.0-rc.1>
+GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0>
 
 [简体中文](https://github.com/Skynet-Club/1agent/blob/main/docs/release/RELEASE_NOTES.md) · **English**
 
 ## Development status and community
 
-This project is still under active development. 0.95.0 is an R1 release
-candidate, not a finished or production-stable product; interfaces, configuration
-and data formats may still change.
+1Agent is still under rapid iteration. 0.96.0 is an R1 release candidate, not a
+finished or production-stable product; interfaces, configuration and data
+formats may still change.
 
 We welcome developers, testers, researchers, security specialists, product and
-design partners to test the Linux build, report issues, submit pull requests, and
-join **Skynet-Club** to help build the product and ecosystem:
-<https://skynet.club>.
-
-The future direction is open and iterative. Browser, subagent, always-on
-autonomy, tool ecosystem, Workshop and Bot capabilities have a public capability
-plan; each stage advances through testable milestones and evidence. Plans can be
-discussed and revised; the roadmap is not a one-time promise.
+design partners to test the Linux build, report issues, submit pull requests,
+join red-team exercises and validate real workflows. Join **Skynet-Club** to help
+build 1Agent and its open ecosystem: <https://skynet.club>.
 
 ## Highlights
 
-- **Runtime home**: `init/doctor/export/restore/upgrade/uninstall` around
-  `$ONEAGENT_HOME` or `$HOME/.1a`.
-- **Home layout v2**: master key and KEK ledger live under `keys/`; v1 homes
-  migrate with `1agent upgrade` and can be reversed with
-  `1agent upgrade --rollback`.
-- **Key escrow**: AES-256-GCM escrow of the master key and ledger under a
-  separate 0600 recovery key.
-- **Cross-process safety**: flock and stale-writer detection for task-graph,
-  memory, skill, goal, action and snapshot stores; long-lived surfaces reload
-  and return retryable conflicts instead of wedging.
-- **Alerts**: local JSONL alert log plus optional HTTPS webhook for provider
-  health events.
-- **Restart continuity**: goals, commitments, memory, delegation and evolution
-  survive a full reopen; the context graph explains goal/commitment links.
-- **TUI**: standalone turns no longer open a modal `/next` menu; `/` commands
-  remain discoverable; greetings/connectivity checks stay tool-free. The mode
-  menu is reachable by `/mode`, Ctrl+T (portable) or Ctrl+Tab, with six modes.
-  The slash drawer supports fuzzy/name+description matching, disabled-command
-  reasons, Tab argument completion and non-executing completion on Enter. The
-  empty drawer is grouped by category with the three most recent commands first;
-  command panels own the keyboard; destructive clear/dispatch/control actions
-  require a second Enter.
-- **TUI session and status**: a bare `1agent tui` starts a new session; the
-  post-exit banner reports the session title and explicit `--session` continue
-  command. `Ctrl+Q` requires Enter confirmation, and the running line shows
-  `Working...`, elapsed time, input/output tokens and provider cache hit rate.
-- **Direct answers and run metrics**: Direct Answer mode shows only the conclusion
-  in the transcript; structured evidence stays in `/details`. Providers that do
-  not report cache statistics render `cache —` instead of a fabricated rate.
-- **Provider cache usage**: OpenAI-compatible and DeepSeek cache-token fields are
-  parsed into `Usage`.
-- **Packaging**: reproducible Linux-only archive for publication, internal Windows
-  build (untested, not published), `SHA256SUMS`, provenance, installer and
-  third-party license inventory.
+### 1. From answering to acting
+
+- Local `run` / `tui` now enable file writes and terminal execution by default;
+  `--read-only` disables them, and `--allow-write` remains accepted for
+  compatibility.
+- Added `write_file` / `edit_file`: allowed-root containment, symlink rejection,
+  overwrite protection, atomic replacement and bounded content.
+- Added real PTY terminal tools (`terminal_create/write/output/exec/destroy`)
+  backed by Skynet Workshop. They are hidden from the model and denied by the
+  registry without write authority. Verified on Linux x86_64.
+- Added `fetch_url`: public HTTPS only, private/loopback address rejection,
+  per-hop redirect validation, a 2 MiB cap and HTML text extraction.
+- Added `web_search` through Bing RSS: no key, bounded and deduplicated results,
+  rate limits surface as tool failures.
+- Added `browser_read`: headless Chrome rendering and text extraction for public
+  pages; clicks, typing and screenshots are not implemented.
+- Added `read_pdf`: extracts PDF text through the system `pdftotext`, with read
+  root, symlink, control-character and character-count checks. No OCR or image
+  understanding.
+- Added a stdio MCP client (`--mcp-config`): tool discovery and calls; remote
+  tools are write-gated unless the server declares `readOnlyHint: true`.
+- Added `spawn_agent`: bounded child processes with isolated journal/workspace
+  and budget, inherited write/network permissions and a depth cap of 2.
+
+### 2. Always-on execution, scheduling and skill distribution
+
+- Added `schedule add/list/remove` and `daemon`: intervals, file-mtime triggers,
+  persistence, pid locking, isolated child runs and restart catch-up.
+- Added `schedule health` with `ok` / `overdue` / `failing` states.
+- The daemon can write a `schedule_run_failed` alert and send a webhook when a
+  scheduled run fails or times out; escalation and restart deduplication remain
+  future work.
+- `run/schedule add --routine-skill NAME@VERSION` accepts only the active exact
+  version, composes its body into the task and grants no extra permissions.
+- Added `skill export/import`: versioned bundles, SHA-256 pinning, manifest
+  preflight, a 4 MiB cap and duplicate-version skipping.
+- Added Ed25519 bundle signing: `skill keygen`, `skill export --signing-key`,
+  `skill import --public-key`. Private key files must be 0600; missing keys,
+  wrong keys and tampering fail closed.
+- Exposed `skill_list/eval/register/activate/rollback` and
+  `delegation_list/register/revoke` tools.
+
+### 3. Cost, maintenance and audit
+
+- `cost` aggregates tokens, cost, tool calls/failures and p50/p95 latency by
+  provider/model, task and tool.
+- `digest` summarizes recent runs, stop reasons, schedules, `schedule_health`
+  and alert counts without calling a model.
+- Added `dashboard`: a self-contained static HTML report over journals,
+  schedules and alerts, with escaped dynamic text, a restrictive CSP and 0600
+  file permissions.
+- Audit export supports `after_seq` pagination and `include_records`; the
+  default still returns only a receipt so journal content is not dumped
+  accidentally.
+- Added `retention` (run-journal dry-run/apply with a receipt), `provider-alerts`
+  and `notify` (generic webhook plus Slack/Discord payloads).
+- Added `memory consolidate` (scope + content-hash deduplication with soft
+  forget) and a fingerprint-keyed context-graph cache.
+
+### 4. Safety and execution boundaries
+
+- Tools are filtered by permission; write tools are hidden from the model in
+  read-only runs.
+- Terminal, file, network, MCP and skill tools have explicit risk levels,
+  timeouts and failure paths.
+- Tool calls and results are paired in the journal; model-visible inputs can be
+  reconstructed from the run journal.
+- ADR-0031/0032/0033 record the decisions for execution by default, PDF text
+  extraction and skill bundles/routines.
 
 ## Published assets
 
-- `1agent-0.95.0-linux-x86_64.tar.gz` — Linux x86_64 package;
+- `1agent-0.96.0-linux-x86_64.tar.gz` — Linux x86_64 package;
 - `SHA256SUMS` — archive and Linux provenance checksums;
 - `linux-x86_64.json` — Linux build provenance.
 
-Windows archives and the dual-platform manifest are intentionally not attached.
-GitHub's generated source archives are also available from the tag.
+Windows archives are not published. GitHub's generated source archives remain
+available from the tag.
 
 ## Upgrade notes
 
-- A v1 runtime home must run `1agent upgrade` before default key paths, export,
-  restore or key escrow use it.
-- `1agent upgrade --rollback` moves keys back to the v1 layout and requires
-  `keys/` to contain only the expected key, ledger and lock files.
-- The local dual-platform release manifest remains an internal verification
-  artifact; it is not part of this Linux-only public pre-release. Production
-  signing, approval envelopes and an external registry are separate.
+- 0.96.0 allows local writes/execution by default. Use `--read-only`, or
+  `/permissions write off` in the TUI, for read-only runs.
+- Skill CLIs honor `ONEAGENT_SKILL_JOURNAL`; the default is
+  `$HOME/.1a/skills.jsonl`.
+- `--allow-write` is still accepted but conflicts with `--read-only`; it is no
+  longer required.
+- Existing runtime homes continue to migrate through `1agent upgrade`; this
+  release adds no home migration step.
 
 ## Verification
 
-- 648 tests / 29 suites, 3 ignored (loopback/HTTP/soak), plus explicit ignored
-  HTTP and loopback runs.
-- `scripts/ci.sh` status 0; `scripts/release-check.sh --soak` passes five soak
-  cycles.
-- One-hour soak: 2922 cycles / 3600 seconds on the frozen core binary.
-- A platform-specific Linux-only archive is built for this pre-release; it does
-  not contain `windows-x86_64/1agent.exe`.
-- Windows remains an internal, untested build and is not published.
-- The local dual-platform `release verify` status remains an internal check; the
-  public pre-release uses the Linux archive, `SHA256SUMS` and Linux provenance.
-- Install from the Linux archive was smoke-tested in a temporary prefix.
+- Full gate: fmt, clippy `-D warnings`, tests, evals and claims structure all
+  pass.
+- 725 tests passed, 0 failed, 5 live tests ignored by default (terminal, PDF and
+  other host-dependent checks).
+- Claims: 81 checked, 62 verified, 7 partial, 12 without evidence. Unverified
+  older product claims remain explicitly marked in the table.
+- `1agent --version` reports 0.96.0; Linux reproducible-build provenance ships
+  with the package.
+- Live evidence: `docs/evidence/web-2026-11-09/`, `mcp-2026-11-09/`,
+  `subagent-2026-11-09/`, `browser-2026-11-09/`, `terminal-2026-11-09/`,
+  `pdf-2026-11-09/`.
 
 ## Known limits
 
-- A-Gate formal closure, external IdP, third-party security audit and the
-  Workshop full release gate remain open.
-- A real HTTPS alert receiver is not configured; delivery is best-effort.
-- Cross-process indexes/automatic merge and multi-tenant authorization are not
+- Not production-stable. A-Gate/S-Gate, external IdP, third-party security audit
+  and the Workshop full release gate remain open.
+- The browser is read-only; computer-use clicks, typing and screenshots are not
   implemented.
-- Browser/computer-use, generic subagents and MCP are not implemented.
-- G2 daemon/Routine/Watchdog and a real cross-day task are future work.
+- PDF support is text-only; scan OCR, images, voice, DOCX/PPTX are not
+  implemented.
+- Semantic retrieval/embeddings and cross-process memory rotation are not
+  implemented.
+- Skill shadow/canary end-to-end flows and a real demonstration corpus are
+  unfinished.
+- Delegation is not wired through the full Router path; per-tenant context and
+  organization audit are not implemented.
+- Watchdog escalation, restart deduplication and a real multi-day task evidence
+  run are still missing.
+- Remote skill marketplace index, revocation and install UI are not implemented.
+- Real external webhook/email/calendar delivery is unverified; the dashboard is
+  a static report, not a live service.
 - Windows is untested and not published; macOS, Android and iOS are planned.
-- Unknown file formats and untrusted skills should not be run in the same home.
 
 ## License
 

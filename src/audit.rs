@@ -66,6 +66,8 @@ pub struct AuditQuery {
     pub skill: Option<String>,
     pub version: Option<String>,
     pub limit: Option<usize>,
+    pub after_seq: Option<u64>,
+    pub include_records: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,6 +76,8 @@ pub struct AuditExportResult {
     pub receipt: AuditReceipt,
     pub matched: usize,
     pub exported: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub records: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Error)]
@@ -109,7 +113,7 @@ pub fn audit_export(
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(AuditError::NotFound(path.display().to_string()));
     }
-    let (events, head_sha256, matched) = match kind {
+    let (events, head_sha256, matched, records) = match kind {
         AuditKind::TaskGraph => {
             let service = TaskGraphService::open_read_only(path)?;
             let graph = service.graph();
@@ -117,11 +121,13 @@ pub fn audit_export(
             let records = events
                 .iter()
                 .filter(|event| {
-                    query.thread_id.as_deref().is_none_or(|thread_id| {
-                        graph.event_thread_id(event).as_deref() == Some(thread_id)
-                    }) && query.ticket_id.as_deref().is_none_or(|ticket_id| {
-                        graph.event_ticket_id(event).as_deref() == Some(ticket_id)
-                    })
+                    query.after_seq.is_none_or(|seq| event.seq > seq)
+                        && query.thread_id.as_deref().is_none_or(|thread_id| {
+                            graph.event_thread_id(event).as_deref() == Some(thread_id)
+                        })
+                        && query.ticket_id.as_deref().is_none_or(|ticket_id| {
+                            graph.event_ticket_id(event).as_deref() == Some(ticket_id)
+                        })
                 })
                 .take(query.limit.unwrap_or(usize::MAX))
                 .cloned()
@@ -129,10 +135,16 @@ pub fn audit_export(
             if let Some(output) = export_path {
                 write_jsonl(output, &records)?;
             }
+            let records_json = if query.include_records {
+                Some(serde_json::to_value(&records)?)
+            } else {
+                None
+            };
             (
                 events.len(),
                 events.last().map(|event| event.event_sha256.clone()),
                 records.len(),
+                records_json,
             )
         }
         AuditKind::Memory => {
@@ -152,7 +164,7 @@ pub fn audit_export(
                             .get(memory_id)
                             .is_some_and(|record| record.scope.scope_id() == expected)
                     });
-                    memory_match && scope_match
+                    query.after_seq.is_none_or(|seq| event.seq > seq) && memory_match && scope_match
                 })
                 .take(query.limit.unwrap_or(usize::MAX))
                 .cloned()
@@ -160,10 +172,16 @@ pub fn audit_export(
             if let Some(output) = export_path {
                 write_jsonl(output, &records)?;
             }
+            let records_json = if query.include_records {
+                Some(serde_json::to_value(&records)?)
+            } else {
+                None
+            };
             (
                 events.len(),
                 events.last().map(|event| event.event_sha256.clone()),
                 records.len(),
+                records_json,
             )
         }
         AuditKind::Skill => {
@@ -172,10 +190,11 @@ pub fn audit_export(
             let records = events
                 .iter()
                 .filter(|event| {
-                    query
-                        .skill
-                        .as_deref()
-                        .is_none_or(|expected| expected == event.kind.name())
+                    query.after_seq.is_none_or(|seq| event.seq > seq)
+                        && query
+                            .skill
+                            .as_deref()
+                            .is_none_or(|expected| expected == event.kind.name())
                         && query
                             .version
                             .as_deref()
@@ -187,10 +206,16 @@ pub fn audit_export(
             if let Some(output) = export_path {
                 write_jsonl(output, &records)?;
             }
+            let records_json = if query.include_records {
+                Some(serde_json::to_value(&records)?)
+            } else {
+                None
+            };
             (
                 events.len(),
                 events.last().map(|event| event.event_sha256.clone()),
                 records.len(),
+                records_json,
             )
         }
     };
@@ -205,6 +230,7 @@ pub fn audit_export(
         },
         matched,
         exported: export_path.map(|path| path.display().to_string()),
+        records,
     })
 }
 
@@ -354,6 +380,41 @@ mod tests {
                 .count(),
             5
         );
+        let page = audit_export(
+            AuditKind::TaskGraph,
+            &graph_path,
+            &AuditQuery {
+                thread_id: Some(thread_a.clone()),
+                limit: Some(2),
+                include_records: true,
+                ..Default::default()
+            },
+            None,
+            20,
+        )
+        .unwrap();
+        let records = page.records.unwrap();
+        let records = records.as_array().unwrap();
+        assert_eq!(records.len(), 2);
+        let last_seq = records[1]["seq"].as_u64().unwrap();
+        let next = audit_export(
+            AuditKind::TaskGraph,
+            &graph_path,
+            &AuditQuery {
+                thread_id: Some(thread_a),
+                after_seq: Some(last_seq),
+                limit: Some(2),
+                include_records: true,
+                ..Default::default()
+            },
+            None,
+            21,
+        )
+        .unwrap();
+        let next = next.records.unwrap();
+        let next = next.as_array().unwrap();
+        assert!(!next.is_empty());
+        assert!(next[0]["seq"].as_u64().unwrap() > last_seq);
         let result = audit_export(
             AuditKind::TaskGraph,
             &graph_path,

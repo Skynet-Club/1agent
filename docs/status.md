@@ -3,19 +3,19 @@
 
 [简体中文](status.md) · [English](status.en.md)
 
-> 当前版本：**0.95.0 R1 release candidate**  
+> 当前版本：**0.96.0 R1 release candidate**  
 > 当前平台：**Linux x86_64**  
 > 结论：**可以使用和评估，但还不是生产稳定版。**
 
 ## 0. 还在开发，欢迎共建
 
-- **仍在持续开发**：0.95.0 不是完成品；接口、配置和能力边界仍可能变化。
+- **仍在持续开发**：0.96.0 不是完成品；接口、配置和能力边界仍可能变化。
 - **欢迎测试与共建**：欢迎开发者、测试者、研究者、安全专家、产品与设计伙伴试用、提 issue/PR、参与红队和真实工作流验证；加入 [Skynet-Club](https://skynet.club) 一起完善建设。
 - **未来是开放的**：浏览器、子 Agent、常驻自主、Workshop、Bot 等能力按公开计划分阶段迭代；路线图可讨论、可修正，不用愿景掩盖当前边界。
 
 ## 1. 当前版本是什么
 
-0.95.0 是一个 **R1 release candidate**：
+0.96.0 是一个 **R1 release candidate**：
 
 - 不是 1.0；
 - 不是生产稳定版；
@@ -45,10 +45,10 @@
 
 ### 2.2 能力边界仍明显
 
-- 没有浏览器 / computer-use；
-- 没有通用子 Agent；
-- 没有 MCP 客户端；
-- 没有完整 daemon/Routine/Trigger/Watchdog；
+- 浏览器只能渲染和读取，不能 computer-use 点击/输入/截图；
+- 通用子 Agent、stdio MCP、Web 读取/搜索、本地写/终端已有 MVP，但仍是有界实现；
+- daemon/Routine/Trigger 已支持 interval、文件 trigger、重启补跑和技能绑定；任务失败/超时可写告警日志并发 webhook，但升级阶梯和跨重启去重未完成；
+- 没有语音/图片理解；`read_pdf` 只抽取 PDF 文本；
 - 没有多租户和组织级审计；
 - Windows 尚未测试、不发布；macOS 尚未支持；
 - 没有 Android/iOS App。
@@ -83,13 +83,15 @@
 - 保留期、组织级审计、生产签名/审批；
 - Linux 安装/升级/导出/卸载验收。
 
-### R2：行动层
+### R2：行动层（部分已落地）
 
-- `web_fetch` 只读网页获取；
-- shell/write/edit/git/test 工具矩阵（经授权/沙箱）；
-- MCP/连接器；
-- 逻辑子 Agent（只读研究/对比/验证）；
-- Workshop 浏览器/computer-use 产品化（WS-13）。
+- [x] `fetch_url` / `web_search` 只读网页获取；
+- [x] `write_file` / `edit_file` / 真实 PTY 终端（写权限与 Authority/Policy 约束）；
+- [x] stdio MCP 客户端；
+- [x] 有界子 Agent（独立 journal/工作区，深度 2）；
+- [x] `browser_read` 无头 Chrome 渲染；
+- [ ] Workshop computer-use（点击/输入/截图，WS-13）；
+- [ ] HTTP/SSE MCP 与工具市场。
 
 ### R3：Standalone Super-Agent
 
@@ -115,12 +117,12 @@
 | 能力 | 状态 | 预计阶段 |
 |---|---|---|
 | Skynet Workshop 稳定执行 | 研发/联调中 | R1/R2 |
-| 浏览器 / computer-use | 未实现 | R2 |
-| 通用子 Agent | 未实现 | R2/R3 |
-| MCP 客户端 | 未实现 | R2 |
-| 完整常驻 daemon/Routine | 未实现 | G2 |
-| 全量 Attention/Digest | 研发中 | G2 |
-| 自动进化/技能市场 | 研发中/规划 | G2/G3 |
+| 浏览器 / computer-use | 读取部分可用；操作未实现 | R2 |
+| 通用子 Agent | 有界 MVP 可用 | R2/R3 |
+| MCP 客户端 | stdio 部分可用 | R2 |
+| 常驻 daemon/Routine | interval/trigger/重启补跑/health 可用；自动 Watchdog 未实现 | G2 |
+| 全量 Attention/Digest | Digest 可用；维护循环未实现 | G2 |
+| 自动进化/技能市场 | 审批/回滚 + SHA-256 技能包；签名/远程市场未实现 | G2/G3 |
 | 多租户/组织级审计 | 未实现 | R6 |
 | Bot（人格/通道） | 研发中 | R4+ |
 | Windows 正式支持 | 内部构建，未测试，不发布 | 后续 |
@@ -158,7 +160,7 @@ sha256sum -c SHA256SUMS
 - “当前版本是 R1 release candidate”；
 - “Linux x86_64 是当前验证平台”；
 - “可选 Workshop 执行，尚未作为稳定产品发布”；
-- “浏览器、子 Agent、常驻自主仍在研发”。
+- “浏览器读取、子 Agent、stdio MCP、常驻调度已有有界 MVP；computer-use 和自动 Watchdog 仍未完成”。
 
 不要说：
 

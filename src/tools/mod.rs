@@ -13,6 +13,25 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::{PermissionSet, RiskLevel, ToolCall, ToolObservation, ToolSpec, ToolStatus};
 use crate::safety::contains_disallowed_control;
 
+mod browser;
+mod delegation;
+mod documents;
+mod files;
+mod mcp;
+mod skills;
+mod subagent;
+mod terminal;
+mod web;
+pub use browser::*;
+pub use delegation::*;
+pub use documents::*;
+pub use files::*;
+pub use mcp::*;
+pub use skills::*;
+pub use subagent::*;
+pub use terminal::*;
+pub use web::*;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ToolOutcome {
@@ -132,6 +151,21 @@ impl ToolRegistry {
         specs
     }
 
+    /// Tool specs that the model may call under the given permissions.
+    ///
+    /// Write tools are hidden when the run is read-only so the model cannot
+    /// waste steps on calls that the registry would reject.
+    pub fn specs_for(&self, permissions: &PermissionSet) -> Vec<ToolSpec> {
+        let mut specs: Vec<_> = self
+            .tools
+            .values()
+            .filter(|tool| permissions.allow_write || !tool.requires_write())
+            .map(|tool| tool.spec())
+            .collect();
+        specs.sort_by(|left, right| left.name.cmp(&right.name));
+        specs
+    }
+
     pub fn capabilities(&self) -> Vec<ToolCapability> {
         let mut capabilities = self
             .tools
@@ -154,7 +188,25 @@ impl ToolRegistry {
     }
 
     pub fn capability_snapshot(&self) -> Result<ToolCapabilitySnapshot, String> {
-        let capabilities = self.capabilities();
+        self.capability_snapshot_for(&PermissionSet {
+            allow_write: true,
+            ..PermissionSet::default()
+        })
+    }
+
+    /// Capability snapshot for the tools actually available under `permissions`.
+    ///
+    /// This is what the run journal records, so a read-only run does not claim
+    /// that write tools were advertised to the model.
+    pub fn capability_snapshot_for(
+        &self,
+        permissions: &PermissionSet,
+    ) -> Result<ToolCapabilitySnapshot, String> {
+        let capabilities = self
+            .capabilities()
+            .into_iter()
+            .filter(|capability| permissions.allow_write || !capability.requires_write)
+            .collect::<Vec<_>>();
         let bytes = serde_json::to_vec(&capabilities).map_err(|error| error.to_string())?;
         Ok(ToolCapabilitySnapshot {
             schema_version: 1,
@@ -958,7 +1010,29 @@ fn bounded_excerpt(
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::default();
     registry.register(Arc::new(ReadFileTool));
+    registry.register(Arc::new(PdfReadTool::from_env()));
     registry.register(Arc::new(SearchFilesTool));
+    registry.register(Arc::new(FetchUrlTool));
+    registry.register(Arc::new(WebSearchTool));
+    registry.register(Arc::new(BrowserReadTool::from_env()));
+    registry.register(Arc::new(SpawnAgentTool::new(
+        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("1agent")),
+    )));
+    registry.register(Arc::new(WriteFileTool));
+    registry.register(Arc::new(EditFileTool));
+    registry.register(Arc::new(TerminalCreateTool::from_env()));
+    registry.register(Arc::new(TerminalWriteTool::from_env()));
+    registry.register(Arc::new(TerminalOutputTool::from_env()));
+    registry.register(Arc::new(TerminalExecTool::from_env()));
+    registry.register(Arc::new(TerminalDestroyTool::from_env()));
+    registry.register(Arc::new(SkillListTool::from_env()));
+    registry.register(Arc::new(SkillEvalTool::from_env()));
+    registry.register(Arc::new(SkillRegisterTool::from_env()));
+    registry.register(Arc::new(SkillActivateTool::from_env()));
+    registry.register(Arc::new(SkillRollbackTool::from_env()));
+    registry.register(Arc::new(DelegationListTool::from_env()));
+    registry.register(Arc::new(DelegationRegisterTool::from_env()));
+    registry.register(Arc::new(DelegationRevokeTool::from_env()));
     registry
 }
 
@@ -1431,5 +1505,22 @@ mod tests {
             .await;
         assert_eq!(observation.status, ToolStatus::TimedOut);
         assert_eq!(observation.error_code.as_deref(), Some("timed_out"));
+    }
+
+    #[test]
+    fn write_tools_are_hidden_without_write_permission() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        registry.register(Arc::new(TerminalCreateTool::new("unused")));
+
+        let read_only = registry.specs_for(&PermissionSet::default());
+        assert!(read_only.iter().any(|spec| spec.name == "echo"));
+        assert!(!read_only.iter().any(|spec| spec.name == "terminal_create"));
+
+        let writable = registry.specs_for(&PermissionSet {
+            allow_write: true,
+            ..PermissionSet::default()
+        });
+        assert!(writable.iter().any(|spec| spec.name == "terminal_create"));
     }
 }

@@ -6,7 +6,7 @@ Project-specific rules:
 
 - The frozen Skynet Terminal `v0.10.21` must not be modified for this project.
 - Domain code must remain independent of UI, operating system, database and model-provider SDKs.
-- Read-only behavior is the V0 default. New side effects require an explicit permission model and tests.
+- Execution and file writes are enabled by default for local CLI/TUI; `--read-only` disables them. New side effects still require the explicit permission model, Authority/Policy checks and tests.
 - Every model-visible input must be reconstructable from the run journal.
 - Tool calls and tool results must be paired in the journal.
 - Never log credentials or full secret-bearing request headers.

@@ -6,8 +6,10 @@
 //! superseded memory is shown as such rather than silently filled in.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::goal::{CommitmentStatus, GoalGraph, GoalStatus};
 use crate::memory::{MemoryLayer, MemoryRecord};
@@ -268,6 +270,123 @@ fn ticket_status(status: TicketStatus) -> &'static str {
     }
 }
 
+const CACHE_SCHEMA_VERSION: u32 = 1;
+const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CachedContextGraph {
+    schema_version: u32,
+    input_sha256: String,
+    graph: ContextGraph,
+}
+
+/// File-backed context graph cache keyed by an input fingerprint.
+#[derive(Debug, Clone)]
+pub struct ContextGraphCache {
+    path: PathBuf,
+}
+
+impl ContextGraphCache {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn load(&self, input_sha256: &str) -> Result<Option<ContextGraph>, String> {
+        let metadata = match std::fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("cache stat failed: {error}")),
+        };
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err("context cache must be a regular file".into());
+        }
+        if metadata.len() > MAX_CACHE_BYTES {
+            return Err("context cache is too large".into());
+        }
+        let bytes =
+            std::fs::read(&self.path).map_err(|error| format!("cache read failed: {error}"))?;
+        let cached: CachedContextGraph = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("cache json failed: {error}"))?;
+        if cached.schema_version != CACHE_SCHEMA_VERSION || cached.input_sha256 != input_sha256 {
+            return Ok(None);
+        }
+        Ok(Some(cached.graph))
+    }
+
+    pub fn store(&self, input_sha256: &str, graph: &ContextGraph) -> Result<(), String> {
+        if let Some(parent) = self.path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("cache mkdir failed: {error}"))?;
+        }
+        let cached = CachedContextGraph {
+            schema_version: CACHE_SCHEMA_VERSION,
+            input_sha256: input_sha256.into(),
+            graph: graph.clone(),
+        };
+        let bytes =
+            serde_json::to_vec(&cached).map_err(|error| format!("cache encode failed: {error}"))?;
+        let temporary = self
+            .path
+            .with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&temporary, bytes)
+            .map_err(|error| format!("cache write failed: {error}"))?;
+        if let Err(error) = std::fs::rename(&temporary, &self.path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!("cache replace failed: {error}"));
+        }
+        Ok(())
+    }
+
+    pub fn get_or_build(
+        &self,
+        input_sha256: &str,
+        build: impl FnOnce() -> ContextGraph,
+    ) -> Result<(ContextGraph, bool), String> {
+        if let Some(graph) = self.load(input_sha256)? {
+            return Ok((graph, true));
+        }
+        let graph = build();
+        self.store(input_sha256, &graph)?;
+        Ok((graph, false))
+    }
+}
+
+/// Deterministic fingerprint of the graph inputs.
+pub fn fingerprint(
+    goals: &GoalGraph,
+    tasks: &TaskGraphSnapshot,
+    memories: &[MemoryRecord],
+) -> String {
+    let memory_refs = memories
+        .iter()
+        .map(|memory| {
+            serde_json::json!({
+                "id": memory.memory_id,
+                "sha256": memory.content_sha256,
+                "valid_from_ms": memory.valid_from_ms,
+                "valid_to_ms": memory.valid_to_ms,
+                "soft_forgotten_ms": memory.soft_forgotten_ms,
+                "hard_forgotten_ms": memory.hard_forgotten_ms,
+                "superseded_by": memory.superseded_by
+            })
+        })
+        .collect::<Vec<_>>();
+    let value = serde_json::json!({
+        "goals": goals.snapshot(),
+        "tasks": tasks,
+        "memories": memory_refs
+    });
+    let bytes = serde_json::to_vec(&value).unwrap_or_default();
+    hex::encode(Sha256::digest(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +512,29 @@ mod tests {
                 .scope
                 .as_deref(),
             Some("read repo")
+        );
+    }
+
+    #[test]
+    fn cache_hits_and_invalidates_on_fingerprint_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ContextGraphCache::new(dir.path().join("context-cache.json"));
+        let graph = ContextGraph::default();
+        let (_, hit) = cache.get_or_build("first", || graph.clone()).unwrap();
+        assert!(!hit);
+        let (cached, hit) = cache
+            .get_or_build("first", || panic!("cache should hit"))
+            .unwrap();
+        assert!(hit);
+        assert_eq!(cached, graph);
+        let (_, hit) = cache.get_or_build("second", || graph.clone()).unwrap();
+        assert!(!hit);
+
+        let goals = GoalGraph::default();
+        let tasks = crate::task_graph::TaskGraph::default().snapshot();
+        assert_eq!(
+            fingerprint(&goals, &tasks, &[]),
+            fingerprint(&goals, &tasks, &[])
         );
     }
 }

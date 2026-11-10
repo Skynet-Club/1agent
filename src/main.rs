@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,16 +20,16 @@ use first_principles_agent::{
     REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason,
     ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
     RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent,
-    SessionPreferences, StopReason, TaskRequest, TerminalSession, ToolObservation, ToolRegistry,
-    ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput, TuiInputResolution,
-    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
-    WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary, audit_events,
-    audit_summary, build_release_verification_report, build_usage_ledger, build_user_message,
-    collect_provenance, collect_release_manifest, commands_for_surface, copy_to_clipboard,
-    create_goldset_manifest, create_trust_anchor, current_time_ms, default_home, default_registry,
-    doctor, epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
-    filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
-    home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
+    SessionPreferences, SkillService, StopReason, TaskRequest, TerminalSession, ToolObservation,
+    ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput,
+    TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput,
+    WorkItemStatus, WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary,
+    audit_events, audit_summary, build_release_verification_report, build_usage_ledger,
+    build_user_message, collect_provenance, collect_release_manifest, commands_for_surface,
+    copy_to_clipboard, create_goldset_manifest, create_trust_anchor, current_time_ms, default_home,
+    default_registry, doctor, epistemic_command_prompt, evaluate_experience_suite,
+    evidence_summary, export, filter_capability_manifest_by_runtime, find_resumable_prefix,
+    git_diff, git_worktrees, home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
     interactive_terminal_available, is_destructive_input, key_escrow::escrow as escrow_keys,
     key_escrow::restore as restore_keys, list_presets, load_agent_profiles, load_eval_report,
     load_preset, load_suite, local_manifest, master_audit_summary, master_evidence_summary,
@@ -71,6 +71,8 @@ enum Command {
             conflicts_with_all = ["provider", "model", "base_url", "api_key"]
         )]
         config: Option<PathBuf>,
+        #[arg(long)]
+        mcp_config: Option<PathBuf>,
         #[arg(long, default_value = "mock")]
         provider: String,
         #[arg(long, env = "AGENT_MODEL")]
@@ -81,6 +83,10 @@ enum Command {
         api_key: Option<String>,
         #[arg(long)]
         allow_network: bool,
+        #[arg(long, conflicts_with = "allow_write")]
+        read_only: bool,
+        #[arg(long, hide = true)]
+        allow_write: bool,
         #[arg(long)]
         read_root: Vec<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
@@ -89,11 +95,14 @@ enum Command {
         experience_dir: Option<PathBuf>,
         #[arg(long)]
         experience_scope: Option<String>,
+        /// Compose an active skill into the task; format: NAME@VERSION.
+        #[arg(long, value_name = "NAME@VERSION")]
+        routine_skill: Option<String>,
         #[arg(long, default_value_t = 6)]
         max_steps: usize,
         #[arg(long, default_value_t = 8)]
         max_tool_calls: usize,
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = 8)]
         max_provider_attempts: usize,
         #[arg(long, default_value_t = 50)]
         provider_retry_backoff_ms: u64,
@@ -130,6 +139,8 @@ enum Command {
             conflicts_with_all = ["provider", "model", "base_url", "api_key"]
         )]
         config: Option<PathBuf>,
+        #[arg(long)]
+        mcp_config: Option<PathBuf>,
         #[arg(long, default_value = "mock")]
         provider: String,
         #[arg(long, env = "AGENT_MODEL")]
@@ -140,7 +151,9 @@ enum Command {
         api_key: Option<String>,
         #[arg(long)]
         allow_network: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "allow_write")]
+        read_only: bool,
+        #[arg(long, hide = true)]
         allow_write: bool,
         #[arg(long)]
         read_root: Vec<PathBuf>,
@@ -173,6 +186,87 @@ enum Command {
         #[command(subcommand)]
         command: MasterCommand,
     },
+    Schedule {
+        #[command(subcommand)]
+        command: ScheduleCommand,
+    },
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
+    Cost {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Retention {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long, default_value_t = 30)]
+        older_than_days: u64,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        receipt: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    ProviderAlerts {
+        #[arg(long)]
+        alert_log: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Notify {
+        #[arg(long)]
+        webhook: String,
+        #[arg(long)]
+        message: String,
+        /// Payload shape: generic, slack or discord.
+        #[arg(long, default_value = "generic")]
+        format: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Digest {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        schedule_store: PathBuf,
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Dashboard {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        schedule_store: PathBuf,
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Daemon {
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        store: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("daemon/journals", ".1a/daemon/journals"))]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        once: bool,
+        #[arg(long, default_value_t = 5)]
+        poll_seconds: u64,
+        /// Send a webhook when a scheduled run fails or times out.
+        #[arg(long)]
+        alert_webhook: Option<String>,
+        /// Append schedule failure alerts to this local JSONL log.
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+    },
     Key {
         #[command(subcommand)]
         command: KeyCommand,
@@ -202,6 +296,10 @@ enum Command {
         version: Option<String>,
         #[arg(long)]
         limit: Option<usize>,
+        #[arg(long)]
+        after_seq: Option<u64>,
+        #[arg(long)]
+        include_records: bool,
         #[arg(long)]
         export: Option<PathBuf>,
         #[arg(long)]
@@ -852,6 +950,18 @@ enum TaskGraphCommand {
 
 #[derive(Subcommand)]
 enum MemoryCommand {
+    Consolidate {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        key: PathBuf,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Export {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -885,6 +995,104 @@ enum MemoryCommand {
         payloads: PathBuf,
         #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
         key: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillCommand {
+    Export {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        name: Option<String>,
+        /// Ed25519 private key (hex PKCS#8) used to sign the bundle.
+        #[arg(long)]
+        signing_key: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Import {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long)]
+        sha256: String,
+        /// Trusted Ed25519 public key (hex) for signed bundles.
+        #[arg(long)]
+        public_key: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Activate {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Keygen {
+        #[arg(long)]
+        private_key: PathBuf,
+        #[arg(long)]
+        public_key: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScheduleCommand {
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value_t = 3600)]
+        every_seconds: u64,
+        #[arg(long)]
+        read_only: bool,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long)]
+        trigger_file: Option<PathBuf>,
+        /// Run an active skill version with the task; format: NAME@VERSION.
+        #[arg(long, value_name = "NAME@VERSION")]
+        routine_skill: Option<String>,
+        #[arg(long)]
+        start_now: bool,
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    List {
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Remove {
+        id: String,
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Health {
+        #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
+        store: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        grace_seconds: u64,
         #[arg(long)]
         json: bool,
     },
@@ -1415,6 +1623,290 @@ fn run_task_graph_demo(store: &std::path::Path, json: bool) -> Result<()> {
     Ok(())
 }
 
+struct DaemonLock {
+    path: PathBuf,
+}
+
+impl DaemonLock {
+    fn acquire(path: PathBuf) -> Result<Self> {
+        use std::io::Write;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        for attempt in 0..2 {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    write!(file, "{}", std::process::id())?;
+                    return Ok(Self { path });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let pid = std::fs::read_to_string(&path).unwrap_or_default();
+                    let pid = pid.trim();
+                    if !pid.is_empty() && Path::new(&format!("/proc/{pid}")).exists() {
+                        bail!("another daemon is already running (pid {pid})");
+                    }
+                    let _ = std::fs::remove_file(&path);
+                    if attempt == 1 {
+                        bail!("cannot acquire daemon lock: {}", path.display());
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        bail!("cannot acquire daemon lock")
+    }
+}
+
+impl Drop for DaemonLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn default_skill_store() -> PathBuf {
+    std::env::var_os("ONEAGENT_SKILL_JOURNAL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_home().join("skills.jsonl"))
+}
+
+fn read_key_hex(path: &Path, secret: bool) -> Result<String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .with_context(|| format!("cannot read key file {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!("key file must not be a symbolic link: {}", path.display());
+    }
+    if !metadata.is_file() {
+        bail!("key file is not a regular file: {}", path.display());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if secret && metadata.permissions().mode() & 0o077 != 0 {
+            bail!(
+                "private key file must not be group/world accessible (chmod 600): {}",
+                path.display()
+            );
+        }
+    }
+    std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))
+}
+
+fn write_key_file(path: &Path, value: &str) -> Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("create {}", path.display()))?;
+    std::io::Write::write_all(&mut file, format!("{value}\n").as_bytes())
+        .with_context(|| format!("write {}", path.display()))
+}
+
+fn child_provider_arguments() -> Result<Vec<String>> {
+    match (
+        std::env::var("AGENT_BASE_URL").ok(),
+        std::env::var("AGENT_MODEL").ok(),
+    ) {
+        (Some(base_url), Some(model)) if !base_url.is_empty() && !model.is_empty() => Ok(vec![
+            "--provider".into(),
+            "openai-compatible".into(),
+            "--base-url".into(),
+            base_url,
+            "--model".into(),
+            model,
+        ]),
+        (None, None) => Ok(Vec::new()),
+        _ => bail!("daemon child needs both AGENT_BASE_URL and AGENT_MODEL, or neither"),
+    }
+}
+
+async fn run_scheduled_job(
+    job: &first_principles_agent::ScheduleJob,
+    journal_dir: &Path,
+) -> (String, Option<String>) {
+    let workspace = job
+        .workspace
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    if !workspace.is_dir() {
+        eprintln!("[daemon] {} workspace is not a directory", job.id);
+        return ("failed".into(), None);
+    }
+    let job_journal = journal_dir.join(format!("{}-{}", job.id, current_time_ms()));
+    if let Err(error) = std::fs::create_dir_all(&job_journal) {
+        eprintln!("[daemon] {} cannot create journal dir: {error}", job.id);
+        return ("failed".into(), None);
+    }
+    let mut args = vec![
+        "run".to_string(),
+        "--task".to_string(),
+        job.task.clone(),
+        "--json".to_string(),
+        "--journal-dir".to_string(),
+        job_journal.display().to_string(),
+        "--read-root".to_string(),
+        workspace.display().to_string(),
+        "--max-steps".to_string(),
+        "8".to_string(),
+        "--max-tool-calls".to_string(),
+        "16".to_string(),
+        "--max-provider-attempts".to_string(),
+        "8".to_string(),
+        "--timeout-seconds".to_string(),
+        "120".to_string(),
+    ];
+    if job.read_only {
+        args.push("--read-only".into());
+    }
+    if job.allow_network {
+        args.push("--allow-network".into());
+    }
+    if let Some(skill) = &job.routine_skill {
+        args.push("--routine-skill".into());
+        args.push(skill.clone());
+    }
+    match child_provider_arguments() {
+        Ok(provider) => args.extend(provider),
+        Err(error) => {
+            eprintln!("[daemon] {} provider: {error}", job.id);
+            return ("failed".into(), None);
+        }
+    }
+    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("1agent"));
+    let mut command = tokio::process::Command::new(program);
+    command
+        .args(&args)
+        .current_dir(&workspace)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = match tokio::time::timeout(Duration::from_secs(150), command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            eprintln!("[daemon] {} cannot start child: {error}", job.id);
+            return ("failed".into(), None);
+        }
+        Err(_) => return ("timeout".into(), None),
+    };
+    let value: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!(
+                "[daemon] {} invalid child JSON: {error}; stderr={}",
+                job.id,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            return ("failed".into(), None);
+        }
+    };
+    let status = value
+        .get("stop_reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let journal = value
+        .get("journal_path")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    println!(
+        "[daemon] {} -> {} ({})",
+        job.id,
+        status,
+        journal.as_deref().unwrap_or("no journal")
+    );
+    (status, journal)
+}
+
+async fn run_daemon(
+    store: PathBuf,
+    journal_dir: PathBuf,
+    once: bool,
+    poll_seconds: u64,
+    alert_webhook: Option<String>,
+    alert_log: Option<PathBuf>,
+) -> Result<()> {
+    if poll_seconds == 0 || poll_seconds > 300 {
+        bail!("--poll-seconds must be 1..=300");
+    }
+    std::fs::create_dir_all(&journal_dir)
+        .with_context(|| format!("cannot create {}", journal_dir.display()))?;
+    let webhook = alert_webhook
+        .map(first_principles_agent::AlertWebhook::new)
+        .transpose()?;
+    let alerts = alert_log
+        .map(first_principles_agent::AlertLog::open)
+        .transpose()?;
+    let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
+    loop {
+        let now = current_time_ms();
+        for job in first_principles_agent::scheduler::due(&store, now)? {
+            let trigger_mtime = first_principles_agent::scheduler::trigger_mtime(&job);
+            let (status, journal) = run_scheduled_job(&job, &journal_dir).await;
+            first_principles_agent::scheduler::mark_run(
+                &store,
+                &job.id,
+                current_time_ms(),
+                &status,
+                journal.as_deref(),
+                trigger_mtime,
+            )?;
+            if matches!(status.as_str(), "failed" | "timeout") {
+                let record = first_principles_agent::AlertRecord {
+                    alert_id: format!("schedule-alert-{}", Uuid::new_v4()),
+                    at_ms: current_time_ms(),
+                    kind: "schedule_run_failed".into(),
+                    provider_id: None,
+                    model: None,
+                    observed: 0,
+                    threshold: 0,
+                    message: format!(
+                        "scheduled job {} ({}) finished with {status}",
+                        job.name, job.id
+                    ),
+                };
+                if let Some(alerts) = &alerts
+                    && let Err(error) = alerts.append(&record)
+                {
+                    eprintln!("[daemon] cannot append alert: {error}");
+                }
+                if let Some(webhook) = &webhook
+                    && let Err(error) = webhook.send(&record).await
+                {
+                    eprintln!("[daemon] cannot send alert: {error}");
+                }
+            }
+        }
+        if once {
+            break;
+        }
+        let next = first_principles_agent::scheduler::next_due_ms(&store)?;
+        let sleep_ms = match next {
+            Some(next) => next
+                .saturating_sub(current_time_ms())
+                .clamp(1_000, u128::from(poll_seconds) * 1_000),
+            None => u128::from(poll_seconds) * 1_000,
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => break,
+            _ = tokio::time::sleep(Duration::from_millis(sleep_ms as u64)) => {}
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
@@ -1422,15 +1914,19 @@ async fn main() -> Result<()> {
             task,
             input,
             config,
+            mcp_config,
             provider,
             model,
             base_url,
             api_key,
             allow_network,
+            read_only,
+            allow_write: _allow_write,
             read_root,
             journal_dir,
             experience_dir,
             experience_scope,
+            routine_skill,
             max_steps,
             max_tool_calls,
             max_provider_attempts,
@@ -1450,6 +1946,10 @@ async fn main() -> Result<()> {
             json,
         } => {
             let mut request = load_request(task, input)?;
+            if let Some(spec) = routine_skill {
+                let service = SkillService::open(default_skill_store())?;
+                request.objective = service.routine_task(&spec, &request.objective)?;
+            }
             let task_latency_budget = request.budget.max_provider_p95_latency_ms;
             let task_unit_cost_budget = request.budget.max_unit_cost_micros_per_k;
             let effective_latency_budget = max_provider_p95_latency_ms.or(task_latency_budget);
@@ -1480,6 +1980,7 @@ async fn main() -> Result<()> {
                 max_unit_cost_micros_per_k: effective_unit_cost_budget,
             };
             request.permissions.allow_network = allow_network;
+            request.permissions.allow_write = !read_only;
             if evidence_max_age_ms.is_some() {
                 request.evidence_max_age_ms = evidence_max_age_ms;
             }
@@ -1496,12 +1997,17 @@ async fn main() -> Result<()> {
             }
 
             let timeout = Duration::from_secs(timeout_seconds.max(1));
-            let (candidates, tools) = if let Some(config_path) = config {
+            let (candidates, mut tools) = if let Some(config_path) = config {
                 let config = AgentConfig::load(&config_path)?;
                 (config.build_providers(timeout)?, default_registry())
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
+            if let Some(path) = mcp_config {
+                for tool in first_principles_agent::load_mcp_tools(&path).await? {
+                    tools.register(tool);
+                }
+            }
             let (objective, objective_source) =
                 resolve_route_objective(route_objective.as_deref())?;
             let gate = if let Some(path) = authority {
@@ -1578,12 +2084,14 @@ async fn main() -> Result<()> {
         }
         Command::Tui {
             config,
+            mcp_config,
             provider,
             model,
             base_url,
             api_key,
             allow_network,
-            allow_write,
+            read_only,
+            allow_write: _allow_write,
             read_root,
             journal_dir,
             session,
@@ -1600,12 +2108,13 @@ async fn main() -> Result<()> {
         } => {
             run_tui(
                 config,
+                mcp_config,
                 provider,
                 model,
                 base_url,
                 api_key,
                 allow_network,
-                allow_write,
+                !read_only,
                 read_root,
                 journal_dir,
                 session,
@@ -1619,6 +2128,571 @@ async fn main() -> Result<()> {
                 timeout_seconds,
                 max_context_chars,
                 route_objective,
+            )
+            .await?;
+        }
+        Command::Notify {
+            webhook,
+            message,
+            format,
+            json,
+        } => {
+            let format: first_principles_agent::WebhookFormat = format.parse()?;
+            let webhook = first_principles_agent::AlertWebhook::new(webhook)?.with_format(format);
+            let record = first_principles_agent::AlertRecord {
+                alert_id: format!("notify-{}", Uuid::new_v4()),
+                at_ms: current_time_ms(),
+                kind: "operator_notice".into(),
+                provider_id: None,
+                model: None,
+                observed: 0,
+                threshold: 0,
+                message,
+            };
+            webhook.send(&record).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&record)?);
+            } else {
+                println!("通知已发送：{}", record.alert_id);
+            }
+        }
+        Command::ProviderAlerts { alert_log, json } => {
+            let records = first_principles_agent::AlertLog::open(&alert_log)?.read()?;
+            let mut groups = std::collections::BTreeMap::<(String, String, String), usize>::new();
+            for record in &records {
+                *groups
+                    .entry((
+                        record.kind.clone(),
+                        record.provider_id.clone().unwrap_or_default(),
+                        record.model.clone().unwrap_or_default(),
+                    ))
+                    .or_default() += 1;
+            }
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "alerts": records.len(),
+                        "groups": groups.iter().map(|((kind, provider, model), count)| {
+                            serde_json::json!({
+                                "kind": kind,
+                                "provider_id": provider,
+                                "model": model,
+                                "count": count
+                            })
+                        }).collect::<Vec<_>>(),
+                        "records": records
+                    }))?
+                );
+            } else {
+                println!("Provider 告警：{} 条", records.len());
+                for ((kind, provider, model), count) in &groups {
+                    println!("- {kind} | {provider}/{model}: {count}");
+                }
+            }
+        }
+        Command::Retention {
+            journal_dir,
+            older_than_days,
+            apply,
+            receipt,
+            json,
+        } => {
+            let receipt = receipt.unwrap_or_else(|| journal_dir.join("retention-receipt.jsonl"));
+            let now = current_time_ms();
+            let report = if apply {
+                first_principles_agent::retention::apply(
+                    &journal_dir,
+                    older_than_days,
+                    now,
+                    &receipt,
+                )?
+            } else {
+                first_principles_agent::retention::dry_run(
+                    &journal_dir,
+                    older_than_days,
+                    now,
+                    &receipt,
+                )?
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "保留期 {} 天，cutoff={}，{} {} 个文件{}",
+                    report.older_than_days,
+                    report.cutoff_ms,
+                    if report.dry_run { "匹配" } else { "删除" },
+                    report.matched,
+                    if report.dry_run {
+                        "（dry-run，未删除）"
+                    } else {
+                        ""
+                    }
+                );
+                for item in &report.deleted {
+                    println!("- {}（{} 字节）", item.path.display(), item.bytes);
+                }
+                if !report.dry_run {
+                    println!("receipt: {}", report.receipt_path.display());
+                }
+            }
+        }
+        Command::Digest {
+            journal_dir,
+            schedule_store,
+            alert_log,
+            json,
+        } => {
+            let runs = if journal_dir.is_dir() {
+                scan_history(&journal_dir, 20)?
+            } else {
+                Vec::new()
+            };
+            let schedules = first_principles_agent::scheduler::load(&schedule_store)?;
+            let health = first_principles_agent::scheduler::health(
+                &schedule_store,
+                current_time_ms(),
+                300_000,
+            )?;
+            let alert_records = match alert_log {
+                Some(path) => first_principles_agent::AlertLog::open(path)?.read()?,
+                None => Vec::new(),
+            };
+            let mut alert_kinds = std::collections::BTreeMap::<String, usize>::new();
+            for record in &alert_records {
+                *alert_kinds.entry(record.kind.clone()).or_default() += 1;
+            }
+            let mut stop_reasons = std::collections::BTreeMap::<String, usize>::new();
+            for run in &runs {
+                *stop_reasons
+                    .entry(format!("{:?}", run.stop_reason))
+                    .or_default() += 1;
+            }
+            let next_run_ms = schedules.jobs.iter().map(|job| job.next_run_ms).min();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "runs": runs,
+                        "schedules": schedules,
+                        "stop_reasons": stop_reasons,
+                        "next_run_ms": next_run_ms,
+                        "schedule_health": health,
+                        "alerts": {
+                            "total": alert_records.len(),
+                            "by_kind": alert_kinds
+                        }
+                    }))?
+                );
+            } else {
+                println!("1Agent Digest");
+                println!("最近运行：{} 条", runs.len());
+                for (reason, count) in &stop_reasons {
+                    println!("- {reason}: {count}");
+                }
+                println!("计划任务：{} 个", schedules.jobs.len());
+                for (job, health) in schedules.jobs.iter().zip(&health) {
+                    println!(
+                        "- {} | {} | {} | next={} | last={:?}",
+                        job.id, job.name, health.state, job.next_run_ms, job.last_status
+                    );
+                }
+                if let Some(next) = next_run_ms {
+                    println!("最近的下一次运行：{next}");
+                }
+                println!("告警：{} 条", alert_records.len());
+                for (kind, count) in &alert_kinds {
+                    println!("- {kind}: {count}");
+                }
+            }
+        }
+        Command::Dashboard {
+            journal_dir,
+            schedule_store,
+            alert_log,
+            out,
+            json,
+        } => {
+            let mut paths = Vec::new();
+            if journal_dir.is_dir() {
+                for entry in std::fs::read_dir(&journal_dir)
+                    .with_context(|| format!("cannot read {}", journal_dir.display()))?
+                {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_file()
+                        && path.extension().and_then(|value| value.to_str()) == Some("jsonl")
+                    {
+                        paths.push(path);
+                    }
+                }
+            }
+            paths.sort();
+            let mut events = Vec::new();
+            for path in &paths {
+                events.extend(read_events(path)?);
+            }
+            let mut usage = first_principles_agent::summarize_usage(&events);
+            usage.journals = paths.len();
+            let latency = first_principles_agent::summarize_latency(&events);
+            let health = first_principles_agent::scheduler::health(
+                &schedule_store,
+                current_time_ms(),
+                300_000,
+            )?;
+            let alerts = match &alert_log {
+                Some(path) => first_principles_agent::AlertLog::open(path)?.read()?,
+                None => Vec::new(),
+            };
+            let html = first_principles_agent::dashboard::render(
+                &first_principles_agent::dashboard::DashboardInputs {
+                    usage: &usage,
+                    latency: &latency,
+                    health: &health,
+                    alerts: &alerts,
+                    generated_ms: current_time_ms(),
+                },
+            );
+            if let Some(parent) = out.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("create {}", parent.display()))?;
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+            }
+            let mut file = options
+                .open(&out)
+                .with_context(|| format!("write {}", out.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                    .with_context(|| format!("write {}", out.display()))?;
+            }
+            std::io::Write::write_all(&mut file, html.as_bytes())
+                .with_context(|| format!("write {}", out.display()))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "out": out,
+                        "journals": paths.len(),
+                        "jobs": health.len(),
+                        "alerts": alerts.len(),
+                    })
+                );
+            } else {
+                println!(
+                    "已生成运行看板：{}（journal {} 个，计划 {} 个，告警 {} 条）",
+                    out.display(),
+                    paths.len(),
+                    health.len(),
+                    alerts.len()
+                );
+            }
+        }
+        Command::Cost { journal_dir, json } => {
+            let mut paths = Vec::new();
+            if journal_dir.is_dir() {
+                for entry in std::fs::read_dir(&journal_dir)
+                    .with_context(|| format!("cannot read {}", journal_dir.display()))?
+                {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_file()
+                        && path.extension().and_then(|value| value.to_str()) == Some("jsonl")
+                    {
+                        paths.push(path);
+                    }
+                }
+            }
+            paths.sort();
+            let mut events = Vec::new();
+            for path in &paths {
+                events.extend(read_events(path)?);
+            }
+            let mut ledger = first_principles_agent::summarize_usage(&events);
+            ledger.journals = paths.len();
+            let latency = first_principles_agent::summarize_latency(&events);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({"usage": ledger, "latency": latency})
+                    )?
+                );
+            } else {
+                println!("{}", first_principles_agent::render_usage_ledger(&ledger));
+                if !latency.is_empty() {
+                    println!("\n延迟（毫秒）");
+                    for group in latency {
+                        println!(
+                            "- {}/{}: p50={} p95={} samples={}",
+                            group.provider_id,
+                            group.model,
+                            group.p50_ms,
+                            group.p95_ms,
+                            group.samples
+                        );
+                    }
+                }
+            }
+        }
+        Command::Schedule { command } => match command {
+            ScheduleCommand::Add {
+                name,
+                task,
+                every_seconds,
+                read_only,
+                allow_network,
+                workspace,
+                trigger_file,
+                routine_skill,
+                start_now,
+                store,
+                json,
+            } => {
+                let job = first_principles_agent::scheduler::add(
+                    &store,
+                    &name,
+                    &task,
+                    every_seconds,
+                    read_only,
+                    allow_network,
+                    workspace,
+                    trigger_file,
+                    routine_skill,
+                    start_now,
+                    current_time_ms(),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&job)?);
+                } else {
+                    println!(
+                        "已添加计划 {}：{}（每 {} 秒，next_run_ms={}）",
+                        job.name, job.id, job.every_seconds, job.next_run_ms
+                    );
+                }
+            }
+            ScheduleCommand::List { store, json } => {
+                let state = first_principles_agent::scheduler::load(&store)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&state)?);
+                } else if state.jobs.is_empty() {
+                    println!("没有计划任务：{}", store.display());
+                } else {
+                    for job in state.jobs {
+                        println!(
+                            "{} | {} | 每 {} 秒 | next={} | last={:?}",
+                            job.id, job.name, job.every_seconds, job.next_run_ms, job.last_status
+                        );
+                    }
+                }
+            }
+            ScheduleCommand::Remove { id, store, json } => {
+                first_principles_agent::scheduler::remove(&store, &id)?;
+                if json {
+                    println!("{}", serde_json::json!({"removed": id}));
+                } else {
+                    println!("已删除计划：{id}");
+                }
+            }
+            ScheduleCommand::Health {
+                store,
+                grace_seconds,
+                json,
+            } => {
+                let jobs = first_principles_agent::scheduler::health(
+                    &store,
+                    current_time_ms(),
+                    u128::from(grace_seconds) * 1_000,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&jobs)?);
+                } else if jobs.is_empty() {
+                    println!("没有计划任务：{}", store.display());
+                } else {
+                    for job in jobs {
+                        println!(
+                            "{} | {} | {} | last={:?} | next={} | overdue={}ms",
+                            job.state,
+                            job.id,
+                            job.name,
+                            job.last_status,
+                            job.next_run_ms,
+                            job.overdue_ms
+                        );
+                    }
+                }
+            }
+        },
+        Command::Skill { command } => match command {
+            SkillCommand::Export {
+                store,
+                out,
+                name,
+                signing_key,
+                json,
+            } => {
+                let service = SkillService::open(&store)?;
+                let exported = if let Some(path) = signing_key {
+                    let key = first_principles_agent::skill_bundle::signing_key_from_pkcs8_hex(
+                        &read_key_hex(&path, true)?,
+                    )?;
+                    first_principles_agent::skill_bundle::export_with_key(
+                        &service,
+                        name.as_deref(),
+                        Some(&key),
+                    )?
+                } else {
+                    first_principles_agent::skill_bundle::export(&service, name.as_deref())?
+                };
+                if let Some(parent) = out.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("create {}", parent.display()))?;
+                }
+                std::fs::write(&out, &exported.bytes)
+                    .with_context(|| format!("write {}", out.display()))?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "out": out,
+                            "sha256": exported.sha256,
+                            "skills": exported.skill_count,
+                        })
+                    );
+                } else {
+                    println!(
+                        "已导出 {} 个技能到 {}（sha256={}）",
+                        exported.skill_count,
+                        out.display(),
+                        exported.sha256
+                    );
+                }
+            }
+            SkillCommand::Import {
+                store,
+                bundle,
+                sha256,
+                public_key,
+                json,
+            } => {
+                let trusted = match &public_key {
+                    Some(path) => Some(first_principles_agent::skill_bundle::public_key_from_hex(
+                        &read_key_hex(path, false)?,
+                    )?),
+                    None => None,
+                };
+                let metadata = std::fs::metadata(&bundle)
+                    .with_context(|| format!("read {}", bundle.display()))?;
+                if metadata.len() > first_principles_agent::skill_bundle::MAX_BUNDLE_BYTES as u64 {
+                    bail!(
+                        "skill bundle exceeds {} bytes",
+                        first_principles_agent::skill_bundle::MAX_BUNDLE_BYTES
+                    );
+                }
+                let bytes =
+                    std::fs::read(&bundle).with_context(|| format!("read {}", bundle.display()))?;
+                let mut service = SkillService::open(&store)?;
+                let report = first_principles_agent::skill_bundle::import_with_public_key(
+                    &mut service,
+                    &bytes,
+                    &sha256,
+                    trusted.as_deref(),
+                    current_time_ms(),
+                )?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "imported": report.imported,
+                            "skipped": report.skipped,
+                            "store": store,
+                        })
+                    );
+                } else {
+                    println!(
+                        "已导入 {} 个技能，跳过 {} 个已存在版本（{}）",
+                        report.imported,
+                        report.skipped,
+                        store.display()
+                    );
+                }
+            }
+            SkillCommand::Activate {
+                store,
+                name,
+                version,
+                json,
+            } => {
+                let mut service = SkillService::open(&store)?;
+                service.activate(&name, &version, current_time_ms())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "name": name,
+                            "version": version,
+                            "store": store,
+                        })
+                    );
+                } else {
+                    println!("已激活技能 {name}@{version}（{}）", store.display());
+                }
+            }
+            SkillCommand::Keygen {
+                private_key,
+                public_key,
+                json,
+            } => {
+                let (private, public) =
+                    first_principles_agent::skill_bundle::generate_signing_key()?;
+                write_key_file(&private_key, &private)?;
+                write_key_file(&public_key, &public)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "private_key": private_key,
+                            "public_key_path": public_key,
+                            "public_key": public,
+                        })
+                    );
+                } else {
+                    println!(
+                        "已生成 Ed25519 密钥：私钥 {}（0600），公钥 {}（0600）\npublic_key={}",
+                        private_key.display(),
+                        public_key.display(),
+                        public
+                    );
+                }
+            }
+        },
+        Command::Daemon {
+            store,
+            journal_dir,
+            once,
+            poll_seconds,
+            alert_webhook,
+            alert_log,
+        } => {
+            run_daemon(
+                store,
+                journal_dir,
+                once,
+                poll_seconds,
+                alert_webhook,
+                alert_log,
             )
             .await?;
         }
@@ -2291,6 +3365,8 @@ async fn main() -> Result<()> {
             skill,
             version,
             limit,
+            after_seq,
+            include_records,
             export,
             json,
         } => {
@@ -2304,6 +3380,8 @@ async fn main() -> Result<()> {
                 skill,
                 version,
                 limit,
+                after_seq,
+                include_records,
             };
             let result = first_principles_agent::audit_export(
                 kind,
@@ -2351,6 +3429,50 @@ async fn main() -> Result<()> {
             }
         },
         Command::Memory { command } => match command {
+            MemoryCommand::Consolidate {
+                journal,
+                payloads,
+                key,
+                apply,
+                json,
+            } => {
+                let mut service =
+                    first_principles_agent::MemoryService::open(journal, payloads, &key)?;
+                let groups = first_principles_agent::memory_consolidate::plan(service.store());
+                let report = if apply {
+                    first_principles_agent::memory_consolidate::apply(
+                        &mut service,
+                        &groups,
+                        current_time_ms(),
+                    )?
+                } else {
+                    first_principles_agent::memory_consolidate::ConsolidationReport {
+                        groups,
+                        forgotten: 0,
+                        dry_run: true,
+                    }
+                };
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "记忆整合：{} 组重复，{} 条{}",
+                        report.groups.len(),
+                        report.forgotten,
+                        if report.dry_run {
+                            "（dry-run）"
+                        } else {
+                            "已软遗忘"
+                        }
+                    );
+                    for group in &report.groups {
+                        println!(
+                            "- {}: keep {}，forget {:?}",
+                            group.scope_id, group.keep, group.forget
+                        );
+                    }
+                }
+            }
             MemoryCommand::Export {
                 journal,
                 payloads,
@@ -5487,6 +6609,7 @@ impl TuiRunSettings {
 #[allow(clippy::too_many_arguments)]
 async fn run_tui(
     config_path: Option<PathBuf>,
+    mcp_config: Option<PathBuf>,
     provider: String,
     model: Option<String>,
     base_url: Option<String>,
@@ -5548,7 +6671,7 @@ async fn run_tui(
         .map(|preferences| preferences.timeout_seconds)
         .unwrap_or(timeout_seconds);
     let timeout = Duration::from_secs(timeout_seconds.max(1));
-    let (provider_label, candidates, tools) = if let Some(config_path) = config_path {
+    let (provider_label, candidates, mut tools) = if let Some(config_path) = config_path {
         let config = AgentConfig::load(&config_path)?;
         let label = config
             .manifests()?
@@ -5562,6 +6685,11 @@ async fn run_tui(
             build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?;
         (label, candidates, tools)
     };
+    if let Some(path) = mcp_config {
+        for tool in first_principles_agent::load_mcp_tools(&path).await? {
+            tools.register(tool);
+        }
+    }
     let planning_provider = candidates
         .first()
         .map(|candidate| candidate.provider.clone())
@@ -10807,6 +11935,25 @@ fn query_tool_label(tool: &str) -> &str {
     match tool {
         "search_files" => "本地文件检索",
         "read_file" => "读取文件",
+        "fetch_url" => "网页抓取",
+        "web_search" => "网页搜索",
+        "browser_read" => "无头浏览器",
+        "spawn_agent" => "子 Agent",
+        "skill_list" => "技能列表",
+        "skill_eval" => "技能评测",
+        "skill_register" => "注册技能",
+        "skill_activate" => "激活技能",
+        "skill_rollback" => "回滚技能",
+        "delegation_list" => "委托列表",
+        "delegation_register" => "注册委托",
+        "delegation_revoke" => "撤销委托",
+        "write_file" => "写入文件",
+        "edit_file" => "编辑文件",
+        "terminal_create" => "创建终端会话",
+        "terminal_write" => "终端输入",
+        "terminal_output" => "终端输出",
+        "terminal_exec" => "终端执行",
+        "terminal_destroy" => "销毁终端会话",
         "echo" => "回显工具",
         _ => tool,
     }
@@ -10818,6 +11965,18 @@ fn query_result_text(observation: &ToolObservation) -> String {
             serde_json::from_str::<first_principles_agent::SearchSummary>(&observation.content)
     {
         return bounded_query_result_text(format_search_result(observation, &summary));
+    }
+
+    if observation.tool.starts_with("terminal_") {
+        let mut text = observation.summary.trim().to_string();
+        let content = observation.content.trim();
+        if !content.is_empty() {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(content);
+        }
+        return bounded_query_result_text(text);
     }
 
     let mut text = observation.summary.trim().to_string();

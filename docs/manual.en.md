@@ -1,6 +1,6 @@
 # Manual
 
-> Version: **0.95.0 R1 release candidate**  
+> Version: **0.96.0 R1 release candidate**  
 > Platform: **Linux x86_64**  
 > Windows is untested and not published; macOS, Android and iOS are planned.
 
@@ -11,8 +11,8 @@
 ### From the release archive
 
 ```bash
-tar -xzf 1agent-0.95.0-linux-x86_64.tar.gz
-cd 1agent-0.95.0
+tar -xzf 1agent-0.96.0-linux-x86_64.tar.gz
+cd 1agent-0.96.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 1agent --version
@@ -282,8 +282,10 @@ export SURFACE_TOKEN="$(openssl rand -hex 32)"
 
 ## 11. Current limits
 
-- No browser, `web_fetch`, MCP or generic subagents;
-- no complete daemon/Routine/Trigger;
+- Browser support is read-only (`browser_read`); computer-use actions are not implemented;
+- `fetch_url`, `web_search`, stdio MCP and bounded subagents are MVP features;
+- daemon/Routine supports intervals, file triggers, restart catch-up, skill binding and `schedule health`; failed/timed-out runs can write and webhook alerts, but escalation and cross-restart deduplication are not implemented;
+- voice/image understanding is not implemented; `read_pdf` extracts PDF text only;
 - Workshop execution is R&D/integration;
 - Windows is untested and not published; macOS/Android/iOS are planned;
 - not production-stable; interfaces and data formats may change.

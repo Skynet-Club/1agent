@@ -3,7 +3,7 @@
 
 [简体中文](manual.md) · [English](manual.en.md)
 
-> 适用版本：**0.95.0 R1 release candidate**  
+> 适用版本：**0.96.0 R1 release candidate**  
 > 适用平台：**Linux x86_64**  
 > Windows 版本尚未测试，暂不发布、不提供下载；macOS、Android、iOS 后续发布。
 
@@ -12,8 +12,8 @@
 ### 从发布包安装
 
 ```bash
-tar -xzf 1agent-0.95.0-linux-x86_64.tar.gz
-cd 1agent-0.95.0
+tar -xzf 1agent-0.96.0-linux-x86_64.tar.gz
+cd 1agent-0.96.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 1agent --version
@@ -101,6 +101,61 @@ export AGENT_API_KEY="..."
   --allow-network
 ```
 
+通知：
+
+```bash
+1agent notify --webhook https://example.com/hook --message "任务完成"
+```
+
+只接受 HTTPS 或 loopback HTTP；当前是通用 webhook，邮件/IM/日历连接器未实现。
+
+Provider 告警历史：
+
+```bash
+1agent provider-alerts --alert-log "$HOME/.1a/provider-alerts.jsonl"
+1agent provider-alerts --alert-log "$HOME/.1a/provider-alerts.jsonl" --json
+```
+
+按 kind/provider/model 汇总告警日志；运行时通过 `--alert-log` 写入，`--alert-webhook` 负责外发。
+
+记忆整合（默认 dry-run）：
+
+```bash
+1agent memory consolidate
+1agent memory consolidate --apply --json
+```
+
+按 scope + content SHA-256 找重复的活跃记忆，保留 `valid_from_ms` 最新的记录，其余软遗忘；hard/soft 已遗忘记录不参与。
+
+保留期（默认 dry-run）：
+
+```bash
+1agent retention --journal-dir "$HOME/.1a/journals" --older-than-days 30
+1agent retention --journal-dir "$HOME/.1a/journals" --older-than-days 30 --apply
+```
+
+只处理顶层 `.jsonl` run journal；`--apply` 会删除过期文件并追加 `retention-receipt.jsonl`。memory/audit 存储的保留期不在这个命令内。
+
+每日/手动摘要：
+
+```bash
+1agent digest --journal-dir "$HOME/.1a/journals" \
+  --alert-log "$HOME/.1a/schedule-alerts.jsonl" --json
+1agent dashboard --journal-dir "$HOME/.1a/journals" \
+  --alert-log "$HOME/.1a/schedule-alerts.jsonl" --out "$HOME/.1a/dashboard.html"
+```
+
+汇总最近运行、stop_reason 分布、计划任务和下一次运行时间；不调用模型，适合作为 daemon 的每日任务。
+
+成本与延迟：
+
+```bash
+1agent cost --journal-dir "$HOME/.1a/journals"
+1agent cost --journal-dir "$HOME/.1a/journals" --json
+```
+
+按 provider/model 汇总 token、成本与 p50/p95 延迟；数据来自 run journal，未上报 usage 的调用按 0 计。
+
 检查 provider 配置：
 
 ```bash
@@ -124,7 +179,7 @@ export AGENT_API_KEY="..."
 | `Ctrl+Q` | 请求退出；`Enter` 确认，`Esc` 取消 |
 | `Ctrl+C` | 复制选中文本 |
 
-> `--allow-write` 只表达本次运行的写权限意图；最终是否执行仍由 Authority/Policy 和 Workshop 决定。默认是只读。
+> 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭。最终是否执行仍由 Authority/Policy 和 Workshop 决定。网络仍需 `--allow-network`。
 
 运行中，输入框上方显示 `Working... 执行时间 · ↑输入 ↓输出 · cache 命中率`。token 和缓存数据来自 provider usage；未上报缓存时显示 `cache —`。
 
@@ -177,8 +232,11 @@ export AGENT_API_KEY="..."
 # 结构化 JSON
 1agent run --task "..." --json
 
-# 带只读文件根目录
+# 限定允许访问的根目录（读写共用）
 1agent run --read-root "$HOME/project" --task "阅读并总结项目结构"
+
+# 只读运行（关闭写入和终端执行）
+1agent run --read-only --task "审计项目但不改任何文件"
 
 # 使用配置文件 + 网络
 1agent run --config configs/example.json --allow-network --task "..."
@@ -192,8 +250,103 @@ export AGENT_API_KEY="..."
 | `--max-tool-calls` | 8 | 最大工具调用数 |
 | `--timeout-seconds` | 120 | 单次运行超时 |
 | `--max-context-chars` | 100000 | 上下文字符预算 |
-| `--read-root` | 当前目录 | 只读文件根目录，可重复 |
+| `--read-root` | 当前目录 | 允许读写的根目录，可重复 |
 | `--allow-network` | 关闭 | 允许 provider 网络访问 |
+| `--read-only` | 关闭 | 关闭文件写入和终端执行 |
+| `--allow-write` | 兼容保留 | 默认已开启；与 `--read-only` 互斥 |
+
+### 执行与文件工具（实验）
+
+默认开启文件写入和终端执行；`--read-only` 或 TUI `/permissions write off` 可关闭：
+
+```bash
+1agent run --task "在终端执行 echo hello 并报告输出"
+# TUI 内可用 /permissions write off 临时切回只读
+```
+
+可用工具：
+
+| 工具 | 作用 |
+|---|---|
+| `read_file` | 读取读根内的 UTF-8 文本文件；拒绝符号链接与越界路径 |
+| `read_pdf` | 调用系统 `pdftotext` 抽取 PDF 文本；受读根、符号链接和控制字符约束 |
+| `search_files` | 在读根内搜索文本；跳过不安全文件 |
+| `fetch_url` | 只读抓取公网 HTTPS 页面并抽取正文；需要 `--allow-network` |
+| `web_search` | 公网搜索，返回最多 8 条标题/URL/摘要；Bing RSS 尽力而为，可能限流 |
+| `browser_read` | 无头 Chrome 渲染公网 HTTPS 页面并抽取正文；只读，不支持点击/输入 |
+| `spawn_agent` | 启动有界子 Agent；独立 journal/工作区/预算，深度上限 2 |
+| `skill_list` | 列出已注册技能 |
+| `skill_eval` | 用静态 held-out suite 评测技能版本 |
+| `skill_register` | 注册新的不可变技能版本（写权限） |
+| `skill_activate` | 激活技能版本；带 suite 时先过评测门（写权限） |
+| `skill_rollback` | 回滚到旧技能版本（写权限） |
+| `delegation_list` | 列出委托 profile 与撤销记录 |
+| `delegation_register` | 注册 actor/domain 委托 profile（写权限） |
+| `delegation_revoke` | 撤销委托（写权限） |
+| `write_file` | 原子写入完整文件；默认拒绝覆盖，父目录必须存在 |
+| `edit_file` | 精确替换文件文本；默认要求唯一匹配，支持 `replace_all` |
+| `terminal_create` | 创建会话，返回 `session_id` |
+| `terminal_write` | 输入文本或命令；默认追加回车 |
+| `terminal_output` | 读取有界输出；ANSI 与控制字符会被清洗 |
+| `terminal_exec` | 非交互执行命令，返回退出码与有界输出 |
+| `terminal_destroy` | 销毁会话，释放 PTY |
+
+依赖 `skynet-term-sessiond` 和 PATH 上的 `skynet-workshop-session`。需要人工查看或输入时，在另一个终端运行 `skynet-workshop-session attach <session_id>`。终端工具风险为 high；命令以当前用户权限执行，输出会写入 run journal，不要把密钥打印到终端。文件工具风险为 medium：路径必须在允许根内，拒绝符号链接，覆盖需显式 `overwrite=true`，写入采用同目录临时文件原子替换。
+
+`fetch_url` 只允许公网 `https://` 地址，拒绝私网/loopback/link-local、带凭据的 URL、非文本内容、超过 2 MiB 的响应；重定向最多 5 次，每一跳都会重新校验并固定到公网地址。
+
+平台支持：
+
+| 平台 | 终端工具 |
+|---|---|
+| Linux x86_64 | 已验证，需要 `skynet-term-sessiond` 与 `skynet-workshop-session` |
+| macOS | 未验证；1Agent 核心可运行，终端工具等待 Workshop daemon/GUI 支持 |
+| Windows | 不发布、不支持；等待 ConPTY 与服务层实现 |
+
+### MCP 工具（实验）
+
+通过 stdio 连接 MCP server，把远端工具映射为 `mcp_<server>_<tool>`：
+
+```bash
+1agent run --mcp-config configs/mcp.example.json --task "列出可用的 MCP 工具"
+1agent tui --mcp-config configs/mcp.example.json
+```
+
+配置格式：
+
+```json
+{"servers":[{"name":"filesystem","command":["npx","-y","@modelcontextprotocol/server-filesystem","/home/skynet"],"env":{}}]}
+```
+
+只支持 stdio；HTTP/SSE 和工具市场未实现。MCP 工具默认按写工具处理，只有 server 声明 `readOnlyHint: true` 才不要求写权限；`destructiveHint: true` 标记为 high risk。输入 schema 由 MCP server 校验，1Agent 只做进程、权限、超时和 journal 边界。
+
+### 定时任务与 daemon（实验）
+
+```bash
+1agent schedule add --name daily --every-seconds 86400 --task "总结今天的 workspace 变化"
+1agent schedule add --name on-change --every-seconds 3600 --trigger-file /tmp/input.txt --task "..."
+1agent schedule add --name routine --every-seconds 86400 --routine-skill release-check@1.0.0 --task "检查发布"
+1agent schedule list
+1agent schedule health      # ok / overdue / failing，默认 300 秒宽限
+1agent schedule remove <schedule-id>
+1agent daemon --once       # 跑一次到期的任务
+1agent daemon --alert-log "$HOME/.1a/schedule-alerts.jsonl" \
+  --alert-webhook https://example.com/hook   # 失败/超时告警
+1agent daemon              # 常驻，按 poll-seconds 检查
+```
+
+状态默认写入 `$HOME/.1a/schedules.json`；daemon 用 pid 锁防止重复启动。每个到期任务作为独立的 `1agent run` 子进程执行，使用自己的 journal 目录，并继承 `AGENT_*` provider 环境。任务可分别设置 `--read-only`、`--allow-network` 和工作区。`--trigger-file` 会在文件 mtime 变化时提前触发一次；interval 与 trigger 可同时使用。停机期间已到期的任务会在 daemon 重启后补跑一次。`--routine-skill NAME@VERSION` 只接受已激活的精确版本，并把技能正文注入任务；它不授予额外权限。任务失败或超时时，daemon 可写 `schedule_run_failed` 告警日志并发送 webhook；升级阶梯、跨重启去重和跨机器调度仍未实现。
+
+技能包可通过 `1agent skill export/import` 分发；导入必须提供 bundle 的 SHA-256，已存在版本会跳过。需要来源认证时：
+
+```bash
+1agent skill keygen --private-key signing.key --public-key signing.pub
+1agent skill export --store skills.jsonl --out bundle.json --signing-key signing.key
+1agent skill import --store skills.jsonl --bundle bundle.json \
+  --sha256 <bundle-sha256> --public-key signing.pub
+```
+
+私钥文件必须是 0600；带签名的包若未提供公钥会被拒绝，提供公钥但包未签名也会被拒绝。市场索引/撤销列表尚未实现。
 
 ## 6. 会话与工作区
 

@@ -514,13 +514,13 @@ impl AgentRuntime {
             }
         }
 
-        let tool_capabilities =
-            self.tools
-                .capability_snapshot()
-                .map_err(|message| RuntimeError::ToolCapabilities {
-                    path: journal_path.clone(),
-                    message,
-                })?;
+        let tool_capabilities = self
+            .tools
+            .capability_snapshot_for(&request.permissions)
+            .map_err(|message| RuntimeError::ToolCapabilities {
+                path: journal_path.clone(),
+                message,
+            })?;
         if let Some(prefix) = &resume
             && let Some(expected) = &prefix.checkpoint.tool_capabilities_sha256
             && expected != &tool_capabilities.sha256
@@ -576,7 +576,7 @@ impl AgentRuntime {
             });
         }
 
-        let tool_specs = self.tools.specs();
+        let tool_specs = self.tools.specs_for(&request.permissions);
         let stored_objective = resume
             .as_ref()
             .and_then(|prefix| prefix.checkpoint.route_objective);
@@ -1490,7 +1490,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
     crate::domain::AgentAnswer {
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::NeedsAuthorization,
-        conclusion: "当前任务被识别为执行操作，但 V0 默认只读；未执行任何外部动作。".into(),
+        conclusion: "当前任务被识别为执行操作，但本次运行被设为只读；未执行任何外部动作。在 TUI 输入 /permissions write on 后重试，或去掉 --read-only 后重新运行。".into(),
         claims: Vec::new(),
         evidence: Vec::new(),
         assumptions: Vec::new(),
@@ -1500,7 +1500,10 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
             description: "缺少明确的写入权限和审批范围".into(),
             impact: ImpactLevel::High,
             why_it_matters: Some("没有授权就无法安全执行副作用动作".into()),
-            reduction_method: Some("由用户明确授权具体动作、范围和回滚条件".into()),
+            reduction_method: Some(
+                "在 TUI 输入 /permissions write on，或去掉 --read-only，并限定具体动作、范围和回滚条件"
+                    .into(),
+            ),
         }],
         conflicts: Vec::new(),
         flip_conditions: vec![FlipCondition {
@@ -2193,12 +2196,19 @@ mod tests {
         let replay = replay_events(&events).unwrap();
         assert_eq!(replay.route_plan.as_ref(), Some(plan));
         assert_eq!(replay.route_policy_sources.as_ref(), Some(sources));
-        assert_eq!(
-            replay
-                .tool_capabilities
-                .as_ref()
-                .map(|value| value.tools.len()),
-            Some(2)
+        let capabilities = replay
+            .tool_capabilities
+            .as_ref()
+            .expect("tool capabilities should be journaled");
+        for tool in ["read_file", "search_files", "fetch_url"] {
+            assert!(
+                capabilities.tools.iter().any(|name| name == tool),
+                "missing {tool}"
+            );
+        }
+        assert!(
+            !capabilities.tools.iter().any(|name| name == "write_file"),
+            "write tools must be hidden in a read-only run"
         );
         let summary = summarize_route_trace(&events).unwrap();
         assert_eq!(summary.candidates, 1);
@@ -2838,5 +2848,13 @@ mod tests {
         assert!(model_context.contains("EXPERIENCE GUIDANCE"));
         assert!(model_context.contains("Inspect evidence first"));
         assert!(!model_context.contains("Draft should not be used"));
+    }
+
+    #[test]
+    fn authorization_answer_names_the_write_permission_switch() {
+        let answer = authorization_answer();
+        assert_eq!(answer.status, AnswerStatus::NeedsAuthorization);
+        assert!(answer.conclusion.contains("/permissions write on"));
+        assert!(answer.conclusion.contains("--read-only"));
     }
 }

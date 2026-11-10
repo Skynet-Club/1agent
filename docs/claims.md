@@ -52,6 +52,48 @@ file: <路径>              → 文件必须存在
 | 检查 provider 时不打印密钥 | test: provider_inspection_never_prints_secret_values | ✅ | |
 | 写路径重叠的任务被串行化 | test: overlapping_write_roots_are_serialized | ✅ | |
 | 平台分支只允许出现在展示适配器 | cmd: ! grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs | ✅ | 本日修正：原门禁依赖缺失的 rg，被静默跳过 |
+| 技能可从捕获、评测、激活回滚到上一版本，失败候选不替换现役版本 | test: skill_lifecycle_capture_to_rollback_is_replayable | ✅ | 确定性集成场景；基于磁盘 journal、重启回放与审计收据；不代表真实示范语料 |
+| 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
+| 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
+| 1A 在写权限下用终端工具启动 copilot 并读取 GitHub 登录状态 | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机验收；gh 已登录，未做交互式 device-code 登录 |
+| 本地 CLI/TUI 默认允许执行，`--read-only` 关闭 | test: default_run_allows_execution_and_read_only_blocks_it | ✅ | CLI 层；使用 mock provider |
+| TUI 默认开启执行，无需手动 `/permissions write on` | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；tmux PTY；journal `allow_write=true` |
+| 文件写入/编辑工具受写权限、根目录、符号链接和覆盖保护 | cmd: cargo test --offline --lib tools::files | ✅ | 原子替换；路径与符号链接有独立测试 |
+| fetch_url 只读公网 HTTPS，拒绝私网/非文本/超大响应 | cmd: cargo test --offline --lib tools::web | ✅ | 纯函数 + 权限测试；实机抓取见 docs/evidence/web-2026-11-09 |
+| 1A 可用 fetch_url 完成真实网页读取 | file: docs/evidence/web-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；example.com |
+| 1A 可用 web_search 返回真实搜索结果 | file: docs/evidence/web-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；Bing RSS；结果可能本地化/限流 |
+| MCP stdio client 可发现并调用工具 | cmd: cargo test --offline --lib tools::mcp | ✅ | fake server 契约测试；写工具权限门控 |
+| 1A 可通过 `--mcp-config` 调用真实 MCP 工具 | file: docs/evidence/mcp-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；本地 fake echo server |
+| 子 Agent 可隔离运行、回传结论并限制深度 | cmd: cargo test --offline --lib tools::subagent | ✅ | fake program；工作区越界与深度上限测试 |
+| 1A 可 spawn 真实子 Agent | file: docs/evidence/subagent-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；两次独立子运行；父读子工作区被拒 |
+| 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
+| schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |
+| schedule 支持文件 mtime trigger | test: schedule_trigger_file_runs_once | ✅ | CLI e2e；第二次未变化不重复运行 |
+| cost 命令输出 token/成本与 p50/p95 延迟 | test: cost_reports_usage_and_latency_percentiles | ✅ | CLI e2e；按 provider/model 聚合 |
+| 安装脚本可把二进制装入自定义 prefix 并运行 | test: installer_places_a_runnable_binary_in_a_prefix | ✅ | 临时 prefix；未覆盖系统级卸载 |
+| digest 可汇总最近运行、计划任务、健康状态与告警计数且不调用模型 | test: digest_reports_recent_runs_and_schedules | ✅ | CLI e2e；JSON 输出；告警按 kind 计数 |
+| 1A 可通过工具注册/评测/激活/回滚技能 | cmd: cargo test --offline --lib tools::skills | ✅ | 临时 skill journal；写工具权限门控 |
+| 保留期可 dry-run/apply 删除过期 run journal 并写 receipt | test: retention_dry_run_and_apply | ✅ | CLI e2e；默认 dry-run |
+| 委托 profile 可注册/列出/撤销并持久化 | cmd: cargo test --offline --lib tools::delegation | ✅ | 临时 store；写权限门控 |
+| provider 告警日志可按 provider/model 汇总 | test: provider_alerts_summarizes_the_alert_log | ✅ | CLI e2e；真实 webhook 接收端未覆盖 |
+| Surface goal/commitment 列表支持 limit/cursor | test: goal_and_commitment_lists_paginate_by_cursor | ✅ | 单元测试；skill 列表同代码路径 |
+| browser_read 校验网络权限/HTTPS 并抽取 DOM | cmd: cargo test --offline --lib tools::browser | ✅ | fake Chrome；私网校验复用 fetch_url |
+| 1A 可用无头 Chrome 渲染公网页面 | file: docs/evidence/browser-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；example.com |
+| notify 可向 loopback/HTTPS webhook 发送通知 | test: notify_sends_a_loopback_webhook | ✅ | CLI e2e；真实 HTTPS 接收端未覆盖 |
+| 记忆整合保留最新副本并软遗忘旧副本 | test: duplicates_keep_the_newest_and_apply_soft_forgets_the_rest | ✅ | 单元测试；dry-run 默认 |
+| 上下文图缓存按输入指纹命中并可失效 | test: cache_hits_and_invalidates_on_fingerprint_change | ✅ | 文件缓存；Surface 接线测试 |
+| 技能包导出/导入受 SHA-256 门禁，篡改或哈希不符即拒绝 | test: import_rejects_a_tampered_bundle | ✅ | 导入先预检全部 manifest，坏单元不会半导入；CLI e2e 覆盖 |
+| 技能包可用 Ed25519 签名，导入需可信公钥并拒绝篡改 | test: signed_bundles_require_the_trusted_public_key_and_reject_tampering | ✅ | CLI e2e `signed_skill_bundles_verify_against_a_trusted_public_key`；无私钥打印、私钥文件强制 0600；无远程市场/撤销列表 |
+| Routine 只使用已激活的精确技能版本，未激活或版本不符即拒绝 | test: routine_requires_an_active_exact_version_and_composes_the_task | ✅ | 任务中显式注入技能正文；不授予额外权限 |
+| daemon 重启后会补跑停机期间已到期的持久化任务 | test: daemon_catches_up_an_overdue_job_after_restart_and_health_reports_it | ✅ | CLI e2e；模拟 next_run 已过；未验证长周期真实每日任务 |
+| 计划任务失败/超时时 daemon 写告警日志并可发送 webhook | test: daemon_alerts_when_a_scheduled_run_fails | ✅ | loopback 接收端；无升级阶梯、跨重启去重与外部送达验证 |
+| schedule health 区分 ok/overdue/failing | test: health_reports_ok_overdue_and_failing_jobs | ✅ | 只读快照；自动告警/外部接收端未实现 |
+| cost 可按任务聚合运行数、token、成本，并统计每个工具调用/失败次数 | test: usage_ledger_aggregates_every_model_response | ✅ | 仅从 journal 派生；工具级 token 归因未实现 |
+| dashboard 生成自包含 HTML 看板并转义所有动态内容 | test: renders_sections_and_escapes_dynamic_text | ✅ | 另有 CLI e2e；静态报告，不是实时服务；含任务正文，文件权限 0600 |
+| audit 导出可按 seq 分页并按需返回记录 | test: audit_store_reads_task_graph_and_memory_receipts | ✅ | CLI e2e；默认仍只返回 receipt；记录含 journal 内容，需 audit:read 权限 |
+| notify 可输出 Slack/Discord 的 webhook payload 形状 | test: notify_sends_slack_and_discord_payload_shapes | ✅ | loopback 接收端；未验证真实 Slack/Discord workspace，邮件/日历未实现 |
+| read_pdf 提取本地 PDF 文本，并受读根、符号链接、控制字符和字符上限约束 | cmd: cargo test --offline --lib tools::documents | ✅ | fake pdftotext 单测；真实提取另见下一条 |
+| 1A 可用真实 pdftotext 从生成的 PDF 提取文本 | cmd: cargo test --offline --test pdf_live -- --ignored | ✅ | 需 poppler-utils + ghostscript；仅 Linux 后端；无 OCR/图片理解 |
 | 全量门禁通过（fmt、clippy、测试、评测） | cmd: ./scripts/verify.sh | ⚠️ | 耗时较长，等价于 fmt + clippy + test + eval |
 
 ## 发布与复现
