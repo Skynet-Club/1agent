@@ -16,9 +16,10 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** 0.96.0 is an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
+> **This project is under active development.** Current version **0.96.0** (updated 2026-11-10), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
+> This release: local writes and terminal execution on by default; file, terminal, web, PDF, MCP and subagent tools; scheduling and routines; signed skill bundles; cost, digest and dashboard observability.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> Current Linux pre-release: [v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0).
+> Current Linux pre-release: [v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0) · [Release notes](docs/release/RELEASE_NOTES.en.md).
 
 ---
 
@@ -28,7 +29,7 @@ Most agents hand you a polished drill recommendation.
 |---|---|
 | **Ask for the purpose** | Distinguish goals from means; ask the one question that can change the plan |
 | **Evidence first** | Journals, receipts and replay are product primitives; “done” without a journal is not done |
-| **Humans stay in control** | Read-only by default; writes, network and execution require explicit authority; irreversible actions need confirmation |
+| **Humans stay in control** | Local CLI/TUI enable writes and terminal execution by default; `--read-only` disables them; network requires `--allow-network`; irreversible actions need confirmation |
 | **Local-first** | One runtime home (`$HOME/.1a`); data can be exported and restored; no cloud account required |
 | **Provider-neutral** | Deterministic provider and OpenAI-compatible providers; models are replaceable and routing is explainable |
 | **Reversible** | Soft/hard memory forget, skill rollback and evolution rollback; changes can be undone |
@@ -49,10 +50,13 @@ Read the full design trade-offs in [Design Philosophy](docs/design-philosophy.en
 - **Long-lived context**: goals/commitments, deterministic attention basics, personal context graph and delegation profiles.
 - **Self-summary and evolution**: reflection/lesson, evolution proposals, ledger, human approval and rollback.
 - **Model routing**: deterministic and OpenAI-compatible providers, cost/latency ledger, shadow execution.
-- **Audit**: hash-chained journal, replay, receipts, query and export.
-- **Optional execution**: with Skynet Workshop, controlled Session/sandbox execution and Artifact verification.
+- **Audit**: hash-chained journal, replay, receipts, paginated query and export.
+- **Execution substrate**: with Skynet Workshop, controlled Session/sandbox execution and Artifact verification.
+- **Tool surface**: `read_file` / `read_pdf` / `search_files`, `write_file` / `edit_file`, real PTY terminal, `fetch_url` / `web_search` / `browser_read`, stdio MCP and `spawn_agent`.
+- **Always-on skills**: `schedule` / `daemon` / `schedule health`, `--routine-skill`, SHA-256-gated `skill export/import` and Ed25519 bundle signing.
+- **Observability**: `cost` by provider/model/task/tool, `digest` (runs/schedules/health/alerts) and a static HTML `dashboard`.
 
-**Not available today**: browser tooling, generic subagents, MCP client, a complete always-on daemon, and Bot.  
+**Not available today**: computer-use clicks/screenshots, voice/image understanding, automatic watchdog escalation, mobile and Bot.  
 These are listed honestly in [Status & Roadmap](docs/status.en.md).
 
 ---
@@ -108,12 +112,16 @@ See the full installation, provider, TUI, export/restore, upgrade and troublesho
 | Linux x86_64 | **Validated platform** | Release archive, installer, SHA256SUMS and provenance |
 | Windows x86_64 | **Not published (untested)** | Internal build only; no download, not a supported platform |
 | macOS / Android / iOS | **Planned** | To follow the Linux release and, for mobile, the Bot work |
-| Skynet Workshop execution | **R&D / integration** | Optional execution substrate; W-Gate not formally closed |
-| Browser / computer-use | **Not implemented** | Roadmap in [Status & Roadmap](docs/status.en.md) |
-| Generic subagents | **Not implemented** | Only bounded Workshop Master→Worker scheduling exists |
-| Always-on daemon / Routine | **R&D** | G2 scope |
+| Skynet Workshop execution | **R&D / integration** | Execution substrate; W-Gate not formally closed |
+| Web read/search | **Partial** | `fetch_url` + `web_search` (Bing RSS, best effort); authenticated pages not implemented |
+| Document reading | **Partial** | `read_pdf` extracts PDF text via `pdftotext`; image/scan OCR and DOCX/PPTX not implemented |
+| Browser / computer-use | **Partial** | `browser_read` headless rendering; clicks, typing, screenshots and computer-use not implemented |
+| Generic subagents | **Partial** | `spawn_agent` bounded child runs (depth 2, isolated journal/workspace) |
+| Always-on daemon / Routine | **Partial** | intervals, file triggers, restart catch-up, `--routine-skill`, `schedule health` and failure alerts; watchdog escalation and restart deduplication not implemented |
+| Cost / latency dashboard | **Partial** | `cost` by provider/model/task/tool and static HTML `dashboard`; tool-level token attribution not implemented |
+| Skill runtime | **Partial** | skill tools, SHA-256 bundles and Ed25519 signing; shadow/canary and a remote marketplace are unfinished |
+| MCP / tool connectors | **Partial** | stdio MCP client; HTTP/SSE and a tool marketplace not implemented |
 | 1A Bot | **R&D** | Persona layer; 1Agent does not depend on it |
-| MCP / tool connectors | **Not implemented** | Tool ecosystem work |
 
 Full details: [Status & Roadmap](docs/status.en.md).
 
@@ -151,13 +159,13 @@ See [Ecosystem & Platforms](docs/ecosystem.en.md).
 - **Security and evaluation**: join red-team, isolation, long-horizon and real-workflow validation;
 - **Join the community**: [Skynet-Club](https://skynet.club), to help improve the product, the plan and the ecosystem.
 
-The future is open and iterative: browser, subagents, always-on autonomy, tool ecosystem, Workshop and Bot have a public capability plan. Each stage advances through testable milestones and evidence. Plans can be discussed and revised; the roadmap is not a one-time promise.
+The future is open and iterative: computer-use, voice/image understanding, automatic watchdogs, a tool marketplace, Workshop hardening and Bot have a public capability plan. Each stage advances through testable milestones and evidence. Plans can be discussed and revised; the roadmap is not a one-time promise.
 
 ---
 
 ## Security and privacy
 
-- Read-only by default; writes, network and execution require explicit authority.
+- Local writes and terminal execution are enabled by default; `--read-only` disables them; network access and high-risk actions still require explicit authority.
 - Keys are referenced through environment variables or local key files and are not written to journals, reports or configuration.
 - Exports exclude key material; restore and migration are checked with SHA-256.
 - See repository [`SECURITY.md`](SECURITY.md), [`PRIVACY.md`](PRIVACY.md) and [Design Philosophy](docs/design-philosophy.en.md).

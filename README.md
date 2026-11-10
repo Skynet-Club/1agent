@@ -18,9 +18,10 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 0.96.0 是 R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
+> **项目仍在持续开发。** 当前版本 **0.96.0**（2026-11-10 更新），R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
+> 本版重点：本地写/终端默认开启；文件、Terminal、Web、PDF、MCP、子 Agent；调度/Routine；签名技能包；成本/审计/dashboard。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
-> 当前 Linux 预发布：[v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0)。
+> 当前 Linux 预发布：[v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0) · [发布说明](docs/release/RELEASE_NOTES.md)。
 
 ---
 
@@ -52,7 +53,7 @@
 - **自我总结与进化**：Reflection/Lesson、EvolutionProposal、Ledger、人工审批与回滚。
 - **模型路由**：确定性 provider、OpenAI-compatible provider、成本/延迟账本、影子执行。
 - **审计**：哈希链 journal、replay、receipt、查询与导出。
-- **可选执行**：接入 Skynet Workshop 后，可在受控 Session/沙箱中执行并验收 Artifact。
+- **执行底座**：接入 Skynet Workshop 后，可在受控 Session/沙箱中执行并验收 Artifact；终端工具依赖该底座。
 - **工具面**：`read_file` / `read_pdf` / `search_files`、`write_file` / `edit_file`、真实 PTY 终端、`fetch_url` / `web_search` / `browser_read`、stdio MCP、`spawn_agent`。
 - **常驻与技能分发**：`schedule` / `daemon` / `schedule health`、`--routine-skill`、SHA-256 门禁的 `skill export/import`。
 - **运行看板**：`cost`（provider/model/任务/工具）、`digest`（运行/计划/健康/告警）、`dashboard`（静态 HTML）。
