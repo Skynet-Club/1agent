@@ -40,6 +40,34 @@ fn audit_store_reads_task_graph_and_memory_receipts() {
         10
     );
 
+    let page = Command::new(bin)
+        .args(["audit-store", "--kind", "task-graph", "--path"])
+        .arg(&graph_path)
+        .arg("--thread")
+        .arg(thread_id)
+        .args(["--limit", "4", "--include-records", "--json"])
+        .output()
+        .unwrap();
+    assert!(page.status.success(), "{page:?}");
+    let result: serde_json::Value = serde_json::from_slice(&page.stdout).unwrap();
+    let records = result["records"].as_array().unwrap();
+    assert_eq!(records.len(), 4);
+    let last_seq = records[3]["seq"].as_u64().unwrap();
+    let next = Command::new(bin)
+        .args(["audit-store", "--kind", "task-graph", "--path"])
+        .arg(&graph_path)
+        .arg("--thread")
+        .arg(thread_id)
+        .args(["--limit", "4", "--include-records", "--json", "--after-seq"])
+        .arg(last_seq.to_string())
+        .output()
+        .unwrap();
+    assert!(next.status.success(), "{next:?}");
+    let result: serde_json::Value = serde_json::from_slice(&next.stdout).unwrap();
+    let next_records = result["records"].as_array().unwrap();
+    assert!(!next_records.is_empty());
+    assert!(next_records[0]["seq"].as_u64().unwrap() > last_seq);
+
     let ticket = Command::new(bin)
         .args(["audit-store", "--kind", "task-graph", "--path"])
         .arg(&graph_path)

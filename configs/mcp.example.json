@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/skynet"
+      ],
+      "env": {}
+    }
+  ]
+}

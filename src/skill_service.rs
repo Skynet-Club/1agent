@@ -18,6 +18,8 @@ pub enum SkillServiceError {
     Eval(#[from] SkillEvalError),
     #[error("skill eval failed: {0}")]
     EvalFailed(String),
+    #[error("routine: {0}")]
+    Routine(String),
 }
 
 #[derive(Debug)]
@@ -136,6 +138,40 @@ impl SkillService {
         Ok(report)
     }
 
+    /// Compose a routine task from an active skill version. The routine only
+    /// reuses an already-approved skill; it does not grant new permissions.
+    pub fn routine_task(&self, spec: &str, task: &str) -> Result<String, SkillServiceError> {
+        let (name, version) = spec.split_once('@').ok_or_else(|| {
+            SkillServiceError::Routine("routine skill must be name@version".into())
+        })?;
+        let name = name.trim();
+        let version = version.trim();
+        if name.is_empty() || version.is_empty() || name.contains('@') || version.contains('@') {
+            return Err(SkillServiceError::Routine(
+                "routine skill must be name@version".into(),
+            ));
+        }
+        let active = self.active(name).ok_or_else(|| {
+            SkillServiceError::Routine(format!("skill {name} has no active version"))
+        })?;
+        if active.version != version {
+            return Err(SkillServiceError::Routine(format!(
+                "skill {name} active version is {}, not {version}",
+                active.version
+            )));
+        }
+        let manifest = self.view(name, version).ok_or_else(|| {
+            SkillServiceError::Routine(format!("skill {name} {version} does not exist"))
+        })?;
+        if task.trim().is_empty() {
+            return Err(SkillServiceError::Routine("routine task is empty".into()));
+        }
+        Ok(format!(
+            "## Routine: {} {}\n\n{}\n\n## Task\n{}",
+            manifest.name, manifest.version, manifest.body, task
+        ))
+    }
+
     pub fn active(&self, name: &str) -> Option<&SkillManifest> {
         self.store.active(name)
     }
@@ -243,6 +279,43 @@ mod tests {
             SkillServiceError::EvalFailed(_)
         ));
         assert_eq!(service.active("release").unwrap().version, "1.0.0");
+    }
+
+    #[test]
+    fn routine_requires_an_active_exact_version_and_composes_the_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skill-journal.jsonl");
+        let mut service = SkillService::open(&path).unwrap();
+        service.register(manifest("1.0.0"), 10).unwrap();
+        service.register(manifest("2.0.0"), 11).unwrap();
+        service.activate("release", "1.0.0", 12).unwrap();
+
+        let composed = service
+            .routine_task("release@1.0.0", "run the checks")
+            .unwrap();
+        assert!(composed.starts_with("## Routine: release 1.0.0"));
+        assert!(composed.contains("## Task\nrun the checks"));
+
+        assert!(matches!(
+            service
+                .routine_task("release@2.0.0", "run the checks")
+                .unwrap_err(),
+            SkillServiceError::Routine(_)
+        ));
+        assert!(matches!(
+            service
+                .routine_task("release", "run the checks")
+                .unwrap_err(),
+            SkillServiceError::Routine(_)
+        ));
+        assert!(matches!(
+            service.routine_task("missing@1.0.0", "run").unwrap_err(),
+            SkillServiceError::Routine(_)
+        ));
+        assert!(matches!(
+            service.routine_task("release@1.0.0", "  ").unwrap_err(),
+            SkillServiceError::Routine(_)
+        ));
     }
 
     #[test]

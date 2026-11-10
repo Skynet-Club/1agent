@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.96.0 - 2026-11-10
 
 - Added home layout v2 with key material under `keys/`, a v1-to-v2 migration,
   and `upgrade --rollback`.
@@ -19,6 +19,103 @@
   a retryable conflict instead of wedging.
 - Added a restart-continuity scenario covering memory, goals, commitments,
   delegation and evolution, plus an installer for packaged binaries.
+- Added an end-to-end skill lifecycle scenario from demonstration capture through
+  static evaluation, activation and rollback; a failing candidate cannot replace
+  the active version, and the journal replays after restart.
+- Added write-gated terminal tools (`terminal_create`, `terminal_write`,
+  `terminal_output`, `terminal_exec`, `terminal_destroy`) backed by Skynet
+  Workshop PTY sessions. They are hidden from the model and denied by the
+  registry in read-only runs.
+- Added `--allow-write` (now a compatibility flag) and raised the default
+  provider attempt budget to 8 so multi-step terminal workflows can reach a
+  final answer.
+- Terminal tools now fail with an actionable message when Skynet Workshop is
+  missing; the manual and README document the Linux-only support matrix.
+- Execute-mode authorization replies now name `/permissions write on` and
+  `--read-only` instead of only stating the read-only default.
+- File writes and terminal execution are now enabled by default for `run` and
+  `tui`; `--read-only` disables them. `--allow-write` remains accepted as a
+  compatibility flag.
+- Added `write_file` and `edit_file` tools: bounded content, allowed-root
+  containment, symlink rejection, overwrite protection and atomic replacement.
+- Added `fetch_url`: public HTTPS-only reads with private/loopback address
+  rejection, revalidated redirects, text-content checks, HTML extraction and a
+  2 MiB cap; requires `--allow-network`.
+- Added `web_search`: bounded, deduplicated public search results through Bing's
+  RSS endpoint; provider rate limits surface as tool failures.
+- Added a stdio MCP client (`--mcp-config`): initialize, tool discovery and
+  tool calls; remote tools are named `mcp_<server>_<tool>` and are write-gated
+  unless the server declares `readOnlyHint: true`.
+- Added `spawn_agent`: bounded child runs with isolated journal/workspace,
+  inherited write/network permissions and a depth cap of 2.
+- Added persistent `schedule add/list/remove` and `daemon` (interval jobs,
+  pid lock, isolated child runs, `--once`); `--trigger-file` adds mtime-based
+  triggering. Health, failure alerts and routine binding are listed below.
+- Added `1agent cost`: token/cost totals and p50/p95 latency per provider/model
+  from run journals.
+- Added a CLI e2e test proving `scripts/install.sh` installs a runnable binary
+  into a custom prefix.
+- Added `1agent digest`: recent run/stop-reason counts, schedules and next run
+  time, without calling a model.
+- Added agent-facing skill tools (`skill_list`, `skill_eval`, `skill_register`,
+  `skill_activate`, `skill_rollback`) over the existing journaled registry.
+- Added `retention` for run journals: dry-run by default, `--apply` deletes
+  expired files and appends a receipt; memory/audit retention is separate.
+- Added agent-facing delegation tools (`delegation_list`, `delegation_register`,
+  `delegation_revoke`) over the persisted profile/revocation store.
+- Added `provider-alerts` to summarize the persisted provider-health alert log.
+- Added `browser_read`: headless Chrome rendering for public HTTPS pages,
+  returning bounded extracted text; click/typing and screenshots remain future
+  computer-use work.
+- Added `notify` for operator webhook notifications (HTTPS or loopback HTTP);
+  email/IM/calendar connectors remain future work.
+- Added `memory consolidate`: duplicate active memories are grouped by scope +
+  content hash; dry-run by default, `--apply` soft-forgets older duplicates.
+- Added a file-backed context-graph cache keyed by a deterministic goal/task/
+  memory fingerprint; `SurfaceService` can opt in with `with_context_cache`.
+- Added limit/cursor pagination to Surface goal, commitment, skill and evolution
+  ledger lists; goal/commitment pagination is covered by tests.
+- Added `skill export` / `skill import`: portable skill bundles are pinned by a
+  caller-supplied SHA-256; tampered bytes, mismatched manifest hashes, unknown
+  schemas and duplicate versions are rejected. Every manifest is preflighted
+  before the journal is touched, and bundles are capped at 4 MiB. Skill CLI
+  defaults now honor `ONEAGENT_SKILL_JOURNAL`.
+- Added Ed25519 skill-bundle signing: `skill keygen` writes 0600 key files,
+  `skill export --signing-key` signs, and `skill import --public-key` verifies
+  against the trusted key. Signed bundles are rejected without a key, unsigned
+  bundles are rejected when a key is supplied, and tampering fails. A remote
+  marketplace index and revocation remain future work.
+- Added skill routines: `run --routine-skill NAME@VERSION` composes an active
+  skill into the task, and `schedule add --routine-skill` lets the daemon run
+  it. Inactive or version-mismatched skills are rejected; no new permissions
+  are granted.
+- Added `schedule health` with `ok`/`overdue`/`failing` states and a CLI test
+  proving a daemon restarted after downtime catches up an overdue persisted job.
+  Failure alerts are listed below; escalation and cross-restart deduplication
+  remain future work.
+- Extended `1agent cost` with per-task aggregation (objective, runs, tokens,
+  cost, sorted by cost) and per-tool call/failure counts. A static dashboard is
+  listed below; tool-level token attribution and a live service remain future
+  work.
+- Added `notify --format slack|discord` payload adapters for incoming-webhook
+  integrations; delivery is still tested only against loopback, and email or
+  calendar connectors are not implemented.
+- Added `read_pdf`, which extracts local PDF text through the system
+  `pdftotext`: read-root and symlink checks, a character cap, control-character
+  rejection and page form-feed normalization. Image/scan OCR, DOCX/PPTX and
+  voice understanding remain unimplemented.
+- `daemon` now records and optionally webhooks a `schedule_run_failed` alert
+  when a scheduled run fails or times out (`--alert-log`, `--alert-webhook`).
+  Escalation, deduplication across restarts and overdue-job paging remain
+  future watchdog work.
+- `digest` now includes `schedule_health` (`ok`/`overdue`/`failing`) and alert
+  counts by kind from an optional `--alert-log`, still without calling a model.
+- Added `1agent dashboard`: a self-contained static HTML report over usage,
+  latency, tasks, tools, schedule health and recent alerts. Dynamic text is
+  escaped and a restrictive CSP is embedded; there is no live server.
+- Audit export now supports `after_seq` pagination and optional record return
+  (`--include-records` / `AuditFilter.include_records`); receipts remain the
+  default so a query does not accidentally dump journal contents.
 
 ## 0.95.0 - 2026-11-04
 

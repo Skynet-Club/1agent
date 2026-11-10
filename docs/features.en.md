@@ -1,6 +1,6 @@
 # Features
 
-> Current version: **0.95.0 R1 release candidate**  
+> Current version: **0.96.0 R1 release candidate**  
 > Validated platform: **Linux x86_64**  
 > Labels: **Available (RC)** / **Basic** / **MVP** / **Module** / **Experimental** / **R&D** / **Not implemented**
 
@@ -121,12 +121,13 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 
 | Capability | Status | Notes |
 |---|---|---|
-| Browser / computer-use | **Not implemented** | Not a hidden switch; see Status & Roadmap |
-| Generic subagents | **Not implemented** | Only bounded Workshop Master→Worker scheduling exists; no `spawn_subagent` |
-| MCP client | **Not implemented** | An external agent's `browser`/`mcp` capability is not a 1Agent tool |
-| Complete always-on daemon/Routine/Trigger | **R&D** | G2 scope |
-| Full Attention/Digest | **R&D** | Deterministic reminder basics only |
-| Automatic evolution/skill marketplace | **R&D / planned** | Human approval and rollback are the current focus |
+| Browser / computer-use | **Partial** | `browser_read` renders with headless Chrome and extracts text; clicking, typing, screenshots and visual understanding are not implemented |
+| Generic subagents | **Partial** | `spawn_agent` runs bounded child agents (depth 2, isolated journal/workspace); Master→Worker remains a separate path |
+| MCP client | **Partial** | stdio MCP discovery and calls; HTTP/SSE, OAuth and a tool marketplace are not implemented |
+| Always-on daemon/Routine/Trigger | **Partial** | Interval and file triggers, restart catch-up, `--routine-skill`, `schedule health`; failed/timed-out runs can write alerts and webhook them; escalation and cross-restart deduplication are not implemented |
+| Full Attention/Digest | **Partial** | `digest` summarizes recent runs, schedules, health and alert counts; the maintenance loop and escalation ladder are not implemented |
+| Automatic evolution/skill marketplace | **Partial** | Human approval/rollback plus SHA-256 skill bundles; signatures and a remote marketplace index are not implemented |
+| Voice/image understanding | **Not implemented** | `read_pdf` extracts PDF text only; voice, images and scanned-document OCR are not implemented |
 | Multi-tenant/organization audit | **Not implemented** | Single-user, local-first today |
 | Android/iOS app | **Planned** | With the Bot/mobile work |
 | macOS support | **Planned** | Linux is the only validated platform |
@@ -149,7 +150,7 @@ The result should include a conclusion, facts, assumptions, unknowns, conflicts,
   --task "Trace the authentication path and list the three riskiest entry points"
 ```
 
-Tools are read-only `read_file` / `search_files`; there is no browser or shell.
+Available tools include `read_file`, `read_pdf`, `search_files`, `fetch_url`, `web_search`, `browser_read`, plus `write_file`, `edit_file` and real PTY terminal tools (writes are on by default; `--read-only` disables them).
 
 ### C. Interactive investigation
 
@@ -161,16 +162,16 @@ Use `/frame`, `/evidence`, `/audit` and `/report` to organize the question and t
 
 ### D. Controlled execution (requires Workshop)
 
-When 1Agent is connected to Skynet Workshop, it can execute in an isolated session and verify Artifacts. Workshop is still in R&D/integration and is not a stable production dependency.
+The local CLI/TUI allows file writes and terminal execution by default. With Skynet Workshop, terminal tools use persistent PTY sessions and can execute, read and destroy them. Workshop is still in R&D/integration and is not a stable production dependency.
 
 ## 5. Boundaries of this version
 
 - **Not production-stable**: R1 release candidate; interfaces and behavior may change.
-- **Not a complete Super-Agent**: browser, subagents and always-on autonomy are unfinished.
+- **Not a complete Super-Agent**: computer-use actions, voice/image understanding, automatic watchdogs and mobile are unfinished.
 - **Not Bot**: no persona, Web/IM/Voice UX or Companion Contract.
 - **Not multi-tenant**: no organization IdP, tenant isolation or third-party audit.
-- **Not an “operate any website” tool**: the browser backend is not implemented.
-- **Not an unauthorized executor**: read-only by default; writes, network and execution require explicit authority.
+- **Not an “operate any website” tool**: it can render and read pages, not click or take screenshots.
+- **Not an authorization bypass**: local writes/execution are on by default; network needs `--allow-network`, and high-risk actions still pass Authority/Policy and approvals.
 
 ## 6. Related documentation
 

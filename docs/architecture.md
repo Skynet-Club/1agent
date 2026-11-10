@@ -231,7 +231,53 @@ workspace with optional SHA-256 matching.
   `<graph-stem>-action-log.jsonl`; the log is verified on open and tampering fails closed.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
-- Write authority is false by default.
+- Write authority is true by default for local CLI/TUI; `--read-only` disables it.
+  Surface/API callers must opt in. Write tools are filtered from the provider
+  tool list and denied by the registry while it is off.
+- Terminal tools are high-risk host adapters backed by Skynet Workshop sessions.
+  They require write authority, cap observations at 64 KiB and strip ANSI/control
+  characters before journaling; command output is still journaled, so secrets
+  must not be printed into a terminal.
+- `read_pdf` extracts local PDF text through the system `pdftotext`: read-root
+  containment, symlink rejection, a character cap, control-character rejection
+  and page form-feed normalization. It does not perform OCR or understand images.
+- `fetch_url` is read-only but network-gated: HTTPS only, public addresses only,
+  credentials in URLs rejected, redirects revalidated and capped at 5 hops, text
+  content only and a 2 MiB response cap.
+- `web_search` uses the same fetch guard and Bing's RSS endpoint as a
+  best-effort, no-key provider. Results are bounded and deduplicated; provider
+  rate limits are reported as tool failures, not fabricated results.
+- MCP tools are discovered from stdio servers configured with `--mcp-config`.
+  A tool is write-gated unless the server declares `readOnlyHint: true`;
+  `destructiveHint: true` raises its risk. The MCP server validates its own
+  input schema; 1Agent owns process, permission, timeout and journal bounds.
+- `spawn_agent` starts a bounded child `1agent run` with its own journal,
+  workspace and budget. Depth is capped at 2, write/network permissions are
+  inherited, and the child is killed with the parent process.
+- `schedule` persists interval jobs under the runtime home and `daemon` runs
+  due jobs as isolated child processes. A pid lock prevents duplicate daemons;
+  an overdue persisted job is caught up after restart, and `schedule health`
+  reports `ok`/`overdue`/`failing`. Failed or timed-out runs can append a
+  `schedule_run_failed` alert and deliver it to a webhook; escalation and
+  cross-restart deduplication remain open.
+- A job may bind an active skill with `--routine-skill NAME@VERSION`; the child
+  run composes that version's body into its task. This reuses the approved
+  skill without granting permissions, and rejects inactive or mismatched
+  versions.
+- Skill tools expose the existing registry to the model: list/eval are read-only,
+  register/activate/rollback are write-gated and journaled through `SkillService`.
+- `skill export` writes immutable manifests to a versioned JSON bundle; `skill
+  import` requires a matching SHA-256, rechecks every manifest's body hash and
+  skips versions that already exist. It is a distribution primitive, not a
+  marketplace: there is no remote index or signature yet.
+- Delegation tools expose profile registration/revocation through the existing
+  snapshot store; they do not grant authority by themselves.
+- Surface goal, commitment, skill and evolution-ledger lists accept
+  `limit`/`cursor`; cursors are ids (skill cursors use `name@version`) and the
+  per-actor quota still applies.
+- The context graph can be cached by a deterministic fingerprint of goals,
+  tasks and memory references; stale fingerprints miss and rebuild, and the
+  graph remains a projection rather than a second source of truth.
 - Execute-mode requests stop at `needs_authorization` without calling a provider.
 - Provider network access requires explicit `--allow-network`.
 - API keys are read from an environment variable or hidden CLI option and are not journaled.
@@ -246,7 +292,14 @@ workspace with optional SHA-256 matching.
 ## V0 limitations
 
 - Proving real-model quality without configured providers.
-- Calling Linux commands or writing files.
+- Structured patch/edit tools beyond whole-file replacement (`write_file`) and
+  exact text replacement (`edit_file`).
+- Web search is best-effort Bing RSS; authenticated web content, computer-use
+  clicks/typing/screenshots and an HTTP/SSE MCP transport are absent.
+- Voice/image understanding and OCR; `read_pdf` only extracts embedded PDF text.
+- Page-range selection for PDFs; `max_chars` only bounds returned text.
+- Terminal commands require a running Skynet Workshop session daemon; there is
+  no native PTY backend yet.
 - Streaming model output.
 - Raw-mode terminal behavior on Windows.
 - Arbitrary multi-agent organization beyond the bounded eight-item V1 coordinator.
