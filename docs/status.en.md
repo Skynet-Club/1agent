@@ -1,6 +1,6 @@
 # Status & Roadmap
 
-> Current version: **0.95.0 R1 release candidate**  
+> Current version: **0.96.0 R1 release candidate**  
 > Platform: **Linux x86_64**  
 > Conclusion: **usable and evaluable, but not production-stable.**
 
@@ -8,13 +8,13 @@
 
 ## 0. Still developing; welcome to build with us
 
-- **Under active development**: 0.95.0 is not finished; interfaces, configuration and boundaries may change.
+- **Under active development**: 0.96.0 is not finished; interfaces, configuration and boundaries may change.
 - **Testing and contributions welcome**: developers, testers, researchers, security specialists, product and design partners can try it, open issues/PRs, join red-team and real-workflow validation, and join [Skynet-Club](https://skynet.club).
 - **The future is open**: browser, subagents, always-on autonomy, Workshop and Bot have a public capability plan; each stage advances through testable milestones and evidence. Plans can be discussed and revised; the roadmap is not a one-time promise.
 
 ## 1. What this version is
 
-0.95.0 is an **R1 release candidate**:
+0.96.0 is an **R1 release candidate**:
 
 - not 1.0;
 - not production-stable;
@@ -44,10 +44,10 @@ It can already:
 
 ### 2.2 Capability boundaries are visible
 
-- no browser/computer-use;
-- no generic subagents;
-- no MCP client;
-- no complete daemon/Routine/Trigger/Watchdog;
+- the browser can render and read pages, not perform computer-use clicks/typing/screenshots;
+- generic subagents, stdio MCP, web read/search and local write/terminal tools have MVPs, but remain bounded;
+- daemon/Routine/Trigger supports intervals, file triggers, restart catch-up and skill binding; failed/timed-out runs can write and webhook alerts, but escalation and cross-restart deduplication are unfinished;
+- no voice/image understanding; `read_pdf` extracts PDF text only;
 - no multi-tenant or organization audit;
 - no official macOS/Windows support;
 - no Android/iOS app.
@@ -82,13 +82,15 @@ It can already:
 - retention, organization audit, production signing/approval;
 - Linux install/upgrade/export/uninstall acceptance.
 
-### R2: action layer
+### R2: action layer (partly landed)
 
-- `web_fetch` read-only web retrieval;
-- shell/write/edit/git/test tool matrix with authority and sandbox;
-- MCP/connectors;
-- logical subagents for read-only research/comparison/verification;
-- Workshop browser/computer-use productization (WS-13).
+- [x] `fetch_url` / `web_search` read-only retrieval;
+- [x] `write_file` / `edit_file` / real PTY terminal under write permission and Authority/Policy;
+- [x] stdio MCP client;
+- [x] bounded subagents with an isolated journal/workspace, depth 2;
+- [x] `browser_read` headless Chrome rendering;
+- [ ] Workshop computer-use (click/type/screenshot, WS-13);
+- [ ] HTTP/SSE MCP and a tool marketplace.
 
 ### R3: standalone Super-Agent
 
@@ -114,12 +116,12 @@ It can already:
 | Capability | Status | Target |
 |---|---|---|
 | Stable Workshop execution | R&D/integration | R1/R2 |
-| Browser / computer-use | Not implemented | R2 |
-| Generic subagents | Not implemented | R2/R3 |
-| MCP client | Not implemented | R2 |
-| Complete daemon/Routine | Not implemented | G2 |
-| Full Attention/Digest | R&D | G2 |
-| Automatic evolution/skill marketplace | R&D/planned | G2/G3 |
+| Browser / computer-use | Read-only browsing works; actions not implemented | R2 |
+| Generic subagents | Bounded MVP | R2/R3 |
+| MCP client | stdio MVP | R2 |
+| daemon/Routine | Interval/trigger/restart catch-up/health work; automatic watchdog missing | G2 |
+| Full Attention/Digest | Digest works; maintenance loop missing | G2 |
+| Automatic evolution/skill marketplace | Approval/rollback + SHA-256 bundles; signatures/remote marketplace missing | G2/G3 |
 | Multi-tenant/organization audit | Not implemented | R6 |
 | Bot (persona/channels) | R&D | R4+ |
 | Official Windows support | Internal build | Later |
@@ -130,7 +132,7 @@ It can already:
 
 The public GitHub pre-release contains:
 
-- `1agent-0.95.0-linux-x86_64.tar.gz`;
+- `1agent-0.96.0-linux-x86_64.tar.gz`;
 - `SHA256SUMS`;
 - `linux-x86_64.json` (Linux provenance).
 
@@ -164,7 +166,7 @@ We can say:
 - “this is an R1 release candidate”;
 - “Linux x86_64 is the validated platform”;
 - “optional Workshop execution is R&D and not yet stable”;
-- “browser, subagents and always-on autonomy are still R&D”.
+- “browser reading, subagents, stdio MCP and scheduled autonomy have bounded MVPs; computer-use and automatic watchdogs remain unfinished”.
 
 We must not say:
 

@@ -93,7 +93,12 @@ pub enum SurfaceMethod {
         limit: usize,
     },
     ActionLogSummary,
-    GoalList,
+    GoalList {
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        cursor: Option<String>,
+    },
     GoalCreate {
         goal_id: String,
         actor_id: String,
@@ -108,6 +113,10 @@ pub enum SurfaceMethod {
     },
     CommitmentList {
         goal_id: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        cursor: Option<String>,
     },
     CommitmentCreate {
         commitment_id: String,
@@ -156,7 +165,12 @@ pub enum SurfaceMethod {
         actor_id: String,
         domain: String,
     },
-    EvolutionLedger,
+    EvolutionLedger {
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        cursor: Option<String>,
+    },
     EvolutionPropose {
         proposal_id: String,
         proposer: String,
@@ -181,7 +195,12 @@ pub enum SurfaceMethod {
         scope: MemoryScope,
         mode: String,
     },
-    SkillList,
+    SkillList {
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        cursor: Option<String>,
+    },
     SkillEnable {
         name: String,
         version: String,
@@ -207,7 +226,7 @@ impl SurfaceMethod {
             Self::ThreadList { limit, cursor } => {
                 validate_limit(*limit, true)?;
                 if let Some(cursor) = cursor {
-                    safe_id(cursor, "cursor")?;
+                    safe_cursor(cursor)?;
                 }
                 Ok(())
             }
@@ -262,7 +281,21 @@ impl SurfaceMethod {
                 }
                 validate_limit(Some(*limit), false)
             }
-            Self::GoalList | Self::EvolutionLedger | Self::ActionLogSummary => Ok(()),
+            Self::GoalList { limit, cursor } => {
+                validate_limit(*limit, true)?;
+                if let Some(cursor) = cursor {
+                    safe_cursor(cursor)?;
+                }
+                Ok(())
+            }
+            Self::EvolutionLedger { limit, cursor } => {
+                validate_limit(*limit, true)?;
+                if let Some(cursor) = cursor {
+                    safe_cursor(cursor)?;
+                }
+                Ok(())
+            }
+            Self::ActionLogSummary => Ok(()),
             Self::EvolutionPropose {
                 proposal_id,
                 proposer,
@@ -367,9 +400,17 @@ impl SurfaceMethod {
                 safe_node_id(node_id)?;
                 safe_id(bot_id, "bot_id")
             }
-            Self::CommitmentList { goal_id } => {
+            Self::CommitmentList {
+                goal_id,
+                limit,
+                cursor,
+            } => {
                 if let Some(goal_id) = goal_id {
                     safe_id(goal_id, "goal_id")?;
+                }
+                validate_limit(*limit, true)?;
+                if let Some(cursor) = cursor {
+                    safe_cursor(cursor)?;
                 }
                 Ok(())
             }
@@ -432,7 +473,13 @@ impl SurfaceMethod {
                 }
                 Ok(())
             }
-            Self::SkillList => Ok(()),
+            Self::SkillList { limit, cursor } => {
+                validate_limit(*limit, true)?;
+                if let Some(cursor) = cursor {
+                    safe_cursor(cursor)?;
+                }
+                Ok(())
+            }
             Self::SkillEnable { name, version } | Self::SkillRollback { name, version } => {
                 safe_id(name, "name")?;
                 safe_id(version, "version")
@@ -461,6 +508,10 @@ pub struct AuditFilter {
     pub skill: Option<String>,
     pub version: Option<String>,
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub after_seq: Option<u64>,
+    #[serde(default)]
+    pub include_records: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -688,6 +739,19 @@ fn safe_id(value: &str, label: &str) -> Result<(), SurfaceError> {
         || value.starts_with('.')
     {
         return Err(SurfaceError::invalid(format!("{label} is unsafe")));
+    }
+    Ok(())
+}
+
+fn safe_cursor(value: &str) -> Result<(), SurfaceError> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'@'))
+        || value.starts_with('.')
+    {
+        return Err(SurfaceError::invalid("cursor is unsafe"));
     }
     Ok(())
 }

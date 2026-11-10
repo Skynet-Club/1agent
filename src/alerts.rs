@@ -26,6 +26,30 @@ pub enum AlertError {
 pub struct AlertWebhook {
     client: reqwest::Client,
     url: String,
+    format: WebhookFormat,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WebhookFormat {
+    #[default]
+    Generic,
+    Slack,
+    Discord,
+}
+
+impl std::str::FromStr for WebhookFormat {
+    type Err = AlertError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "generic" => Ok(Self::Generic),
+            "slack" => Ok(Self::Slack),
+            "discord" => Ok(Self::Discord),
+            _ => Err(AlertError::Invalid(
+                "webhook format must be generic, slack or discord".into(),
+            )),
+        }
+    }
 }
 
 impl std::fmt::Debug for AlertWebhook {
@@ -58,7 +82,24 @@ impl AlertWebhook {
             .timeout(Duration::from_secs(5))
             .build()
             .map_err(|error| AlertError::Webhook(error.without_url().to_string()))?;
-        Ok(Self { client, url })
+        Ok(Self {
+            client,
+            url,
+            format: WebhookFormat::Generic,
+        })
+    }
+
+    pub fn with_format(mut self, format: WebhookFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    fn payload(&self, record: &AlertRecord) -> Result<serde_json::Value, AlertError> {
+        Ok(match self.format {
+            WebhookFormat::Generic => serde_json::to_value(record)?,
+            WebhookFormat::Slack => serde_json::json!({"text": record.message}),
+            WebhookFormat::Discord => serde_json::json!({"content": record.message}),
+        })
     }
 
     pub async fn send(&self, record: &AlertRecord) -> Result<(), AlertError> {
@@ -66,7 +107,7 @@ impl AlertWebhook {
         let response = self
             .client
             .post(&self.url)
-            .json(record)
+            .json(&self.payload(record)?)
             .send()
             .await
             .map_err(|error| AlertError::Webhook(error.without_url().to_string()))?;
@@ -189,6 +230,26 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].observed, 2);
         assert_eq!(records[1].at_ms, 20);
+    }
+
+    #[test]
+    fn webhook_payloads_match_slack_and_discord_shapes() {
+        let record = provider_health_alert("p", "m", 10, 2, 2);
+        let base = AlertWebhook::new("https://example.com/hook").unwrap();
+        assert_eq!(base.payload(&record).unwrap()["alert_id"], record.alert_id);
+        let slack = AlertWebhook::new("https://example.com/hook")
+            .unwrap()
+            .with_format(WebhookFormat::Slack);
+        assert_eq!(slack.payload(&record).unwrap()["text"], record.message);
+        let discord = AlertWebhook::new("https://example.com/hook")
+            .unwrap()
+            .with_format(WebhookFormat::Discord);
+        assert_eq!(discord.payload(&record).unwrap()["content"], record.message);
+        assert_eq!(
+            "slack".parse::<WebhookFormat>().unwrap(),
+            WebhookFormat::Slack
+        );
+        assert!("teams".parse::<WebhookFormat>().is_err());
     }
 
     #[test]

@@ -18,9 +18,9 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 0.95.0 是 R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
+> **项目仍在持续开发。** 0.96.0 是 R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
-> 当前 Linux 预发布：[v0.95.0-rc.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.95.0-rc.1)。
+> 当前 Linux 预发布：[v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0)。
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | **先问目的** | 区分“目标”与“手段”；必要时只问一个能改变方案的问题 |
 | **证据优先** | journal、receipt、replay 是产品原语；没有 journal 的“完成”不算完成 |
-| **人在回路** | 默认只读；写操作、网络、执行需要显式授权；不可逆动作逐次确认 |
+| **人在回路** | 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭；网络需 `--allow-network`；不可逆动作逐次确认 |
 | **本地优先** | 单一 runtime home（`$HOME/.1a`）；数据可导出、可恢复；不要求云账户 |
 | **Provider 中立** | 确定性 provider、OpenAI-compatible provider；模型可替换，路由可解释 |
 | **可逆** | 记忆软/硬遗忘、技能回滚、进化回滚；变更必须能撤回 |
@@ -53,8 +53,13 @@
 - **模型路由**：确定性 provider、OpenAI-compatible provider、成本/延迟账本、影子执行。
 - **审计**：哈希链 journal、replay、receipt、查询与导出。
 - **可选执行**：接入 Skynet Workshop 后，可在受控 Session/沙箱中执行并验收 Artifact。
+- **工具面**：`read_file` / `read_pdf` / `search_files`、`write_file` / `edit_file`、真实 PTY 终端、`fetch_url` / `web_search` / `browser_read`、stdio MCP、`spawn_agent`。
+- **常驻与技能分发**：`schedule` / `daemon` / `schedule health`、`--routine-skill`、SHA-256 门禁的 `skill export/import`。
+- **运行看板**：`cost`（provider/model/任务/工具）、`digest`（运行/计划/健康/告警）、`dashboard`（静态 HTML）。
 
-当前**没有**浏览器工具、通用子 Agent、MCP 客户端、完整常驻 daemon 和 Bot。  
+当前**没有** computer-use 点击/截图、语音/图片理解、自动 Watchdog 升级策略、移动端和 Bot。
+
+
 这些不是“隐藏功能”，而是明确写在 [STATUS.md](docs/status.md) 里的研发中/未实现项。
 
 ---
@@ -66,8 +71,8 @@
 从 Releases 下载 Linux 包后：
 
 ```bash
-tar -xzf 1agent-0.95.0-linux-x86_64.tar.gz
-cd 1agent-0.95.0
+tar -xzf 1agent-0.96.0-linux-x86_64.tar.gz
+cd 1agent-0.96.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -111,13 +116,23 @@ Headless 运行：
 | Windows x86_64 | **不发布（未测试）** | 仅内部构建；不提供下载，不作为支持平台 |
 | macOS / Android / iOS | **规划中** | 后续跟进；移动端与 Bot 一起推进 |
 | Skynet Workshop 执行 | **研发/联调中** | 可选执行底座；W-Gate 未正式通过 |
-| 浏览器 / computer-use | **未实现** | 计划见 [发布状态与路线图](docs/status.md) |
-| 通用子 Agent | **未实现** | 当前只有 Workshop 的有界 Master→Worker 调度 |
-| 常驻 daemon / Routine | **研发中** | G2 范围 |
+| Web 读取/搜索 | **部分** | `fetch_url` + `web_search`（Bing RSS，尽力而为）；登录态网页未实现 |
+| 文档读取 | **部分** | `read_pdf` 调用系统 `pdftotext` 提取文本；图片/扫描件 OCR、DOCX/PPTX 未实现 |
+| 浏览器 / computer-use | **部分** | `browser_read` 无头 Chrome 渲染；点击/输入/截图/computer-use 未实现 |
+| 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；Master→Worker 调度仍独立 |
+| 常驻 daemon / Routine | **部分** | `schedule` + `daemon`（interval、文件 trigger、持久化、pid 锁、重启补跑）；`--routine-skill`；`schedule health`；失败/超时告警可写日志并发 webhook；升级阶梯和跨重启去重未实现 |
+| 成本/延迟看板 | **部分** | `cost` 按 provider/model/任务聚合并统计工具调用/失败；`dashboard` 生成静态 HTML 看板；工具级 token 归因未实现 |
+| 保留期/删除 | **部分** | `retention` 可 dry-run/apply 删除过期 run journal 并写 receipt；memory/audit 保留期未覆盖 |
+| 记忆整合 | **部分** | `memory consolidate` 重复内容软遗忘；语义检索/embedding 未实现 |
+| 通知渠道 | **部分** | `notify` 通用 HTTPS/loopback webhook，支持 slack/discord payload；邮件/日历连接器与真实外部送达未验证 |
+| 技能运行时 | **部分** | `skill_list/eval/register/activate/rollback` 工具已暴露；`skill export/import` 支持 SHA-256 门禁与 Ed25519 签名；真实示范语料、shadow/canary、远程市场与撤销列表未完成 |
+| 委托运行时 | **部分** | `delegation_list/register/revoke` 工具已暴露并持久化；Router 全路径委托接线未完成 |
 | 1A Bot | **研发中** | 人格化伙伴层；1Agent 不依赖 Bot |
-| MCP / 工具连接器 | **未实现** | 工具生态后续补齐 |
+| MCP / 工具连接器 | **部分** | stdio MCP client + `--mcp-config`；HTTP/SSE 与工具市场未实现 |
 
 完整状态见 [STATUS.md](docs/status.md)。
+
+> 终端执行工具（`terminal_*`）当前只随 Linux x86_64 验证；macOS/Windows 需要等待 Skynet Workshop 的 daemon/GUI 与 ConPTY 支持，届时 1Agent 的工具契约不变。
 
 ---
 
@@ -158,7 +173,7 @@ Headless 运行：
 
 ## 安全与隐私
 
-- 默认只读；写操作、网络、执行需要显式授权。
+- 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭；网络和外部副作用仍需显式授权。
 - 密钥通过环境变量或本地密钥文件引用，不写入 journal、报告或配置。
 - 导出包不包含密钥材料；恢复和迁移有 SHA-256 校验。
 - 详细边界见仓库 `SECURITY.md`、`PRIVACY.md` 和 [DESIGN.md](docs/design-philosophy.md)。

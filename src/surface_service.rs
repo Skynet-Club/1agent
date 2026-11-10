@@ -109,6 +109,7 @@ pub struct SurfaceService {
     graph: GovernedTaskGraph,
     resources: SurfaceResources,
     quota: Option<SurfaceQuota>,
+    context_cache: Option<crate::context_graph::ContextGraphCache>,
 }
 
 impl SurfaceService {
@@ -123,6 +124,7 @@ impl SurfaceService {
             graph: GovernedTaskGraph::open_with_action_log(path, action_log)?,
             resources: SurfaceResources::default(),
             quota: None,
+            context_cache: None,
         })
     }
 
@@ -131,6 +133,7 @@ impl SurfaceService {
             graph,
             resources: SurfaceResources::default(),
             quota: None,
+            context_cache: None,
         }
     }
 
@@ -141,6 +144,11 @@ impl SurfaceService {
 
     pub fn with_quota(mut self, quota: SurfaceQuota) -> Self {
         self.quota = Some(quota);
+        self
+    }
+
+    pub fn with_context_cache(mut self, path: impl Into<PathBuf>) -> Self {
+        self.context_cache = Some(crate::context_graph::ContextGraphCache::new(path));
         self
     }
 
@@ -196,7 +204,9 @@ impl SurfaceService {
                 scope,
                 mode,
             } => self.memory_forget(auth, memory_id, scope, mode, now_ms),
-            SurfaceMethod::SkillList => self.skill_list(auth),
+            SurfaceMethod::SkillList { limit, cursor } => {
+                self.skill_list(auth, *limit, cursor.as_deref())
+            }
             SurfaceMethod::SkillEnable { name, version } => {
                 self.skill_enable(auth, name, version, now_ms)
             }
@@ -222,7 +232,9 @@ impl SurfaceService {
                 *limit,
             ),
             SurfaceMethod::ActionLogSummary => self.action_log_summary(auth),
-            SurfaceMethod::GoalList => self.goal_list(auth),
+            SurfaceMethod::GoalList { limit, cursor } => {
+                self.goal_list(auth, *limit, cursor.as_deref())
+            }
             SurfaceMethod::GoalCreate {
                 goal_id,
                 actor_id,
@@ -235,9 +247,11 @@ impl SurfaceService {
                 status,
                 reason,
             } => self.goal_set_status(auth, goal_id, actor_id, status, reason, now_ms),
-            SurfaceMethod::CommitmentList { goal_id } => {
-                self.commitment_list(auth, goal_id.as_deref())
-            }
+            SurfaceMethod::CommitmentList {
+                goal_id,
+                limit,
+                cursor,
+            } => self.commitment_list(auth, goal_id.as_deref(), *limit, cursor.as_deref()),
             SurfaceMethod::CommitmentCreate {
                 commitment_id,
                 goal_id,
@@ -301,7 +315,9 @@ impl SurfaceService {
             SurfaceMethod::DelegationRevoke { actor_id, domain } => {
                 self.delegation_revoke(auth, actor_id, domain, now_ms)
             }
-            SurfaceMethod::EvolutionLedger => self.evolution_ledger(auth),
+            SurfaceMethod::EvolutionLedger { limit, cursor } => {
+                self.evolution_ledger(auth, *limit, cursor.as_deref())
+            }
             SurfaceMethod::EvolutionPropose {
                 proposal_id,
                 proposer,
@@ -415,13 +431,28 @@ impl SurfaceService {
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "thread encode", false))
     }
 
-    fn goal_list(&self, auth: &AuthContext) -> Result<serde_json::Value, SurfaceError> {
+    fn goal_list(
+        &self,
+        auth: &AuthContext,
+        limit: Option<usize>,
+        cursor: Option<&str>,
+    ) -> Result<serde_json::Value, SurfaceError> {
         auth.require("goal:read")?;
         let goals =
             self.resources.goals.as_ref().ok_or_else(|| {
                 SurfaceError::new(SurfaceErrorCode::Unavailable, "goal store", false)
             })?;
-        serde_json::to_value(goals.graph().snapshot())
+        let mut snapshot = goals.graph().snapshot();
+        snapshot
+            .goals
+            .sort_by(|left, right| left.goal_id.cmp(&right.goal_id));
+        if let Some(cursor) = cursor {
+            snapshot.goals.retain(|goal| goal.goal_id.as_str() > cursor);
+        }
+        if let Some(limit) = limit {
+            snapshot.goals.truncate(limit.min(200));
+        }
+        serde_json::to_value(snapshot)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "goal encode", false))
     }
 
@@ -584,19 +615,28 @@ impl SurfaceService {
         &self,
         auth: &AuthContext,
         goal_id: Option<&str>,
+        limit: Option<usize>,
+        cursor: Option<&str>,
     ) -> Result<serde_json::Value, SurfaceError> {
         auth.require("goal:read")?;
         let goals =
             self.resources.goals.as_ref().ok_or_else(|| {
                 SurfaceError::new(SurfaceErrorCode::Unavailable, "goal store", false)
             })?;
-        let commitments: Vec<_> = goals
+        let mut commitments: Vec<_> = goals
             .graph()
             .snapshot()
             .commitments
             .into_iter()
             .filter(|commitment| goal_id.is_none_or(|goal_id| commitment.goal_id == goal_id))
             .collect();
+        commitments.sort_by(|left, right| left.commitment_id.cmp(&right.commitment_id));
+        if let Some(cursor) = cursor {
+            commitments.retain(|commitment| commitment.commitment_id.as_str() > cursor);
+        }
+        if let Some(limit) = limit {
+            commitments.truncate(limit.min(200));
+        }
         serde_json::to_value(commitments)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "commitment encode", false))
     }
@@ -687,12 +727,23 @@ impl SurfaceService {
                     .collect()
             })
             .unwrap_or_default();
-        Ok(build_context_graph(
-            goals,
-            &self.graph.snapshot(),
-            &memories,
-            now_ms,
-        ))
+        let tasks = self.graph.snapshot();
+        if let Some(cache) = &self.context_cache {
+            let input_sha256 = crate::context_graph::fingerprint(goals, &tasks, &memories);
+            return cache
+                .get_or_build(&input_sha256, || {
+                    build_context_graph(goals, &tasks, &memories, now_ms)
+                })
+                .map(|(graph, _)| graph)
+                .map_err(|error| {
+                    SurfaceError::new(
+                        SurfaceErrorCode::Internal,
+                        format!("context cache: {error}"),
+                        false,
+                    )
+                });
+        }
+        Ok(build_context_graph(goals, &tasks, &memories, now_ms))
     }
 
     fn delegation_get(
@@ -851,12 +902,29 @@ impl SurfaceService {
         })
     }
 
-    fn evolution_ledger(&self, auth: &AuthContext) -> Result<serde_json::Value, SurfaceError> {
+    fn evolution_ledger(
+        &self,
+        auth: &AuthContext,
+        limit: Option<usize>,
+        cursor: Option<&str>,
+    ) -> Result<serde_json::Value, SurfaceError> {
         auth.require("evolution:read")?;
         let store = self.resources.evolution.as_ref().ok_or_else(|| {
             SurfaceError::new(SurfaceErrorCode::Unavailable, "evolution registry", false)
         })?;
-        serde_json::to_value(store.registry().ledger())
+        let mut ledger = store.registry().ledger();
+        ledger
+            .proposals
+            .sort_by(|left, right| left.proposal_id.cmp(&right.proposal_id));
+        if let Some(cursor) = cursor {
+            ledger
+                .proposals
+                .retain(|proposal| proposal.proposal_id.as_str() > cursor);
+        }
+        if let Some(limit) = limit {
+            ledger.proposals.truncate(limit.min(200));
+        }
+        serde_json::to_value(ledger)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "evolution encode", false))
     }
 
@@ -944,14 +1012,31 @@ impl SurfaceService {
         Ok(serde_json::json!({"memory_id": memory_id, "forgotten": true, "mode": mode_label}))
     }
 
-    fn skill_list(&self, auth: &AuthContext) -> Result<serde_json::Value, SurfaceError> {
+    fn skill_list(
+        &self,
+        auth: &AuthContext,
+        limit: Option<usize>,
+        cursor: Option<&str>,
+    ) -> Result<serde_json::Value, SurfaceError> {
         auth.require("skill:read")?;
         let skills = self
             .resources
             .skills
             .as_ref()
             .ok_or_else(|| unavailable("skill service"))?;
-        serde_json::to_value(skills.list())
+        let mut skills = skills.list();
+        skills.sort_by(|left, right| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left.version.cmp(&right.version))
+        });
+        if let Some(cursor) = cursor {
+            skills.retain(|skill| format!("{}@{}", skill.name, skill.version).as_str() > cursor);
+        }
+        if let Some(limit) = limit {
+            skills.truncate(limit.min(200));
+        }
+        serde_json::to_value(skills)
             .map_err(|_| SurfaceError::new(SurfaceErrorCode::Internal, "skill encode", false))
     }
 
@@ -1033,6 +1118,8 @@ impl SurfaceService {
             skill: filter.skill.clone(),
             version: filter.version.clone(),
             limit: filter.limit,
+            after_seq: filter.after_seq,
+            include_records: filter.include_records,
         };
         let result = audit_export(kind, path, &query, None, now_ms).map_err(map_audit_error)?;
         serde_json::to_value(result)
@@ -1550,7 +1637,10 @@ mod tests {
         assert!(service.handle(&request, &auth, 20).ok);
 
         let request = SurfaceRequest {
-            method: SurfaceMethod::SkillList,
+            method: SurfaceMethod::SkillList {
+                limit: None,
+                cursor: None,
+            },
             ..request
         };
         assert!(service.handle(&request, &auth, 20).ok);
@@ -1735,6 +1825,7 @@ mod tests {
             evolution: Some(evolution),
             ..SurfaceResources::default()
         });
+        service = service.with_context_cache(dir.path().join("context-cache.json"));
         let auth = AuthContext {
             actor_id: "owner-1".into(),
             scopes: vec![
@@ -1754,7 +1845,10 @@ mod tests {
                 request_id: "req-goals".into(),
                 trace_id: "trace".into(),
                 idempotency_key: None,
-                method: SurfaceMethod::GoalList,
+                method: SurfaceMethod::GoalList {
+                    limit: None,
+                    cursor: None,
+                },
             },
             &auth,
             100,
@@ -2006,7 +2100,10 @@ mod tests {
                 request_id: "req-evolution".into(),
                 trace_id: "trace".into(),
                 idempotency_key: None,
-                method: SurfaceMethod::EvolutionLedger,
+                method: SurfaceMethod::EvolutionLedger {
+                    limit: None,
+                    cursor: None,
+                },
             },
             &auth,
             100,
@@ -2316,6 +2413,108 @@ mod tests {
         let page = service.handle(&thread_request(None, Some("missing")), &auth, 12);
         assert!(!page.ok);
         assert_eq!(page.error.unwrap().code, SurfaceErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn goal_and_commitment_lists_paginate_by_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut goals = GoalStore::open(dir.path().join("goals.jsonl")).unwrap();
+        goals
+            .with_graph_mut(|graph| {
+                graph.create_goal("g1", "owner-1", "one", None, 1)?;
+                graph.create_goal("g2", "owner-1", "two", None, 2)?;
+                graph.create_goal("g3", "owner-1", "three", None, 3)?;
+                graph.add_commitment("c1", "g1", "first", None, 4)?;
+                graph.add_commitment("c2", "g1", "second", None, 5)
+            })
+            .unwrap();
+        let mut service = SurfaceService::open(dir.path().join("graph.jsonl")).unwrap();
+        service = service.with_resources(SurfaceResources {
+            goals: Some(goals),
+            ..SurfaceResources::default()
+        });
+        let auth = AuthContext {
+            actor_id: "owner-1".into(),
+            scopes: vec!["goal:read".into()],
+        };
+        let request = |method| SurfaceRequest {
+            protocol_version: "v0".into(),
+            request_id: "req".into(),
+            trace_id: "trace".into(),
+            idempotency_key: None,
+            method,
+        };
+
+        let page = service.handle(
+            &request(SurfaceMethod::GoalList {
+                limit: Some(2),
+                cursor: None,
+            }),
+            &auth,
+            10,
+        );
+        assert!(page.ok, "{page:?}");
+        let ids: Vec<_> = page.result.unwrap()["goals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|goal| goal["goal_id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["g1", "g2"]);
+
+        let page = service.handle(
+            &request(SurfaceMethod::GoalList {
+                limit: Some(2),
+                cursor: Some("g2".into()),
+            }),
+            &auth,
+            11,
+        );
+        let ids: Vec<_> = page.result.unwrap()["goals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|goal| goal["goal_id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["g3"]);
+
+        let page = service.handle(
+            &request(SurfaceMethod::CommitmentList {
+                goal_id: Some("g1".into()),
+                limit: Some(1),
+                cursor: None,
+            }),
+            &auth,
+            12,
+        );
+        let ids: Vec<_> = page
+            .result
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|commitment| commitment["commitment_id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["c1"]);
+
+        let page = service.handle(
+            &request(SurfaceMethod::CommitmentList {
+                goal_id: Some("g1".into()),
+                limit: Some(1),
+                cursor: Some("c1".into()),
+            }),
+            &auth,
+            13,
+        );
+        let ids: Vec<_> = page
+            .result
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|commitment| commitment["commitment_id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["c2"]);
     }
 
     #[test]

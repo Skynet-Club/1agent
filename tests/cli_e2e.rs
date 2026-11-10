@@ -2000,3 +2000,1283 @@ fn cli_eval_inspect_verifies_signed_report() {
     assert!(!revoked_inspect.status.success());
     assert!(String::from_utf8_lossy(&revoked_inspect.stderr).contains("approval key is revoked"));
 }
+
+#[test]
+fn schedule_store_and_daemon_once_run_a_job() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("schedules.json");
+    let journals = workspace.path().join("daemon-journals");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let add = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "test-job",
+            "--task",
+            "用一句话回答 1+1",
+            "--every-seconds",
+            "3600",
+            "--start-now",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let job: serde_json::Value = serde_json::from_slice(&add.stdout).unwrap();
+    let job_id = job["id"].as_str().unwrap().to_string();
+
+    let daemon = Command::new(binary)
+        .env_remove("AGENT_BASE_URL")
+        .env_remove("AGENT_MODEL")
+        .env_remove("AGENT_API_KEY")
+        .args([
+            "daemon",
+            "--store",
+            &store.display().to_string(),
+            "--journal-dir",
+            &journals.display().to_string(),
+            "--once",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        daemon.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&daemon.stderr)
+    );
+
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    let updated = state["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|job| job["id"] == job_id.as_str())
+        .unwrap();
+    assert!(updated["last_status"].is_string());
+    assert!(updated["next_run_ms"].as_u64().unwrap() > 0);
+
+    let remove = Command::new(binary)
+        .args([
+            "schedule",
+            "remove",
+            &job_id,
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(remove.status.success());
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    assert!(state["jobs"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn schedule_trigger_file_runs_once() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("schedules.json");
+    let journals = workspace.path().join("daemon-journals");
+    let trigger = workspace.path().join("trigger.txt");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let add = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "trigger-job",
+            "--task",
+            "用一句话回答 1+1",
+            "--every-seconds",
+            "3600",
+            "--trigger-file",
+            &trigger.display().to_string(),
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(add.status.success());
+    let job: serde_json::Value = serde_json::from_slice(&add.stdout).unwrap();
+    let job_id = job["id"].as_str().unwrap().to_string();
+
+    std::fs::write(&trigger, b"first").unwrap();
+    let first = Command::new(binary)
+        .env_remove("AGENT_BASE_URL")
+        .env_remove("AGENT_MODEL")
+        .env_remove("AGENT_API_KEY")
+        .args([
+            "daemon",
+            "--store",
+            &store.display().to_string(),
+            "--journal-dir",
+            &journals.display().to_string(),
+            "--once",
+        ])
+        .output()
+        .unwrap();
+    assert!(first.status.success());
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    let first_run = state["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|job| job["id"] == job_id.as_str())
+        .unwrap()["last_run_ms"]
+        .as_u64();
+
+    let second = Command::new(binary)
+        .env_remove("AGENT_BASE_URL")
+        .env_remove("AGENT_MODEL")
+        .env_remove("AGENT_API_KEY")
+        .args([
+            "daemon",
+            "--store",
+            &store.display().to_string(),
+            "--journal-dir",
+            &journals.display().to_string(),
+            "--once",
+        ])
+        .output()
+        .unwrap();
+    assert!(second.status.success());
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    let second_run = state["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|job| job["id"] == job_id.as_str())
+        .unwrap()["last_run_ms"]
+        .as_u64();
+    assert_eq!(first_run, second_run);
+}
+
+#[test]
+fn cost_reports_usage_and_latency_percentiles() {
+    let workspace = tempfile::tempdir().unwrap();
+    let journal_dir = workspace.path().join("journal");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let run = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "用一句话回答 1+1",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    let cost = Command::new(binary)
+        .args([
+            "cost",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        cost.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&cost.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&cost.stdout).unwrap();
+    assert!(value["usage"]["totals"]["calls"].as_u64().unwrap() >= 1);
+    let latency = value["latency"].as_array().unwrap();
+    assert!(!latency.is_empty());
+    assert!(latency[0]["p50_ms"].is_u64());
+    assert!(latency[0]["p95_ms"].is_u64());
+}
+
+#[test]
+fn installer_places_a_runnable_binary_in_a_prefix() {
+    let workspace = tempfile::tempdir().unwrap();
+    let prefix = workspace.path().join("prefix");
+    let script = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/install.sh");
+    let output = Command::new("bash")
+        .arg(script)
+        .args([
+            "--prefix",
+            &prefix.display().to_string(),
+            "--binary",
+            env!("CARGO_BIN_EXE_first-principles-agent"),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let installed = prefix.join("bin/1agent");
+    assert!(installed.is_file());
+    let version = Command::new(&installed).arg("--version").output().unwrap();
+    assert!(version.status.success());
+    assert!(String::from_utf8_lossy(&version.stdout).contains("1agent"));
+}
+
+#[test]
+fn digest_reports_recent_runs_and_schedules() {
+    let workspace = tempfile::tempdir().unwrap();
+    let journal_dir = workspace.path().join("journal");
+    let store = workspace.path().join("schedules.json");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let run = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "用一句话回答 1+1",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(run.status.success());
+    let add = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "digest-job",
+            "--task",
+            "用一句话回答 2+2",
+            "--every-seconds",
+            "60",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(add.status.success());
+
+    let alert_log = workspace.path().join("alerts.jsonl");
+    let alert = serde_json::json!({
+        "alert_id": "alert-1",
+        "at_ms": 1,
+        "kind": "provider_latency",
+        "provider_id": "p",
+        "model": "m",
+        "observed": 10,
+        "threshold": 5,
+        "message": "slow",
+    });
+    std::fs::write(&alert_log, format!("{alert}\n")).unwrap();
+
+    let digest = Command::new(binary)
+        .args([
+            "digest",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--schedule-store",
+            &store.display().to_string(),
+            "--alert-log",
+            &alert_log.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        digest.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&digest.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&digest.stdout).unwrap();
+    assert!(!value["runs"].as_array().unwrap().is_empty());
+    assert_eq!(value["schedules"]["jobs"].as_array().unwrap().len(), 1);
+    assert!(
+        value["stop_reasons"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|count| count.as_u64().unwrap() >= 1)
+    );
+    assert!(value["next_run_ms"].as_u64().is_some());
+    assert_eq!(value["schedule_health"][0]["state"], "ok");
+    assert_eq!(value["alerts"]["total"], 1);
+    assert_eq!(value["alerts"]["by_kind"]["provider_latency"], 1);
+}
+
+#[test]
+fn retention_dry_run_and_apply() {
+    let workspace = tempfile::tempdir().unwrap();
+    let old = workspace.path().join("old.jsonl");
+    let new = workspace.path().join("new.jsonl");
+    std::fs::write(&old, b"old").unwrap();
+    std::fs::write(&new, b"new").unwrap();
+    let old_file = std::fs::File::options().write(true).open(&old).unwrap();
+    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(40 * 86_400);
+    old_file
+        .set_times(std::fs::FileTimes::new().set_modified(old_time))
+        .unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let dry = Command::new(binary)
+        .args([
+            "retention",
+            "--journal-dir",
+            &workspace.path().display().to_string(),
+            "--older-than-days",
+            "30",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(dry.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&dry.stdout).unwrap();
+    assert_eq!(report["matched"].as_u64(), Some(1));
+    assert!(old.exists());
+
+    let apply = Command::new(binary)
+        .args([
+            "retention",
+            "--journal-dir",
+            &workspace.path().display().to_string(),
+            "--older-than-days",
+            "30",
+            "--apply",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(apply.status.success());
+    assert!(!old.exists());
+    assert!(new.exists());
+    assert!(workspace.path().join("retention-receipt.jsonl").exists());
+}
+
+#[test]
+fn provider_alerts_summarizes_the_alert_log() {
+    let workspace = tempfile::tempdir().unwrap();
+    let log = workspace.path().join("alerts.jsonl");
+    let records = [
+        serde_json::json!({
+            "alert_id": "a1", "at_ms": 1, "kind": "provider_health",
+            "provider_id": "deepseek", "model": "flash",
+            "observed": 2, "threshold": 2, "message": "down"
+        }),
+        serde_json::json!({
+            "alert_id": "a2", "at_ms": 2, "kind": "provider_health",
+            "provider_id": "deepseek", "model": "flash",
+            "observed": 3, "threshold": 2, "message": "still down"
+        }),
+    ];
+    let mut text = String::new();
+    for record in records {
+        text.push_str(&serde_json::to_string(&record).unwrap());
+        text.push('\n');
+    }
+    std::fs::write(&log, text).unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args([
+            "provider-alerts",
+            "--alert-log",
+            &log.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["alerts"].as_u64(), Some(2));
+    assert_eq!(value["groups"][0]["count"].as_u64(), Some(2));
+}
+
+#[test]
+fn notify_sends_a_loopback_webhook() {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0u8; 8192];
+        let bytes = stream.read(&mut buffer).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            .unwrap();
+        String::from_utf8_lossy(&buffer[..bytes]).to_string()
+    });
+
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args([
+            "notify",
+            "--webhook",
+            &format!("http://{address}/"),
+            "--message",
+            "hello-notify",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = server.join().unwrap();
+    assert!(request.contains("hello-notify"));
+}
+
+#[test]
+fn default_run_allows_execution_and_read_only_blocks_it() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let default_journal = workspace.path().join("default-journal");
+    let output = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "执行写入文件操作",
+            "--journal-dir",
+            &default_journal.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run: RunResult = serde_json::from_slice(&output.stdout).unwrap();
+    assert_ne!(run.stop_reason, StopReason::NeedsAuthorization);
+
+    let read_only_journal = workspace.path().join("read-only-journal");
+    let output = Command::new(binary)
+        .args([
+            "run",
+            "--read-only",
+            "--task",
+            "执行写入文件操作",
+            "--journal-dir",
+            &read_only_journal.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run: RunResult = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(run.stop_reason, StopReason::NeedsAuthorization);
+}
+
+#[test]
+fn skill_bundles_export_and_import_only_with_a_matching_sha256() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let store = workspace.path().join("skills.jsonl");
+    let bundle_path = workspace.path().join("bundle.json");
+
+    let body = "step one\nstep two";
+    let body_sha = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let bundle = serde_json::json!({
+        "schema_version": 1,
+        "skills": [{
+            "name": "release-check",
+            "description": "check release",
+            "version": "1.0.0",
+            "platforms": ["linux"],
+            "scope": "project",
+            "requires_tools": [],
+            "risk": "low",
+            "body": body,
+            "content_sha256": body_sha,
+        }]
+    });
+    let bundle_bytes = serde_json::to_vec_pretty(&bundle).unwrap();
+    std::fs::write(&bundle_path, &bundle_bytes).unwrap();
+    let bundle_sha = format!("{:x}", Sha256::digest(&bundle_bytes));
+
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &store.display().to_string(),
+            "--bundle",
+            &bundle_path.display().to_string(),
+            "--sha256",
+            &bundle_sha,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["imported"], 1);
+    assert_eq!(report["skipped"], 0);
+
+    let exported_path = workspace.path().join("exported.json");
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "export",
+            "--store",
+            &store.display().to_string(),
+            "--out",
+            &exported_path.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let exported: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(exported["skills"], 1);
+    let exported_bytes = std::fs::read(&exported_path).unwrap();
+    assert_eq!(
+        exported["sha256"],
+        format!("{:x}", Sha256::digest(&exported_bytes))
+    );
+
+    let tampered_store = workspace.path().join("tampered.jsonl");
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &tampered_store.display().to_string(),
+            "--bundle",
+            &bundle_path.display().to_string(),
+            "--sha256",
+            &"0".repeat(64),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("sha256 mismatch"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!tampered_store.exists());
+}
+
+#[test]
+fn routine_skill_is_gated_by_activation_and_composed_by_the_daemon() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let store = workspace.path().join("skills.jsonl");
+    let bundle_path = workspace.path().join("routine.json");
+    let schedules = workspace.path().join("schedules.json");
+    let journals = workspace.path().join("routine-journals");
+
+    let body = "ROUTINE_MARKER: always report the check result.";
+    let bundle = serde_json::json!({
+        "schema_version": 1,
+        "skills": [{
+            "name": "routine-demo",
+            "description": "routine demo",
+            "version": "1.0.0",
+            "platforms": ["linux"],
+            "scope": "project",
+            "requires_tools": [],
+            "risk": "low",
+            "body": body,
+            "content_sha256": format!("{:x}", Sha256::digest(body.as_bytes())),
+        }]
+    });
+    let bundle_bytes = serde_json::to_vec_pretty(&bundle).unwrap();
+    std::fs::write(&bundle_path, &bundle_bytes).unwrap();
+    let bundle_sha = format!("{:x}", Sha256::digest(&bundle_bytes));
+
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &store.display().to_string(),
+            "--bundle",
+            &bundle_path.display().to_string(),
+            "--sha256",
+            &bundle_sha,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = Command::new(binary)
+        .args([
+            "run",
+            "--routine-skill",
+            "routine-demo@1.0.0",
+            "--task",
+            "check the build",
+            "--journal-dir",
+            &workspace
+                .path()
+                .join("inactive-journal")
+                .display()
+                .to_string(),
+            "--json",
+        ])
+        .env("ONEAGENT_SKILL_JOURNAL", &store)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("has no active version"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "activate",
+            "--store",
+            &store.display().to_string(),
+            "--name",
+            "routine-demo",
+            "--version",
+            "1.0.0",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "routine-job",
+            "--task",
+            "check the build",
+            "--every-seconds",
+            "3600",
+            "--start-now",
+            "--routine-skill",
+            "routine-demo@1.0.0",
+            "--store",
+            &schedules.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let job: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(job["routine_skill"], "routine-demo@1.0.0");
+    let job_id = job["id"].as_str().unwrap().to_string();
+
+    let output = Command::new(binary)
+        .env_remove("AGENT_BASE_URL")
+        .env_remove("AGENT_MODEL")
+        .env_remove("AGENT_API_KEY")
+        .env("ONEAGENT_SKILL_JOURNAL", &store)
+        .args([
+            "daemon",
+            "--store",
+            &schedules.display().to_string(),
+            "--journal-dir",
+            &journals.display().to_string(),
+            "--once",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let mut journal_files = Vec::new();
+    for entry in std::fs::read_dir(&journals).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            for child in std::fs::read_dir(&path).unwrap() {
+                let child = child.unwrap().path();
+                if child.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+                    journal_files.push(child);
+                }
+            }
+        }
+    }
+    assert_eq!(journal_files.len(), 1, "{journal_files:?}");
+    let first_line = std::fs::read_to_string(&journal_files[0])
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string();
+    let event: serde_json::Value = serde_json::from_str(&first_line).unwrap();
+    assert_eq!(event["event"]["type"], "run_started");
+    let objective = event["event"]["data"]["request"]["objective"]
+        .as_str()
+        .unwrap();
+    assert!(objective.contains("## Routine: routine-demo 1.0.0"));
+    assert!(objective.contains(body));
+    assert!(objective.contains("## Task\ncheck the build"));
+
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&schedules).unwrap()).unwrap();
+    let updated = state["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|job| job["id"] == job_id.as_str())
+        .unwrap();
+    assert!(updated["last_status"].is_string());
+}
+
+#[test]
+fn daemon_catches_up_an_overdue_job_after_restart_and_health_reports_it() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let store = workspace.path().join("schedules.json");
+    let journals = workspace.path().join("restart-journals");
+
+    let output = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "restart-job",
+            "--task",
+            "用一句话回答 1+1",
+            "--every-seconds",
+            "3600",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let job: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let job_id = job["id"].as_str().unwrap().to_string();
+    assert!(job["last_run_ms"].is_null());
+
+    // Simulate downtime: the persisted next run passed while no daemon ran.
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    state["jobs"][0]["next_run_ms"] = serde_json::json!(0);
+    std::fs::write(&store, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+
+    let output = Command::new(binary)
+        .args([
+            "schedule",
+            "health",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let health: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(health[0]["state"], "overdue");
+
+    let output = Command::new(binary)
+        .env_remove("AGENT_BASE_URL")
+        .env_remove("AGENT_MODEL")
+        .env_remove("AGENT_API_KEY")
+        .args([
+            "daemon",
+            "--store",
+            &store.display().to_string(),
+            "--journal-dir",
+            &journals.display().to_string(),
+            "--once",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    let updated = state["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|job| job["id"] == job_id.as_str())
+        .unwrap();
+    assert!(!updated["last_run_ms"].is_null());
+    assert!(updated["next_run_ms"].as_u64().unwrap() > 0);
+
+    let output = Command::new(binary)
+        .args([
+            "schedule",
+            "health",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let health: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_ne!(health[0]["state"], "overdue");
+}
+
+#[test]
+fn notify_sends_slack_and_discord_payload_shapes() {
+    use std::io::{Read, Write};
+
+    fn capture(listener: std::net::TcpListener) -> std::thread::JoinHandle<String> {
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 8192];
+            let bytes = stream.read(&mut buffer).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .unwrap();
+            String::from_utf8_lossy(&buffer[..bytes]).to_string()
+        })
+    }
+
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    for (format, marker) in [("slack", "\"text\""), ("discord", "\"content\"")] {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = capture(listener);
+        let output = Command::new(binary)
+            .args([
+                "notify",
+                "--webhook",
+                &format!("http://{address}/"),
+                "--message",
+                "format-check",
+                "--format",
+                format,
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let request = server.join().unwrap();
+        assert!(request.contains(marker), "request: {request}");
+        assert!(request.contains("format-check"));
+        assert!(!request.contains("alert_id"), "request: {request}");
+    }
+}
+
+#[test]
+fn daemon_alerts_when_a_scheduled_run_fails() {
+    use std::io::{Read, Write};
+
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let store = workspace.path().join("schedules.json");
+    let journals = workspace.path().join("alert-journals");
+    let alerts = workspace.path().join("alerts.jsonl");
+    let missing_workspace = workspace.path().join("missing-workspace");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for _ in 0..500 {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0u8; 8192];
+                    let bytes = stream.read(&mut buffer).unwrap();
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                        .unwrap();
+                    return String::from_utf8_lossy(&buffer[..bytes]).to_string();
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept failed: {error}"),
+            }
+        }
+        panic!("daemon did not send a webhook alert");
+    });
+
+    let output = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "broken-job",
+            "--task",
+            "should never run",
+            "--every-seconds",
+            "3600",
+            "--workspace",
+            &missing_workspace.display().to_string(),
+            "--start-now",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = Command::new(binary)
+        .env_remove("AGENT_BASE_URL")
+        .env_remove("AGENT_MODEL")
+        .env_remove("AGENT_API_KEY")
+        .args([
+            "daemon",
+            "--store",
+            &store.display().to_string(),
+            "--journal-dir",
+            &journals.display().to_string(),
+            "--once",
+            "--alert-webhook",
+            &format!("http://{address}/"),
+            "--alert-log",
+            &alerts.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let request = server.join().unwrap();
+    assert!(
+        request.contains("schedule_run_failed"),
+        "request: {request}"
+    );
+    assert!(request.contains("broken-job"), "request: {request}");
+
+    let alert_log = std::fs::read_to_string(&alerts).unwrap();
+    assert!(alert_log.contains("schedule_run_failed"));
+    assert!(alert_log.contains("broken-job"));
+
+    let state: serde_json::Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
+    assert_eq!(state["jobs"][0]["last_status"], "failed");
+}
+
+#[test]
+fn dashboard_renders_usage_health_and_escaped_alerts() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let journal_dir = workspace.path().join("journals");
+    let store = workspace.path().join("schedules.json");
+    let alert_log = workspace.path().join("alerts.jsonl");
+    let out = workspace.path().join("dashboard.html");
+
+    let run = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "用一句话回答 1+1",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(run.status.success());
+
+    let add = Command::new(binary)
+        .args([
+            "schedule",
+            "add",
+            "--name",
+            "dashboard-job",
+            "--task",
+            "用一句话回答 2+2",
+            "--every-seconds",
+            "60",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(add.status.success());
+
+    let alert = serde_json::json!({
+        "alert_id": "alert-1",
+        "at_ms": 1,
+        "kind": "provider_latency",
+        "provider_id": "p",
+        "model": "m",
+        "observed": 10,
+        "threshold": 5,
+        "message": "<script>alert(1)</script>",
+    });
+    std::fs::write(&alert_log, format!("{alert}\n")).unwrap();
+
+    let output = Command::new(binary)
+        .args([
+            "dashboard",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--schedule-store",
+            &store.display().to_string(),
+            "--alert-log",
+            &alert_log.display().to_string(),
+            "--out",
+            &out.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["jobs"], 1);
+    assert_eq!(summary["alerts"], 1);
+
+    let html = std::fs::read_to_string(&out).unwrap();
+    assert!(html.contains("1Agent 运行看板"));
+    assert!(html.contains("按任务"));
+    assert!(html.contains("计划健康"));
+    assert!(html.contains("dashboard-job"));
+    assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!html.contains("<script>"));
+    assert!(html.contains("Content-Security-Policy"));
+}
+
+#[test]
+fn signed_skill_bundles_verify_against_a_trusted_public_key() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let source_store = workspace.path().join("source.jsonl");
+    let bundle_path = workspace.path().join("unsigned.json");
+    let signed_path = workspace.path().join("signed.json");
+    let private_key = workspace.path().join("signing.key");
+    let public_key = workspace.path().join("signing.pub");
+
+    let body = "signed body";
+    let bundle = serde_json::json!({
+        "schema_version": 1,
+        "skills": [{
+            "name": "signed-skill",
+            "description": "signed demo",
+            "version": "1.0.0",
+            "platforms": ["linux"],
+            "scope": "project",
+            "requires_tools": [],
+            "risk": "low",
+            "body": body,
+            "content_sha256": format!("{:x}", Sha256::digest(body.as_bytes())),
+        }]
+    });
+    let bytes = serde_json::to_vec_pretty(&bundle).unwrap();
+    std::fs::write(&bundle_path, &bytes).unwrap();
+    let sha = format!("{:x}", Sha256::digest(&bytes));
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &source_store.display().to_string(),
+            "--bundle",
+            &bundle_path.display().to_string(),
+            "--sha256",
+            &sha,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "keygen",
+            "--private-key",
+            &private_key.display().to_string(),
+            "--public-key",
+            &public_key.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let keys: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(keys["public_key"].as_str().unwrap().len(), 64);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&private_key)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "export",
+            "--store",
+            &source_store.display().to_string(),
+            "--out",
+            &signed_path.display().to_string(),
+            "--signing-key",
+            &private_key.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let exported: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let signed: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&signed_path).unwrap()).unwrap();
+    assert_eq!(signed["signature"]["algorithm"], "ed25519");
+    assert_eq!(signed["signature"]["public_key"], keys["public_key"]);
+
+    let target_store = workspace.path().join("target.jsonl");
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &target_store.display().to_string(),
+            "--bundle",
+            &signed_path.display().to_string(),
+            "--sha256",
+            exported["sha256"].as_str().unwrap(),
+            "--public-key",
+            &public_key.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["imported"], 1);
+
+    let no_key_store = workspace.path().join("no-key.jsonl");
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &no_key_store.display().to_string(),
+            "--bundle",
+            &signed_path.display().to_string(),
+            "--sha256",
+            exported["sha256"].as_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("provide the trusted public key"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!no_key_store.exists());
+
+    let mut tampered = signed.clone();
+    let signature = tampered["signature"]["signature"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first = if signature.starts_with('0') { '1' } else { '0' };
+    tampered["signature"]["signature"] = format!("{first}{}", &signature[1..]).into();
+    let tampered_bytes = serde_json::to_vec_pretty(&tampered).unwrap();
+    let tampered_path = workspace.path().join("tampered.json");
+    std::fs::write(&tampered_path, &tampered_bytes).unwrap();
+    let tampered_sha = format!("{:x}", Sha256::digest(&tampered_bytes));
+    let tampered_store = workspace.path().join("tampered.jsonl");
+    let output = Command::new(binary)
+        .args([
+            "skill",
+            "import",
+            "--store",
+            &tampered_store.display().to_string(),
+            "--bundle",
+            &tampered_path.display().to_string(),
+            "--sha256",
+            &tampered_sha,
+            "--public-key",
+            &public_key.display().to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("signature is invalid"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
