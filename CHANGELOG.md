@@ -406,9 +406,9 @@
   environment-only bearer token, no token/endpoint echo. Status/OK/ERROR map to
   OTLP codes 1/2; attributes are string values. This is a wire adapter, not an
   OTel SDK/gRPC exporter (ADR-0082).
-- Tests: two `otel_export_cli` e2e tests cover the envelope shape and
-  environment-only auth, missing token and insecure endpoint
-  (`cargo test --test otel_export_cli`).
+- Tests: four `otel_export_cli` e2e tests cover the envelope shape,
+  environment-only auth, missing token, insecure endpoint, redirect refusal and
+  a non-2xx collector response (`cargo test --test otel_export_cli`).
 - Inbox reopen: `1agent inbox reopen --store PATH --item-id ID [--json]`
   returns an open/snoozed item to open, cancelling a snooze; terminal items
   still fail closed. The TUI `/inbox reopen <id>` uses the same action parser
