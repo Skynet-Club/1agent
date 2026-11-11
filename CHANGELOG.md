@@ -237,6 +237,12 @@
   it. The Agent Card moves team collaboration from unsupported to degraded.
 - Tests: four handoff unit tests plus two `handoff_cli` e2e tests
   (`cargo test handoff --lib`, `cargo test --test handoff_cli`).
+- Handoff inbox projection (ADR-0069): `project_handoffs` maps open handoffs
+  addressed to the recipient to `review` items with `handoff:<id>`;
+  `inbox sync --handoff-store PATH --recipient NAME` merges them with the same
+  dry-run/dedupe contract as the other projections. It never accepts a handoff.
+- Tests: one inbox unit test plus two `handoff_inbox_cli` e2e tests
+  (`cargo test inbox --lib`, `cargo test --test handoff_inbox_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
