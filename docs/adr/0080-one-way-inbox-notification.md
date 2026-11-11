@@ -25,9 +25,10 @@ open inbox queue to a chat webhook.
    watermark, nothing is sent. The full open queue is posted when at least one
    item is newer; the watermark advances only after a successful send.
 6. `1agent inbox-notify --store PATH --webhook URL [--format ...]
-   [--state PATH] [--log PATH]` exposes it. `--log` appends one JSONL receipt
-   per successful send (time/open/new_items/format); the URL is not stored. It
-   does not read replies or mark items.
+   [--state PATH] [--log PATH] [--dry-run]` exposes it. `--log` appends one
+   JSONL receipt per successful send (time/open/new_items/format); the URL is
+   not stored. `--dry-run` reports open/new counts without sending, writing a
+   receipt or advancing the watermark. It does not read replies or mark items.
 7. This is one-way presence. The existing `notify` command still sends one
    operator message; full chat transports remain future work.
 

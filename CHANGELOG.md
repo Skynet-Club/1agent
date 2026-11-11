@@ -299,6 +299,10 @@
   NAME` adds `handoffs_open`; the recipient requires the store.
 - Tests: one `value_report_cli` handoff test
   (`cargo test --test value_report_cli`).
+- Inbox notification dry-run: `inbox-notify --dry-run` reports open/new counts
+  without calling the webhook, writing receipts or advancing the watermark.
+- Tests: one `inbox_notify_cli` dry-run test
+  (`cargo test --test inbox_notify_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

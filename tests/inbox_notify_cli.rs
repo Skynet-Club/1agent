@@ -136,6 +136,53 @@ fn inbox_notify_posts_open_items_to_a_slack_webhook() {
 }
 
 #[test]
+fn inbox_notify_dry_run_does_not_send() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("inbox.jsonl");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    for title in ["first", "second"] {
+        let added = Command::new(bin)
+            .args(["inbox", "add", "--store"])
+            .arg(&store)
+            .args(["--kind", "notify", "--title", title])
+            .output()
+            .unwrap();
+        assert!(added.status.success());
+    }
+    let output = Command::new(bin)
+        .args(["inbox-notify", "--store"])
+        .arg(&store)
+        .args([
+            "--webhook",
+            "http://127.0.0.1:9/hook",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["sent"], false);
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["open"], 2);
+    assert_eq!(report["new_items"], 2);
+
+    let state = workspace.path().join("state.json");
+    std::fs::write(&state, br#"{"last_sent_ms":9999999999999}"#).unwrap();
+    let suppressed = Command::new(bin)
+        .args(["inbox-notify", "--store"])
+        .arg(&store)
+        .args(["--webhook", "http://127.0.0.1:9/hook", "--state"])
+        .arg(&state)
+        .args(["--dry-run", "--json"])
+        .output()
+        .unwrap();
+    assert!(suppressed.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&suppressed.stdout).unwrap();
+    assert_eq!(report["new_items"], 0);
+}
+
+#[test]
 fn inbox_notify_skips_empty_queues_and_rejects_insecure_urls() {
     let workspace = tempfile::tempdir().unwrap();
     let store = workspace.path().join("inbox.jsonl");

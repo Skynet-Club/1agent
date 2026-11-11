@@ -505,6 +505,9 @@ enum Command {
         /// Append one JSONL receipt per successful send.
         #[arg(long)]
         log: Option<PathBuf>,
+        /// Report what would be sent without calling the webhook.
+        #[arg(long)]
+        dry_run: bool,
         #[arg(long)]
         json: bool,
     },
@@ -5473,6 +5476,7 @@ async fn main() -> Result<()> {
             format,
             state,
             log,
+            dry_run,
             json,
         } => {
             let format: first_principles_agent::alerts::WebhookFormat =
@@ -5481,7 +5485,25 @@ async fn main() -> Result<()> {
                 first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
             let store = first_principles_agent::InboxStore::open(store)?;
             let items = store.open_sorted(current_time_ms());
-            let outcome = if let Some(path) = state {
+            let outcome = if dry_run {
+                let new_items = match &state {
+                    Some(path) => {
+                        let state = first_principles_agent::notify::NotifyState::open(path)?;
+                        items
+                            .iter()
+                            .filter(|item| item.updated_ms > state.last_sent_ms)
+                            .count()
+                    }
+                    None => items.len(),
+                };
+                first_principles_agent::notify::NotifyOutcome {
+                    sent: false,
+                    open: items.len(),
+                    new_items,
+                    last_sent_ms: None,
+                    dry_run: true,
+                }
+            } else if let Some(path) = state {
                 let mut state = first_principles_agent::notify::NotifyState::open(&path)?;
                 let outcome = first_principles_agent::notify::notify_inbox_if_new(
                     &notifier,
@@ -5501,6 +5523,7 @@ async fn main() -> Result<()> {
                     open: items.len(),
                     new_items: if sent { items.len() } else { 0 },
                     last_sent_ms: None,
+                    dry_run: false,
                 }
             };
             if outcome.sent
@@ -5521,6 +5544,11 @@ async fn main() -> Result<()> {
             } else if outcome.sent {
                 println!(
                     "sent {} open inbox item(s) ({} new)",
+                    outcome.open, outcome.new_items
+                );
+            } else if outcome.dry_run {
+                println!(
+                    "dry-run: would send {} open item(s) ({} new)",
                     outcome.open, outcome.new_items
                 );
             } else if outcome.open == 0 {
