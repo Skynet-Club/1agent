@@ -302,6 +302,14 @@ enum Command {
     AgentCard {
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        generate_key: bool,
+        #[arg(long, value_name = "PKCS8_HEX")]
+        sign_key: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        verify: Option<PathBuf>,
+        #[arg(long, value_name = "HEX")]
+        trusted_key: Option<String>,
     },
     Dashboard {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
@@ -2794,24 +2802,70 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::AgentCard { json } => {
-            let card = first_principles_agent::build_card(env!("CARGO_PKG_VERSION"));
-            if json {
-                println!("{}", serde_json::to_string_pretty(&card)?);
-            } else {
-                println!("1Agent Agent Card");
-                println!("version: {} platform: {}", card.version, card.platform);
-                for capability in &card.capabilities {
+        Command::AgentCard {
+            json,
+            generate_key,
+            sign_key,
+            verify,
+            trusted_key,
+        } => {
+            if generate_key {
+                let (private_key, public_key) = first_principles_agent::generate_signing_key()?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "private_key_pkcs8_hex": private_key,
+                        "public_key_hex": public_key,
+                    }))?
+                );
+            } else if let Some(path) = verify {
+                let Some(trusted_key) = trusted_key.as_deref() else {
+                    anyhow::bail!("--trusted-key is required with --verify");
+                };
+                let raw = std::fs::read_to_string(&path)?;
+                let card: first_principles_agent::AgentCard = serde_json::from_str(&raw)?;
+                first_principles_agent::verify_card(&card, trusted_key)?;
+                if json {
                     println!(
-                        "- {}: {} ({})",
-                        capability.id,
-                        capability.status.as_str(),
-                        capability.note
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "verified": true,
+                            "name": card.name,
+                            "version": card.version,
+                        }))?
                     );
+                } else {
+                    println!("verified: {} {}", card.name, card.version);
                 }
-                println!("limits:");
-                for limit in &card.limits {
-                    println!("- {limit}");
+            } else {
+                if trusted_key.is_some() {
+                    anyhow::bail!("--trusted-key requires --verify");
+                }
+                let mut card = first_principles_agent::build_card(env!("CARGO_PKG_VERSION"));
+                if let Some(key) = sign_key {
+                    first_principles_agent::sign_card(&mut card, &key)?;
+                }
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&card)?);
+                } else {
+                    println!("1Agent Agent Card");
+                    println!("version: {} platform: {}", card.version, card.platform);
+                    for capability in &card.capabilities {
+                        println!(
+                            "- {}: {} ({})",
+                            capability.id,
+                            capability.status.as_str(),
+                            capability.note
+                        );
+                    }
+                    println!("limits:");
+                    for limit in &card.limits {
+                        println!("- {limit}");
+                    }
+                    if let Some(signature) = &card.signature {
+                        println!("signature: {}", signature.signature);
+                        println!("public_key: {}", signature.public_key);
+                    }
                 }
             }
         }

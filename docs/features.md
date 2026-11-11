@@ -66,7 +66,7 @@
 - 自治档位策略：`1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`；observe/suggest 不行动；act 仅低风险可逆；auto 允许低/中风险可逆；高风险/不可逆需审批（显式批准除外）。偏好不是授权；
 - Onboarding v0：`1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` 写入普通 memory 记录并回显 `UserModel`；非法值失败关闭；`--goal/--commitment` 可写入首个目标/承诺，随后 `inbox sync` 可投影；`--interactive` 从 stdin 读取 voice/goal/commitment/boundary（提示走 stderr，空行保留 flag）；还不是完整访谈/上下文导入，memory 与 goal 写入非原子；
 - TUI `/inbox`：列出 open / due-snoozed 项（kind/status/title/why_now）；支持 `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]` 与 `/inbox snooze <id> <until_ms>`，与 CLI 共用解析/应用契约；
-- Agent Card v0：`1agent agent-card [--json]` 输出 schema/version/platform/能力状态/限制；`GET /v0/agent-card` 以公开只读方式提供同一 payload；平台能力取平台注册表，unsupported/untested 不得标为 verified；本地未签名，尚非 A2A registry-signed 卡；
+- Agent Card v0：`1agent agent-card [--json]` 输出 schema/version/platform/能力状态/限制；`GET /v0/agent-card` 以公开只读方式提供同一 payload；平台能力取平台注册表，unsupported/untested 不得标为 verified；`--generate-key` 生成 Ed25519 密钥，`--sign-key` 对卡签名，`--verify PATH --trusted-key HEX` 用信任公钥验签；篡改、错钥、未签名均拒绝；签名是本地可信声明，尚非 A2A registry/MD 发现；
 - Tool search：`1agent tools --query TEXT [--json]` 按名称/前缀/描述/参数名确定性排序；`1agent run --tool-query TEXT` 将模型可见工具限制为 top 8 + always-on（read_file/write_file/edit_file/terminal_exec），选择结果写入 journal；无 query 时保持全量；
 - CUA 策略：`1agent cua-check` 按参数来源（plan/trusted/untrusted）、风险、可逆性与 planned branch 输出 allow/require_approval/deny；高风险 + untrusted → deny；planner 不看 untrusted；未规划 branch → deny。仅策略，无浏览器执行；
 - Cascade 遏制：`1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` 计算 affected/contained/propagated、containment_rate_bps、cascade_depth、blast_radius，并按策略门禁；确定性模拟，不是真实多 Agent 运行；

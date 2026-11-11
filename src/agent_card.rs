@@ -5,11 +5,26 @@
 //! registry where the platform is the constraint; core capabilities reflect
 //! the contract tests in this repository.
 
+use ring::rand::SystemRandom;
+use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::platform::{self, CapabilityStatus};
 
 pub const SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Error)]
+pub enum AgentCardError {
+    #[error("agent card signing key is invalid: {0}")]
+    InvalidKey(String),
+    #[error("agent card signature is invalid: {0}")]
+    InvalidSignature(String),
+    #[error("agent card is unsigned")]
+    Unsigned,
+    #[error("agent card JSON is invalid: {0}")]
+    Json(#[from] serde_json::Error),
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -17,6 +32,14 @@ pub struct CardCapability {
     pub id: String,
     pub status: CapabilityStatus,
     pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CardSignature {
+    pub algorithm: String,
+    pub public_key: String,
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -29,6 +52,8 @@ pub struct AgentCard {
     pub platform: String,
     pub capabilities: Vec<CardCapability>,
     pub limits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<CardSignature>,
 }
 
 pub fn build_card(version: &str) -> AgentCard {
@@ -97,6 +122,11 @@ pub fn build_card(version: &str) -> AgentCard {
                 "repair plans, receipts and away digest",
             ),
             capability(
+                "signed_agent_card",
+                CapabilityStatus::Verified,
+                "Ed25519 signing and trusted-key verification",
+            ),
+            capability(
                 "computer_use",
                 platform_status("computer_use"),
                 "status comes from the platform registry",
@@ -129,7 +159,77 @@ pub fn build_card(version: &str) -> AgentCard {
             "No claim of calibrated confidence or model-quality generalization.".into(),
             "Autonomy is a preference; Authority/Policy/ExecutionGate still decide execution.".into(),
         ],
+        signature: None,
     }
+}
+
+pub fn generate_signing_key() -> Result<(String, String), AgentCardError> {
+    let rng = SystemRandom::new();
+    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng)
+        .map_err(|_| AgentCardError::InvalidKey("cannot generate key".into()))?;
+    let key = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+        .map_err(|_| AgentCardError::InvalidKey("generated key cannot be parsed".into()))?;
+    Ok((
+        hex::encode(pkcs8.as_ref()),
+        hex::encode(key.public_key().as_ref()),
+    ))
+}
+
+pub fn sign_card(card: &mut AgentCard, pkcs8_hex: &str) -> Result<(), AgentCardError> {
+    let bytes = hex::decode(pkcs8_hex.trim())
+        .map_err(|_| AgentCardError::InvalidKey("private key is not hex".into()))?;
+    let key = Ed25519KeyPair::from_pkcs8(&bytes)
+        .map_err(|_| AgentCardError::InvalidKey("private key is not valid PKCS#8".into()))?;
+    let payload = signing_payload(card)?;
+    let signature = key.sign(&payload);
+    card.signature = Some(CardSignature {
+        algorithm: "ed25519".into(),
+        public_key: hex::encode(key.public_key().as_ref()),
+        signature: hex::encode(signature.as_ref()),
+    });
+    Ok(())
+}
+
+pub fn verify_card(card: &AgentCard, trusted_public_key_hex: &str) -> Result<(), AgentCardError> {
+    let Some(signature) = &card.signature else {
+        return Err(AgentCardError::Unsigned);
+    };
+    if signature.algorithm != "ed25519" {
+        return Err(AgentCardError::InvalidSignature(
+            "unsupported algorithm".into(),
+        ));
+    }
+    let trusted = hex::decode(trusted_public_key_hex.trim())
+        .map_err(|_| AgentCardError::InvalidKey("public key is not hex".into()))?;
+    if trusted.len() != 32 {
+        return Err(AgentCardError::InvalidKey(
+            "public key must be 32 bytes".into(),
+        ));
+    }
+    let embedded = hex::decode(signature.public_key.trim())
+        .map_err(|_| AgentCardError::InvalidSignature("public key is not hex".into()))?;
+    if embedded != trusted {
+        return Err(AgentCardError::InvalidSignature(
+            "public key does not match the trusted key".into(),
+        ));
+    }
+    let signature_bytes = hex::decode(signature.signature.trim())
+        .map_err(|_| AgentCardError::InvalidSignature("signature is not hex".into()))?;
+    if signature_bytes.len() != 64 {
+        return Err(AgentCardError::InvalidSignature(
+            "signature must be 64 bytes".into(),
+        ));
+    }
+    let payload = signing_payload(card)?;
+    UnparsedPublicKey::new(&ED25519, trusted)
+        .verify(&payload, &signature_bytes)
+        .map_err(|_| AgentCardError::InvalidSignature("signature does not verify".into()))
+}
+
+fn signing_payload(card: &AgentCard) -> Result<Vec<u8>, AgentCardError> {
+    let mut unsigned = card.clone();
+    unsigned.signature = None;
+    Ok(serde_json::to_vec(&unsigned)?)
 }
 
 fn capability(id: &str, status: CapabilityStatus, note: &str) -> CardCapability {
@@ -165,6 +265,38 @@ mod tests {
         let encoded = serde_json::to_string(&card).unwrap();
         let decoded: AgentCard = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, card);
+    }
+
+    #[test]
+    fn signed_card_verifies_with_the_trusted_key() {
+        let (private_key, public_key) = generate_signing_key().unwrap();
+        let mut card = build_card("0.97.0");
+        sign_card(&mut card, &private_key).unwrap();
+        assert!(card.signature.is_some());
+        verify_card(&card, &public_key).unwrap();
+
+        let encoded = serde_json::to_string(&card).unwrap();
+        let decoded: AgentCard = serde_json::from_str(&encoded).unwrap();
+        verify_card(&decoded, &public_key).unwrap();
+    }
+
+    #[test]
+    fn tampering_and_wrong_keys_are_rejected() {
+        let (private_key, public_key) = generate_signing_key().unwrap();
+        let (_, other_public_key) = generate_signing_key().unwrap();
+        let mut card = build_card("0.97.0");
+        sign_card(&mut card, &private_key).unwrap();
+
+        let mut tampered = card.clone();
+        tampered.version = "9.9.9".into();
+        assert!(verify_card(&tampered, &public_key).is_err());
+        assert!(verify_card(&card, &other_public_key).is_err());
+
+        let unsigned = build_card("0.97.0");
+        assert!(matches!(
+            verify_card(&unsigned, &public_key),
+            Err(AgentCardError::Unsigned)
+        ));
     }
 
     #[test]
