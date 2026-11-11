@@ -69,7 +69,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - Tool search: `1agent tools --query TEXT [--json]` ranks tools deterministically by name/prefix/description/parameter names; `1agent run --tool-query TEXT` limits the model-visible tools to the top 8 plus always-on (`read_file`, `write_file`, `edit_file`, `terminal_exec`) and journals the selection; without a query the full list is used;
 - CUA policy: `1agent cua-check` evaluates argument provenance (plan/trusted/untrusted), risk, reversibility and the planned branch into allow/require_approval/deny; high risk + untrusted → deny; the planner must not see untrusted content; an unplanned branch → deny. Policy only; no browser execution;
 - Cascade containment: `1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` computes affected/contained/propagated, containment_rate_bps, cascade_depth and blast_radius, then gates them against a policy. Deterministic simulation, not a live multi-agent run;
-- Budget policy: `1agent budget-check` enforces hard limits on cost/tokens/tool calls (exceeded fails, 80% warns); `--verified-outcomes` reports cost per verified outcome; an exceeded budget exits non-zero. `1agent run --max-cost-micros/--max-tokens` accumulates provider usage at runtime and stops with `BudgetExhausted` when either limit is exceeded.
+- Budget policy: `1agent budget-check` enforces hard limits on cost/tokens/tool calls (exceeded fails, 80% warns); `--verified-outcomes` reports cost per verified outcome; an exceeded budget exits non-zero. `1agent run --max-cost-micros/--max-tokens` accumulates provider usage at runtime and stops with `BudgetExhausted` when either limit is exceeded;
+- OTel GenAI projection: `1agent otel --journal PATH [--json]` projects deterministic spans (invoke_agent / chat / execute_tool) with provider/model/token/cost attributes; it is a JSON projection, not a full OTel SDK/exporter.
 
 ### 2.4 Local memory (available, RC)
 

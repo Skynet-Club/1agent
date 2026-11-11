@@ -70,7 +70,8 @@
 - Tool search：`1agent tools --query TEXT [--json]` 按名称/前缀/描述/参数名确定性排序；`1agent run --tool-query TEXT` 将模型可见工具限制为 top 8 + always-on（read_file/write_file/edit_file/terminal_exec），选择结果写入 journal；无 query 时保持全量；
 - CUA 策略：`1agent cua-check` 按参数来源（plan/trusted/untrusted）、风险、可逆性与 planned branch 输出 allow/require_approval/deny；高风险 + untrusted → deny；planner 不看 untrusted；未规划 branch → deny。仅策略，无浏览器执行；
 - Cascade 遏制：`1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` 计算 affected/contained/propagated、containment_rate_bps、cascade_depth、blast_radius，并按策略门禁；确定性模拟，不是真实多 Agent 运行；
-- 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。`1agent run --max-cost-micros/--max-tokens` 在运行时累计 provider usage，超限以 `BudgetExhausted` 停止。
+- 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。`1agent run --max-cost-micros/--max-tokens` 在运行时累计 provider usage，超限以 `BudgetExhausted` 停止；
+- OTel GenAI 投影：`1agent otel --journal PATH [--json]` 从 journal 生成确定性 spans（invoke_agent / chat / execute_tool），带 provider/model/token/cost 属性；是 JSON 投影，不是完整 OTel SDK/exporter。
 
 ### 2.4 本地记忆（可用，RC）
 
