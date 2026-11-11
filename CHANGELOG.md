@@ -394,6 +394,13 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Receipt index: `receipt-index --journal-dir DIR [--json]` scans decision
+  journals and lists run id, journal, stated request, choice, actor and
+  decision time, newest first, capped at 200. Missing or unrelated journals
+  are skipped. This is the CLI retrieval path; TUI `/receipt` remains future
+  work.
+- Tests: two `receipt_index_cli` e2e tests cover newest-first ordering and a
+  missing directory (`cargo test --test receipt_index_cli`).
 - Reframe repeat guard: `reframe` scans the newest 500 decision journals; if
   the same `stated_request` was rejected before, it reports
   `repeated_rejection` and does not call the model. `--force` overrides. The

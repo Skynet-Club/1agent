@@ -443,6 +443,62 @@ impl ReframeChoice {
 }
 
 /// The durable record a user can read months later. Plain text, no formatting.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReframeReceiptEntry {
+    pub run_id: String,
+    pub journal: std::path::PathBuf,
+    pub stated_request: String,
+    pub choice: ReframeChoice,
+    pub actor: String,
+    pub decided_at_unix_ms: u128,
+}
+
+/// Indexes reframe decisions across a journal directory, newest first and
+/// bounded to 200 entries. Unreadable or unrelated journals are skipped.
+pub fn decision_receipts(journal_dir: &std::path::Path) -> Vec<ReframeReceiptEntry> {
+    use crate::journal::{read_events, replay_events};
+    let mut entries = std::fs::read_dir(journal_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some(path)
+        })
+        .filter_map(|path| {
+            let events = read_events(&path).ok()?;
+            let state = replay_events(&events).ok()?;
+            let proposal = state.reframe_proposal?;
+            let choice = state.reframe_choice?;
+            Some(ReframeReceiptEntry {
+                run_id: state.run_id.to_string(),
+                journal: path,
+                stated_request: proposal.stated_request,
+                choice,
+                actor: state.reframe_actor.unwrap_or_default(),
+                decided_at_unix_ms: state.reframe_decided_at_unix_ms.unwrap_or(0),
+            })
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        right
+            .decided_at_unix_ms
+            .cmp(&left.decided_at_unix_ms)
+            .then_with(|| right.run_id.cmp(&left.run_id))
+    });
+    entries.truncate(200);
+    entries
+}
+
 /// Returns the newest decision journal where the same stated request was
 /// rejected. Unrelated or unreadable journals are skipped; the scan is bounded
 /// to 500 newest JSONL files.
