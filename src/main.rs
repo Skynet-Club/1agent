@@ -1538,6 +1538,15 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Return an open/snoozed item to open (for example, cancel a snooze).
+    Reopen {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        item_id: String,
+        #[arg(long)]
+        json: bool,
+    },
     Reconcile {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -5945,6 +5954,19 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&item)?);
                 } else {
                     println!("{} snoozed until {}", item.item_id, until_ms);
+                }
+            }
+            InboxCommand::Reopen {
+                store,
+                item_id,
+                json,
+            } => {
+                let mut store = first_principles_agent::InboxStore::open(store)?;
+                let item = store.reopen(&item_id, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&item)?);
+                } else {
+                    println!("{} -> {}", item.item_id, item.status.as_str());
                 }
             }
             InboxCommand::Reconcile {
