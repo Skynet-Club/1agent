@@ -60,7 +60,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - independent verification and hack-verifiable acceptance: executor ≠ verifier; a public pass with a hidden failure is `hacked`, not clean; reports expose `hacked_resolved_bps`;
 - Trust & Repair: the side-effect ledger projects to applied / compensated / failed / pending / needs_user; an applied reversible action without compensation fails closed; `1agent away-digest` shows what happened while you were away;
 - Value report v0: `1agent value-report` summarizes completed / blocked / failed / cancelled runs, tokens/cost, tool calls/failures, alerts and pending decisions; it reports reproducible outcomes and cost per completed outcome, not an invented time saving;
-- Partner voice: operator / advisor / companion; `--voice-mode` selects it; it changes how the answer speaks, not the evidence/authority/action rules; companion does not flatter or role-play.
+- Partner voice: operator / advisor / companion; `--voice-mode` selects it; it changes how the answer speaks, not the evidence/authority/action rules; companion does not flatter or role-play;
+- Agent Inbox domain layer: notify / question / review items; append-only JSONL snapshots; snooze and approve/reject/answer/dismiss state machine; terminal statuses cannot transition; duplicate ids, empty fields and invalid snoozes fail closed. CLI/TUI and source projections are the next slice.
 
 ### 2.4 Local memory (available, RC)
 
