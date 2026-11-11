@@ -56,7 +56,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - AuthorityProfile / PolicyEngine / ExecutionGate;
 - one-time approvals, standing approvals and a side-effect ledger;
 - retry, takeover, cancel, compensation and reconciliation;
-- unauthorized actions are rejected before tool execution.
+- unauthorized actions are rejected before tool execution;
+- independent verification and hack-verifiable acceptance: executor ≠ verifier; a public pass with a hidden failure is `hacked`, not clean; reports expose `hacked_resolved_bps`.
 
 ### 2.4 Local memory (available, RC)
 

@@ -57,7 +57,8 @@
 - AuthorityProfile / PolicyEngine / ExecutionGate；
 - 一次性 Approval、StandingApproval、SideEffect 账本；
 - 重试、接管、取消、补偿、对账；
-- 未授权动作在工具执行前拒绝。
+- 未授权动作在工具执行前拒绝；
+- 独立验证器与 hack-verifiable 验收：执行者≠验证者；public 通过但 hidden 失败记为 `hacked`，不计 clean；输出 `hacked_resolved_bps`。
 
 ### 2.4 本地记忆（可用，RC）
 

@@ -17,6 +17,13 @@
   claimed as supported.
 - Tests: three platform tests plus two CLI e2e tests
   (`cargo test platform --lib`, `cargo test --test platform_cli`).
+- Independent verification contract (ADR-0037): `verification::verify` requires
+  a distinct verifier, exactly one result per acceptance/hidden criterion,
+  non-empty evidence for a pass and one artifact check per expectation. A
+  public pass with a hidden failure is `hacked`; `summarize` reports
+  `hacked_resolved_bps`.
+- Tests: seven verification unit tests plus the `hack_verifiable` contract
+  suite (`cargo test verification --lib`, `cargo test --test hack_verifiable`).
 
 ## 0.96.1 - 2026-11-11
 

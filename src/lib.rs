@@ -84,6 +84,7 @@ pub mod tui_terminal;
 pub mod tui_workspace;
 pub mod usage_ledger;
 pub mod user_model;
+pub mod verification;
 pub mod worker_runtime;
 pub mod workshop_worker;
 
