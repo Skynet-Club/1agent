@@ -1,4 +1,4 @@
-# ADR 0046: TUI `/inbox` Read-Only View
+# ADR 0046: TUI `/inbox` View and Inline Actions
 
 - Status: accepted
 - Date: 2026-11-11
@@ -14,23 +14,29 @@ surface should show the queue where the user already works.
 1. Add a core TUI command `/inbox` in the session group.
 2. It is a transcript command, not a command panel: it prints the current open
    or due-snoozed items with kind, status, title and `why_now`.
-3. It reads the default `inbox.jsonl` (`home_or_legacy`) and is read-only.
-   Resolve/snooze remain CLI actions in this slice.
-4. The command is available in every stage and during a run; it does not
-   mutate session or task state.
+3. It reads the default `inbox.jsonl` (`home_or_legacy`).
+4. Inline actions are supported:
+   - `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]`
+   - `/inbox snooze <id> <until_ms>`
+   The same `parse_action` / `apply_action` contract is used by the CLI.
+5. The command is available in every stage and during a run. Listing does not
+   mutate state; an explicit resolve/snooze mutates only the inbox store.
 
 ## Consequences
 
-- A TUI user can see the queue without leaving the interface.
-- The command does not yet approve, reject or snooze; those are the next UI
-  slice.
-- No new persistence or authority path is introduced.
+- A TUI user can see and act on the queue without leaving the interface.
+- The action parser fails closed on unknown actions, non-terminal resolve
+  statuses, missing ids and invalid `until_ms`.
+- No new persistence or authority path is introduced; the inbox store is the
+  only mutation target.
 
 ## Evidence
 
 ```bash
+cargo test inbox --lib
 cargo test tui_commands --lib
 ```
 
-The tests assert `/inbox` is registered as a core, non-panel command; the full
-TUI interaction check remains the release-level evidence.
+The inbox tests cover inline action parsing; the TUI tests assert `/inbox` is a
+core, non-panel command with inline args. The full TUI interaction check remains
+the release-level evidence.

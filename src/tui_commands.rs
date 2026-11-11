@@ -346,7 +346,7 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         "查看待处理的通知、问题与审批",
         TuiCommandScope::Core,
         CommandStage::Any,
-        false,
+        true,
         false,
     ),
     command(
@@ -1436,6 +1436,7 @@ mod tests {
             .expect("inbox command");
         assert_eq!(spec.name, "/inbox");
         assert!(!spec.id.uses_command_panel());
+        assert!(spec.supports_inline_args);
         assert_eq!(spec.scope, TuiCommandScope::Core);
     }
 }

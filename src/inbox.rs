@@ -236,6 +236,65 @@ pub struct InboxSyncReport {
     pub added_items: Vec<InboxItem>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InboxAction {
+    Resolve {
+        item_id: String,
+        status: InboxStatus,
+        note: Option<String>,
+    },
+    Snooze {
+        item_id: String,
+        until_ms: u128,
+    },
+}
+
+/// Parse the inline action form used by the TUI:
+/// `resolve <id> <approved|rejected|answered|dismissed> [note]`
+/// or `snooze <id> <until_ms>`.
+pub fn parse_action(args: &str) -> Result<InboxAction, String> {
+    let mut parts = args.split_whitespace();
+    match parts.next() {
+        Some("resolve") => {
+            let item_id = parts.next().ok_or("resolve needs an item id")?;
+            let status_text = parts.next().ok_or("resolve needs a status")?;
+            let status: InboxStatus = status_text
+                .parse()
+                .map_err(|error: InboxError| error.to_string())?;
+            if !status.is_terminal() {
+                return Err(
+                    "resolve status must be approved, rejected, answered or dismissed".into(),
+                );
+            }
+            let note = {
+                let rest = parts.collect::<Vec<_>>().join(" ");
+                if rest.is_empty() { None } else { Some(rest) }
+            };
+            Ok(InboxAction::Resolve {
+                item_id: item_id.into(),
+                status,
+                note,
+            })
+        }
+        Some("snooze") => {
+            let item_id = parts.next().ok_or("snooze needs an item id")?;
+            let until = parts.next().ok_or("snooze needs until_ms")?;
+            let until_ms: u128 = until
+                .parse()
+                .map_err(|_| "until_ms must be a non-negative integer".to_string())?;
+            if parts.next().is_some() {
+                return Err("snooze takes an item id and until_ms only".into());
+            }
+            Ok(InboxAction::Snooze {
+                item_id: item_id.into(),
+                until_ms,
+            })
+        }
+        Some(other) => Err(format!("unknown inbox action: {other}")),
+        None => Err("empty inbox action".into()),
+    }
+}
+
 pub struct InboxStore {
     path: PathBuf,
     items: BTreeMap<String, InboxItem>,
@@ -357,6 +416,21 @@ impl InboxStore {
 
     pub fn reopen(&mut self, item_id: &str, at_ms: u128) -> Result<InboxItem, InboxError> {
         self.update(item_id, InboxStatus::Open, at_ms, None)
+    }
+
+    pub fn apply_action(
+        &mut self,
+        action: &InboxAction,
+        at_ms: u128,
+    ) -> Result<InboxItem, InboxError> {
+        match action {
+            InboxAction::Resolve {
+                item_id,
+                status,
+                note,
+            } => self.resolve(item_id, *status, at_ms, note.clone()),
+            InboxAction::Snooze { item_id, until_ms } => self.snooze(item_id, *until_ms, at_ms),
+        }
     }
 
     /// Open or due-snoozed items, most important first.
@@ -645,6 +719,36 @@ mod tests {
         assert_eq!(applied.skipped, 1);
         assert!(!applied.dry_run);
         assert!(store.get("i2").is_some());
+    }
+
+    #[test]
+    fn inline_actions_parse_and_fail_closed() {
+        assert_eq!(
+            parse_action("resolve i1 approved").unwrap(),
+            InboxAction::Resolve {
+                item_id: "i1".into(),
+                status: InboxStatus::Approved,
+                note: None
+            }
+        );
+        assert_eq!(
+            parse_action("resolve i1 answered looks good").unwrap(),
+            InboxAction::Resolve {
+                item_id: "i1".into(),
+                status: InboxStatus::Answered,
+                note: Some("looks good".into())
+            }
+        );
+        assert_eq!(
+            parse_action("snooze i1 100").unwrap(),
+            InboxAction::Snooze {
+                item_id: "i1".into(),
+                until_ms: 100
+            }
+        );
+        assert!(parse_action("resolve i1 open").is_err());
+        assert!(parse_action("snooze i1").is_err());
+        assert!(parse_action("unknown").is_err());
     }
 
     #[test]
