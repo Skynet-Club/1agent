@@ -322,7 +322,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `cross_platform` is untested, team collaboration is degraded (policy, handoff
   notes and local audit only) and marketplace is unsupported. Verified
   capabilities include the verification store, team handoff, inbox
-  notifications, repair runbook, organization audit and MCP HTTP transport.
+  notifications, repair runbook, organization audit, MCP HTTP transport, chat
+  bridge and trust disclosure.
   `1agent agent-card` prints it and `GET /v0/agent-card` plus the A2A-style
   `GET /.well-known/agent-card.json` serve the same payload on the public
   read-only HTTP Surface. `--generate-key [--private-out --public-out]`
