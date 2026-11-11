@@ -376,7 +376,8 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `bearer_token_env`. A tool is write-gated unless the server declares
   `readOnlyHint: true`; `destructiveHint: true` raises its risk. The MCP server
   validates its own input schema; 1Agent owns process, permission, timeout and
-  journal bounds.
+  journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
+  metadata for the journal.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, write/network permissions are
   inherited, and the child is killed with the parent process.

@@ -574,6 +574,7 @@ impl AgentTool for McpTool {
             )));
         }
         let mut metadata = BTreeMap::new();
+        metadata.insert("mcp_server".into(), self.client.server_name.clone());
         metadata.insert("mcp_tool".into(), self.remote_name.clone());
         Ok(ToolOutcome {
             summary: format!("MCP 工具 {} 已执行", self.remote_name),
@@ -949,6 +950,14 @@ for line in sys.stdin:
             .await
             .unwrap();
         assert_eq!(outcome.content, "echo:hello");
+        assert_eq!(
+            outcome.metadata.get("mcp_server").map(String::as_str),
+            Some("fake")
+        );
+        assert_eq!(
+            outcome.metadata.get("mcp_tool").map(String::as_str),
+            Some("echo")
+        );
     }
 
     #[cfg(unix)]
