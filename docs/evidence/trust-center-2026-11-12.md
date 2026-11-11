@@ -14,18 +14,21 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 3 tests
+running 5 tests
 test trust_center::tests::disclosure_counts_capabilities_without_overclaiming_audit ... ok
 test trust_center::tests::disclosure_round_trips_through_json ... ok
 test trust_center::tests::evaluations_are_validated_and_sorted ... ok
+test trust_center::tests::markdown_states_the_audit_and_limits ... ok
+test trust_center::tests::verification_summary_is_included_when_supplied ... ok
 
-test result: ok. 3 passed; 0 failed
+test result: ok. 5 passed; 0 failed
 
-running 2 tests (tests/trust_center_cli.rs)
+running 3 tests (tests/trust_center_cli.rs)
+test trust_center_includes_a_verification_summary ... ok
 test trust_center_rejects_invalid_evaluations ... ok
 test trust_center_writes_a_disclosure_with_evaluations ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 3 passed; 0 failed
 ```
 
 ## What this proves
@@ -38,6 +41,8 @@ test result: ok. 2 passed; 0 failed
   evaluations, contact and incident URL.
 - With `--verification-store`, the disclosure includes a local all-time
   verified/hacked/rejected/bps summary.
+- `--markdown-out` writes a Markdown page containing the version, audit
+  status, limits, evaluation result and contact.
 
 ## What this does not prove
 
