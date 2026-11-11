@@ -85,7 +85,8 @@
 - 运行时 canary、晋级/回滚（模块与测试；与 Router 实时观测的接线仍在补齐）；
 - 候选捕获与示范捕获接口（演示数据仅保留哈希）；
 - 恶意技能/越权技能拒绝；
-- `1agent skill scan --path SKILL.md [--json]`：注册前预检 frontmatter、控制字符、密钥/secret 标记与指令覆盖标记；不注册、不执行。
+- `1agent skill scan --path SKILL.md [--json]`：注册前预检 frontmatter、控制字符、密钥/secret 标记与指令覆盖标记；不注册、不执行；
+- `1agent skill verify --bundle PATH --sha256 HEX [--public-key PATH] [--json]`：与 import 共用 `verify_bundle`，校验 SHA-256、schema、签名、重复项、manifest hash 与扫描；不导入。
 
 ### 2.6 长期性能力（可用/部分）
 

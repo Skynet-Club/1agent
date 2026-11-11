@@ -225,22 +225,16 @@ pub fn export_with_key(
     })
 }
 
-pub fn import(
-    service: &mut SkillService,
-    bytes: &[u8],
-    expected_sha256: &str,
-    now_ms: u128,
-) -> Result<ImportReport, SkillBundleError> {
-    import_with_public_key(service, bytes, expected_sha256, None, now_ms)
-}
-
-pub fn import_with_public_key(
-    service: &mut SkillService,
+/// Verify a bundle end to end without importing or registering it.
+///
+/// Checks size, expected SHA-256, schema, signature (when a trusted key is
+/// supplied), duplicate name/version pairs, manifest body hashes and the
+/// registry scan. Returns the parsed bundle so a caller can inspect it.
+pub fn verify_bundle(
     bytes: &[u8],
     expected_sha256: &str,
     trusted_public_key: Option<&[u8]>,
-    now_ms: u128,
-) -> Result<ImportReport, SkillBundleError> {
+) -> Result<SkillBundle, SkillBundleError> {
     if bytes.len() > MAX_BUNDLE_BYTES {
         return Err(SkillBundleError::TooLarge);
     }
@@ -280,12 +274,30 @@ pub fn import_with_public_key(
             ));
         }
     }
-    // Preflight every manifest before touching the journal so an unsafe unit
-    // cannot leave the import half-applied.
     let mut probe = SkillStore::replay(&[])?;
     for manifest in &bundle.skills {
         probe.register(manifest.clone(), 0)?;
     }
+    Ok(bundle)
+}
+
+pub fn import(
+    service: &mut SkillService,
+    bytes: &[u8],
+    expected_sha256: &str,
+    now_ms: u128,
+) -> Result<ImportReport, SkillBundleError> {
+    import_with_public_key(service, bytes, expected_sha256, None, now_ms)
+}
+
+pub fn import_with_public_key(
+    service: &mut SkillService,
+    bytes: &[u8],
+    expected_sha256: &str,
+    trusted_public_key: Option<&[u8]>,
+    now_ms: u128,
+) -> Result<ImportReport, SkillBundleError> {
+    let bundle = verify_bundle(bytes, expected_sha256, trusted_public_key)?;
     let mut report = ImportReport {
         imported: 0,
         skipped: 0,

@@ -84,7 +84,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - runtime canary, promotion and rollback (module/tests; Router real-time observation wiring still being completed);
 - candidate and demonstration capture (demonstration data kept as hashes);
 - malicious or over-privileged skills rejected;
-- `1agent skill scan --path SKILL.md [--json]`: preflight frontmatter, control characters, key/secret markers and instruction-override markers without registering or executing the skill.
+- `1agent skill scan --path SKILL.md [--json]`: preflight frontmatter, control characters, key/secret markers and instruction-override markers without registering or executing the skill;
+- `1agent skill verify --bundle PATH --sha256 HEX [--public-key PATH] [--json]`: shares `verify_bundle` with import to check SHA-256, schema, signature, duplicates, manifest hashes and the registry scan; it does not import.
 
 ### 2.6 Long-lived capabilities (available / partial)
 
