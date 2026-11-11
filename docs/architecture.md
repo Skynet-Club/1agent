@@ -243,6 +243,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   compensated, failed, pending, `needs_user` and receipts; `1agent
   away-digest` exposes the view. This slice plans compensation; executing it
   still requires Authority/Policy/Approval.
+- `value_report`: `ValueReport` counts runs by stop reason, tokens/cost, tool
+  calls/failures, alerts and pending decisions over a bounded window, plus
+  cost per completed outcome. `1agent value-report` exposes it. v0 does not
+  invent a time-saved estimate.
 
 ## Security behavior
 

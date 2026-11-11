@@ -59,7 +59,8 @@
 - 重试、接管、取消、补偿、对账；
 - 未授权动作在工具执行前拒绝；
 - 独立验证器与 hack-verifiable 验收：执行者≠验证者；public 通过但 hidden 失败记为 `hacked`，不计 clean；输出 `hacked_resolved_bps`；
-- Trust & Repair：副作用账本投影为 applied / compensated / failed / pending / needs_user；可逆副作用必须有补偿，否则失败关闭；`1agent away-digest` 查看“我不在时发生了什么”。
+- Trust & Repair：副作用账本投影为 applied / compensated / failed / pending / needs_user；可逆副作用必须有补偿，否则失败关闭；`1agent away-digest` 查看“我不在时发生了什么”；
+- 价值周报 v0：`1agent value-report` 汇总 completed / blocked / failed / cancelled、tokens/cost、工具调用/失败、alerts 与 pending_decisions；只报可复现结果与每完成结果成本，不编造“省时”。
 
 ### 2.4 本地记忆（可用，RC）
 

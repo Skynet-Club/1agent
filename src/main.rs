@@ -244,6 +244,20 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    ValueReport {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+        #[arg(long)]
+        since_ms: Option<u128>,
+        #[arg(long)]
+        until_ms: Option<u128>,
+        #[arg(long, default_value_t = 7 * 86_400_000)]
+        window_ms: u128,
+        #[arg(long)]
+        json: bool,
+    },
     AwayDigest {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -2341,6 +2355,74 @@ async fn main() -> Result<()> {
                 for (kind, count) in &alert_kinds {
                     println!("- {kind}: {count}");
                 }
+            }
+        }
+        Command::ValueReport {
+            journal_dir,
+            alert_log,
+            since_ms,
+            until_ms,
+            window_ms,
+            json,
+        } => {
+            let until = until_ms.unwrap_or_else(current_time_ms);
+            let since = since_ms.unwrap_or_else(|| until.saturating_sub(window_ms));
+            let runs = if journal_dir.is_dir() {
+                scan_history(&journal_dir, 200)?
+            } else {
+                Vec::new()
+            };
+            let paths = runs
+                .iter()
+                .filter(|run| run.modified_unix_ms >= since && run.modified_unix_ms <= until)
+                .map(|run| run.path.clone())
+                .collect::<Vec<_>>();
+            let usage = if paths.is_empty() {
+                first_principles_agent::UsageLedger::default()
+            } else {
+                first_principles_agent::build_usage_ledger(paths).map_err(anyhow::Error::msg)?
+            };
+            let alerts = match alert_log {
+                Some(path) => first_principles_agent::AlertLog::open(path)?.read()?,
+                None => Vec::new(),
+            };
+            let alert_count = alerts
+                .iter()
+                .filter(|alert| alert.at_ms >= since && alert.at_ms <= until)
+                .count() as u32;
+            let report = first_principles_agent::build_value_report(
+                &runs,
+                &usage,
+                alert_count,
+                since,
+                until,
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("1Agent Value Report");
+                println!("window: {since}..{until}");
+                println!("runs: {} completed: {}", report.runs, report.completed);
+                println!(
+                    "blocked: authorization={} evidence={} failed={} cancelled={} other={}",
+                    report.needs_authorization,
+                    report.needs_evidence,
+                    report.failed,
+                    report.cancelled,
+                    report.other
+                );
+                println!(
+                    "cost: {} micros; per completed: {} micros; tokens: {}",
+                    report.cost_micros, report.cost_per_completed_micros, report.tokens
+                );
+                println!(
+                    "tools: calls={} failures={} journals={} alerts={} pending_decisions={}",
+                    report.tool_calls,
+                    report.tool_failures,
+                    report.journals,
+                    report.alerts,
+                    report.pending_decisions
+                );
             }
         }
         Command::AwayDigest {
