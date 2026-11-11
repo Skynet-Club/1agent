@@ -24,6 +24,9 @@ items. Open handoffs should use the same surface.
    existing item's status. It does not accept the handoff.
 4. `sync` requires at least one of `--goal-journal`, `--alert-log` or
    `--handoff-store`.
+5. `inbox reconcile --handoff-store PATH [--apply]` closes projected items:
+   accepted handoffs become approved, cancelled handoffs become dismissed,
+   open handoffs are untouched. Dry-run is the default.
 
 ## Consequences
 

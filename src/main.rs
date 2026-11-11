@@ -1485,6 +1485,16 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    Reconcile {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
+        handoff_store: PathBuf,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Sync {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -5423,6 +5433,35 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&item)?);
                 } else {
                     println!("{} snoozed until {}", item.item_id, until_ms);
+                }
+            }
+            InboxCommand::Reconcile {
+                store,
+                handoff_store,
+                apply,
+                json,
+            } => {
+                let mut store = first_principles_agent::InboxStore::open(store)?;
+                let handoffs = first_principles_agent::handoff::HandoffStore::open(handoff_store)?;
+                let report = first_principles_agent::reconcile_handoffs(
+                    &mut store,
+                    &handoffs,
+                    current_time_ms(),
+                    apply,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "scanned={} resolved={} dry_run={}",
+                        report.scanned, report.resolved, report.dry_run
+                    );
+                    for action in &report.actions {
+                        println!(
+                            "- {} {} {}",
+                            action.item_id, action.handoff_id, action.action
+                        );
+                    }
                 }
             }
             InboxCommand::Sync {

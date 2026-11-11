@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::alerts::AlertRecord;
 use crate::attention::{AttentionCandidate, AttentionKind};
-use crate::handoff::{Handoff, HandoffStatus};
+use crate::handoff::{Handoff, HandoffStatus, HandoffStore};
 
 #[derive(Debug, Error)]
 pub enum InboxError {
@@ -225,6 +225,23 @@ impl InboxItem {
         next.snoozed_until_ms = None;
         Ok(next)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InboxReconcileAction {
+    pub item_id: String,
+    pub handoff_id: String,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InboxReconcileReport {
+    pub scanned: usize,
+    pub resolved: usize,
+    pub dry_run: bool,
+    pub actions: Vec<InboxReconcileAction>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -549,6 +566,52 @@ pub fn project_handoffs(handoffs: &[&Handoff], recipient: &str, now_ms: u128) ->
         .collect()
 }
 
+/// Reconcile projected handoff items with the handoff store. Accepted
+/// handoffs close their item as approved; cancelled handoffs dismiss it.
+/// Open handoffs are untouched. `apply = false` reports without writing.
+pub fn reconcile_handoffs(
+    store: &mut InboxStore,
+    handoffs: &HandoffStore,
+    now_ms: u128,
+    apply: bool,
+) -> Result<InboxReconcileReport, InboxError> {
+    let candidates = store
+        .items()
+        .filter(|item| !item.status.is_terminal() && item.item_id.starts_with("handoff:"))
+        .map(|item| item.item_id.clone())
+        .collect::<Vec<_>>();
+    let mut report = InboxReconcileReport {
+        scanned: candidates.len(),
+        resolved: 0,
+        dry_run: !apply,
+        actions: Vec::new(),
+    };
+    for item_id in candidates {
+        let handoff_id = item_id
+            .strip_prefix("handoff:")
+            .expect("prefix was checked")
+            .to_string();
+        let Some(handoff) = handoffs.get(&handoff_id) else {
+            continue;
+        };
+        let (status, action) = match handoff.status {
+            HandoffStatus::Accepted => (InboxStatus::Approved, "accepted"),
+            HandoffStatus::Cancelled => (InboxStatus::Dismissed, "cancelled"),
+            HandoffStatus::Open => continue,
+        };
+        if apply {
+            store.resolve(&item_id, status, now_ms, Some(format!("handoff {action}")))?;
+        }
+        report.resolved += 1;
+        report.actions.push(InboxReconcileAction {
+            item_id,
+            handoff_id,
+            action: action.into(),
+        });
+    }
+    Ok(report)
+}
+
 /// Project alert records into inbox items. Failed/timeout alerts need a
 /// decision; health notices are informational.
 pub fn project_alerts(alerts: &[AlertRecord], now_ms: u128) -> Vec<InboxItem> {
@@ -758,6 +821,59 @@ mod tests {
         assert_eq!(items[0].source, "handoffs");
         assert!(items[0].why_now.contains("release"));
         assert_eq!(items[1].title.chars().count(), 500);
+    }
+
+    #[test]
+    fn reconcile_closes_accepted_and_cancelled_handoff_items() {
+        let dir = tempfile::tempdir().unwrap();
+        let handoff_path = dir.path().join("handoffs.jsonl");
+        let mut handoffs = HandoffStore::open(&handoff_path).unwrap();
+        let make = |id: &str| Handoff {
+            id: id.into(),
+            from: "alice".into(),
+            to: "bob".into(),
+            scope: "release".into(),
+            summary: "handoff".into(),
+            open_items: vec![],
+            evidence: vec!["journal:run-1".into()],
+            created_ms: 10,
+            status: HandoffStatus::Open,
+            accepted_ms: None,
+            accepted_by: None,
+            cancelled_ms: None,
+            cancelled_by: None,
+            cancelled_reason: None,
+        };
+        handoffs.create(make("accepted")).unwrap();
+        handoffs.create(make("cancelled")).unwrap();
+        let mut inbox = InboxStore::open(dir.path().join("inbox.jsonl")).unwrap();
+        inbox
+            .sync(project_handoffs(&handoffs.list(), "bob", 20), true)
+            .unwrap();
+        handoffs.accept("accepted", "bob", 30).unwrap();
+        handoffs
+            .cancel("cancelled", "bob", "no longer needed", 31)
+            .unwrap();
+
+        let dry = reconcile_handoffs(&mut inbox, &handoffs, 40, false).unwrap();
+        assert_eq!(dry.resolved, 2);
+        assert!(dry.dry_run);
+        assert_eq!(
+            inbox.get("handoff:accepted").unwrap().status,
+            InboxStatus::Open
+        );
+
+        let applied = reconcile_handoffs(&mut inbox, &handoffs, 40, true).unwrap();
+        assert_eq!(applied.resolved, 2);
+        assert!(!applied.dry_run);
+        assert_eq!(
+            inbox.get("handoff:accepted").unwrap().status,
+            InboxStatus::Approved
+        );
+        assert_eq!(
+            inbox.get("handoff:cancelled").unwrap().status,
+            InboxStatus::Dismissed
+        );
     }
 
     #[test]

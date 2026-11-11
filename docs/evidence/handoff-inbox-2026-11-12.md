@@ -37,6 +37,8 @@ test result: ok. 2 passed; 0 failed
   apply.
 - Syncing as a different recipient scans zero items.
 - `--recipient` without `--handoff-store` exits non-zero.
+- `inbox reconcile` reports two resolutions for one accepted and one cancelled
+  handoff, writes nothing on dry-run, and empties the open list after `--apply`.
 
 ## What this does not prove
 

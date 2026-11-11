@@ -317,6 +317,11 @@
   `--open` excludes it.
 - Tests: two handoff unit tests plus one `handoff_cli` cancel test
   (`cargo test handoff --lib`, `cargo test --test handoff_cli`).
+- Inbox reconciliation: `inbox reconcile --handoff-store PATH [--apply]`
+  closes projected handoff items as approved/dismissed when the handoff is
+  accepted/cancelled. Open handoffs are untouched; dry-run is the default.
+- Tests: one inbox unit test plus one `handoff_inbox_cli` reconcile test
+  (`cargo test inbox --lib`, `cargo test --test handoff_inbox_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
