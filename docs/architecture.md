@@ -285,9 +285,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   the Agent Card, states the data policy, and includes caller-supplied
   evaluation disclosures. The audit section is always `not_audited` with
   `external_audit: false`; the module does not invent certifications. It emits
-  a JSON manifest, not a hosted Trust Center page. `1agent eval
-  --disclosure-out PATH` writes an `EvaluationDisclosure` whose
-  `evidence_sha256` is the SHA-256 of the pretty-printed evaluation report.
+  a JSON manifest, not a hosted Trust Center page. `--verification-store PATH`
+  adds the local all-time `HackSuiteSummary`. `1agent eval --disclosure-out
+  PATH` writes an `EvaluationDisclosure` whose `evidence_sha256` is the SHA-256
+  of the pretty-printed evaluation report.
 - `handoff`: grounded team handoff notes. `create` requires distinct from/to,
   a non-empty summary and at least one evidence reference; only the addressee
   may `accept`, and a terminal handoff cannot transition again. Snapshots are

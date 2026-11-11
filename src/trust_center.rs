@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::agent_card;
 use crate::platform::CapabilityStatus;
+use crate::verification::HackSuiteSummary;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -73,6 +74,8 @@ pub struct TrustDisclosure {
     pub limits: Vec<String>,
     pub audit: AuditDisclosure,
     pub data_policy: DataPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<HackSuiteSummary>,
     pub evaluations: Vec<EvaluationDisclosure>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_contact: Option<String>,
@@ -85,6 +88,7 @@ pub fn build_disclosure(
     now_ms: u128,
     security_contact: Option<String>,
     incident_url: Option<String>,
+    verification: Option<HackSuiteSummary>,
     mut evaluations: Vec<EvaluationDisclosure>,
 ) -> Result<TrustDisclosure, TrustCenterError> {
     for evaluation in &evaluations {
@@ -131,6 +135,7 @@ pub fn build_disclosure(
             network_default: "off unless --allow-network or a configured provider/tool needs it"
                 .into(),
         },
+        verification,
         evaluations,
         security_contact,
         incident_url,
@@ -180,6 +185,7 @@ mod tests {
             10,
             Some("security@example.com".into()),
             None,
+            None,
             vec![],
         )
         .unwrap();
@@ -206,16 +212,29 @@ mod tests {
         let mut other = evaluation();
         other.name = "alpha".into();
         let disclosure =
-            build_disclosure("0.97.0", 10, None, None, vec![evaluation(), other]).unwrap();
+            build_disclosure("0.97.0", 10, None, None, None, vec![evaluation(), other]).unwrap();
         assert_eq!(disclosure.evaluations[0].name, "alpha");
 
         let mut invalid = evaluation();
         invalid.passed = 7;
-        assert!(build_disclosure("0.97.0", 10, None, None, vec![invalid]).is_err());
+        assert!(build_disclosure("0.97.0", 10, None, None, None, vec![invalid]).is_err());
 
         let mut bad_digest = evaluation();
         bad_digest.evidence_sha256 = Some("xyz".into());
-        assert!(build_disclosure("0.97.0", 10, None, None, vec![bad_digest]).is_err());
+        assert!(build_disclosure("0.97.0", 10, None, None, None, vec![bad_digest]).is_err());
+    }
+
+    #[test]
+    fn verification_summary_is_included_when_supplied() {
+        let summary = HackSuiteSummary {
+            resolved: 2,
+            verified: 1,
+            hacked: 1,
+            rejected: 0,
+            hacked_resolved_bps: 5_000,
+        };
+        let disclosure = build_disclosure("0.97.0", 10, None, None, Some(summary), vec![]).unwrap();
+        assert_eq!(disclosure.verification, Some(summary));
     }
 
     #[test]
@@ -225,6 +244,7 @@ mod tests {
             10,
             None,
             Some("https://example.com/incidents".into()),
+            None,
             vec![evaluation()],
         )
         .unwrap();

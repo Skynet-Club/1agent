@@ -278,6 +278,9 @@ enum Command {
         /// Repeatable evaluation disclosure JSON file.
         #[arg(long)]
         evaluation: Vec<PathBuf>,
+        /// Include the all-time local verification summary.
+        #[arg(long)]
+        verification_store: Option<PathBuf>,
         #[arg(long)]
         security_contact: Option<String>,
         #[arg(long)]
@@ -3108,6 +3111,7 @@ async fn main() -> Result<()> {
         }
         Command::TrustCenter {
             evaluation,
+            verification_store,
             security_contact,
             incident_url,
             out,
@@ -3124,11 +3128,20 @@ async fn main() -> Result<()> {
                     .with_context(|| format!("invalid evaluation disclosure {}", path.display()))?,
                 );
             }
+            let verification = match verification_store {
+                Some(path) => {
+                    let store =
+                        first_principles_agent::verification_store::VerificationStore::open(path)?;
+                    Some(store.summary())
+                }
+                None => None,
+            };
             let disclosure = first_principles_agent::trust_center::build_disclosure(
                 env!("CARGO_PKG_VERSION"),
                 current_time_ms(),
                 security_contact,
                 incident_url,
+                verification,
                 evaluations,
             )?;
             if let Some(out) = &out {
@@ -3161,6 +3174,16 @@ async fn main() -> Result<()> {
                     "data: storage={} telemetry={}",
                     disclosure.data_policy.storage, disclosure.data_policy.telemetry
                 );
+                if let Some(verification) = &disclosure.verification {
+                    println!(
+                        "verification: verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}",
+                        verification.verified,
+                        verification.hacked,
+                        verification.rejected,
+                        verification.resolved,
+                        verification.hacked_resolved_bps
+                    );
+                }
                 for evaluation in &disclosure.evaluations {
                     println!(
                         "- evaluation {} {}: {}/{}",
