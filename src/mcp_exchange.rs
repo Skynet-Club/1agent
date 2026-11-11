@@ -76,25 +76,7 @@ pub async fn exchange(config: &TokenExchangeConfig) -> Result<ExchangedToken, To
             "client_id_env and client_secret_env are required together".into(),
         ));
     }
-    let endpoint = reqwest::Url::parse(&config.token_endpoint)
-        .map_err(|_| TokenExchangeError::InvalidConfig("invalid token endpoint".into()))?;
-    if !endpoint.username().is_empty() || endpoint.password().is_some() {
-        return Err(TokenExchangeError::InvalidConfig(
-            "token endpoint must not embed credentials".into(),
-        ));
-    }
-    let loopback = endpoint.host_str().is_some_and(|host| {
-        host.eq_ignore_ascii_case("localhost")
-            || host
-                .parse::<IpAddr>()
-                .map(|address| address.is_loopback())
-                .unwrap_or(false)
-    });
-    if endpoint.scheme() != "https" && !(endpoint.scheme() == "http" && loopback) {
-        return Err(TokenExchangeError::InvalidConfig(
-            "token endpoint must use https (http is allowed only for loopback)".into(),
-        ));
-    }
+    let endpoint = validate_endpoint(&config.token_endpoint, "token endpoint")?;
 
     let subject_token = read_env(&config.subject_token_env)?;
     let client_id = config.client_id_env.as_deref().map(read_env).transpose()?;
@@ -133,22 +115,7 @@ pub async fn exchange(config: &TokenExchangeConfig) -> Result<ExchangedToken, To
             status.as_u16()
         )));
     }
-    let mut body = Vec::new();
-    let mut response = response;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?
-    {
-        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(TokenExchangeError::Response(
-                "token response exceeds the size cap".into(),
-            ));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    let value: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|_| TokenExchangeError::Response("response is not JSON".into()))?;
+    let value = read_response_json(response).await?;
     let access_token = value
         .get("access_token")
         .and_then(serde_json::Value::as_str)
@@ -178,6 +145,91 @@ pub async fn exchange(config: &TokenExchangeConfig) -> Result<ExchangedToken, To
         token_type: token_type.to_string(),
         expires_in_seconds,
     })
+}
+
+fn validate_endpoint(raw: &str, label: &str) -> Result<reqwest::Url, TokenExchangeError> {
+    let endpoint = reqwest::Url::parse(raw)
+        .map_err(|_| TokenExchangeError::InvalidConfig(format!("invalid {label}")))?;
+    if !endpoint.username().is_empty() || endpoint.password().is_some() {
+        return Err(TokenExchangeError::InvalidConfig(format!(
+            "{label} must not embed credentials"
+        )));
+    }
+    let loopback = endpoint.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<IpAddr>()
+                .map(|address| address.is_loopback())
+                .unwrap_or(false)
+    });
+    if endpoint.scheme() != "https" && !(endpoint.scheme() == "http" && loopback) {
+        return Err(TokenExchangeError::InvalidConfig(format!(
+            "{label} must use https (http is allowed only for loopback)"
+        )));
+    }
+    Ok(endpoint)
+}
+
+async fn read_response_json(
+    mut response: reqwest::Response,
+) -> Result<serde_json::Value, TokenExchangeError> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?
+    {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(TokenExchangeError::Response(
+                "response exceeds the size cap".into(),
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body)
+        .map_err(|_| TokenExchangeError::Response("response is not JSON".into()))
+}
+
+/// Resolves `token_endpoint` from RFC 8414/OpenID well-known metadata. Both
+/// the issuer and the discovered endpoint follow the same HTTPS/loopback and
+/// no-credential policy; redirects are not followed.
+pub async fn discover_token_endpoint(issuer: &str) -> Result<String, TokenExchangeError> {
+    validate_endpoint(issuer, "issuer")?;
+    let base = issuer.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?;
+    for path in [
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/openid-configuration",
+    ] {
+        let response = client
+            .get(format!("{base}{path}"))
+            .send()
+            .await
+            .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?;
+        if !response.status().is_success() {
+            continue;
+        }
+        let value = match read_response_json(response).await {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let Some(token_endpoint) = value
+            .get("token_endpoint")
+            .and_then(serde_json::Value::as_str)
+            .filter(|endpoint| !endpoint.trim().is_empty())
+        else {
+            continue;
+        };
+        validate_endpoint(token_endpoint, "discovered token endpoint")?;
+        return Ok(token_endpoint.to_string());
+    }
+    Err(TokenExchangeError::Response(
+        "issuer discovery did not expose token_endpoint".into(),
+    ))
 }
 
 fn read_env(variable: &str) -> Result<String, TokenExchangeError> {

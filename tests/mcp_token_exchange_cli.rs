@@ -331,3 +331,108 @@ fn mcp_token_exchange_does_not_follow_redirects() {
             .unwrap()
     );
 }
+
+fn start_discovery_server(token_endpoint: String) -> (String, mpsc::Receiver<Vec<String>>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut paths = Vec::new();
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 4096];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("")
+                .to_string();
+            paths.push(path.clone());
+            if path.contains("openid-configuration") {
+                let body = serde_json::json!({"token_endpoint": token_endpoint}).to_string();
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        )
+                        .as_bytes(),
+                    )
+                    .ok();
+            } else {
+                stream
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .ok();
+            }
+        }
+        let _ = sender.send(paths);
+    });
+    (format!("http://{address}"), receiver)
+}
+
+#[test]
+fn mcp_token_exchange_discovers_the_token_endpoint() {
+    let workspace = tempfile::tempdir().unwrap();
+    let out = workspace.path().join("discovered.token");
+    let (token_endpoint, _token_form) = start_token_server(
+        r#"{"access_token":"discovered-token","token_type":"Bearer","expires_in":60}"#,
+    );
+    let (issuer, paths) = start_discovery_server(token_endpoint);
+    let output = Command::new(bin())
+        .args(["mcp-token-exchange", "--issuer", &issuer])
+        .args([
+            "--audience",
+            "mcp://server",
+            "--scope",
+            "tools.read",
+            "--subject-token-env",
+            "TEST_SUBJECT_TOKEN",
+            "--out",
+        ])
+        .arg(&out)
+        .env("TEST_SUBJECT_TOKEN", "subject-secret")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap().trim(),
+        "discovered-token"
+    );
+    let paths = paths
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(paths.len(), 2);
+    assert!(paths[0].contains("oauth-authorization-server"), "{paths:?}");
+    assert!(paths[1].contains("openid-configuration"), "{paths:?}");
+
+    let insecure = Command::new(bin())
+        .args(["mcp-token-exchange", "--issuer", "http://example.com"])
+        .args([
+            "--audience",
+            "mcp://server",
+            "--scope",
+            "tools.read",
+            "--subject-token-env",
+            "TEST_SUBJECT_TOKEN",
+            "--out",
+        ])
+        .arg(workspace.path().join("insecure-issuer.token"))
+        .env("TEST_SUBJECT_TOKEN", "subject-secret")
+        .output()
+        .unwrap();
+    assert!(!insecure.status.success());
+    assert!(
+        String::from_utf8_lossy(&insecure.stderr).contains("https"),
+        "stderr: {}",
+        String::from_utf8_lossy(&insecure.stderr)
+    );
+}
