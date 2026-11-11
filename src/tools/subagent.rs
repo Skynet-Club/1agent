@@ -135,7 +135,7 @@ impl AgentTool for SpawnAgentTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "spawn_agent".into(),
-            description: "Spawn a bounded child 1Agent run for a subtask. The child has its own journal, workspace and budget; results are returned as JSON. Depth is capped to prevent runaway trees. The child inherits the parent's write/network permissions and AGENT_* provider environment.".into(),
+            description: "Spawn a bounded child 1Agent run for a subtask. The child has its own journal, workspace and budget; results are returned as JSON. Depth is capped to prevent runaway trees. Child write/network permissions are intersected with the parent's permissions, so allow_write/allow_network can only restrict; AGENT_* provider environment is inherited.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -161,6 +161,14 @@ impl AgentTool for SpawnAgentTool {
                         "minimum": 10,
                         "maximum": MAX_TIMEOUT_SECS,
                         "description": "Child timeout, default 120 seconds."
+                    },
+                    "allow_write": {
+                        "type": "boolean",
+                        "description": "Intersected with the parent's write permission; false forces a read-only child."
+                    },
+                    "allow_network": {
+                        "type": "boolean",
+                        "description": "Intersected with the parent's network permission; false denies child network access."
                     }
                 }
             }),
@@ -222,10 +230,20 @@ impl AgentTool for SpawnAgentTool {
             "--timeout-seconds".to_string(),
             timeout_seconds.to_string(),
         ];
-        if !permissions.allow_write {
+        let child_write = permissions.allow_write
+            && arguments
+                .get("allow_write")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+        let child_network = permissions.allow_network
+            && arguments
+                .get("allow_network")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+        if !child_write {
             args.push("--read-only".into());
         }
-        if permissions.allow_network {
+        if child_network {
             args.push("--allow-network".into());
         }
         args.extend(provider_arguments()?);
@@ -286,7 +304,9 @@ impl AgentTool for SpawnAgentTool {
             "conclusion": conclusion,
             "workspace": workspace.display().to_string(),
             "journal_path": child_journal,
-            "depth": self.depth + 1
+            "depth": self.depth + 1,
+            "allow_write": child_write,
+            "allow_network": child_network
         });
         let mut metadata = std::collections::BTreeMap::new();
         metadata.insert("stop_reason".into(), stop_reason);
@@ -362,6 +382,53 @@ printf '{"run_id":"child","journal_path":"/tmp/child.jsonl","answer":{"schema_ve
         assert!(args.contains("--task"));
         assert!(args.contains("child task"));
         assert!(args.contains("--read-root"));
+    }
+
+    #[tokio::test]
+    async fn requested_permissions_only_restrict_the_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program.clone()).with_depth(0);
+        let mut parent = permissions(dir.path(), true);
+        parent.allow_network = false;
+        let outcome = tool
+            .execute(
+                json!({
+                    "task": "restricted child",
+                    "workspace": workspace,
+                    "allow_write": false,
+                    "allow_network": true
+                }),
+                &parent,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(outcome.content.contains("\"allow_write\":false"));
+        assert!(outcome.content.contains("\"allow_network\":false"));
+        let args = std::fs::read_to_string(format!("{}.args", program.display())).unwrap();
+        assert!(args.contains("--read-only"));
+        assert!(!args.contains("--allow-network"));
+
+        // A child cannot widen permissions the parent does not have.
+        let read_only_parent = permissions(dir.path(), false);
+        let widened = tool
+            .execute(
+                json!({
+                    "task": "widen attempt",
+                    "workspace": workspace,
+                    "allow_write": true,
+                    "allow_network": true
+                }),
+                &read_only_parent,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(widened.content.contains("\"allow_write\":false"));
+        assert!(widened.content.contains("\"allow_network\":false"));
     }
 
     #[tokio::test]

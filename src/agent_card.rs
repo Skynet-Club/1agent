@@ -172,6 +172,11 @@ pub fn build_card(version: &str) -> AgentCard {
                 "opt-in terminal-handoff reconcile plus alert/goal projection and stale-attention cleanup on every daemon tick",
             ),
             capability(
+                "subagent_isolation",
+                CapabilityStatus::Verified,
+                "bounded child runs with depth, workspace and write/network permission intersection",
+            ),
+            capability(
                 "otel_export",
                 CapabilityStatus::Verified,
                 "OTLP/HTTP JSON export of journal-derived GenAI spans with environment-only bearer tokens",
