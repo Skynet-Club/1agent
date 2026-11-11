@@ -149,7 +149,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 |---|---|---|
 | Browser / computer-use | **Partial** | `browser_read` renders with headless Chrome and extracts text; clicking, typing, screenshots and visual understanding are not implemented |
 | Generic subagents | **Partial** | `spawn_agent` runs bounded child agents (depth 2, isolated journal/workspace); Master→Worker remains a separate path |
-| MCP client | **Partial** | stdio MCP discovery and calls; HTTP/SSE, OAuth and a tool marketplace are not implemented |
+| MCP client | **Partial** | stdio and streamable HTTP (JSON/SSE responses, `Mcp-Session-Id`, bearer token from an environment variable only) discovery and calls; OAuth claims validation is available; issuer discovery, token exchange and a tool marketplace are not implemented |
 | Always-on daemon/Routine/Trigger | **Partial** | Interval and file triggers, restart catch-up, `--routine-skill`, `schedule health`; failed/timed-out runs can write alerts and webhook them; escalation and cross-restart deduplication are not implemented |
 | Full Attention/Digest | **Partial** | `digest` summarizes recent runs, schedules, health and alert counts; the maintenance loop and escalation ladder are not implemented |
 | Automatic evolution/skill marketplace | **Partial** | Human approval/rollback plus SHA-256 skill bundles; signatures and a remote marketplace index are not implemented |

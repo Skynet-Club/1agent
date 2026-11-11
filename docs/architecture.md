@@ -345,10 +345,15 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 - `web_search` uses the same fetch guard and Bing's RSS endpoint as a
   best-effort, no-key provider. Results are bounded and deduplicated; provider
   rate limits are reported as tool failures, not fabricated results.
-- MCP tools are discovered from stdio servers configured with `--mcp-config`.
-  A tool is write-gated unless the server declares `readOnlyHint: true`;
-  `destructiveHint: true` raises its risk. The MCP server validates its own
-  input schema; 1Agent owns process, permission, timeout and journal bounds.
+- MCP tools are discovered from stdio or streamable-HTTP servers configured
+  with `--mcp-config`. Exactly one of `command` or `url` is required. HTTP
+  requires HTTPS except for loopback, rejects credentials in the URL, carries
+  `Mcp-Session-Id`, accepts JSON or `text/event-stream` responses, and reads a
+  bearer token only from the environment variable named by
+  `bearer_token_env`. A tool is write-gated unless the server declares
+  `readOnlyHint: true`; `destructiveHint: true` raises its risk. The MCP server
+  validates its own input schema; 1Agent owns process, permission, timeout and
+  journal bounds.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, write/network permissions are
   inherited, and the child is killed with the parent process.
@@ -452,7 +457,8 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 - Structured patch/edit tools beyond whole-file replacement (`write_file`) and
   exact text replacement (`edit_file`).
 - Web search is best-effort Bing RSS; authenticated web content, computer-use
-  clicks/typing/screenshots and an HTTP/SSE MCP transport are absent.
+  clicks/typing/screenshots, and MCP OAuth issuer discovery/token exchange are
+  absent.
 - Voice/image understanding and OCR; `read_pdf` only extracts embedded PDF text.
 - Page-range selection for PDFs; `max_chars` only bounds returned text.
 - Terminal commands require a running Skynet Workshop session daemon; there is

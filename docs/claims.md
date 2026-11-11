@@ -79,7 +79,8 @@ file: <路径>              → 文件必须存在
 | 误报预算：预算耗尽或误报率超限时非关键告警转 digest，critical 绕过 | cmd: cargo test alarm_budget --lib && cargo test --test alarm_budget_cli | ✅ | 策略函数；不发送/不持久化告警 |
 | 升级阶梯：严格递增阈值取最高已到达台阶；resolved 不升级；宽限期不打扰 | cmd: cargo test escalation --lib && cargo test --test escalate_cli | ✅ | 只计算级别；不发送/不改状态 |
 | 组织审计索引：actor/action/scope/decision 哈希链；改字段/换序/断链检测 | cmd: cargo test org_audit --lib && cargo test --test org_audit_cli | ✅ | 本地索引，非远程透明日志/IdP |
-| MCP OAuth claims：audience/过期/未生效/最大 TTL/精确 scope；拒绝时不泄露 subject | cmd: cargo test mcp_auth --lib && cargo test --test mcp_token_cli | ✅ | 调用方必须先验签；不实现 HTTP/SSE 传输 |
+| MCP OAuth claims：audience/过期/未生效/最大 TTL/精确 scope；拒绝时不泄露 subject | cmd: cargo test mcp_auth --lib && cargo test --test mcp_token_cli | ✅ | 调用方必须先验签；不实现 issuer discovery/token exchange |
+| MCP streamable HTTP：JSON/SSE 响应、Mcp-Session-Id、仅 loopback HTTP、token 只读环境变量 | cmd: cargo test tools::mcp --lib | ✅ | 覆盖初始化/发现/调用；真实服务端互操作未验证 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |
 | 团队交接：必须有 evidence、from≠to；仅 addressee 可接受；终态不可再转换 | cmd: cargo test handoff --lib && cargo test --test handoff_cli | ✅ | 本地交接；无实时共享上下文/IdP |
 | 交接投影：open + to=recipient → inbox review，`handoff:<id>` 去重，不自动接受 | cmd: cargo test inbox --lib && cargo test --test handoff_inbox_cli | ✅ | 仅投影；通知/实时上下文未实现 |

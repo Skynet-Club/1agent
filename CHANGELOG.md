@@ -223,6 +223,13 @@
   prints the subject on rejection. HTTP/SSE transport is still absent.
 - Tests: four mcp-auth unit tests plus three `mcp_token_cli` e2e tests
   (`cargo test mcp_auth --lib`, `cargo test --test mcp_token_cli`).
+- MCP streamable HTTP transport (ADR-0070): MCP servers may set exactly one of
+  `command` or `url`. HTTP requires HTTPS except for loopback, rejects embedded
+  credentials, carries `Mcp-Session-Id`, parses JSON or `text/event-stream`
+  responses, and reads a bearer token from the environment variable named by
+  `bearer_token_env`. Existing stdio configs are unchanged.
+- Tests: three MCP HTTP/SSE unit tests plus the existing stdio tests
+  (`cargo test tools::mcp --lib`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
