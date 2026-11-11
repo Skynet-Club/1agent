@@ -24,6 +24,49 @@ fn repair_plan_reports_an_empty_store_as_clean() {
 }
 
 #[test]
+fn repair_plan_reports_a_demo_side_effect_as_compensation() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("task-graph.jsonl");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let demo = Command::new(bin)
+        .args(["task-graph", "demo", "--store"])
+        .arg(&store)
+        .output()
+        .unwrap();
+    assert!(
+        demo.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&demo.stderr)
+    );
+
+    let runbook = Command::new(bin)
+        .args(["repair-plan", "--store"])
+        .arg(&store)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        runbook.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&runbook.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&runbook.stdout).unwrap();
+    assert_eq!(report["clean"], false);
+    assert_eq!(report["compensate"], 1);
+    assert_eq!(report["manual"], 0);
+    assert_eq!(report["plans"].as_array().unwrap().len(), 1);
+    assert_eq!(report["plans"][0]["action"], "compensate");
+
+    let require_clean = Command::new(bin)
+        .args(["repair-plan", "--store"])
+        .arg(&store)
+        .args(["--require-clean"])
+        .output()
+        .unwrap();
+    assert!(!require_clean.status.success());
+}
+
+#[test]
 fn repair_plan_rejects_a_corrupt_store() {
     let workspace = tempfile::tempdir().unwrap();
     let store = workspace.path().join("task-graph.jsonl");

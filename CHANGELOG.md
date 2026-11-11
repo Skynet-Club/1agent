@@ -256,7 +256,8 @@
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
   Execution still requires Authority/Policy/Approval.
-- Tests: one repair unit test plus two `repair_plan_cli` e2e tests
+- Tests: one repair unit test plus three `repair_plan_cli` e2e tests,
+  including a real `task-graph demo` side effect that fails `--require-clean`
   (`cargo test repair --lib`, `cargo test --test repair_plan_cli`).
 - One-way inbox presence (ADR-0080): `1agent inbox-notify` posts open inbox
   items to a generic/Slack/Discord webhook. HTTPS is required except for
