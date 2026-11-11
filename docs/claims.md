@@ -82,7 +82,7 @@ file: <路径>              → 文件必须存在
 | 升级阶梯：严格递增阈值取最高已到达台阶；resolved 不升级；宽限期不打扰 | cmd: cargo test escalation --lib && cargo test --test escalate_cli | ✅ | 只计算级别；不发送/不改状态 |
 | 组织审计索引：actor/action/scope/decision 哈希链；改字段/换序/断链检测 | cmd: cargo test org_audit --lib && cargo test --test org_audit_cli | ✅ | 本地索引，非远程透明日志/IdP |
 | MCP OAuth claims：audience/过期/未生效/最大 TTL/精确 scope；拒绝时不泄露 subject | cmd: cargo test mcp_auth --lib && cargo test --test mcp_token_cli | ✅ | 调用方必须先验签；不实现 issuer discovery/token exchange |
-| MCP streamable HTTP：JSON/SSE 响应、Mcp-Session-Id、仅 loopback HTTP、token 只读环境变量、per-server timeout；结果带 server/tool 审计元数据 | cmd: cargo test tools::mcp --lib | ✅ | 覆盖初始化/发现/调用；真实服务端互操作未验证 |
+| MCP streamable HTTP：JSON/SSE 响应、Mcp-Session-Id、仅 loopback HTTP、token 只读环境变量、per-server timeout、2 MiB 响应上限；结果带 server/tool 审计元数据 | cmd: cargo test tools::mcp --lib | ✅ | 覆盖初始化/发现/调用；真实服务端互操作未验证 |
 | 每验证结果成本：value-report 接收验证器计数或 verification store，输出 cost_per_verified_outcome 与窗口 verification summary | cmd: cargo test value_report --lib && cargo test --test value_report_cli && cargo test --test verification_store_cli | ✅ | store 只计 clean Verified；不从 completed 推断 |
 | 验证记录库：append+sync、重复 id/自验证拒绝、summary/hacked bps、窗口计数、Hacked/Rejected 投影 inbox review | cmd: cargo test verification_store --lib && cargo test --test verification_store_cli | ✅ | 本地 JSONL；无跨机聚合 |
 | Windows GNU 交叉编译：`-D warnings` 下 lib/bin 与 all-targets（含测试）cargo check 通过；`scripts/cross-check.sh` 强制该门 | cmd: ./scripts/cross-check.sh | ✅ | 仅编译；链接/运行/ConPTY/安装包未验证；macOS 被 Host C 工具链阻断 |
