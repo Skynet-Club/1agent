@@ -359,6 +359,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   all; a non-empty list must contain the requested scope. Unknown actors,
   disallowed actions and ungranted scopes are denied. `1agent team-check`
   exposes it. This is policy, not an identity provider.
+- `idempotency`: `IdempotencyStore` persists key → fingerprint → response as
+  append-only JSON lines and `sync_data`s each record before acknowledging.
+  Re-opening the store replays the original response for the same key and
+  fingerprint; a different fingerprint is a conflict. A final line without a
+  newline is an interrupted append and is ignored. This is the cross-restart
+  dedupe primitive; wiring it into every external write is separate.
 - `chat`: `to_task_request` maps a `ChatMessage` to a `TaskRequest`;
   `format_reply` returns the conclusion, one trust line (`证据 N · 未知 M`),
   `needs_approval` and `inbox_open`, without schema field names. This is the

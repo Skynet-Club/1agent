@@ -72,7 +72,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - Budget policy: `1agent budget-check` enforces hard limits on cost/tokens/tool calls (exceeded fails, 80% warns); `--verified-outcomes` reports cost per verified outcome; an exceeded budget exits non-zero. `1agent run --max-cost-micros/--max-tokens` accumulates provider usage at runtime and stops with `BudgetExhausted` when either limit is exceeded;
 - OTel GenAI projection: `1agent otel --journal PATH [--json]` projects deterministic spans (invoke_agent / chat / execute_tool) with provider/model/token/cost attributes; it is a JSON projection, not a full OTel SDK/exporter;
 - Chat adapter contract: `ChatMessage → TaskRequest`; `ChatReply` gives the conclusion, one trust line (evidence/unknowns), `needs_approval` and `inbox_open` without schema field names; Slack/Telegram/WeChat transports are a separate layer;
-- Team role policy: `1agent team-check` evaluates owner/approver/member/viewer against read/write/approve/manage and a scope; empty scopes mean all; unknown actors, disallowed actions and ungranted scopes are denied. Policy module, not an identity provider.
+- Team role policy: `1agent team-check` evaluates owner/approver/member/viewer against read/write/approve/manage and a scope; empty scopes mean all; unknown actors, disallowed actions and ungranted scopes are denied. Policy module, not an identity provider;
+- Durable idempotency records: `1agent idempotency record|replay --store PATH --key K --fingerprint F` appends one JSON line per key and syncs it before acknowledging; after a restart the same key+fingerprint replays the original response, while a different fingerprint conflicts and exits non-zero. A final line without a newline is treated as an interrupted append and ignored. This is a primitive for external writes, not yet wired into every tool.
 
 ### 2.4 Local memory (available, RC)
 

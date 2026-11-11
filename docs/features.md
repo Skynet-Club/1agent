@@ -73,7 +73,8 @@
 - 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。`1agent run --max-cost-micros/--max-tokens` 在运行时累计 provider usage，超限以 `BudgetExhausted` 停止；
 - OTel GenAI 投影：`1agent otel --journal PATH [--json]` 从 journal 生成确定性 spans（invoke_agent / chat / execute_tool），带 provider/model/token/cost 属性；是 JSON 投影，不是完整 OTel SDK/exporter；
 - Chat 适配契约：`ChatMessage → TaskRequest`；`ChatReply` 先结论、一行信任摘要（证据/未知）、`needs_approval` 与 `inbox_open`，不泄露 schema 字段；具体 Slack/Telegram/微信传输是下一层；
-- 团队角色策略：`1agent team-check` 按 owner/approver/member/viewer、read/write/approve/manage 与 scope 判定；空 scopes 表示全部，未知 actor/越权/未授权 scope 拒绝；策略模块，非 IdP。
+- 团队角色策略：`1agent team-check` 按 owner/approver/member/viewer、read/write/approve/manage 与 scope 判定；空 scopes 表示全部，未知 actor/越权/未授权 scope 拒绝；策略模块，非 IdP；
+- 持久幂等记录：`1agent idempotency record|replay --store PATH --key K --fingerprint F`；每条记录 append-only JSONL 并 `sync_data` 后才确认；重启后按 key+fingerprint 重放原响应，同 key 不同 fingerprint 冲突并非零退出；末尾未换行的半条记录视为中断写入并忽略；这是外部写去重原语，尚未接入所有外部工具。
 
 ### 2.4 本地记忆（可用，RC）
 

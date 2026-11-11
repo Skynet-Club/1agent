@@ -31,6 +31,7 @@ pub mod governed_task_graph;
 pub mod host;
 pub mod host_events;
 pub mod http_surface;
+pub mod idempotency;
 pub mod identity;
 pub mod inbox;
 pub mod journal;
