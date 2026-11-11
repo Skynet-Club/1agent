@@ -40,6 +40,8 @@ test result: ok. 1 passed; 0 failed
   `--verified-outcomes` exits non-zero.
 - Recording with `--inbox-store` creates exactly one review item for the
   Hacked report and none for the Verified report.
+- A `--since-ms 15` summary excludes the Verified report at t=10 and reports
+  verified=0, hacked=1, bps=10000.
 
 ## What this does not prove
 

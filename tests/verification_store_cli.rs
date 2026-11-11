@@ -36,7 +36,7 @@ fn verification_store_records_summarizes_and_feeds_value_report() {
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
 
     let inbox = workspace.path().join("inbox.jsonl");
-    for (id, path) in [("v1", &verified_input), ("v2", &hacked_input)] {
+    for (id, path, at) in [("v1", &verified_input, "10"), ("v2", &hacked_input, "20")] {
         let output = Command::new(bin)
             .args(["verification", "record", "--store"])
             .arg(&store)
@@ -46,7 +46,7 @@ fn verification_store_records_summarizes_and_feeds_value_report() {
             .arg(path)
             .arg("--inbox-store")
             .arg(&inbox)
-            .args(["--at-ms", "10", "--json"])
+            .args(["--at-ms", at, "--json"])
             .output()
             .unwrap();
         assert!(
@@ -79,6 +79,18 @@ fn verification_store_records_summarizes_and_feeds_value_report() {
     assert_eq!(summary["rejected"], 0);
     assert_eq!(summary["resolved"], 2);
     assert_eq!(summary["hacked_resolved_bps"], 5000);
+
+    let windowed = Command::new(bin)
+        .args(["verification", "summary", "--store"])
+        .arg(&store)
+        .args(["--since-ms", "15", "--json"])
+        .output()
+        .unwrap();
+    assert!(windowed.status.success());
+    let summary: serde_json::Value = serde_json::from_slice(&windowed.stdout).unwrap();
+    assert_eq!(summary["verified"], 0);
+    assert_eq!(summary["hacked"], 1);
+    assert_eq!(summary["hacked_resolved_bps"], 10000);
 
     let inbox_list = Command::new(bin)
         .args(["inbox", "list", "--store"])

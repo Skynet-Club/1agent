@@ -1586,6 +1586,10 @@ enum VerificationCommand {
         #[arg(long, default_value_os_t = home_or_legacy("verification.jsonl", ".1a/verification.jsonl"))]
         store: PathBuf,
         #[arg(long)]
+        since_ms: Option<u128>,
+        #[arg(long)]
+        until_ms: Option<u128>,
+        #[arg(long)]
         json: bool,
     },
 }
@@ -5728,10 +5732,19 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-            VerificationCommand::Summary { store, json } => {
+            VerificationCommand::Summary {
+                store,
+                since_ms,
+                until_ms,
+                json,
+            } => {
                 let store =
                     first_principles_agent::verification_store::VerificationStore::open(store)?;
-                let summary = store.summary();
+                let summary = if since_ms.is_some() || until_ms.is_some() {
+                    store.summary_between(since_ms.unwrap_or(0), until_ms.unwrap_or(u128::MAX))
+                } else {
+                    store.summary()
+                };
                 if json {
                     println!("{}", serde_json::to_string_pretty(&summary)?);
                 } else {
