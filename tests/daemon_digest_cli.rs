@@ -1,0 +1,125 @@
+use std::io::{Read, Write};
+use std::process::Command;
+use std::sync::mpsc;
+
+fn bin() -> &'static str {
+    env!("CARGO_BIN_EXE_first-principles-agent")
+}
+
+fn start_webhook() -> (String, mpsc::Receiver<String>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+            if let Some(end) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&buffer[..end]).to_string();
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (key, value) = line.split_once(':')?;
+                        key.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if buffer.len() >= end + 4 + length {
+                    let body = buffer[end + 4..end + 4 + length].to_vec();
+                    let _ = sender.send(String::from_utf8_lossy(&body).to_string());
+                    break;
+                }
+            }
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .ok();
+    });
+    (format!("http://{address}/hook"), receiver)
+}
+
+#[test]
+fn daemon_posts_a_lightweight_digest() {
+    let workspace = tempfile::tempdir().unwrap();
+    let inbox = workspace.path().join("inbox.jsonl");
+    let added = Command::new(bin())
+        .args(["inbox", "add", "--store"])
+        .arg(&inbox)
+        .args(["--kind", "review", "--title", "Approve the deploy"])
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+    let (webhook, received) = start_webhook();
+    let output = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args(["--once", "--digest-webhook", &webhook])
+        .args(["--digest-every-seconds", "60", "--digest-journal-dir"])
+        .arg(workspace.path().join("runs"))
+        .arg("--digest-inbox-store")
+        .arg(&inbox)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let body = received
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let text = payload["text"].as_str().unwrap();
+    assert!(text.contains("1Agent Digest (daemon)"), "{text}");
+    assert!(text.contains("schedules: 0"), "{text}");
+    assert!(text.contains("inbox_open: 1"), "{text}");
+}
+
+#[test]
+fn daemon_rejects_incomplete_digest_configuration() {
+    let workspace = tempfile::tempdir().unwrap();
+    let too_short = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args([
+            "--once",
+            "--digest-webhook",
+            "http://127.0.0.1:9/hook",
+            "--digest-every-seconds",
+            "30",
+        ])
+        .output()
+        .unwrap();
+    assert!(!too_short.status.success());
+    assert!(
+        String::from_utf8_lossy(&too_short.stderr).contains("60..=86400"),
+        "stderr: {}",
+        String::from_utf8_lossy(&too_short.stderr)
+    );
+
+    let missing_webhook = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args(["--once", "--digest-every-seconds", "60"])
+        .output()
+        .unwrap();
+    assert!(!missing_webhook.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing_webhook.stderr).contains("--digest-webhook"),
+        "stderr: {}",
+        String::from_utf8_lossy(&missing_webhook.stderr)
+    );
+}

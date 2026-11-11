@@ -483,6 +483,19 @@ enum Command {
         goal_journal: Option<PathBuf>,
         #[arg(long)]
         goal_inbox_store: Option<PathBuf>,
+        /// Send a lightweight digest on this interval (60..=86400 seconds).
+        #[arg(long)]
+        digest_every_seconds: Option<u64>,
+        #[arg(long)]
+        digest_webhook: Option<String>,
+        #[arg(long, default_value = "generic")]
+        digest_format: String,
+        /// Optional directory for recent-run counts in the digest.
+        #[arg(long)]
+        digest_journal_dir: Option<PathBuf>,
+        /// Optional inbox store for the open count in the digest.
+        #[arg(long)]
+        digest_inbox_store: Option<PathBuf>,
     },
     Watchdog {
         #[arg(long)]
@@ -2866,6 +2879,11 @@ async fn run_daemon(
     alert_inbox_store: Option<PathBuf>,
     goal_journal: Option<PathBuf>,
     goal_inbox_store: Option<PathBuf>,
+    digest_every_seconds: Option<u64>,
+    digest_webhook: Option<String>,
+    digest_format: String,
+    digest_journal_dir: Option<PathBuf>,
+    digest_inbox_store: Option<PathBuf>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2919,6 +2937,24 @@ async fn run_daemon(
     if goal_journal.is_some() != goal_inbox_store.is_some() {
         bail!("--goal-journal and --goal-inbox-store are required together");
     }
+    let digest = match (digest_every_seconds, digest_webhook) {
+        (Some(every), Some(webhook)) => {
+            if !(60..=86_400).contains(&every) {
+                bail!("--digest-every-seconds must be 60..=86400");
+            }
+            let format: first_principles_agent::alerts::WebhookFormat = digest_format
+                .parse()
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let notifier =
+                first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
+            Some((every, notifier, digest_journal_dir, digest_inbox_store))
+        }
+        (None, None) if digest_journal_dir.is_none() && digest_inbox_store.is_none() => None,
+        _ => bail!(
+            "--digest-every-seconds and --digest-webhook are required together; digest stores need both"
+        ),
+    };
+    let mut last_digest_ms = 0u128;
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
     loop {
         let now = current_time_ms();
@@ -3138,6 +3174,52 @@ async fn run_daemon(
                     eprintln!("[daemon] cannot open goal journal: {error}");
                 }
             }
+        }
+        if let Some((every, notifier, journal_dir, inbox_store)) = &digest
+            && now >= last_digest_ms.saturating_add(u128::from(*every) * 1_000)
+        {
+            use std::fmt::Write as _;
+            let mut text = String::from("1Agent Digest (daemon)\n");
+            if let Some(dir) = journal_dir
+                && dir.is_dir()
+                && let Ok(runs) = scan_history(dir, 20)
+            {
+                writeln!(text, "runs: {}", runs.len()).ok();
+                let mut reasons = std::collections::BTreeMap::<String, usize>::new();
+                for run in &runs {
+                    *reasons.entry(format!("{:?}", run.stop_reason)).or_default() += 1;
+                }
+                for (reason, count) in reasons {
+                    writeln!(text, "- {reason}: {count}").ok();
+                }
+            }
+            if let Ok(schedules) = first_principles_agent::scheduler::load(&store) {
+                let health = first_principles_agent::scheduler::health(&store, now, 300_000)
+                    .unwrap_or_default();
+                let ok = health.iter().filter(|job| job.state == "ok").count();
+                let overdue = health.iter().filter(|job| job.state == "overdue").count();
+                let failing = health.iter().filter(|job| job.state == "failing").count();
+                writeln!(
+                    text,
+                    "schedules: {} (ok={ok} overdue={overdue} failing={failing})",
+                    schedules.jobs.len()
+                )
+                .ok();
+            }
+            if let Some(alerts) = &alerts
+                && let Ok(records) = alerts.read()
+            {
+                writeln!(text, "alerts: {}", records.len()).ok();
+            }
+            if let Some(path) = inbox_store
+                && let Ok(inbox) = first_principles_agent::InboxStore::open(path)
+            {
+                writeln!(text, "inbox_open: {}", inbox.open_sorted(now).len()).ok();
+            }
+            if let Err(error) = notifier.send_text(text.trim_end()).await {
+                eprintln!("[daemon] cannot send digest: {error}");
+            }
+            last_digest_ms = now;
         }
         if once {
             break;
@@ -4985,6 +5067,11 @@ async fn main() -> Result<()> {
             alert_inbox_store,
             goal_journal,
             goal_inbox_store,
+            digest_every_seconds,
+            digest_webhook,
+            digest_format,
+            digest_journal_dir,
+            digest_inbox_store,
         } => {
             run_daemon(
                 store,
@@ -5008,6 +5095,11 @@ async fn main() -> Result<()> {
                 alert_inbox_store,
                 goal_journal,
                 goal_inbox_store,
+                digest_every_seconds,
+                digest_webhook,
+                digest_format,
+                digest_journal_dir,
+                digest_inbox_store,
             )
             .await?;
         }

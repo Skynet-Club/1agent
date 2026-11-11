@@ -394,6 +394,15 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Daemon periodic digest: `--digest-webhook URL --digest-every-seconds N
+  (60..=86400) [--digest-format ...] [--digest-journal-dir PATH]
+  [--digest-inbox-store PATH]` sends a lightweight text summary with recent
+  run/stop-reason counts, schedule health, alert count and open inbox count.
+  The timer is in-memory (restart sends once immediately); it does not replace
+  the full `digest` command. Send failures are logged and retried at the next
+  interval.
+- Tests: two `daemon_digest_cli` e2e tests cover the payload and incomplete
+  configuration rejection (`cargo test --test daemon_digest_cli`).
 - TUI `/receipt`: displays the most recent reframe decision receipt from the
   current run journal or, failing that, the newest session journal. It uses
   the same replay and `render_receipt` path as the CLI.
