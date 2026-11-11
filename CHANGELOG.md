@@ -202,6 +202,13 @@
   separate.
 - Tests: five alarm-budget unit tests plus two `alarm_budget_cli` e2e tests
   (`cargo test alarm_budget --lib`, `cargo test --test alarm_budget_cli`).
+- Escalation ladder (ADR-0064): `EscalationLadder` holds strictly increasing
+  `(after_ms, action)` steps (`inbox`/`digest`/`notify`/`urgent`). `plan`
+  selects the highest reached rung, returns no level before the first rung or
+  for a resolved item. `1agent escalate` exposes it. It computes a level; it
+  does not send or mutate the item.
+- Tests: four escalation unit tests plus two `escalate_cli` e2e tests
+  (`cargo test escalation --lib`, `cargo test --test escalate_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

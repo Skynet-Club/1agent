@@ -425,6 +425,20 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Escalate {
+        #[arg(long, default_value_t = 0)]
+        created_ms: u128,
+        /// Defaults to the current clock.
+        #[arg(long)]
+        now_ms: Option<u128>,
+        /// AFTER_MS=inbox|digest|notify|urgent; repeat in increasing order.
+        #[arg(long, value_name = "AFTER_MS=ACTION")]
+        step: Vec<String>,
+        #[arg(long)]
+        resolved: bool,
+        #[arg(long)]
+        json: bool,
+    },
     AlarmBudget {
         #[arg(long, default_value_t = 50)]
         urgency: u8,
@@ -4527,6 +4541,47 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&plan)?);
             } else {
                 println!("decision: {}", plan.decision.as_str());
+                println!("reason: {}", plan.reason);
+            }
+        }
+        Command::Escalate {
+            created_ms,
+            now_ms,
+            step,
+            resolved,
+            json,
+        } => {
+            if step.is_empty() {
+                anyhow::bail!("at least one --step AFTER_MS=ACTION is required");
+            }
+            let mut steps = Vec::with_capacity(step.len());
+            for raw in step {
+                let (after, action) = raw
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--step must be AFTER_MS=ACTION"))?;
+                let after_ms: u128 = after
+                    .trim()
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("--step threshold must be milliseconds"))?;
+                let action = first_principles_agent::escalation::EscalationAction::parse(action)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("--step action must be inbox, digest, notify or urgent")
+                    })?;
+                steps.push(first_principles_agent::escalation::EscalationStep { after_ms, action });
+            }
+            let ladder = first_principles_agent::escalation::EscalationLadder::new(steps)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let plan = first_principles_agent::escalation::plan(
+                &ladder,
+                created_ms,
+                now_ms.unwrap_or_else(current_time_ms),
+                resolved,
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!("level: {:?}", plan.level);
+                println!("elapsed_ms: {}", plan.elapsed_ms);
                 println!("reason: {}", plan.reason);
             }
         }
