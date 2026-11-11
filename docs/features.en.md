@@ -64,7 +64,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - scope, source, taint, TTL and valid_until;
 - recall, soft forget and hard forget;
 - encrypted payloads (per-record DEK + per-scope KEK);
-- UserModel;
+- UserModel (preferences/boundaries/autonomy/voice/memory consent; inspect with `1agent user-model`);
 - memory bodies are not written into the journal; only metadata/summaries are recorded.
 
 ### 2.5 Skills (available, RC)
@@ -115,6 +115,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - `init` / `doctor` / `export` / `restore` / `upgrade` / `uninstall`;
 - key escrow / restore;
 - Linux release archive, SHA256SUMS, Linux provenance and installer;
+- platform capability registry: `1agent platform [--json]` reports `verified` / `degraded` / `unsupported` / `untested`; macOS/Windows are `untested` and are not claimed as supported;
 - MIT license and third-party notices.
 
 ## 3. Explicitly not implemented

@@ -2,7 +2,7 @@
 
 > **Ask what it is for before reaching for the drill.**
 
-**A local-first, evidence-accountable Super-Agent runtime.**
+**A local-first, evidence-accountable Agent runtime; 1.0.0 targets a Super-Partner.**
 
 [![Status: R1 release candidate](https://img.shields.io/badge/status-R1%20release%20candidate-orange)](#current-status)
 [![Platform: Linux x86_64](https://img.shields.io/badge/platform-Linux%20x86__64-blue)](docs/ecosystem.en.md)
@@ -45,7 +45,7 @@ Read the full design trade-offs in [Design Philosophy](docs/design-philosophy.en
 - **Interactive TUI**: conversation modes, `/` command drawer, categories and recent commands, transcript scrolling, copy and run status.
 - **Headless runs**: `1agent run` for scripts, CI and batch work.
 - **Evidence-backed tasks**: task graph, tickets, mandates, approvals, side effects, reports and receipts.
-- **Local memory**: four layers, scope/taint/TTL, encrypted payloads, soft/hard forget.
+- **Local memory and user model**: four layers, scope/taint/TTL, encrypted payloads, soft/hard forget; `UserModel` 2.0 records preferences, boundaries, autonomy, voice mode and memory consent (inspect with `1agent user-model`).
 - **Skill lifecycle**: SKILL.md, versions, scanning, static evaluation, runtime canary and rollback.
 - **Long-lived context**: goals/commitments, deterministic attention basics, personal context graph and delegation profiles.
 - **Self-summary and evolution**: reflection/lesson, evolution proposals, ledger, human approval and rollback.
@@ -69,10 +69,10 @@ than feature count:
 
 | Version | Theme | Target window | Core outcome |
 |---|---|---|---|
-| **0.97.0** | Reliable Loop | 2026-12-22 | Long-horizon reliable closure: streaming, parallel read-only tools, incremental journal, crash recovery/checkpoint resume, verification gate, memory MVP, sandbox and a result-first answer contract |
-| **0.98.0** | Real World | 2027-02-02 | Browser writes / computer-use, MCP expansion, skill learning and a resident MVP |
-| **0.99.0** | Multi-Agent Organization | 2027-03-16 | Master/Worker reliability, cost governance, market trust and external-audit preparation |
-| **1.0.0** | Trusted Super-Agent | 2027-05-11 | External audit, SDK/API, team collaboration, cross-platform and ecosystem |
+| **0.97.0** | Reliable Loop | 2026-12-22 | Long-horizon reliable closure: streaming, parallel read-only tools, incremental journal, crash recovery/checkpoint resume, verification gate, memory MVP, sandbox and a result-first answer contract; User Model 2.0, Trust & Repair, Value Report v0, cross-platform adapter layer |
+| **0.98.0** | Real World | 2027-02-02 | Browser writes / computer-use, MCP expansion, skill learning and a resident MVP; Agent Inbox, desktop/chat surface, autonomy dial, partner voice, cross-platform Alpha |
+| **0.99.0** | Multi-Agent Organization | 2027-03-16 | Master/Worker reliability, cost governance, cascade containment, shared team partner, external-audit preparation, cross-platform Beta |
+| **1.0.0** | Trusted Super-Partner | 2027-05-11 | User model, Agent Inbox, external audit, SDK/API, team collaboration, cross-platform GA and ecosystem |
 
 Dates are target windows, not unconditional promises. **If a metric gate does
 not pass, we do not release and do not claim Super-Agent.**

@@ -221,6 +221,14 @@ workspace with optional SHA-256 matching.
   explicit edges; hard-forgotten memory is absent and superseded memory is marked.
 - `EvolutionRegistry`: human-gated proposals for skills/routines/strategy only, with
   hash-chained receipts; authority/policy/persona changes are not representable.
+- `UserModel` is a derived view over scoped memory records (ADR-0035). Besides
+  preferences and boundaries it exposes `autonomy.<domain>` (`observe` /
+  `suggest` / `act` / `auto`, default `suggest`), `voice` / `voice_mode`
+  (`operator` / `advisor` / `companion`, default `operator`) and
+  `consent:<kind>=allow|deny[@<retention_ms>]` (default allow). Each entry keeps
+  its source memory id; forgotten or superseded records are ignored. Autonomy
+  and consent are preferences, not grants: Authority/Policy/Approval still
+  decide execution. `1agent user-model` prints the view as JSON or text.
 
 ## Security behavior
 
@@ -344,6 +352,10 @@ the log. Writers assume a single process and enforce private file modes.
 
 - Domain and application code must not branch on `cfg(target_os)`.
 - Platform capabilities belong in adapters with explicit `verified`, `degraded`, `unsupported` and `untested` status.
+- `platform::report()` and `1agent platform [--json]` expose that status map
+  (ADR-0036). Linux currently reports verified core paths, degraded adapters and
+  unsupported computer-use; macOS/Windows/other report every capability as
+  `untested` until the P-Gate exercises them.
 - File access is constrained to canonicalized read roots.
 - Cancellation must propagate through provider calls, tools and cleanup.
 - Structured errors are part of the contract; provider-specific error text is not.
