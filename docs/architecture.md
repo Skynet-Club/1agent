@@ -351,6 +351,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   The planner must not see untrusted content, and a branch target must be in
   the pre-approved plan (branch-steering guard). This is policy only; no
   browser execution.
+- `chat`: `to_task_request` maps a `ChatMessage` to a `TaskRequest`;
+  `format_reply` returns the conclusion, one trust line (`证据 N · 未知 M`),
+  `needs_approval` and `inbox_open`, without schema field names. This is the
+  channel-neutral contract; Slack/Telegram/WeChat transports are separate.
 - `otel`: `spans_from_events` projects the journal into deterministic
   OTel GenAI-style spans: one `invoke_agent` root, one `chat` span per model
   response with provider/model/token/cost attributes, and one `execute_tool`

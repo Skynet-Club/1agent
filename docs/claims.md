@@ -70,6 +70,7 @@ file: <路径>              → 文件必须存在
 | Cascade 模拟计算 affected/contained/propagated、containment_bps/depth/blast radius 并按策略门禁 | cmd: cargo test cascade --lib && cargo test --test cascade_check_cli | ✅ | 确定性模拟，不是真实多 Agent 运行 |
 | Budget 硬上限：超限失败、80% 警告；每验证结果成本；超限非零退出；run 运行时累计并停止 | cmd: cargo test budget --lib && cargo test --test budget_check_cli && cargo test cost_budget_stops --lib | ✅ | 运行时按 provider-reported usage 累计；未覆盖所有 provider 计费差异 |
 | OTel 投影生成 invoke_agent/chat/execute_tool spans，带 gen_ai 属性且确定性 | cmd: cargo test otel --lib && cargo test --test otel_cli | ✅ | JSON 投影，非完整 OTel SDK/exporter |
+| Chat 适配契约：消息→TaskRequest；回复先结论+信任摘要+needs_approval+inbox_open，不泄露 schema | cmd: cargo test chat --lib | ✅ | 传输层未实现 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |

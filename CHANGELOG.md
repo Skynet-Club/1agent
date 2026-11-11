@@ -153,6 +153,11 @@
   projection, not an OTel SDK/exporter.
 - Tests: two OTel unit tests plus one `otel_cli` e2e test
   (`cargo test otel --lib`, `cargo test --test otel_cli`).
+- Chat adapter contract (ADR-0057): `to_task_request` maps a `ChatMessage` to
+  a `TaskRequest`; `format_reply` returns the conclusion, one trust line,
+  `needs_approval` and `inbox_open`, without schema field names. Transport
+  implementations are separate.
+- Tests: three `chat` unit tests (`cargo test chat --lib`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
