@@ -262,6 +262,11 @@ enum Command {
         /// Include the all-time local verification summary.
         #[arg(long)]
         verification_store: Option<PathBuf>,
+        /// Post the text digest to this webhook after building it.
+        #[arg(long)]
+        notify_webhook: Option<String>,
+        #[arg(long, default_value = "generic")]
+        notify_format: String,
         #[arg(long)]
         json: bool,
     },
@@ -3168,8 +3173,11 @@ async fn main() -> Result<()> {
             handoff_store,
             recipient,
             verification_store,
+            notify_webhook,
+            notify_format,
             json,
         } => {
+            use std::fmt::Write as _;
             let runs = if journal_dir.is_dir() {
                 scan_history(&journal_dir, 20)?
             } else {
@@ -3225,6 +3233,44 @@ async fn main() -> Result<()> {
                 }
                 None => None,
             };
+            let mut text = String::new();
+            writeln!(text, "1Agent Digest").ok();
+            writeln!(text, "最近运行：{} 条", runs.len()).ok();
+            for (reason, count) in &stop_reasons {
+                writeln!(text, "- {reason}: {count}").ok();
+            }
+            writeln!(text, "计划任务：{} 个", schedules.jobs.len()).ok();
+            for (job, health) in schedules.jobs.iter().zip(&health) {
+                writeln!(
+                    text,
+                    "- {} | {} | {} | next={} | last={:?}",
+                    job.id, job.name, health.state, job.next_run_ms, job.last_status
+                )
+                .ok();
+            }
+            if let Some(next) = next_run_ms {
+                writeln!(text, "最近的下一次运行：{next}").ok();
+            }
+            writeln!(text, "告警：{} 条", alert_records.len()).ok();
+            for (kind, count) in &alert_kinds {
+                writeln!(text, "- {kind}: {count}").ok();
+            }
+            writeln!(text, "Inbox 待办：{inbox_open} 条").ok();
+            if let Some(recipient) = &recipient {
+                writeln!(text, "待 {recipient} 接受的交接：{handoff_open} 条").ok();
+            }
+            if let Some(verification) = &verification {
+                writeln!(
+                    text,
+                    "验证：verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}",
+                    verification.verified,
+                    verification.hacked,
+                    verification.rejected,
+                    verification.resolved,
+                    verification.hacked_resolved_bps
+                )
+                .ok();
+            }
             if json {
                 println!(
                     "{}",
@@ -3244,39 +3290,16 @@ async fn main() -> Result<()> {
                     }))?
                 );
             } else {
-                println!("1Agent Digest");
-                println!("最近运行：{} 条", runs.len());
-                for (reason, count) in &stop_reasons {
-                    println!("- {reason}: {count}");
-                }
-                println!("计划任务：{} 个", schedules.jobs.len());
-                for (job, health) in schedules.jobs.iter().zip(&health) {
-                    println!(
-                        "- {} | {} | {} | next={} | last={:?}",
-                        job.id, job.name, health.state, job.next_run_ms, job.last_status
-                    );
-                }
-                if let Some(next) = next_run_ms {
-                    println!("最近的下一次运行：{next}");
-                }
-                println!("告警：{} 条", alert_records.len());
-                for (kind, count) in &alert_kinds {
-                    println!("- {kind}: {count}");
-                }
-                println!("Inbox 待办：{inbox_open} 条");
-                if let Some(recipient) = &recipient {
-                    println!("待 {recipient} 接受的交接：{handoff_open} 条");
-                }
-                if let Some(verification) = &verification {
-                    println!(
-                        "验证：verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}",
-                        verification.verified,
-                        verification.hacked,
-                        verification.rejected,
-                        verification.resolved,
-                        verification.hacked_resolved_bps
-                    );
-                }
+                print!("{text}");
+            }
+            if let Some(webhook) = notify_webhook {
+                let format: first_principles_agent::alerts::WebhookFormat =
+                    notify_format
+                        .parse()
+                        .map_err(|error| anyhow::anyhow!("{error}"))?;
+                let notifier = first_principles_agent::notify::InboxNotifier::new(webhook)?
+                    .with_format(format);
+                notifier.send_text(text.trim_end()).await?;
             }
         }
         Command::UnitEconomics {
