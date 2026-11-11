@@ -154,7 +154,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 |---|---|---|
 | Browser / computer-use | **Partial** | `browser_read` renders with headless Chrome and extracts text; clicking, typing, screenshots and visual understanding are not implemented |
 | Generic subagents | **Partial** | `spawn_agent` runs bounded child agents (depth 2, isolated journal/workspace); Master→Worker remains a separate path |
-| MCP client | **Partial** | stdio and streamable HTTP (JSON/SSE responses, `Mcp-Session-Id`, bearer token from an environment variable only) discovery and calls; OAuth claims validation is available; issuer discovery, token exchange and a tool marketplace are not implemented |
+| MCP client | **Partial** | stdio and streamable HTTP (JSON/SSE responses, `Mcp-Session-Id`, bearer token from an environment variable only, per-server `timeout_seconds`) discovery and calls; OAuth claims validation is available; issuer discovery, token exchange and a tool marketplace are not implemented |
 | Always-on daemon/Routine/Trigger | **Partial** | Interval and file triggers, restart catch-up, `--routine-skill`, `schedule health`; failed/timed-out runs can write alerts and webhook them; escalation and cross-restart deduplication are not implemented |
 | Full Attention/Digest | **Partial** | `digest` summarizes recent runs, schedules, health, alerts, open inbox items, open handoffs for a named recipient and the local verification summary; `--notify-webhook` posts the same text digest one-way; the maintenance loop is not implemented |
 | Automatic evolution/skill marketplace | **Partial** | Human approval/rollback plus SHA-256/Ed25519 skill bundles with signature verification; a remote marketplace index is not implemented |
