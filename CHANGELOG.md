@@ -61,6 +61,15 @@
   item's status.
 - Tests: one sync unit test and one `inbox_sync_cli` e2e test
   (`cargo test inbox --lib`, `cargo test --test inbox_sync_cli`).
+- Autonomy dial policy (ADR-0044): `autonomy::decide` maps
+  observe/suggest/act/auto plus risk, reversibility and explicit approval to
+  observe/suggest/act/require_approval. `observe`/`suggest` never act; `act`
+  allows only low-risk reversible actions; `auto` allows low/medium risk; high
+  risk and irreversible actions require approval unless explicitly approved.
+  `1agent autonomy` exposes the policy. A preference is not an authorization
+  grant.
+- Tests: five autonomy unit tests plus two `autonomy_cli` e2e tests
+  (`cargo test autonomy --lib`, `cargo test --test autonomy_cli`).
 
 ## 0.96.1 - 2026-11-11
 

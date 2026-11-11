@@ -367,6 +367,18 @@ enum Command {
         #[command(subcommand)]
         command: InboxCommand,
     },
+    Autonomy {
+        #[arg(long, default_value = "suggest")]
+        level: String,
+        #[arg(long, default_value = "low")]
+        risk: String,
+        #[arg(long)]
+        reversible: bool,
+        #[arg(long)]
+        explicit_approval: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Surface {
         #[command(subcommand)]
         command: SurfaceCommand,
@@ -3977,6 +3989,29 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Command::Autonomy {
+            level,
+            risk,
+            reversible,
+            explicit_approval,
+            json,
+        } => {
+            let level = first_principles_agent::AutonomyLevel::parse(&level)
+                .ok_or_else(|| anyhow::anyhow!("level must be observe, suggest, act or auto"))?;
+            let risk = match risk.trim().to_ascii_lowercase().as_str() {
+                "low" => first_principles_agent::RiskLevel::Low,
+                "medium" => first_principles_agent::RiskLevel::Medium,
+                "high" => first_principles_agent::RiskLevel::High,
+                _ => anyhow::bail!("risk must be low, medium or high"),
+            };
+            let plan = first_principles_agent::decide(level, risk, reversible, explicit_approval);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!("decision: {}", plan.decision.as_str());
+                println!("reason: {}", plan.reason);
+            }
+        }
         Command::Surface { command } => match command {
             SurfaceCommand::Openapi => {
                 let document = first_principles_agent::openapi_document();
