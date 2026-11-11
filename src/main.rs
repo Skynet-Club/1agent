@@ -466,6 +466,9 @@ enum Command {
         /// Required with the reconcile stores; applies terminal handoff states.
         #[arg(long)]
         reconcile_apply: bool,
+        /// Project new --alert-log records into this inbox store every tick.
+        #[arg(long)]
+        alert_inbox_store: Option<PathBuf>,
     },
     Watchdog {
         #[arg(long)]
@@ -2780,6 +2783,7 @@ async fn run_daemon(
     reconcile_inbox_store: Option<PathBuf>,
     reconcile_handoff_store: Option<PathBuf>,
     reconcile_apply: bool,
+    alert_inbox_store: Option<PathBuf>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2829,6 +2833,9 @@ async fn run_daemon(
     let alerts = alert_log
         .map(first_principles_agent::AlertLog::open)
         .transpose()?;
+    if alert_inbox_store.is_some() && alerts.is_none() {
+        bail!("--alert-inbox-store requires --alert-log");
+    }
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
     loop {
         let now = current_time_ms();
@@ -2959,6 +2966,34 @@ async fn run_daemon(
                 }
                 Err(error) => {
                     eprintln!("[daemon] cannot open reconcile inbox store: {error}");
+                }
+            }
+        }
+        if let (Some(inbox_path), Some(alerts)) = (&alert_inbox_store, &alerts) {
+            match alerts.read() {
+                Ok(records) => {
+                    let projected =
+                        first_principles_agent::project_alerts(&records, current_time_ms());
+                    match first_principles_agent::InboxStore::open(inbox_path) {
+                        Ok(mut inbox) => match inbox.sync(projected, true) {
+                            Ok(report) if report.added > 0 => {
+                                eprintln!(
+                                    "[daemon] inbox alert sync: added {} item(s)",
+                                    report.added
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                eprintln!("[daemon] inbox alert sync failed: {error}");
+                            }
+                        },
+                        Err(error) => {
+                            eprintln!("[daemon] cannot open alert inbox store: {error}");
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("[daemon] cannot read alert log: {error}");
                 }
             }
         }
@@ -4775,6 +4810,7 @@ async fn main() -> Result<()> {
             reconcile_inbox_store,
             reconcile_handoff_store,
             reconcile_apply,
+            alert_inbox_store,
         } => {
             run_daemon(
                 store,
@@ -4794,6 +4830,7 @@ async fn main() -> Result<()> {
                 reconcile_inbox_store,
                 reconcile_handoff_store,
                 reconcile_apply,
+                alert_inbox_store,
             )
             .await?;
         }

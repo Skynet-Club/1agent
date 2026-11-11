@@ -368,6 +368,11 @@
 - Tests: two `daemon_reconcile_cli` e2e tests cover automatic reconciliation
   and incomplete-configuration rejection (`cargo test --test
   daemon_reconcile_cli`).
+- Daemon alert projection: with `--alert-log PATH` and `--alert-inbox-store
+  PATH`, every tick projects new alert records into the inbox and applies the
+  sync (item-id dedupe, existing statuses preserved). Quiet hours skip it.
+- Tests: two `daemon_alert_inbox_cli` e2e tests cover projection/dedupe and
+  the missing-log rejection (`cargo test --test daemon_alert_inbox_cli`).
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event
