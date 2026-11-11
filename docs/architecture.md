@@ -282,9 +282,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   writes it atomically. `reply` reads a `RunResult` JSON, formats the answer
   with `chat::format_reply` and writes a `ChatReply`. `ingest` scans up to 500
   top-level `.json` messages, writes task files, moves valid messages to
-  `processed/` and invalid ones to `failed/` with an error file. Inputs are
-  bounded to 1 MiB and must be regular non-symlink files. It is not a live
-  transport.
+  `processed/` and invalid ones to `failed/` with an error file. An existing
+  `<stem>.task.json` is skipped (not overwritten) and its message is still
+  moved to `processed/`. Inputs are bounded to 1 MiB and must be regular
+  non-symlink files. It is not a live transport.
 - `notify`: `InboxNotifier` posts the open inbox queue to a
   generic/Slack/Discord webhook. It requires HTTPS except for loopback, rejects
   embedded credentials, bounds the payload, and returns `sent=false` for an

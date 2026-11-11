@@ -41,6 +41,8 @@ test result: ok. 3 passed; 0 failed
 - `ingest` processes 3 messages (2 valid, 1 invalid): converted=2, failed=1,
   valid messages move to processed/, invalid ones to failed/ with an error
   file, and a second run scans 0.
+- With a pre-existing `a.task.json`, ingest reports converted=1, skipped=1 and
+  leaves the existing task untouched.
 
 ## What this does not prove
 

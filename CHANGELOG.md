@@ -289,7 +289,9 @@
 - Chat bridge spool: `chat-bridge ingest --inbox DIR --workspace DIR --out DIR`
   processes up to 500 top-level JSON messages, writes task files, moves valid
   messages to `processed/` and invalid ones to `failed/` with an error file.
-  Any failed message makes the command exit non-zero.
+  Any failed message makes the command exit non-zero. An existing
+  `<stem>.task.json` is skipped and its message is moved to `processed/`, so a
+  retried ingest after a move failure does not overwrite the task.
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.
