@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::StopReason;
 use crate::journal::RunHistoryEntry;
 use crate::usage_ledger::UsageLedger;
+use crate::verification::HackSuiteSummary;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -29,9 +30,11 @@ pub struct ValueReport {
     pub tool_calls: u64,
     pub tool_failures: u64,
     pub alerts: u32,
-    /// Caller-supplied count of independently verified outcomes.
+    /// Caller-supplied or store-derived count of independently verified outcomes.
     pub verified_outcomes: Option<u32>,
     pub cost_per_verified_outcome_micros: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<HackSuiteSummary>,
     /// Open or due-snoozed inbox items. This is a separate queue size; it is
     /// not deduplicated against alerts.
     pub inbox_open: u32,
@@ -41,12 +44,14 @@ pub struct ValueReport {
 
 /// `usage` must already be scoped to the same journals as `runs`; the report
 /// does not re-read journals or guess a time window for usage.
+#[allow(clippy::too_many_arguments)]
 pub fn build_value_report(
     runs: &[RunHistoryEntry],
     usage: &UsageLedger,
     alerts: u32,
     inbox_open: u32,
     verified_outcomes: Option<u32>,
+    verification: Option<HackSuiteSummary>,
     since_ms: u128,
     until_ms: u128,
 ) -> ValueReport {
@@ -71,6 +76,7 @@ pub fn build_value_report(
         cost_per_verified_outcome_micros: verified_outcomes.and_then(|verified| {
             crate::budget::cost_per_verified_outcome(usage.totals.cost_micros, u64::from(verified))
         }),
+        verification,
         inbox_open,
         pending_decisions: 0,
     };
@@ -165,7 +171,7 @@ mod tests {
             run(60, Some(StopReason::Cancelled)),
             run(70, None),
         ];
-        let report = build_value_report(&runs, &usage(), 1, 2, Some(2), 0, 100);
+        let report = build_value_report(&runs, &usage(), 1, 2, Some(2), None, 0, 100);
         assert_eq!(report.runs, 7);
         assert_eq!(report.completed, 2);
         assert_eq!(report.needs_authorization, 1);
@@ -191,12 +197,12 @@ mod tests {
             run(10, Some(StopReason::Completed)),
             run(200, Some(StopReason::Completed)),
         ];
-        let report = build_value_report(&runs, &usage(), 0, 0, None, 100, 300);
+        let report = build_value_report(&runs, &usage(), 0, 0, None, None, 100, 300);
         assert_eq!(report.runs, 1);
         assert_eq!(report.completed, 1);
         assert_eq!(report.cost_per_completed_micros, 900);
 
-        let empty = build_value_report(&runs, &usage(), 0, 0, None, 1000, 2000);
+        let empty = build_value_report(&runs, &usage(), 0, 0, None, None, 1000, 2000);
         assert_eq!(empty.runs, 0);
         assert_eq!(empty.cost_per_completed_micros, 0);
     }

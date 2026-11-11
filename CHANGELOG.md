@@ -327,6 +327,10 @@
   Verified outcomes do not create an item and sync dedupes by id.
 - Tests: the `verification_store_cli` test checks one review item for the
   Hacked report and none for the Verified report.
+- Value report verification summary: with `--verification-store`, the report
+  also includes the window's `verified/hacked/rejected/resolved/
+  hacked_resolved_bps` summary. `summary_between` filters by record time.
+- Tests: the `verification_store_cli` test asserts the summary fields.
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
