@@ -269,6 +269,8 @@
 - Inbox notification watermark: `--state PATH` stores `last_sent_ms` and
   suppresses repeats until an item is newer. The watermark advances only after
   a successful send; a failed send leaves it unchanged.
+- Inbox notification receipts: `--log PATH` appends one JSONL receipt per
+  successful send with time/open/new_items/format; the URL is not stored.
 - Daemon quiet hours: `daemon --quiet-hours HH:MM-HH:MM
   --utc-offset-minutes N` skips due jobs inside the window. Jobs remain due and
   run after the window; the watchdog heartbeat still advances.

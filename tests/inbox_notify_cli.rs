@@ -57,12 +57,15 @@ fn inbox_notify_posts_open_items_to_a_slack_webhook() {
     }
 
     let state = workspace.path().join("notify-state.json");
+    let log = workspace.path().join("notify.jsonl");
     let (webhook, received) = start_webhook();
     let output = Command::new(bin)
         .args(["inbox-notify", "--store"])
         .arg(&store)
         .args(["--webhook", &webhook, "--format", "slack", "--state"])
         .arg(&state)
+        .arg("--log")
+        .arg(&log)
         .arg("--json")
         .output()
         .unwrap();
@@ -75,6 +78,12 @@ fn inbox_notify_posts_open_items_to_a_slack_webhook() {
     assert_eq!(report["sent"], true);
     assert_eq!(report["open"], 2);
     assert!(state.exists());
+    let receipts = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(receipts.lines().count(), 1);
+    let receipt: serde_json::Value =
+        serde_json::from_str(receipts.lines().next().unwrap()).unwrap();
+    assert_eq!(receipt["open"], 2);
+    assert_eq!(receipt["format"], "slack");
 
     let unchanged = Command::new(bin)
         .args(["inbox-notify", "--store"])
@@ -88,6 +97,7 @@ fn inbox_notify_posts_open_items_to_a_slack_webhook() {
     let report: serde_json::Value = serde_json::from_slice(&unchanged.stdout).unwrap();
     assert_eq!(report["sent"], false);
     assert_eq!(report["new_items"], 0);
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
 
     std::thread::sleep(std::time::Duration::from_millis(5));
     let added = Command::new(bin)

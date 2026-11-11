@@ -14,12 +14,13 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 3 tests (notify module)
+running 4 tests (notify module)
 test notify::tests::insecure_remote_and_embedded_credentials_are_rejected ... ok
 test notify::tests::payloads_are_bounded_and_formatted ... ok
 test notify::tests::watermark_suppresses_unchanged_items_and_survives_save ... ok
+test notify::tests::receipts_append_as_jsonl ... ok
 
-test result: ok. 3 passed; 0 failed
+test result: ok. 4 passed; 0 failed
 
 running 2 tests (tests/inbox_notify_cli.rs)
 test inbox_notify_posts_open_items_to_a_slack_webhook ... ok
@@ -38,6 +39,8 @@ test result: ok. 2 passed; 0 failed
 - `--state` suppresses a repeat with no newer item, survives save/reopen, and
   does not advance when a send fails; a newly added item triggers another send
   with `new_items: 1`.
+- `--log` appends one receipt per successful send and no receipt for a
+  suppressed repeat; the receipt records format and counts but not the URL.
 
 ## What this does not prove
 
