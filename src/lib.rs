@@ -31,6 +31,7 @@ pub mod experience;
 pub mod gate;
 pub mod goal;
 pub mod governed_task_graph;
+pub mod handoff;
 pub mod host;
 pub mod host_events;
 pub mod http_surface;

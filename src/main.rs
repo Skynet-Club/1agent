@@ -412,6 +412,10 @@ enum Command {
         #[command(subcommand)]
         command: OrgAuditCommand,
     },
+    Handoff {
+        #[command(subcommand)]
+        command: HandoffCommand,
+    },
     McpTokenCheck {
         /// JSON claims that were already signature-verified by the caller.
         #[arg(long, value_name = "PATH")]
@@ -1359,6 +1363,49 @@ enum IdempotencyCommand {
         key: String,
         #[arg(long)]
         fingerprint: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum HandoffCommand {
+    Create {
+        #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
+        store: PathBuf,
+        /// Defaults to a generated UUID.
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long, default_value = "")]
+        scope: String,
+        #[arg(long)]
+        summary: String,
+        /// Repeat for each open item.
+        #[arg(long)]
+        open_item: Vec<String>,
+        /// Repeat for each evidence reference; at least one is required.
+        #[arg(long)]
+        evidence: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    Accept {
+        #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        json: bool,
+    },
+    List {
+        #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
+        store: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -4747,6 +4794,73 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::Handoff { command } => match command {
+            HandoffCommand::Create {
+                store,
+                id,
+                from,
+                to,
+                scope,
+                summary,
+                open_item,
+                evidence,
+                json,
+            } => {
+                let mut store = first_principles_agent::handoff::HandoffStore::open(store)?;
+                let handoff = first_principles_agent::handoff::Handoff {
+                    id: id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    from,
+                    to,
+                    scope,
+                    summary,
+                    open_items: open_item,
+                    evidence,
+                    created_ms: current_time_ms(),
+                    status: first_principles_agent::handoff::HandoffStatus::Open,
+                    accepted_ms: None,
+                    accepted_by: None,
+                };
+                let handoff = store.create(handoff)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(handoff)?);
+                } else {
+                    println!(
+                        "handoff {} from {} to {} ({})",
+                        handoff.id, handoff.from, handoff.to, handoff.scope
+                    );
+                }
+            }
+            HandoffCommand::Accept {
+                store,
+                id,
+                actor,
+                json,
+            } => {
+                let mut store = first_principles_agent::handoff::HandoffStore::open(store)?;
+                let handoff = store.accept(&id, &actor, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(handoff)?);
+                } else {
+                    println!("accepted {} by {}", handoff.id, actor);
+                }
+            }
+            HandoffCommand::List { store, json } => {
+                let store = first_principles_agent::handoff::HandoffStore::open(store)?;
+                let items = store.list();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&items)?);
+                } else if items.is_empty() {
+                    println!("(no handoffs)");
+                } else {
+                    for item in items {
+                        println!(
+                            "- {} {} -> {} [{}] {}",
+                            item.id, item.from, item.to, item.scope, item.summary
+                        );
+                    }
+                }
+            }
+        },
         Command::Autonomy {
             level,
             risk,

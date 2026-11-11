@@ -143,8 +143,8 @@ pub fn build_card(version: &str) -> AgentCard {
             ),
             capability(
                 "team_collaboration",
-                CapabilityStatus::Unsupported,
-                "shared team partner is not implemented",
+                CapabilityStatus::Degraded,
+                "role policy, grounded handoffs and local org audit; no IdP, live shared context or multi-tenant isolation",
             ),
             capability(
                 "marketplace",
@@ -155,7 +155,7 @@ pub fn build_card(version: &str) -> AgentCard {
         limits: vec![
             "No computer-use clicks, typing or screenshots on this build.".into(),
             "macOS and Windows are untested; Linux x86_64 is the verified platform.".into(),
-            "No team collaboration, multi-tenant identity or marketplace.".into(),
+            "No team IdP, live shared context, multi-tenant isolation or marketplace.".into(),
             "No claim of calibrated confidence or model-quality generalization.".into(),
             "Autonomy is a preference; Authority/Policy/ExecutionGate still decide execution.".into(),
         ],
@@ -302,14 +302,18 @@ mod tests {
     #[test]
     fn unsupported_claims_are_not_marked_verified() {
         let card = build_card("0.97.0");
-        for id in ["team_collaboration", "marketplace"] {
-            let capability = card
-                .capabilities
-                .iter()
-                .find(|capability| capability.id == id)
-                .unwrap();
-            assert_eq!(capability.status, CapabilityStatus::Unsupported);
-        }
+        let marketplace = card
+            .capabilities
+            .iter()
+            .find(|capability| capability.id == "marketplace")
+            .unwrap();
+        assert_eq!(marketplace.status, CapabilityStatus::Unsupported);
+        let team = card
+            .capabilities
+            .iter()
+            .find(|capability| capability.id == "team_collaboration")
+            .unwrap();
+        assert_eq!(team.status, CapabilityStatus::Degraded);
         let computer_use = card
             .capabilities
             .iter()

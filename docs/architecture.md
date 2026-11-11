@@ -263,10 +263,15 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
   an exact required scope. Signature verification and token acquisition are
   the caller's; this module never stores or prints the token.
+- `handoff`: grounded team handoff notes. `create` requires distinct from/to,
+  a non-empty summary and at least one evidence reference; only the addressee
+  may `accept`, and a terminal handoff cannot transition again. Snapshots are
+  appended and synced to JSONL; the latest per id wins.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;
-  `cross_platform` is untested and team/marketplace are unsupported.
+  `cross_platform` is untested, team collaboration is degraded (policy, handoff
+  notes and local audit only) and marketplace is unsupported.
   `1agent agent-card` prints it and `GET /v0/agent-card` serves the same
   payload on the public read-only HTTP Surface. `--generate-key` creates an
   Ed25519 key pair, `--sign-key` signs the canonical payload (the card without

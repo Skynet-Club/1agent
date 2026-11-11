@@ -74,6 +74,7 @@
 - OTel GenAI 投影：`1agent otel --journal PATH [--json]` 从 journal 生成确定性 spans（invoke_agent / chat / execute_tool），带 provider/model/token/cost 属性；是 JSON 投影，不是完整 OTel SDK/exporter；
 - Chat 适配契约：`ChatMessage → TaskRequest`；`ChatReply` 先结论、一行信任摘要（证据/未知）、`needs_approval` 与 `inbox_open`，不泄露 schema 字段；具体 Slack/Telegram/微信传输是下一层；
 - 团队角色策略：`1agent team-check` 按 owner/approver/member/viewer、read/write/approve/manage 与 scope 判定；空 scopes 表示全部，未知 actor/越权/未授权 scope 拒绝；策略模块，非 IdP；
+- 团队交接：`1agent handoff create --from ... --to ... --summary ... --evidence ... [--open-item ...]` 写入 append-only JSONL；必须有至少一个 evidence、from≠to；只有 addressee 可 `handoff accept`，终态不可再转换；`handoff list` 按创建时间排序；本地交接，不共享实时上下文；
 - 持久幂等记录：`1agent idempotency record|replay --store PATH --key K --fingerprint F`；每条记录 append-only JSONL 并 `sync_data` 后才确认；重启后按 key+fingerprint 重放原响应，同 key 不同 fingerprint 冲突并非零退出；末尾未换行的半条记录视为中断写入并忽略；这是外部写去重原语，尚未接入所有外部工具；
 - 带外 watchdog：`daemon --heartbeat PATH` 每轮原子写 `{pid, updated_at_ms}`；`1agent watchdog --heartbeat PATH --max-age-ms N [--json]` 在缺失/过期/损坏时非零退出；它只观察心跳，不重启 daemon、不清理锁；
 - 误报预算：`1agent alarm-budget --urgency N --delivered D --false-alarms F [--max-delivered N] [--max-false-alarm-bps N] [--critical-urgency N] [--json]`；预算耗尽或误报率超限时非关键告警转 digest，critical 始终投递；策略函数，不发送/持久化告警；
@@ -154,7 +155,7 @@
 | 全量 Attention/Digest | **部分** | `digest` 汇总最近运行、计划任务、健康状态与告警计数；维护循环和升级阶梯未实现 |
 | 自动进化/技能市场 | **部分** | 人工审批/回滚 + SHA-256 技能包分发；签名和远程市场索引未实现 |
 | 语音/图片理解 | **未实现** | `read_pdf` 只能抽取 PDF 文本；语音、图片、扫描件 OCR 未实现 |
-| 多租户/组织级审计 | **未实现** | 当前是单用户/本地优先 |
+| 多租户/组织级审计 | **部分** | 本地组织审计哈希链、团队角色策略与交接；IdP、多租户隔离、远程透明日志未实现 |
 | Android/iOS App | **规划中** | 与 Bot 一起推进 |
 | macOS 正式支持 | **规划中** | 当前只验证 Linux |
 | Windows 正式支持 | **不发布（未测试）** | 仅内部构建；不提供下载，不作为支持平台 |

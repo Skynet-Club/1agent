@@ -28,7 +28,7 @@ fn agent_card_cli_reports_capabilities_and_limits() {
         capabilities
             .iter()
             .any(|capability| capability["id"] == "team_collaboration"
-                && capability["status"] == "unsupported")
+                && capability["status"] == "degraded")
     );
     let computer_use = capabilities
         .iter()
