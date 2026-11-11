@@ -8,6 +8,7 @@ Scope: `1agent inbox escalate`, `escalation::EscalationState`.
 ```bash
 cargo test --test inbox_escalate_cli
 cargo test --test daemon_escalation_cli
+cargo test --test digest_cli
 cargo test escalation --lib
 cargo test --test escalate_cli
 cargo clippy --all-targets -- -D warnings
@@ -44,6 +45,8 @@ test result: ok. 4 passed; 0 failed
 - `daemon --once --quiet-hours` covering the current minute does not create the
   escalation state.
 - A partial `--escalate-*` configuration exits non-zero.
+- `digest --escalation-step 0=digest` reports `levels.digest = 1` and the item
+  level in JSON; without the flag, `escalation` is `null`.
 
 ## What this does not prove
 
@@ -61,7 +64,8 @@ test result: ok. 4 passed; 0 failed
 - `src/inbox_escalation.rs` (shared projection/delivery)
 - `src/main.rs` (`inbox escalate --webhook/--state/--format/--dry-run`,
   `daemon --escalate-*`)
-- `tests/inbox_escalate_cli.rs`, `tests/daemon_escalation_cli.rs`
+- `tests/inbox_escalate_cli.rs`, `tests/daemon_escalation_cli.rs`,
+  `tests/digest_cli.rs`
 - `docs/adr/0064-escalation-ladder.md`
 - `docs/architecture.md`, `docs/features.md`, `docs/features.en.md`,
   `docs/claims.md`, `CHANGELOG.md`

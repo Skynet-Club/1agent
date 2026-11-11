@@ -35,8 +35,9 @@ escalation ladder so a forgotten approval does not stay silent forever.
    and delivery on every tick using one shared implementation. Delivery
    failures are logged and retried on the next tick; quiet hours suppress
    delivery because the daemon takes the quiet branch before it.
-8. Delivery does not change item status or stop after acknowledgement, and
-   `digest`-rung delivery plus per-channel ladders remain separate.
+8. Delivery does not change item status or stop after acknowledgement.
+   `digest --escalation-step` counts every rung, including `digest`, but
+   `digest`-rung delivery and per-channel ladders remain separate.
 
 ## Consequences
 

@@ -158,3 +158,57 @@ fn digest_rejects_recipient_without_handoff_store() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn digest_summarizes_inbox_escalation_levels() {
+    let workspace = tempfile::tempdir().unwrap();
+    let journals = workspace.path().join("journals");
+    std::fs::create_dir_all(&journals).unwrap();
+    let schedules = workspace.path().join("schedules.json");
+    let inbox = workspace.path().join("inbox.jsonl");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let added = Command::new(bin)
+        .args(["inbox", "add", "--store"])
+        .arg(&inbox)
+        .args(["--title", "Digest this item", "--kind", "review"])
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+
+    let digest = Command::new(bin)
+        .args(["digest", "--journal-dir"])
+        .arg(&journals)
+        .args(["--schedule-store"])
+        .arg(&schedules)
+        .args(["--inbox-store"])
+        .arg(&inbox)
+        .args(["--escalation-step", "0=digest", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        digest.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&digest.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&digest.stdout).unwrap();
+    assert_eq!(report["escalation"]["levels"]["digest"], 1);
+    assert_eq!(report["escalation"]["items"][0]["level"], "digest");
+    assert_eq!(
+        report["escalation"]["items"][0]["title"],
+        "Digest this item"
+    );
+
+    let without = Command::new(bin)
+        .args(["digest", "--journal-dir"])
+        .arg(&journals)
+        .args(["--schedule-store"])
+        .arg(&schedules)
+        .args(["--inbox-store"])
+        .arg(&inbox)
+        .args(["--json"])
+        .output()
+        .unwrap();
+    assert!(without.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&without.stdout).unwrap();
+    assert!(report["escalation"].is_null());
+}

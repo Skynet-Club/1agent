@@ -342,6 +342,11 @@
 - Tests: three `daemon_escalation_cli` e2e tests cover per-rung delivery,
   quiet-hours suppression and partial configuration rejection (`cargo test
   --test daemon_escalation_cli`).
+- Digest escalation summary: `digest --escalation-step AFTER_MS=ACTION ...`
+  adds per-level counts (including the `digest` rung) and the item projection
+  to the text/JSON digest. Without the flag the digest is unchanged.
+- Tests: one `digest_cli` e2e test covers the level counts and the unflagged
+  case (`cargo test --test digest_cli`).
 - Quiet-hours boundary wake: `QuietHours::ms_until_end` measures milliseconds
   to the exclusive window end in a fixed UTC offset. The daemon's quiet-period
   sleep is `min(poll interval, ms_until_end)`, so deferred due jobs re-check at
