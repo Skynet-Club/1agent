@@ -189,7 +189,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "trust_center",
                 CapabilityStatus::Verified,
-                "JSON/Markdown/static-HTML trust disclosure with not_audited audit status",
+                "JSON/Markdown/static-HTML trust disclosure with not_audited audit status, also served read-only over HTTP",
             ),
             capability(
                 "computer_use",

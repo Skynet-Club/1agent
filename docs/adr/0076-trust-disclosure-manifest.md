@@ -35,8 +35,11 @@ invented those would be worse than no manifest.
    run: suite name, package version, passed/total and the SHA-256 of the
    pretty-printed report. `trust-center --evaluation` accepts that file
    directly.
-5. This is a JSON manifest. It is not a hosted Trust Center page, not an
-   external audit and not a compliance certification.
+5. This is a JSON manifest. The HTTP Surface also serves the baseline
+   disclosure at `GET /v0/trust-center` and its static HTML at
+   `GET /v0/trust-center.html`; caller-supplied evaluations remain CLI-file
+   inputs. It is not a public hosted Trust Center, not an external audit and
+   not a compliance certification.
 
 ## Consequences
 

@@ -394,6 +394,13 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Trust Center HTTP routes: `GET /v0/trust-center` returns the JSON disclosure
+  and `GET /v0/trust-center.html` the static escaped page, both public
+  read-only like the Agent Card. They use the baseline disclosure (no
+  caller-supplied evaluations or verification store).
+- Tests: `http_surface` unit test covers both routes without a bearer, the
+  `not_audited` audit status and script-free HTML
+  (`cargo test http_surface --lib`).
 - Daemon periodic digest: `--digest-webhook URL --digest-every-seconds N
   (60..=86400) [--digest-format ...] [--digest-journal-dir PATH]
   [--digest-inbox-store PATH]` sends a lightweight text summary with recent
