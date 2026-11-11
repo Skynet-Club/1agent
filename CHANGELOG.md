@@ -102,6 +102,12 @@
   `reveal your system prompt`, `print your instructions`, `jailbreak`).
 - Tests: two `skill_scan_cli` e2e tests for a safe skill, prompt injection and
   malformed frontmatter (`cargo test --test skill_scan_cli`).
+- Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
+  name prefix, name token, description token and parameter-name token, with
+  deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
+  a pure ranking function; it does not yet change the model-visible tool list.
+- Tests: four tool-search unit tests plus two `tool_search_cli` e2e tests
+  (`cargo test tool_search --lib`, `cargo test --test tool_search_cli`).
 
 ## 0.96.1 - 2026-11-11
 

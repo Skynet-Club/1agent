@@ -502,6 +502,8 @@ enum Command {
     Tools {
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        query: Option<String>,
     },
     RoutePlan {
         #[arg(long, conflicts_with = "input")]
@@ -5034,21 +5036,36 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::Tools { json } => {
-            let capabilities = default_registry().capabilities();
-            if json {
-                println!("{}", serde_json::to_string_pretty(&capabilities)?);
+        Command::Tools { json, query } => {
+            let registry = default_registry();
+            if let Some(query) = query {
+                let hits = first_principles_agent::search(&query, &registry.specs(), 10);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&hits)?);
+                } else {
+                    for hit in hits {
+                        println!(
+                            "{} | score={} | {}",
+                            hit.spec.name, hit.score, hit.spec.description
+                        );
+                    }
+                }
             } else {
-                for capability in capabilities {
-                    println!(
-                        "{} | {:?} | risk={:?} | write={} | timeout={}ms",
-                        capability.name,
-                        capability.status,
-                        capability.risk,
-                        capability.requires_write,
-                        capability.timeout_ms
-                    );
-                    println!("- {}", capability.description);
+                let capabilities = registry.capabilities();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&capabilities)?);
+                } else {
+                    for capability in capabilities {
+                        println!(
+                            "{} | {:?} | risk={:?} | write={} | timeout={}ms",
+                            capability.name,
+                            capability.status,
+                            capability.risk,
+                            capability.requires_write,
+                            capability.timeout_ms
+                        );
+                        println!("- {}", capability.description);
+                    }
                 }
             }
         }

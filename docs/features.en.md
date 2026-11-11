@@ -65,7 +65,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - Autonomy dial policy: `1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`; observe/suggest never act; act allows only low-risk reversible actions; auto allows low/medium risk; high risk or irreversible actions require approval unless explicitly approved. A preference is not an authorization grant;
 - Onboarding v0: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` writes ordinary memory records and prints the resulting `UserModel`; invalid values fail closed. `--goal/--commitment` can seed a first goal and commitment for `inbox sync`; it is not yet an interview or context import, and memory/goal writes are not atomic;
 - TUI `/inbox`: list open / due-snoozed items (kind/status/title/why_now); supports `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]` and `/inbox snooze <id> <until_ms>` with the same parser/applier as the CLI;
-- Agent Card v0: `1agent agent-card [--json]` prints schema/version/platform/capability statuses/limits; platform-constrained capabilities come from the platform registry, and unsupported/untested capabilities must not be marked verified. The card is local and unsigned, not yet an A2A HTTP service.
+- Agent Card v0: `1agent agent-card [--json]` prints schema/version/platform/capability statuses/limits; platform-constrained capabilities come from the platform registry, and unsupported/untested capabilities must not be marked verified. The card is local and unsigned, not yet an A2A HTTP service;
+- Tool search v0: `1agent tools --query TEXT [--json]` ranks tools deterministically by name/prefix/description/parameter names; it is a pure function and does not yet change the model-visible tool list.
 
 ### 2.4 Local memory (available, RC)
 
