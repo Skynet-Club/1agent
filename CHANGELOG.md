@@ -237,9 +237,10 @@
 - Tests: value-report unit and CLI tests cover the supplied count and zero-cost
   output (`cargo test value_report --lib`, `cargo test --test value_report_cli`).
 - Windows cross-check: `RUSTFLAGS="-D warnings" cargo check --target
-  x86_64-pc-windows-gnu` passes. `read_key_hex` now consumes its `secret` flag
-  on non-Unix targets. The macOS arm64 check is blocked by the host C
-  toolchain for `ring`, so macOS remains unverified.
+  x86_64-pc-windows-gnu` passes, including all test targets. `read_key_hex`
+  now consumes its `secret` flag on non-Unix targets; Unix-only test modules,
+  cases and imports are cfg-gated. The macOS arm64 check is blocked by the host
+  C toolchain for `ring`, so macOS remains unverified.
 - Evidence: `docs/evidence/cross-check-windows-2026-11-12.md`.
 - Onboarding context import (ADR-0072): `onboard --import-file PATH
   --import-kind fact|preference|project|feedback` writes one memory per

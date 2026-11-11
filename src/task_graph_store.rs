@@ -287,6 +287,7 @@ mod tests {
         assert!(matches!(error, TaskGraphStoreError::ReadOnly));
     }
 
+    #[cfg(unix)]
     #[test]
     fn opening_a_store_does_not_change_parent_permissions() {
         use std::os::unix::fs::PermissionsExt;
