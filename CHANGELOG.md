@@ -322,6 +322,13 @@
   accepted/cancelled. Open handoffs are untouched; dry-run is the default.
 - Tests: one inbox unit test plus one `handoff_inbox_cli` reconcile test
   (`cargo test inbox --lib`, `cargo test --test handoff_inbox_cli`).
+- Inbox escalation projection: `1agent inbox escalate --step AFTER_MS=ACTION
+  ... [--now-ms ...] [--json]` applies the existing ladder to every open or
+  due-snoozed item using its `created_ms`. Terminal items are excluded; it
+  reports levels and reasons without sending or changing status.
+- Tests: three `inbox_escalate_cli` e2e tests cover open-vs-resolved items,
+  the below-first-threshold case and invalid ladders (`cargo test --test
+  inbox_escalate_cli`).
 - Quiet-hours boundary wake: `QuietHours::ms_until_end` measures milliseconds
   to the exclusive window end in a fixed UTC offset. The daemon's quiet-period
   sleep is `min(poll interval, ms_until_end)`, so deferred due jobs re-check at

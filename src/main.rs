@@ -1495,6 +1495,18 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    Escalate {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        /// AFTER_MS=inbox|digest|notify|urgent; repeat in increasing order.
+        #[arg(long, value_name = "AFTER_MS=ACTION")]
+        step: Vec<String>,
+        /// Defaults to the current clock.
+        #[arg(long)]
+        now_ms: Option<u128>,
+        #[arg(long)]
+        json: bool,
+    },
     Sync {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2802,6 +2814,31 @@ async fn run_daemon(
         }
     }
     Ok(())
+}
+
+fn parse_escalation_ladder(
+    steps: &[String],
+) -> Result<first_principles_agent::escalation::EscalationLadder> {
+    if steps.is_empty() {
+        anyhow::bail!("at least one --step AFTER_MS=ACTION is required");
+    }
+    let mut parsed = Vec::with_capacity(steps.len());
+    for raw in steps {
+        let (after, action) = raw
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--step must be AFTER_MS=ACTION"))?;
+        let after_ms: u128 = after
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("--step threshold must be milliseconds"))?;
+        let action = first_principles_agent::escalation::EscalationAction::parse(action)
+            .ok_or_else(|| {
+                anyhow::anyhow!("--step action must be inbox, digest, notify or urgent")
+            })?;
+        parsed.push(first_principles_agent::escalation::EscalationStep { after_ms, action });
+    }
+    first_principles_agent::escalation::EscalationLadder::new(parsed)
+        .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
 #[tokio::main]
@@ -5470,6 +5507,60 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+            InboxCommand::Escalate {
+                store,
+                step,
+                now_ms,
+                json,
+            } => {
+                let ladder = parse_escalation_ladder(&step)?;
+                let now = now_ms.unwrap_or_else(current_time_ms);
+                let store = first_principles_agent::InboxStore::open(store)?;
+                let items = store.open_sorted(now);
+                let mut rows = Vec::with_capacity(items.len());
+                if json {
+                    for item in &items {
+                        let plan = first_principles_agent::escalation::plan(
+                            &ladder,
+                            item.created_ms,
+                            now,
+                            false,
+                        );
+                        rows.push(serde_json::json!({
+                            "item_id": item.item_id,
+                            "kind": item.kind.as_str(),
+                            "title": item.title,
+                            "created_ms": item.created_ms,
+                            "elapsed_ms": plan.elapsed_ms,
+                            "level": plan.level.map(|level| level.as_str()),
+                            "reason": plan.reason,
+                        }));
+                    }
+                    println!("{}", serde_json::to_string_pretty(&rows)?);
+                } else {
+                    println!("1Agent Inbox Escalation");
+                    if items.is_empty() {
+                        println!("(empty)");
+                    }
+                    for item in &items {
+                        let plan = first_principles_agent::escalation::plan(
+                            &ladder,
+                            item.created_ms,
+                            now,
+                            false,
+                        );
+                        println!(
+                            "- [{}] {} {} | elapsed={}ms | level={} | {}",
+                            item.kind.as_str(),
+                            item.status.as_str(),
+                            item.item_id,
+                            plan.elapsed_ms,
+                            plan.level.map_or("none", |level| level.as_str()),
+                            plan.reason
+                        );
+                    }
+                }
+            }
             InboxCommand::Sync {
                 store,
                 goal_journal,
@@ -6141,26 +6232,7 @@ async fn main() -> Result<()> {
             resolved,
             json,
         } => {
-            if step.is_empty() {
-                anyhow::bail!("at least one --step AFTER_MS=ACTION is required");
-            }
-            let mut steps = Vec::with_capacity(step.len());
-            for raw in step {
-                let (after, action) = raw
-                    .split_once('=')
-                    .ok_or_else(|| anyhow::anyhow!("--step must be AFTER_MS=ACTION"))?;
-                let after_ms: u128 = after
-                    .trim()
-                    .parse()
-                    .map_err(|_| anyhow::anyhow!("--step threshold must be milliseconds"))?;
-                let action = first_principles_agent::escalation::EscalationAction::parse(action)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("--step action must be inbox, digest, notify or urgent")
-                    })?;
-                steps.push(first_principles_agent::escalation::EscalationStep { after_ms, action });
-            }
-            let ladder = first_principles_agent::escalation::EscalationLadder::new(steps)
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let ladder = parse_escalation_ladder(&step)?;
             let plan = first_principles_agent::escalation::plan(
                 &ladder,
                 created_ms,
