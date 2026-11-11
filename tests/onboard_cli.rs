@@ -1,4 +1,5 @@
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 #[test]
 fn onboard_writes_profile_and_user_model_reads_it() {
@@ -157,6 +158,50 @@ fn onboard_can_seed_a_goal_and_commitment_for_inbox_sync() {
     assert_eq!(items.as_array().unwrap().len(), 1);
     assert_eq!(items[0]["kind"], "review");
     assert_eq!(items[0]["title"], "send the report");
+}
+
+#[test]
+fn onboard_interactive_reads_stdin_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("memory-journal.jsonl");
+    let payloads = dir.path().join("payloads");
+    let key = dir.path().join("memory.key");
+    let goals = dir.path().join("goals.jsonl");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let mut child = Command::new(bin)
+        .args(["onboard", "--interactive", "--memory-journal"])
+        .arg(&journal)
+        .arg("--memory-payloads")
+        .arg(&payloads)
+        .arg("--memory-key")
+        .arg(&key)
+        .args(["--bot-id", "bot-1", "--goal-journal"])
+        .arg(&goals)
+        .arg("--json")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin
+        .write_all(b"advisor\nship the report\nsend the report\nnever touch production\n")
+        .unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["user_model"]["voice"]["mode"], "advisor");
+    assert!(report["goal_id"].as_str().is_some());
+    assert!(report["commitment_id"].as_str().is_some());
+    assert_eq!(
+        report["user_model"]["boundaries"][0]["rule"],
+        "never touch production"
+    );
 }
 
 #[test]

@@ -42,6 +42,17 @@ scriptable contract that writes the same memory records the UserModel reads.
    writes leaves the profile in place; this is acceptable for v0.1 and documented
    as a limitation.
 
+## v0.2 extension — interactive stdin
+
+10. Add `--interactive`. It prompts on stderr for voice, first goal, first
+    commitment and boundary, then reads one line per prompt from stdin.
+    Prompts go to stderr so `--json` keeps stdout machine-readable.
+11. A blank answer keeps the corresponding flag value; a non-empty answer
+    overrides it. Invalid voice/autonomy still fails closed through the same
+    validation path.
+12. This is a scriptable interview, not a conversational one: no free-form
+    follow-up questions, no document/calendar/email import.
+
 ## Consequences
 
 - A user can set up the partner's relationship settings in one command.

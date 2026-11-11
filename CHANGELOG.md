@@ -83,6 +83,12 @@
   Memory and goal writes are not atomic.
 - Tests: two more `onboard_cli` e2e tests for goal seeding and
   commitment-without-goal rejection (`cargo test --test onboard_cli`).
+- Onboarding v0.2: `--interactive` prompts on stderr for voice, first goal,
+  first commitment and boundary and reads one line per prompt from stdin.
+  Blank answers keep flags; invalid values still fail closed. It is a
+  scriptable interview, not a free-form conversation or context import.
+- Tests: one interactive `onboard_cli` e2e test with piped stdin
+  (`cargo test --test onboard_cli`).
 - TUI `/inbox` view and inline actions (ADR-0046): lists open or due-snoozed
   items with kind, status, title and `why_now`; supports `/inbox resolve <id>
   <approved|rejected|answered|dismissed> [note]` and `/inbox snooze <id>

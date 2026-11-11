@@ -472,6 +472,9 @@ enum Command {
         commitment: Option<String>,
         #[arg(long)]
         commitment_due_ms: Option<u128>,
+        /// Ask voice, first goal, commitment and boundary on stdin.
+        #[arg(long)]
+        interactive: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1754,6 +1757,13 @@ enum ReleaseCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn read_interactive_line(prompt: &str) -> Result<String> {
+    eprintln!("{prompt}");
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(line.trim().to_string())
 }
 
 fn write_onboard(
@@ -4432,14 +4442,15 @@ async fn main() -> Result<()> {
             memory_key,
             bot_id,
             user_id,
-            voice,
+            mut voice,
             autonomy,
-            boundary,
-            goal,
+            mut boundary,
+            mut goal,
             goal_journal,
             goal_due_ms,
-            commitment,
+            mut commitment,
             commitment_due_ms,
+            interactive,
             json,
         } => {
             let mut service = first_principles_agent::MemoryService::open(
@@ -4449,6 +4460,27 @@ async fn main() -> Result<()> {
             )?;
             let scope = first_principles_agent::MemoryScope::bot(bot_id);
             let now = current_time_ms();
+            if interactive {
+                let answer =
+                    read_interactive_line("Voice [operator/advisor/companion, blank=skip]:")?;
+                if !answer.is_empty() {
+                    voice = Some(answer);
+                }
+                let answer = read_interactive_line("First goal [blank=skip]:")?;
+                if !answer.is_empty() {
+                    goal = Some(answer);
+                }
+                if goal.is_some() {
+                    let answer = read_interactive_line("First commitment [blank=skip]:")?;
+                    if !answer.is_empty() {
+                        commitment = Some(answer);
+                    }
+                }
+                let answer = read_interactive_line("Boundary [blank=skip]:")?;
+                if !answer.is_empty() {
+                    boundary.push(answer);
+                }
+            }
             let mut written = 0usize;
             for spec in autonomy {
                 let (domain, level) = spec
