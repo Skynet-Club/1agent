@@ -1100,6 +1100,18 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    Sync {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        goal_journal: Option<PathBuf>,
+        #[arg(long)]
+        alert_log: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -3917,6 +3929,51 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&item)?);
                 } else {
                     println!("{} snoozed until {}", item.item_id, until_ms);
+                }
+            }
+            InboxCommand::Sync {
+                store,
+                goal_journal,
+                alert_log,
+                apply,
+                json,
+            } => {
+                if goal_journal.is_none() && alert_log.is_none() {
+                    anyhow::bail!("inbox sync needs --goal-journal or --alert-log");
+                }
+                let now = current_time_ms();
+                let mut store = first_principles_agent::InboxStore::open(store)?;
+                let mut projected = Vec::new();
+                if let Some(path) = goal_journal {
+                    let goals = first_principles_agent::GoalStore::open(path)?;
+                    let candidates = first_principles_agent::attention_candidates(
+                        goals.graph(),
+                        now,
+                        &first_principles_agent::AttentionPolicy::default(),
+                    );
+                    projected.extend(first_principles_agent::project_attention(&candidates, now));
+                }
+                if let Some(path) = alert_log {
+                    let alerts = first_principles_agent::AlertLog::open(path)?.read()?;
+                    projected.extend(first_principles_agent::project_alerts(&alerts, now));
+                }
+                let report = store.sync(projected, apply)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("1Agent Inbox Sync");
+                    println!(
+                        "scanned={} added={} skipped={} dry_run={}",
+                        report.scanned, report.added, report.skipped, report.dry_run
+                    );
+                    for item in &report.added_items {
+                        println!(
+                            "- [{}] {} | {}",
+                            item.kind.as_str(),
+                            item.item_id,
+                            item.title
+                        );
+                    }
                 }
             }
         },
