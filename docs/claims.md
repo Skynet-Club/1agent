@@ -63,7 +63,7 @@ file: <路径>              → 文件必须存在
 | 自治档位策略：observe/suggest 不行动；act 仅低风险可逆；auto 低/中风险可逆；高风险/不可逆需审批 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 偏好不是授权；Authority/Policy/ExecutionGate 仍决定执行 |
 | Onboarding 写入 memory 并可经 user-model 回读；非法值失败关闭；可 seed goal/commitment；`--interactive` 读 stdin | cmd: cargo test --test onboard_cli | ✅ | 脚本化访谈；自由追问/文档/日历导入未做；memory 与 goal 写入非原子 |
 | TUI `/inbox` 列出并可 resolve/snooze；解析与应用契约与 CLI 一致 | cmd: cargo test inbox --lib && cargo test tui_commands --lib | ✅ | 只操作 inbox store；不绕过 Authority/Policy/Approval |
-| Agent Card 列出能力状态与限制；unsupported/untested 不标为 verified；HTTP 公开只读提供 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test http_surface --lib | ✅ | 本地未签名；非 A2A registry-signed 卡 |
+| Agent Card 列出能力状态与限制；unsupported/untested 不标为 verified；HTTP 公开只读提供 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test http_surface --lib | ✅ | 签名可选；非 A2A registry-signed 卡 |
 | skill scan 预检 frontmatter/控制字符/密钥/指令覆盖；不注册不执行 | cmd: cargo test skill --lib && cargo test --test skill_scan_cli | ✅ | 启发式扫描，不是 malware sandbox；签名/权限另算 |
 | skill verify 与 import 共用 verify_bundle；校验 SHA/schema/签名/重复/manifest/扫描，不导入 | cmd: cargo test skill_bundle --lib && cargo test --test skill_verify_cli | ✅ | 证明完整性，不证明运行安全 |
 | CUA 策略：untrusted high-risk deny；untrusted require_approval；planner 不看 untrusted；未规划 branch deny | cmd: cargo test cua --lib && cargo test --test cua_check_cli | ✅ | 仅策略，无浏览器执行/截图 |
@@ -90,6 +90,7 @@ file: <路径>              → 文件必须存在
 | 信任披露清单：能力计数/限制/数据政策/评测披露；audit 固定 not_audited | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | JSON 清单，非托管页面/外部审计 |
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |
+| Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |
 | 团队交接：必须有 evidence、from≠to；仅 addressee 可接受；终态不可再转换 | cmd: cargo test handoff --lib && cargo test --test handoff_cli | ✅ | 本地交接；无实时共享上下文/IdP |
 | 交接投影：open + to=recipient → inbox review，`handoff:<id>` 去重，不自动接受 | cmd: cargo test inbox --lib && cargo test --test handoff_inbox_cli | ✅ | 仅投影；通知/实时上下文未实现 |
