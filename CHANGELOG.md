@@ -247,6 +247,12 @@
   ≤200 usable lines and ≤2000 chars per line; the import is not redacted.
 - Tests: two `onboard_cli` import tests
   (`cargo test --test onboard_cli`).
+- Inbox handoff acceptance (ADR-0073): `inbox resolve handoff:<id> approved`
+  requires `--handoff-store PATH --actor NAME`. It accepts the handoff before
+  closing the inbox item; a wrong actor, terminal handoff or missing store
+  fails closed. Other terminal statuses only close the inbox item.
+- Tests: one `handoff_inbox_cli` acceptance test
+  (`cargo test --test handoff_inbox_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
