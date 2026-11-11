@@ -489,6 +489,9 @@ enum Command {
         /// Suppress repeats until an item is newer than this state's watermark.
         #[arg(long)]
         state: Option<PathBuf>,
+        /// Append one JSONL receipt per successful send.
+        #[arg(long)]
+        log: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -5358,6 +5361,7 @@ async fn main() -> Result<()> {
             webhook,
             format,
             state,
+            log,
             json,
         } => {
             let format: first_principles_agent::alerts::WebhookFormat =
@@ -5388,6 +5392,19 @@ async fn main() -> Result<()> {
                     last_sent_ms: None,
                 }
             };
+            if outcome.sent
+                && let Some(path) = log
+            {
+                first_principles_agent::notify::append_receipt(
+                    &path,
+                    &first_principles_agent::notify::NotifyReceipt {
+                        sent_at_ms: current_time_ms(),
+                        open: outcome.open,
+                        new_items: outcome.new_items,
+                        format: notifier.format_name().into(),
+                    },
+                )?;
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&outcome)?);
             } else if outcome.sent {

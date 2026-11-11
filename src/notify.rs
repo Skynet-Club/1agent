@@ -66,6 +66,15 @@ impl NotifyState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct NotifyReceipt {
+    pub sent_at_ms: u128,
+    pub open: usize,
+    pub new_items: usize,
+    pub format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct NotifyOutcome {
     pub sent: bool,
     pub open: usize,
@@ -116,6 +125,14 @@ impl InboxNotifier {
     pub fn with_format(mut self, format: WebhookFormat) -> Self {
         self.format = format;
         self
+    }
+
+    pub fn format_name(&self) -> &'static str {
+        match self.format {
+            WebhookFormat::Generic => "generic",
+            WebhookFormat::Slack => "slack",
+            WebhookFormat::Discord => "discord",
+        }
     }
 
     async fn send(&self, items: &[InboxItem]) -> Result<(), NotifyError> {
@@ -212,6 +229,19 @@ pub async fn notify_inbox_if_new(
     })
 }
 
+pub fn append_receipt(path: &Path, receipt: &NotifyReceipt) -> Result<(), NotifyError> {
+    use std::io::Write;
+    let line = serde_json::to_vec(receipt).map_err(|error| NotifyError::Json(error.to_string()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    file.write_all(&line)?;
+    file.write_all(b"\n")?;
+    file.sync_data()?;
+    Ok(())
+}
+
 fn truncate(value: &str, max_chars: usize) -> String {
     let mut bounded: String = value.chars().take(max_chars).collect();
     if value.chars().nth(max_chars).is_some() {
@@ -278,6 +308,31 @@ mod tests {
         assert!(InboxNotifier::new("http://example.com/hook").is_err());
         assert!(InboxNotifier::new("https://user:pass@example.com/hook").is_err());
         assert!(InboxNotifier::new("http://localhost:8080/hook").is_ok());
+    }
+
+    #[test]
+    fn receipts_append_as_jsonl() {
+        let path = std::env::temp_dir().join(format!(
+            "1agent-notify-receipt-{}-{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let receipt = NotifyReceipt {
+            sent_at_ms: 10,
+            open: 2,
+            new_items: 1,
+            format: "slack".into(),
+        };
+        append_receipt(&path, &receipt).unwrap();
+        append_receipt(&path, &receipt).unwrap();
+        let lines = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(lines.lines().count(), 2);
+        let parsed: NotifyReceipt = serde_json::from_str(lines.lines().next().unwrap()).unwrap();
+        assert_eq!(parsed, receipt);
+        std::fs::remove_file(&path).ok();
     }
 
     #[tokio::test]
