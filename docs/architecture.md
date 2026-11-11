@@ -351,6 +351,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   The planner must not see untrusted content, and a branch target must be in
   the pre-approved plan (branch-steering guard). This is policy only; no
   browser execution.
+- `team`: role/action/scope policy. Owner allows all; approver allows
+  read+approve; member allows read+write; viewer allows read. Empty scopes mean
+  all; a non-empty list must contain the requested scope. Unknown actors,
+  disallowed actions and ungranted scopes are denied. `1agent team-check`
+  exposes it. This is policy, not an identity provider.
 - `chat`: `to_task_request` maps a `ChatMessage` to a `TaskRequest`;
   `format_reply` returns the conclusion, one trust line (`证据 N · 未知 M`),
   `needs_approval` and `inbox_open`, without schema field names. This is the

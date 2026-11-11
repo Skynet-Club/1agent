@@ -158,6 +158,13 @@
   `needs_approval` and `inbox_open`, without schema field names. Transport
   implementations are separate.
 - Tests: three `chat` unit tests (`cargo test chat --lib`).
+- Team role policy (ADR-0058): `team::authorize` enforces owner/approver/
+  member/viewer against read/write/approve/manage and a scope; empty scopes
+  mean all; unknown actors, disallowed actions and ungranted scopes are denied.
+  `team::intersect_scopes` supports delegation; `1agent team-check` exposes it.
+  This is policy, not an identity provider.
+- Tests: four team unit tests plus two `team_check_cli` e2e tests
+  (`cargo test team --lib`, `cargo test --test team_check_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
