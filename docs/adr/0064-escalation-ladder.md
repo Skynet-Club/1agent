@@ -22,7 +22,9 @@ escalation ladder so a forgotten approval does not stay silent forever.
 4. `1agent escalate` takes repeated `--step AFTER_MS=ACTION`, `--created-ms`,
    optional `--now-ms` (defaults to now) and `--resolved`. Bad thresholds or
    actions exit non-zero.
-5. This is a pure policy. Sending the escalation, changing the item status,
+5. `1agent inbox escalate` applies the same ladder to open and due-snoozed
+   inbox items using each item's `created_ms`; terminal items are excluded.
+6. This is a pure policy. Sending the escalation, changing the item status,
    stopping after acknowledgement and per-channel ladders are separate.
 
 ## Consequences
@@ -40,7 +42,9 @@ escalation ladder so a forgotten approval does not stay silent forever.
 ```bash
 cargo test escalation --lib
 cargo test --test escalate_cli
+cargo test --test inbox_escalate_cli
 ```
 
 The tests cover each rung, resolution, a grace period, invalid/empty ladders,
-and CLI parsing of repeated steps.
+CLI parsing of repeated steps, and the inbox projection over open versus
+resolved items.

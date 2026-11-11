@@ -84,7 +84,7 @@
 - 持久幂等记录：`1agent idempotency record|replay --store PATH --key K --fingerprint F`；每条记录 append-only JSONL 并 `sync_data` 后才确认；重启后按 key+fingerprint 重放原响应，同 key 不同 fingerprint 冲突并非零退出；末尾未换行的半条记录视为中断写入并忽略；这是外部写去重原语，尚未接入所有外部工具；
 - 带外 watchdog：`daemon --heartbeat PATH` 每轮原子写 `{pid, updated_at_ms}`；`1agent watchdog --heartbeat PATH --max-age-ms N [--json]` 在缺失/过期/损坏时非零退出；它只观察心跳，不重启 daemon、不清理锁；
 - 误报预算：`1agent alarm-budget --urgency N --delivered D --false-alarms F [--max-delivered N] [--max-false-alarm-bps N] [--critical-urgency N] [--json]`；预算耗尽或误报率超限时非关键告警转 digest，critical 始终投递；策略函数，不发送/持久化告警；
-- 升级阶梯：`1agent escalate --created-ms ... [--now-ms ...] --step 0=inbox --step 900000=notify --step 3600000=urgent [--resolved] [--json]`；取已到达的最高台阶；resolved 不升级；阈值必须严格递增；只计算，不发送；
+- 升级阶梯：`1agent escalate --created-ms ... [--now-ms ...] --step 0=inbox --step 900000=notify --step 3600000=urgent [--resolved] [--json]`；取已到达的最高台阶；resolved 不升级；阈值必须严格递增；只计算，不发送；`1agent inbox escalate --step ... [--now-ms ...] [--json]` 对 open/到期 snoozed 项按其 `created_ms` 批量投影级别，终态项不出现；
 - 组织审计索引：`1agent org-audit append --actor ... --action ... --scope ... --decision allow|deny` 写入 append-only JSONL 并 `sync_data`；每条含 seq/prev_hash/hash，SHA-256 链；`org-audit verify` 检测改字段、换序、断链并非零退出；`generate-key` 生成 Ed25519 密钥文件，`seal --key ... --out ...` 对 entries+head_hash 签名，`verify --seal ... --public-key ...` 同时验链与签名（可发现整文件重写后的条目数/head 不一致）；`list --limit N` 查看尾部条目；本地索引，非远程透明日志，也不替代 IdP；
 - MCP OAuth claims 策略：`1agent mcp-token-check --claims PATH --audience ... --scope ... [--max-ttl-ms ... --skew-ms ... --now-ms ...]`；校验 audience、过期/未生效、最大 TTL 和精确 scope；claims 必须由调用方先完成签名验证，本命令不验签、不存 token。
 
@@ -157,7 +157,7 @@
 | 浏览器 / computer-use | **部分** | `browser_read` 可用无头 Chrome 渲染并抽取正文；点击、输入、截图和视觉理解未实现 |
 | 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；Master→Worker 仍是独立路径 |
 | MCP 客户端 | **部分** | stdio + streamable HTTP（JSON/SSE 响应、`Mcp-Session-Id`、bearer token 仅从环境变量读、per-server `timeout_seconds`）：发现并调用工具；OAuth claims 校验已提供；issuer discovery/token exchange/工具市场未实现 |
-| 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；`--heartbeat` + `1agent watchdog` 提供带外存活检查；`--quiet-hours` 在窗口内跳过到期任务（任务保持 due，静默期睡眠取 `min(poll, 窗口剩余毫秒)`，窗口结束边界即重查）；升级阶梯未实现，跨重启去重仅有持久原语（未接入 daemon） |
+| 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；`--heartbeat` + `1agent watchdog` 提供带外存活检查；`--quiet-hours` 在窗口内跳过到期任务（任务保持 due，静默期睡眠取 `min(poll, 窗口剩余毫秒)`，窗口结束边界即重查）；升级阶梯已有只读投影（`inbox escalate`），daemon 尚未据此自动发送；跨重启去重仅有持久原语（未接入 daemon） |
 | 全量 Attention/Digest | **部分** | `digest` 汇总最近运行、计划任务、健康状态、告警、inbox open 与指定 recipient 的 open handoffs；维护循环未实现 |
 | 自动进化/技能市场 | **部分** | 人工审批/回滚 + SHA-256/Ed25519 技能包分发与验签；远程市场索引未实现 |
 | 语音/图片理解 | **未实现** | `read_pdf` 只能抽取 PDF 文本；语音、图片、扫描件 OCR 未实现 |
