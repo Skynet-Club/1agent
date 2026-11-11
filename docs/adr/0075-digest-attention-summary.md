@@ -16,8 +16,9 @@ omits pending decisions is incomplete.
 2. With `--handoff-store PATH --recipient NAME`, it reports open handoffs
    addressed to that person. `--recipient` without `--handoff-store` fails;
    `--handoff-store` without `--recipient` fails.
-3. JSON adds `inbox: {open}` and `handoffs: {open, recipient}`. Text prints the
-   counts in Chinese.
+3. JSON adds `inbox: {open}`, `handoffs: {open, recipient}` and, with
+   `--verification-store PATH`, the all-time local verification summary. Text
+   prints the counts and summary in Chinese.
 4. The digest is read-only. It does not sync projections, accept handoffs,
    send notifications or run a maintenance loop.
 

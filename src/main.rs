@@ -259,6 +259,9 @@ enum Command {
         /// Required with --handoff-store; counts open handoffs to this person.
         #[arg(long)]
         recipient: Option<String>,
+        /// Include the all-time local verification summary.
+        #[arg(long)]
+        verification_store: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -2986,6 +2989,7 @@ async fn main() -> Result<()> {
             inbox_store,
             handoff_store,
             recipient,
+            verification_store,
             json,
         } => {
             let runs = if journal_dir.is_dir() {
@@ -3035,6 +3039,14 @@ async fn main() -> Result<()> {
                 (Some(_), None) => anyhow::bail!("--recipient is required with --handoff-store"),
                 (None, _) => 0,
             };
+            let verification = match verification_store {
+                Some(path) => {
+                    let store =
+                        first_principles_agent::verification_store::VerificationStore::open(path)?;
+                    Some(store.summary())
+                }
+                None => None,
+            };
             if json {
                 println!(
                     "{}",
@@ -3049,7 +3061,8 @@ async fn main() -> Result<()> {
                             "by_kind": alert_kinds
                         },
                         "inbox": {"open": inbox_open},
-                        "handoffs": {"open": handoff_open, "recipient": recipient}
+                        "handoffs": {"open": handoff_open, "recipient": recipient},
+                        "verification": verification
                     }))?
                 );
             } else {
@@ -3075,6 +3088,16 @@ async fn main() -> Result<()> {
                 println!("Inbox 待办：{inbox_open} 条");
                 if let Some(recipient) = &recipient {
                     println!("待 {recipient} 接受的交接：{handoff_open} 条");
+                }
+                if let Some(verification) = &verification {
+                    println!(
+                        "验证：verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}",
+                        verification.verified,
+                        verification.hacked,
+                        verification.rejected,
+                        verification.resolved,
+                        verification.hacked_resolved_bps
+                    );
                 }
             }
         }

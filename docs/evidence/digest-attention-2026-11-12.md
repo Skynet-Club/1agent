@@ -26,6 +26,8 @@ test result: ok. 2 passed; 0 failed
   `inbox.open: 1` and `handoffs.open: 1`.
 - Accepting the handoff drops the handoff count to zero.
 - `--recipient` without `--handoff-store` exits non-zero.
+- With a Hacked verification record, `--verification-store` reports
+  hacked=1, resolved=1 and 10000 bps.
 
 ## What this does not prove
 

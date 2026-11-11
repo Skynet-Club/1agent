@@ -248,6 +248,10 @@
 - Tests: one trust-center unit test and one `trust_center_cli` e2e test cover
   the summary (`cargo test trust_center --lib`,
   `cargo test --test trust_center_cli`).
+- Digest verification summary: `digest --verification-store PATH` adds the
+  all-time local verified/hacked/rejected/bps summary.
+- Tests: one `digest_cli` e2e test covers a hacked report
+  (`cargo test --test digest_cli`).
 - Onboarding context import (ADR-0072): `onboard --import-file PATH
   --import-kind fact|preference|project|feedback` writes one memory per
   non-empty, non-comment line. Files must be regular, not symlinks, ≤256 KiB,
