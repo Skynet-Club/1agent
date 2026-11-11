@@ -108,6 +108,13 @@
   a pure ranking function; it does not yet change the model-visible tool list.
 - Tests: four tool-search unit tests plus two `tool_search_cli` e2e tests
   (`cargo test tool_search --lib`, `cargo test --test tool_search_cli`).
+- Tool search request wiring (ADR-0050): `AgentRuntime::with_tool_query` and
+  `1agent run --tool-query TEXT` advertise the top 8 hits plus the always-on
+  file/terminal tools; the selected list is journaled in `ModelRequested`.
+  Without a query, the full permission-filtered list is unchanged.
+- Tests: two selection unit tests and one `tool_query_cli` e2e test for the
+  journaled tool list (`cargo test tool_search --lib`,
+  `cargo test --test tool_query_cli`).
 
 ## 0.96.1 - 2026-11-11
 

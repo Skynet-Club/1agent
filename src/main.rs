@@ -62,6 +62,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     Run {
         #[arg(long, conflicts_with = "input")]
@@ -123,6 +124,9 @@ enum Command {
         /// Partner voice: operator, advisor or companion.
         #[arg(long, value_name = "MODE")]
         voice_mode: Option<String>,
+        /// Limit advertised tools to search hits plus always-on tools.
+        #[arg(long)]
+        tool_query: Option<String>,
         #[arg(long)]
         authority: Option<PathBuf>,
         #[arg(long, default_value = "operator")]
@@ -2135,6 +2139,7 @@ async fn main() -> Result<()> {
             evidence_max_age_ms,
             route_objective,
             voice_mode,
+            tool_query,
             authority,
             actor_id,
             authority_scope,
@@ -2254,6 +2259,9 @@ async fn main() -> Result<()> {
                     latency_budget: latency_budget_source,
                     unit_cost_budget: unit_cost_budget_source,
                 });
+            if let Some(query) = tool_query {
+                runtime = runtime.with_tool_query(query);
+            }
             if let Some(gate) = gate {
                 runtime = runtime.with_execution_gate(
                     gate,
