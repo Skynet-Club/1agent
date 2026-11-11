@@ -399,8 +399,9 @@
   [--digest-inbox-store PATH]` sends a lightweight text summary with recent
   run/stop-reason counts, schedule health, alert count and open inbox count.
   The timer is in-memory (restart sends once immediately); it does not replace
-  the full `digest` command. Send failures are logged and retried at the next
-  interval.
+  the full `digest` command. `--digest-state PATH` persists the last send time
+  so a restart respects the interval; without it a restart sends immediately.
+  Send failures are logged and retried at the next interval.
 - Tests: two `daemon_digest_cli` e2e tests cover the payload and incomplete
   configuration rejection (`cargo test --test daemon_digest_cli`).
 - TUI `/receipt`: displays the most recent reframe decision receipt from the

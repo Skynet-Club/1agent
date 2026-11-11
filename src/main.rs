@@ -496,6 +496,9 @@ enum Command {
         /// Optional inbox store for the open count in the digest.
         #[arg(long)]
         digest_inbox_store: Option<PathBuf>,
+        /// Persist the last digest send time across restarts.
+        #[arg(long)]
+        digest_state: Option<PathBuf>,
     },
     Watchdog {
         #[arg(long)]
@@ -2884,6 +2887,7 @@ async fn run_daemon(
     digest_format: String,
     digest_journal_dir: Option<PathBuf>,
     digest_inbox_store: Option<PathBuf>,
+    digest_state: Option<PathBuf>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2947,14 +2951,36 @@ async fn run_daemon(
                 .map_err(|error| anyhow::anyhow!("{error}"))?;
             let notifier =
                 first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
-            Some((every, notifier, digest_journal_dir, digest_inbox_store))
+            let state = match digest_state {
+                Some(path) => {
+                    let state = first_principles_agent::notify::NotifyState::open(&path)?;
+                    Some((path, state))
+                }
+                None => None,
+            };
+            Some((
+                every,
+                notifier,
+                digest_journal_dir,
+                digest_inbox_store,
+                state,
+            ))
         }
-        (None, None) if digest_journal_dir.is_none() && digest_inbox_store.is_none() => None,
+        (None, None)
+            if digest_journal_dir.is_none()
+                && digest_inbox_store.is_none()
+                && digest_state.is_none() =>
+        {
+            None
+        }
         _ => bail!(
             "--digest-every-seconds and --digest-webhook are required together; digest stores need both"
         ),
     };
-    let mut last_digest_ms = 0u128;
+    let mut last_digest_ms = digest
+        .as_ref()
+        .and_then(|(_, _, _, _, state)| state.as_ref().map(|(_, state)| state.last_sent_ms))
+        .unwrap_or(0);
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
     loop {
         let now = current_time_ms();
@@ -3175,7 +3201,7 @@ async fn run_daemon(
                 }
             }
         }
-        if let Some((every, notifier, journal_dir, inbox_store)) = &digest
+        if let Some((every, notifier, journal_dir, inbox_store, state)) = &digest
             && now >= last_digest_ms.saturating_add(u128::from(*every) * 1_000)
         {
             use std::fmt::Write as _;
@@ -3220,6 +3246,12 @@ async fn run_daemon(
                 eprintln!("[daemon] cannot send digest: {error}");
             }
             last_digest_ms = now;
+            if let Some((path, _)) = state {
+                let state = first_principles_agent::notify::NotifyState { last_sent_ms: now };
+                if let Err(error) = state.save(path) {
+                    eprintln!("[daemon] cannot save digest state: {error}");
+                }
+            }
         }
         if once {
             break;
@@ -5072,6 +5104,7 @@ async fn main() -> Result<()> {
             digest_format,
             digest_journal_dir,
             digest_inbox_store,
+            digest_state,
         } => {
             run_daemon(
                 store,
@@ -5100,6 +5133,7 @@ async fn main() -> Result<()> {
                 digest_format,
                 digest_journal_dir,
                 digest_inbox_store,
+                digest_state,
             )
             .await?;
         }
