@@ -254,6 +254,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   highest rung whose threshold the item has reached, returns no level before
   the first threshold or after resolution, and requires strictly increasing
   thresholds. It computes a level; delivery is separate.
+- `org_audit`: append-only organization index. Each entry carries seq,
+  actor/action/scope/decision, the previous hash and its own SHA-256 hash over
+  a canonical field body. `append` writes and syncs one JSON line; `verify`
+  detects edited fields, reordering and broken links. It is a local index, not
+  a remote transparency log, and it does not authenticate the actor.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;

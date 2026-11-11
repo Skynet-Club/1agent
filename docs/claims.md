@@ -78,6 +78,7 @@ file: <路径>              → 文件必须存在
 | 自治安静时段：跨午夜窗口内主动 act/approval → defer 并报告剩余分钟；用户发起/显式批准不延后 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 策略级；运行时调度/安静时段持久化未接线 |
 | 误报预算：预算耗尽或误报率超限时非关键告警转 digest，critical 绕过 | cmd: cargo test alarm_budget --lib && cargo test --test alarm_budget_cli | ✅ | 策略函数；不发送/不持久化告警 |
 | 升级阶梯：严格递增阈值取最高已到达台阶；resolved 不升级；宽限期不打扰 | cmd: cargo test escalation --lib && cargo test --test escalate_cli | ✅ | 只计算级别；不发送/不改状态 |
+| 组织审计索引：actor/action/scope/decision 哈希链；改字段/换序/断链检测 | cmd: cargo test org_audit --lib && cargo test --test org_audit_cli | ✅ | 本地索引，非远程透明日志/IdP |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |

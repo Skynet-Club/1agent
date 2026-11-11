@@ -77,7 +77,8 @@
 - 持久幂等记录：`1agent idempotency record|replay --store PATH --key K --fingerprint F`；每条记录 append-only JSONL 并 `sync_data` 后才确认；重启后按 key+fingerprint 重放原响应，同 key 不同 fingerprint 冲突并非零退出；末尾未换行的半条记录视为中断写入并忽略；这是外部写去重原语，尚未接入所有外部工具；
 - 带外 watchdog：`daemon --heartbeat PATH` 每轮原子写 `{pid, updated_at_ms}`；`1agent watchdog --heartbeat PATH --max-age-ms N [--json]` 在缺失/过期/损坏时非零退出；它只观察心跳，不重启 daemon、不清理锁；
 - 误报预算：`1agent alarm-budget --urgency N --delivered D --false-alarms F [--max-delivered N] [--max-false-alarm-bps N] [--critical-urgency N] [--json]`；预算耗尽或误报率超限时非关键告警转 digest，critical 始终投递；策略函数，不发送/持久化告警；
-- 升级阶梯：`1agent escalate --created-ms ... [--now-ms ...] --step 0=inbox --step 900000=notify --step 3600000=urgent [--resolved] [--json]`；取已到达的最高台阶；resolved 不升级；阈值必须严格递增；只计算，不发送。
+- 升级阶梯：`1agent escalate --created-ms ... [--now-ms ...] --step 0=inbox --step 900000=notify --step 3600000=urgent [--resolved] [--json]`；取已到达的最高台阶；resolved 不升级；阈值必须严格递增；只计算，不发送；
+- 组织审计索引：`1agent org-audit append --actor ... --action ... --scope ... --decision allow|deny` 写入 append-only JSONL 并 `sync_data`；每条含 seq/prev_hash/hash，SHA-256 链；`org-audit verify` 检测改字段、换序、断链并非零退出；本地索引，非远程透明日志，也不替代 IdP。
 
 ### 2.4 本地记忆（可用，RC）
 

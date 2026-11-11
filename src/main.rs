@@ -404,6 +404,10 @@ enum Command {
         #[command(subcommand)]
         command: IdempotencyCommand,
     },
+    OrgAudit {
+        #[command(subcommand)]
+        command: OrgAuditCommand,
+    },
     Autonomy {
         #[arg(long, default_value = "suggest")]
         level: String,
@@ -1333,6 +1337,33 @@ enum IdempotencyCommand {
         key: String,
         #[arg(long)]
         fingerprint: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrgAuditCommand {
+    Append {
+        #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long, default_value = "")]
+        scope: String,
+        #[arg(long)]
+        decision: String,
+        /// Defaults to the current clock.
+        #[arg(long)]
+        at_ms: Option<u128>,
+        #[arg(long)]
+        json: bool,
+    },
+    Verify {
+        #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
+        store: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -4494,6 +4525,54 @@ async fn main() -> Result<()> {
                         Some(response) => println!("hit: {response}"),
                         None => println!("miss"),
                     }
+                }
+            }
+        },
+        Command::OrgAudit { command } => match command {
+            OrgAuditCommand::Append {
+                store,
+                actor,
+                action,
+                scope,
+                decision,
+                at_ms,
+                json,
+            } => {
+                let mut store = first_principles_agent::org_audit::OrgAuditStore::open(store)?;
+                let entry = store.append(
+                    at_ms.unwrap_or_else(current_time_ms),
+                    &actor,
+                    &action,
+                    &scope,
+                    &decision,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(entry)?);
+                } else {
+                    println!(
+                        "seq={} actor={} action={} scope={} decision={} hash={}",
+                        entry.seq,
+                        entry.actor,
+                        entry.action,
+                        entry.scope,
+                        entry.decision,
+                        entry.hash
+                    );
+                }
+            }
+            OrgAuditCommand::Verify { store, json } => {
+                let store = first_principles_agent::org_audit::OrgAuditStore::open(store)?;
+                let report = store.verify();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "valid={} entries={} first_invalid_seq={:?} reason={}",
+                        report.valid, report.entries, report.first_invalid_seq, report.reason
+                    );
+                }
+                if !report.valid {
+                    anyhow::bail!("organization audit chain is invalid");
                 }
             }
         },
