@@ -377,3 +377,36 @@ fn inbox_escalate_fans_out_to_multiple_targets() {
     assert_eq!(report["notification"]["sent"], false);
     assert_eq!(report["notification"]["notified"], 0);
 }
+
+#[test]
+fn inbox_escalate_dry_run_does_not_send_or_write_state() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("inbox.jsonl");
+    let state = workspace.path().join("dry-run-state.json");
+    add_item(&store, "dry run escalation");
+
+    let output = run(&[
+        "inbox",
+        "escalate",
+        "--store",
+        store.to_str().unwrap(),
+        "--step",
+        "0=notify",
+        "--target",
+        "slack=http://127.0.0.1:9/hook",
+        "--state",
+        state.to_str().unwrap(),
+        "--dry-run",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["notification"]["sent"], false);
+    assert_eq!(report["notification"]["dry_run"], true);
+    assert_eq!(report["notification"]["notified"], 1);
+    assert!(!state.exists(), "dry-run must not write state");
+}

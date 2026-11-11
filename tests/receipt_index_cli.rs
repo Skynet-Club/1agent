@@ -61,6 +61,8 @@ fn receipt_index_lists_decisions_newest_first() {
         String::from_utf8_lossy(&deferred.stderr)
     );
 
+    std::fs::write(journals.join("corrupt.jsonl"), b"not-json").unwrap();
+
     let output = Command::new(bin())
         .args(["receipt-index", "--journal-dir"])
         .arg(&journals)
