@@ -41,6 +41,7 @@ fn agent_card_cli_reports_capabilities_and_limits() {
         "repair_runbook",
         "daemon_maintenance",
         "subagent_isolation",
+        "mcp_token_exchange",
         "otel_export",
     ] {
         let capability = capabilities

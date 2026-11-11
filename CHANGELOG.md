@@ -394,6 +394,18 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- MCP token exchange: `mcp-token-exchange --endpoint URL --audience A --scope
+  S --subject-token-env VAR [--client-id-env VAR --client-secret-env VAR]
+  [--max-ttl-seconds N] --out PATH [--json]` performs an RFC 8693-style form
+  exchange and writes the bearer token to a new 0600 file. Secrets are read
+  only from named environment variables; the endpoint must be HTTPS or
+  loopback, redirects are refused, the response is capped at 1 MiB, and
+  stdout reports only type/TTL/SHA-256 (ADR-0083). The file can feed
+  `McpServerConfig.bearer_token_file`; automatic refresh is not implemented.
+- Tests: three `mcp_token_exchange_cli` e2e tests cover form fields, 0600
+  output, non-disclosure, missing env, insecure endpoint, wrong type,
+  excessive TTL, partial client credentials and no-overwrite
+  (`cargo test --test mcp_token_exchange_cli`).
 - MCP bearer-token files: `McpServerConfig` accepts `bearer_token_file` as an
   alternative to `bearer_token_env` (never both). The file must be a regular
   non-symlink file of 1..=4096 bytes, 0600 on Unix, containing one non-empty

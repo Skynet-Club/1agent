@@ -177,6 +177,11 @@ pub fn build_card(version: &str) -> AgentCard {
                 "bounded child runs with depth, workspace and write/network permission intersection",
             ),
             capability(
+                "mcp_token_exchange",
+                CapabilityStatus::Verified,
+                "manual RFC 8693-style exchange writing a 0600 bearer-token file with env-only secrets",
+            ),
+            capability(
                 "otel_export",
                 CapabilityStatus::Verified,
                 "OTLP/HTTP JSON export of journal-derived GenAI spans with environment-only bearer tokens",
