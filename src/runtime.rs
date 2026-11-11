@@ -61,6 +61,7 @@ pub struct AgentRuntime {
     alerts: Option<Arc<Mutex<AlertLog>>>,
     alert_webhook: Option<Arc<AlertWebhook>>,
     voice_mode: crate::user_model::VoiceMode,
+    tool_query: Option<String>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -111,11 +112,17 @@ impl AgentRuntime {
             alerts: None,
             alert_webhook: None,
             voice_mode: crate::user_model::VoiceMode::Operator,
+            tool_query: None,
         }
     }
 
     pub fn with_voice_mode(mut self, mode: crate::user_model::VoiceMode) -> Self {
         self.voice_mode = mode;
+        self
+    }
+
+    pub fn with_tool_query(mut self, query: impl Into<String>) -> Self {
+        self.tool_query = Some(query.into());
         self
     }
 
@@ -592,7 +599,12 @@ impl AgentRuntime {
             });
         }
 
-        let tool_specs = self.tools.specs_for(&request.permissions);
+        let tool_specs = match &self.tool_query {
+            Some(query) => {
+                crate::tool_search::select(query, self.tools.specs_for(&request.permissions), 8)
+            }
+            None => self.tools.specs_for(&request.permissions),
+        };
         let stored_objective = resume
             .as_ref()
             .and_then(|prefix| prefix.checkpoint.route_objective);

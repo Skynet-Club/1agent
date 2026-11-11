@@ -340,9 +340,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `print your instructions`, `jailbreak`). This is a preflight heuristic, not
   a malware sandbox.
 - `tool_search`: `search(query, specs, limit)` ranks tools by exact/prefix/name
-  token, description token and parameter-name token, deterministically. It is a
-  pure function; `1agent tools --query` exposes it. It does not yet change the
-  model's tool list.
+  token, description token and parameter-name token, deterministically.
+  `select` adds the always-on tools (`read_file`, `write_file`, `edit_file`,
+  `terminal_exec`) to the top hits. `1agent tools --query` exposes the ranking;
+  `1agent run --tool-query` sets the advertised list, which is journaled in
+  `ModelRequested`. With no query, the full permission-filtered list is used.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept

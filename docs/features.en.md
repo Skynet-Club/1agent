@@ -66,7 +66,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - Onboarding v0: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` writes ordinary memory records and prints the resulting `UserModel`; invalid values fail closed. `--goal/--commitment` can seed a first goal and commitment for `inbox sync`; it is not yet an interview or context import, and memory/goal writes are not atomic;
 - TUI `/inbox`: list open / due-snoozed items (kind/status/title/why_now); supports `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]` and `/inbox snooze <id> <until_ms>` with the same parser/applier as the CLI;
 - Agent Card v0: `1agent agent-card [--json]` prints schema/version/platform/capability statuses/limits; platform-constrained capabilities come from the platform registry, and unsupported/untested capabilities must not be marked verified. The card is local and unsigned, not yet an A2A HTTP service;
-- Tool search v0: `1agent tools --query TEXT [--json]` ranks tools deterministically by name/prefix/description/parameter names; it is a pure function and does not yet change the model-visible tool list.
+- Tool search: `1agent tools --query TEXT [--json]` ranks tools deterministically by name/prefix/description/parameter names; `1agent run --tool-query TEXT` limits the model-visible tools to the top 8 plus always-on (`read_file`, `write_file`, `edit_file`, `terminal_exec`) and journals the selection; without a query the full list is used.
 
 ### 2.4 Local memory (available, RC)
 

@@ -59,6 +59,31 @@ pub fn search(query: &str, specs: &[ToolSpec], limit: usize) -> Vec<ToolSearchHi
     hits
 }
 
+/// Always-on tools needed for basic file and terminal work. They stay visible
+/// even when a query selects a different set.
+pub const ALWAYS_ON: &[&str] = &["read_file", "write_file", "edit_file", "terminal_exec"];
+
+/// Select the top query hits plus always-on tools. An empty query returns the
+/// original list; this keeps the default behavior unchanged.
+pub fn select(query: &str, specs: Vec<ToolSpec>, limit: usize) -> Vec<ToolSpec> {
+    if query.trim().is_empty() {
+        return specs;
+    }
+    let mut selected = search(query, &specs, limit)
+        .into_iter()
+        .map(|hit| hit.spec)
+        .collect::<Vec<_>>();
+    for name in ALWAYS_ON {
+        if let Some(spec) = specs.iter().find(|spec| spec.name == *name)
+            && !selected.iter().any(|existing| existing.name == *name)
+        {
+            selected.push(spec.clone());
+        }
+    }
+    selected.sort_by(|left, right| left.name.cmp(&right.name));
+    selected
+}
+
 fn tokens(text: &str) -> Vec<String> {
     text.split(|ch: char| !ch.is_alphanumeric())
         .filter(|token| !token.is_empty())
@@ -83,6 +108,7 @@ mod tests {
         vec![
             spec("read_file", "Read a file from the workspace"),
             spec("write_file", "Write a file to the workspace"),
+            spec("edit_file", "Edit a file in place"),
             spec("browser_read", "Read a public web page"),
             spec("terminal_exec", "Run a shell command"),
         ]
@@ -115,8 +141,27 @@ mod tests {
 
     #[test]
     fn limit_and_deterministic_ties_are_respected() {
-        let hits = search("file", &specs(), 1);
+        let hits = search("write", &specs(), 1);
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].spec.name, "read_file");
+        assert_eq!(hits[0].spec.name, "write_file");
+    }
+
+    #[test]
+    fn select_adds_always_on_and_keeps_query_hits() {
+        let selected = select("shell", specs(), 2);
+        let names = selected
+            .iter()
+            .map(|spec| spec.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"terminal_exec"));
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"write_file"));
+        assert!(names.contains(&"edit_file"));
+        assert!(!names.contains(&"browser_read"));
+    }
+
+    #[test]
+    fn empty_query_keeps_the_original_list() {
+        assert_eq!(select("", specs(), 2).len(), 5);
     }
 }
