@@ -162,6 +162,11 @@ pub fn build_card(version: &str) -> AgentCard {
                 "file-based message→task and run-result→reply adapter",
             ),
             capability(
+                "trust_center",
+                CapabilityStatus::Verified,
+                "JSON/Markdown trust disclosure with not_audited audit status",
+            ),
+            capability(
                 "computer_use",
                 platform_status("computer_use"),
                 "status comes from the platform registry",
@@ -300,6 +305,7 @@ mod tests {
             "org_audit",
             "mcp_http_transport",
             "chat_bridge",
+            "trust_center",
         ] {
             let capability = card
                 .capabilities

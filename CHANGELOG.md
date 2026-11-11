@@ -308,6 +308,9 @@
   cleanup.
 - Tests: one `chat_bridge_cli` lock test
   (`cargo test --test chat_bridge_cli`).
+- Agent Card now discloses the trust-center capability as verified.
+- Tests: the agent-card unit test asserts it
+  (`cargo test agent_card --lib`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
