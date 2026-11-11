@@ -293,7 +293,9 @@
   messages to `processed/` and invalid ones to `failed/` with an error file.
   Any failed message makes the command exit non-zero. An existing
   `<stem>.task.json` is skipped and its message is moved to `processed/`, so a
-  retried ingest after a move failure does not overwrite the task.
+  retried ingest after a move failure does not overwrite the task. `--state
+  PATH` stores message SHA-256 values (up to 10,000) and skips renamed
+  duplicates.
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.

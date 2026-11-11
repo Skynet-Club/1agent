@@ -15,12 +15,13 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 3 tests (chat_bridge module)
+running 4 tests (chat_bridge module)
 test chat_bridge::tests::ingest_dir_moves_valid_and_failed_messages ... ok
 test chat_bridge::tests::invalid_messages_are_rejected ... ok
 test chat_bridge::tests::message_files_become_task_requests ... ok
+test chat_bridge::tests::state_deduplicates_the_same_content_under_a_new_name ... ok
 
-test result: ok. 3 passed; 0 failed
+test result: ok. 4 passed; 0 failed
 
 running 3 tests (tests/chat_bridge_cli.rs)
 test chat_bridge_converts_messages_and_results ... ok
@@ -43,6 +44,8 @@ test result: ok. 3 passed; 0 failed
   file, and a second run scans 0.
 - With a pre-existing `a.task.json`, ingest reports converted=1, skipped=1 and
   leaves the existing task untouched.
+- With `--state`, the same message content copied under a new name reports
+  duplicates=1 and converted=0; the state survives across runs.
 
 ## What this does not prove
 
