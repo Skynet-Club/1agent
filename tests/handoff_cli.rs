@@ -70,14 +70,53 @@ fn handoff_create_accept_and_list() {
         .unwrap();
     assert!(!twice.status.success());
 
+    let second = Command::new(bin)
+        .args([
+            "handoff",
+            "create",
+            "--store",
+            store,
+            "--id",
+            "h2",
+            "--from",
+            "alice",
+            "--to",
+            "carol",
+            "--summary",
+            "second handoff",
+            "--evidence",
+            "journal:run-2",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(second.status.success());
+
     let listed = Command::new(bin)
         .args(["handoff", "list", "--store", store, "--json"])
         .output()
         .unwrap();
     assert!(listed.status.success());
     let items: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
-    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items.as_array().unwrap().len(), 2);
     assert_eq!(items[0]["status"], "accepted");
+    assert_eq!(items[1]["status"], "open");
+
+    let open = Command::new(bin)
+        .args(["handoff", "list", "--store", store, "--open", "--json"])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&open.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], "h2");
+
+    let to_bob = Command::new(bin)
+        .args(["handoff", "list", "--store", store, "--to", "bob", "--json"])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&to_bob.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["id"], "h1");
 }
 
 #[test]
