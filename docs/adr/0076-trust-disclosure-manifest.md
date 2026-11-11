@@ -21,6 +21,8 @@ invented those would be worse than no manifest.
      dependency and network off by default;
    - caller-supplied evaluation disclosures, validated (total > 0,
      passed <= total, optional 64-hex evidence digest) and sorted by name;
+   - an optional all-time local verification summary from
+     `--verification-store` (verified/hacked/rejected/resolved/bps);
    - optional security contact and incident URL.
 2. Add `1agent trust-center [--evaluation PATH ...] [--security-contact ...]
    [--incident-url ...] [--out PATH] [--json]`.

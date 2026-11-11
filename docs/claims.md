@@ -88,7 +88,7 @@ file: <路径>              → 文件必须存在
 | Inbox 接受交接：handoff:<id> approved 需要 store+actor，先接受再关闭；错 actor/终态拒绝 | cmd: cargo test --test handoff_inbox_cli | ✅ | 本地；非原子（接受后 inbox 写入失败可能部分完成） |
 | 组织审计 seal：Ed25519 签 entries+head_hash；追加/改 head/错钥拒绝 | cmd: cargo test org_audit --lib && cargo test --test org_audit_seal_cli | ✅ | 依赖 seal 公钥的带外信任；非远程透明日志 |
 | 每日摘要：运行/计划/健康/告警/inbox open/指定收件人 open handoffs | cmd: cargo test --test digest_cli | ✅ | 汇总只读；不含维护循环/通知 |
-| 信任披露清单：能力计数/限制/数据政策/评测披露；audit 固定 not_audited | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | JSON 清单，非托管页面/外部审计 |
+| 信任披露清单：能力计数/限制/数据政策/评测披露/本地验证摘要；audit 固定 not_audited | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | JSON 清单，非托管页面/外部审计 |
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |
 | Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |

@@ -36,6 +36,8 @@ test result: ok. 2 passed; 0 failed
 - Evaluations with `passed > total` or a malformed digest are rejected.
 - The CLI writes the same JSON it prints, including capability counts,
   evaluations, contact and incident URL.
+- With `--verification-store`, the disclosure includes a local all-time
+  verified/hacked/rejected/bps summary.
 
 ## What this does not prove
 

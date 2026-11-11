@@ -242,6 +242,12 @@
   cases and imports are cfg-gated. The macOS arm64 check is blocked by the host
   C toolchain for `ring`, so macOS remains unverified.
 - Evidence: `docs/evidence/cross-check-windows-2026-11-12.md`.
+- Trust Center verification summary: `trust-center --verification-store PATH`
+  includes the local all-time verified/hacked/rejected/bps summary in the
+  disclosure. It remains a local claim, not an external audit.
+- Tests: one trust-center unit test and one `trust_center_cli` e2e test cover
+  the summary (`cargo test trust_center --lib`,
+  `cargo test --test trust_center_cli`).
 - Onboarding context import (ADR-0072): `onboard --import-file PATH
   --import-kind fact|preference|project|feedback` writes one memory per
   non-empty, non-comment line. Files must be regular, not symlinks, ≤256 KiB,
