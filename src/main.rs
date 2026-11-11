@@ -252,6 +252,13 @@ enum Command {
         schedule_store: PathBuf,
         #[arg(long)]
         alert_log: Option<PathBuf>,
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        inbox_store: PathBuf,
+        #[arg(long)]
+        handoff_store: Option<PathBuf>,
+        /// Required with --handoff-store; counts open handoffs to this person.
+        #[arg(long)]
+        recipient: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -2873,6 +2880,9 @@ async fn main() -> Result<()> {
             journal_dir,
             schedule_store,
             alert_log,
+            inbox_store,
+            handoff_store,
+            recipient,
             json,
         } => {
             let runs = if journal_dir.is_dir() {
@@ -2901,6 +2911,27 @@ async fn main() -> Result<()> {
                     .or_default() += 1;
             }
             let next_run_ms = schedules.jobs.iter().map(|job| job.next_run_ms).min();
+            let inbox_open = first_principles_agent::InboxStore::open(&inbox_store)
+                .map(|store| store.open_sorted(current_time_ms()).len())
+                .unwrap_or(0);
+            if recipient.is_some() && handoff_store.is_none() {
+                anyhow::bail!("--recipient requires --handoff-store");
+            }
+            let handoff_open = match (&handoff_store, &recipient) {
+                (Some(path), Some(recipient)) => {
+                    let handoffs = first_principles_agent::handoff::HandoffStore::open(path)?;
+                    handoffs
+                        .list()
+                        .iter()
+                        .filter(|handoff| {
+                            handoff.status == first_principles_agent::handoff::HandoffStatus::Open
+                                && handoff.to == *recipient
+                        })
+                        .count()
+                }
+                (Some(_), None) => anyhow::bail!("--recipient is required with --handoff-store"),
+                (None, _) => 0,
+            };
             if json {
                 println!(
                     "{}",
@@ -2913,7 +2944,9 @@ async fn main() -> Result<()> {
                         "alerts": {
                             "total": alert_records.len(),
                             "by_kind": alert_kinds
-                        }
+                        },
+                        "inbox": {"open": inbox_open},
+                        "handoffs": {"open": handoff_open, "recipient": recipient}
                     }))?
                 );
             } else {
@@ -2935,6 +2968,10 @@ async fn main() -> Result<()> {
                 println!("告警：{} 条", alert_records.len());
                 for (kind, count) in &alert_kinds {
                     println!("- {kind}: {count}");
+                }
+                println!("Inbox 待办：{inbox_open} 条");
+                if let Some(recipient) = &recipient {
+                    println!("待 {recipient} 接受的交接：{handoff_open} 条");
                 }
             }
         }

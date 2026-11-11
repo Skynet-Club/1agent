@@ -151,7 +151,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 | Generic subagents | **Partial** | `spawn_agent` runs bounded child agents (depth 2, isolated journal/workspace); Master→Worker remains a separate path |
 | MCP client | **Partial** | stdio and streamable HTTP (JSON/SSE responses, `Mcp-Session-Id`, bearer token from an environment variable only) discovery and calls; OAuth claims validation is available; issuer discovery, token exchange and a tool marketplace are not implemented |
 | Always-on daemon/Routine/Trigger | **Partial** | Interval and file triggers, restart catch-up, `--routine-skill`, `schedule health`; failed/timed-out runs can write alerts and webhook them; escalation and cross-restart deduplication are not implemented |
-| Full Attention/Digest | **Partial** | `digest` summarizes recent runs, schedules, health and alert counts; the maintenance loop and escalation ladder are not implemented |
+| Full Attention/Digest | **Partial** | `digest` summarizes recent runs, schedules, health, alerts, open inbox items and open handoffs for a named recipient; the maintenance loop is not implemented |
 | Automatic evolution/skill marketplace | **Partial** | Human approval/rollback plus SHA-256 skill bundles; signatures and a remote marketplace index are not implemented |
 | Voice/image understanding | **Not implemented** | `read_pdf` extracts PDF text only; voice, images and scanned-document OCR are not implemented |
 | Multi-tenant/organization audit | **Not implemented** | Single-user, local-first today |
