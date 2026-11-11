@@ -98,6 +98,7 @@ file: <路径>              → 文件必须存在
 | Repair runbook：compensate/manual/errors/clean，require-clean 非零 | cmd: cargo test repair --lib && cargo test --test repair_plan_cli | ✅ | 只计划；不执行补偿/不调用 Authority |
 | Repair mark：人工执行补偿后记录 compensated；failed 副作用经人工确认无残留后可清除；actor+evidence 写入账本事件；重复/错 ticket/planned 失败关闭 | cmd: cargo test --test repair_mark_cli && cargo test task_graph --lib | ✅ | 记录人工声明，不验证补偿真实执行；不执行命令/不调用 Authority |
 | 单向 Inbox 通知：open items → webhook，HTTPS/loopback、拒绝凭证、不跟随重定向、空队列不发送、`--state` watermark 去重、`--log` 回执、`--dry-run`；`--target FORMAT=URL` 可多目标扇出（重复项拒绝） | cmd: cargo test notify --lib && cargo test --test inbox_notify_cli && cargo test --test inbox_notify_targets_cli | ✅ | 只发不收；不改 item 状态；多目标共享 watermark，部分失败不推进且重试可重复投递；非完整聊天传输 |
+| 通知回执汇总：`notify-receipts` 读 inbox/digest JSONL 回执，统计 total/inbox/digest/last_sent/formats；坏行/未知形状失败关闭，缺失文件为空 | cmd: cargo test --test notify_receipts_cli | ✅ | 只读；不验证真实送达；跨平台未测 |
 | 信任披露清单：能力计数/限制/数据政策/评测披露/本地验证摘要；JSON + Markdown + 静态转义 HTML；audit 固定 not_audited | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | 文件产物，非托管服务/外部审计；HTML 不含脚本，联系信息按文本转义 |
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |

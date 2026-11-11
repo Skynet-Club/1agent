@@ -139,7 +139,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "inbox_notifications",
                 CapabilityStatus::Verified,
-                "one-way generic/Slack/Discord webhook notifications with a shared watermark and multi-target fan-out",
+                "one-way generic/Slack/Discord webhook notifications with a shared watermark, multi-target fan-out and receipt summary",
             ),
             capability(
                 "inbox_escalation",

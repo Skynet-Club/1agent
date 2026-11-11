@@ -573,6 +573,12 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    NotifyReceipts {
+        #[arg(long)]
+        log: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     OrgAudit {
         #[command(subcommand)]
         command: OrgAuditCommand,
@@ -6278,6 +6284,26 @@ async fn main() -> Result<()> {
                     "no new inbox items since {}; nothing sent",
                     outcome.last_sent_ms.unwrap_or(0)
                 );
+            }
+        }
+        Command::NotifyReceipts { log, json } => {
+            let (summary, receipts) = first_principles_agent::notify::read_receipts(&log)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "summary": summary,
+                        "receipts": receipts,
+                    }))?
+                );
+            } else {
+                println!(
+                    "receipts: total={} inbox={} digest={} last_sent_ms={}",
+                    summary.total, summary.inbox, summary.digest, summary.last_sent_ms
+                );
+                for (format, count) in &summary.formats {
+                    println!("- {format}: {count}");
+                }
             }
         }
         Command::Idempotency { command } => match command {
