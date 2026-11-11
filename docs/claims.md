@@ -68,6 +68,7 @@ file: <路径>              → 文件必须存在
 | skill verify 与 import 共用 verify_bundle；校验 SHA/schema/签名/重复/manifest/扫描，不导入 | cmd: cargo test skill_bundle --lib && cargo test --test skill_verify_cli | ✅ | 证明完整性，不证明运行安全 |
 | CUA 策略：untrusted high-risk deny；untrusted require_approval；planner 不看 untrusted；未规划 branch deny | cmd: cargo test cua --lib && cargo test --test cua_check_cli | ✅ | 仅策略，无浏览器执行/截图 |
 | Cascade 模拟计算 affected/contained/propagated、containment_bps/depth/blast radius 并按策略门禁 | cmd: cargo test cascade --lib && cargo test --test cascade_check_cli | ✅ | 确定性模拟，不是真实多 Agent 运行 |
+| Budget 硬上限：超限失败、80% 警告；每验证结果成本；超限非零退出 | cmd: cargo test budget --lib && cargo test --test budget_check_cli | ✅ | 策略/CI 辅助，运行时未接线 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
