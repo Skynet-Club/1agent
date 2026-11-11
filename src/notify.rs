@@ -81,6 +81,8 @@ pub struct NotifyOutcome {
     pub new_items: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_sent_ms: Option<u128>,
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 pub struct InboxNotifier {
@@ -231,6 +233,7 @@ pub async fn notify_inbox_if_new(
             open: items.len(),
             new_items: 0,
             last_sent_ms: Some(state.last_sent_ms),
+            dry_run: false,
         });
     }
     notifier.send(items).await?;
@@ -240,6 +243,7 @@ pub async fn notify_inbox_if_new(
         open: items.len(),
         new_items,
         last_sent_ms: Some(state.last_sent_ms),
+        dry_run: false,
     })
 }
 

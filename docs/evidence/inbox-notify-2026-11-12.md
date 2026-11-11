@@ -41,6 +41,8 @@ test result: ok. 2 passed; 0 failed
   with `new_items: 1`.
 - `--log` appends one receipt per successful send and no receipt for a
   suppressed repeat; the receipt records format and counts but not the URL.
+- `--dry-run` reports open=2/new_items=2 without a webhook; with a high
+  watermark it reports new_items=0.
 
 ## What this does not prove
 
