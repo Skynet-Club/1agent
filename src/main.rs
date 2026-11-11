@@ -7654,6 +7654,10 @@ async fn run_tui_line_mode(
                         handle_cost_command(state, session);
                         continue;
                     }
+                    TuiCommandId::Inbox => {
+                        display_inbox(state);
+                        continue;
+                    }
                     TuiCommandId::Preset => {
                         if let Some(request) = handle_preset_command(state, session, settings, args)
                         {
@@ -7948,6 +7952,7 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
             command_menu_action("运行状态", "查看会话与模型状态", "/status", false),
             command_menu_action("导出报告", "导出最近运行报告", "/export report", false),
         ],
+        TuiCommandId::Inbox => Vec::new(),
         TuiCommandId::Config => vec![
             command_menu_action("当前配置", "查看下次运行配置", "/config show", false),
             command_menu_action(
@@ -11962,6 +11967,37 @@ fn handle_copy_command(state: &mut TuiState) {
     }
 }
 
+fn display_inbox(state: &mut TuiState) {
+    let path = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl");
+    match first_principles_agent::InboxStore::open(path) {
+        Ok(store) => {
+            let items = store.open_sorted(now_unix_ms());
+            if items.is_empty() {
+                state.info("Inbox · 没有待处理项。");
+            } else {
+                let rows = items
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "[{}] {} · {}\n  {}",
+                            item.kind.as_str(),
+                            item.status.as_str(),
+                            item.title,
+                            item.why_now
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                state.info(bound_tui_command_output(format!(
+                    "Inbox · {} 项\n{}",
+                    items.len(),
+                    rows.join("\n")
+                )));
+            }
+        }
+        Err(error) => state.info(format!("无法读取 inbox：{error}")),
+    }
+}
+
 fn handle_cost_command(state: &mut TuiState, session: &TuiSession) {
     match build_usage_ledger(session.journals().iter().cloned()) {
         Ok(ledger) => state.info(bound_tui_command_output(render_usage_ledger(&ledger))),
@@ -12440,6 +12476,9 @@ async fn run_tui_interactive(
                             }
                             TuiCommandId::Cost => {
                                 handle_cost_command(&mut state, &session);
+                            }
+                            TuiCommandId::Inbox => {
+                                display_inbox(&mut state);
                             }
                             TuiCommandId::Preset => {
                                 if let Some(request) =

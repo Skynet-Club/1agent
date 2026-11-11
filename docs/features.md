@@ -64,7 +64,8 @@
 - 伙伴声音：operator / advisor / companion；`--voice-mode` 选择；只改变说话方式，不改变证据/授权/动作规则；companion 不谄媚、不角色扮演；
 - Agent Inbox：notify / question / review 三类；append-only JSONL 快照；snooze、approve/reject/answer/dismiss 状态机；终端状态不可再迁移；重复 ID、空字段、无效 snooze 失败关闭；`1agent inbox add|list|resolve|snooze|sync`；attention/alerts 纯投影；`sync` 按 `item_id` 去重，默认 dry-run，`--apply` 写入，不覆盖已有状态；
 - 自治档位策略：`1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`；observe/suggest 不行动；act 仅低风险可逆；auto 允许低/中风险可逆；高风险/不可逆需审批（显式批准除外）。偏好不是授权；
-- Onboarding v0：`1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` 写入普通 memory 记录并回显 `UserModel`；非法值失败关闭；`--goal/--commitment` 可写入首个目标/承诺，随后 `inbox sync` 可投影；还不是访谈/上下文导入，memory 与 goal 写入非原子。
+- Onboarding v0：`1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` 写入普通 memory 记录并回显 `UserModel`；非法值失败关闭；`--goal/--commitment` 可写入首个目标/承诺，随后 `inbox sync` 可投影；还不是访谈/上下文导入，memory 与 goal 写入非原子；
+- TUI `/inbox`：只读列出 open / due-snoozed 项（kind/status/title/why_now）；resolve/snooze 仍在 CLI。
 
 ### 2.4 本地记忆（可用，RC）
 

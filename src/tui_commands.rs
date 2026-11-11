@@ -57,6 +57,7 @@ pub enum TuiCommandId {
     Export,
     Copy,
     Cost,
+    Inbox,
     Config,
     Mission,
     Reframe,
@@ -95,6 +96,7 @@ impl TuiCommandId {
                 | Self::Report
                 | Self::Tools
                 | Self::Cost
+                | Self::Inbox
                 | Self::Copy
         )
     }
@@ -333,6 +335,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         TuiCommandId::Cost,
         "/cost",
         "汇总 provider token usage 与配置价格成本",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        false,
+    ),
+    command(
+        TuiCommandId::Inbox,
+        "/inbox",
+        "查看待处理的通知、问题与审批",
         TuiCommandScope::Core,
         CommandStage::Any,
         false,
@@ -656,6 +667,7 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
         | TuiCommandId::Export
         | TuiCommandId::Copy
         | TuiCommandId::Cost
+        | TuiCommandId::Inbox
         | TuiCommandId::Config => CommandGroup::Session,
         TuiCommandId::Frame
         | TuiCommandId::Challenge
@@ -1338,23 +1350,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 26);
+        assert_eq!(standalone.len(), 27);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            28
+            29
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            30
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             31
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            32
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            36
+            37
         );
     }
 
@@ -1396,6 +1408,7 @@ mod tests {
                 "/export",
                 "/copy",
                 "/cost",
+                "/inbox",
                 "/config",
                 "/reframe",
                 "/mission",
@@ -1413,6 +1426,17 @@ mod tests {
                 .iter()
                 .all(|command| command.scope == TuiCommandScope::Core)
         );
+    }
+
+    #[test]
+    fn inbox_is_a_registered_transcript_command() {
+        let spec = COMMANDS
+            .iter()
+            .find(|command| command.id == TuiCommandId::Inbox)
+            .expect("inbox command");
+        assert_eq!(spec.name, "/inbox");
+        assert!(!spec.id.uses_command_panel());
+        assert_eq!(spec.scope, TuiCommandScope::Core);
     }
 }
 

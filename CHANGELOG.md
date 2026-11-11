@@ -83,6 +83,11 @@
   Memory and goal writes are not atomic.
 - Tests: two more `onboard_cli` e2e tests for goal seeding and
   commitment-without-goal rejection (`cargo test --test onboard_cli`).
+- TUI `/inbox` read-only view (ADR-0046): lists open or due-snoozed items with
+  kind, status, title and `why_now` in the transcript. Resolve/snooze remain
+  CLI actions.
+- Tests: `/inbox` registration and non-panel behavior
+  (`cargo test tui_commands --lib`).
 
 ## 0.96.1 - 2026-11-11
 

@@ -274,7 +274,9 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   maps overdue/missed commitments to `review` and due items to `notify`;
   `project_alerts` maps failed/error alerts to `review`. `inbox sync` merges
   projections with dedupe by `item_id`; it is dry-run by default and `--apply`
-  writes. Sync never updates an existing item's status.
+  writes. Sync never updates an existing item's status. The TUI exposes a
+  read-only `/inbox` transcript command for the default store; resolve/snooze
+  remain CLI actions.
 
 ## Security behavior
 
