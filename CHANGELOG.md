@@ -263,9 +263,12 @@
   items to a generic/Slack/Discord webhook. HTTPS is required except for
   loopback; embedded credentials are rejected; the payload is bounded and an
   empty queue sends nothing. It does not read replies or mutate items.
-- Tests: two notifier unit tests plus two `inbox_notify_cli` e2e tests with a
-  loopback webhook (`cargo test notify --lib`,
+- Tests: three notifier unit tests plus two `inbox_notify_cli` e2e tests with
+  a loopback webhook (`cargo test notify --lib`,
   `cargo test --test inbox_notify_cli`).
+- Inbox notification watermark: `--state PATH` stores `last_sent_ms` and
+  suppresses repeats until an item is newer. The watermark advances only after
+  a successful send; a failed send leaves it unchanged.
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.

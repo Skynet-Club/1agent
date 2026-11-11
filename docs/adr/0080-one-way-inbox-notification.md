@@ -21,9 +21,13 @@ open inbox queue to a chat webhook.
 3. The payload is bounded to 50 items and 200 title characters per item; the
    request times out after 5 seconds.
 4. An empty queue sends nothing and reports `sent: false`.
-5. `1agent inbox-notify --store PATH --webhook URL [--format ...]` exposes it.
-   It does not read replies, mark items, or store the webhook.
-6. This is one-way presence. The existing `notify` command still sends one
+5. `--state PATH` stores `{last_sent_ms}`. When no item is newer than the
+   watermark, nothing is sent. The full open queue is posted when at least one
+   item is newer; the watermark advances only after a successful send.
+6. `1agent inbox-notify --store PATH --webhook URL [--format ...]
+   [--state PATH]` exposes it. It does not read replies, mark items, or store
+   the webhook.
+7. This is one-way presence. The existing `notify` command still sends one
    operator message; full chat transports remain future work.
 
 ## Consequences

@@ -56,11 +56,14 @@ fn inbox_notify_posts_open_items_to_a_slack_webhook() {
         assert!(added.status.success());
     }
 
+    let state = workspace.path().join("notify-state.json");
     let (webhook, received) = start_webhook();
     let output = Command::new(bin)
         .args(["inbox-notify", "--store"])
         .arg(&store)
-        .args(["--webhook", &webhook, "--format", "slack", "--json"])
+        .args(["--webhook", &webhook, "--format", "slack", "--state"])
+        .arg(&state)
+        .arg("--json")
         .output()
         .unwrap();
     assert!(
@@ -71,6 +74,46 @@ fn inbox_notify_posts_open_items_to_a_slack_webhook() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["sent"], true);
     assert_eq!(report["open"], 2);
+    assert!(state.exists());
+
+    let unchanged = Command::new(bin)
+        .args(["inbox-notify", "--store"])
+        .arg(&store)
+        .args(["--webhook", "http://127.0.0.1:9/hook", "--state"])
+        .arg(&state)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(unchanged.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&unchanged.stdout).unwrap();
+    assert_eq!(report["sent"], false);
+    assert_eq!(report["new_items"], 0);
+
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let added = Command::new(bin)
+        .args(["inbox", "add", "--store"])
+        .arg(&store)
+        .args(["--kind", "notify", "--title", "A new item"])
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+    let (webhook, received_new) = start_webhook();
+    let updated = Command::new(bin)
+        .args(["inbox-notify", "--store"])
+        .arg(&store)
+        .args(["--webhook", &webhook, "--state"])
+        .arg(&state)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(updated.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&updated.stdout).unwrap();
+    assert_eq!(report["sent"], true);
+    assert_eq!(report["new_items"], 1);
+    let body = received_new
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert!(body.contains("A new item"));
 
     let body = received
         .recv_timeout(std::time::Duration::from_secs(5))
