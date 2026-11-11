@@ -265,6 +265,11 @@
 - Tests: two notifier unit tests plus two `inbox_notify_cli` e2e tests with a
   loopback webhook (`cargo test notify --lib`,
   `cargo test --test inbox_notify_cli`).
+- Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
+  the allow/deny verdict (including denials) to the organization audit chain
+  with action/scope.
+- Tests: one `team_check_cli` e2e test verifies two entries and a valid chain
+  (`cargo test --test team_check_cli`).
 - Onboarding context import (ADR-0072): `onboard --import-file PATH
   --import-kind fact|preference|project|feedback` writes one memory per
   non-empty, non-comment line. Files must be regular, not symlinks, ≤256 KiB,

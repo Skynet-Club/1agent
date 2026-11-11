@@ -441,8 +441,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `team`: role/action/scope policy. Owner allows all; approver allows
   read+approve; member allows read+write; viewer allows read. Empty scopes mean
   all; a non-empty list must contain the requested scope. Unknown actors,
-  disallowed actions and ungranted scopes are denied. `1agent team-check`
-  exposes it. This is policy, not an identity provider.
+  disallowed actions and ungranted scopes are denied. `1agent team-check
+  --audit-store PATH --actor-id NAME` appends the verdict to the organization
+  audit chain, including denials. This is policy, not an identity provider.
 - `idempotency`: `IdempotencyStore` persists key → fingerprint → response as
   append-only JSON lines and `sync_data`s each record before acknowledging.
   Re-opening the store replays the original response for the same key and
