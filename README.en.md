@@ -16,10 +16,10 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** Current version **0.96.0** (updated 2026-11-10), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
+> **This project is under active development.** Current version **0.96.1** (updated 2026-11-11), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
 > This release: local writes and terminal execution on by default; file, terminal, web, PDF, MCP and subagent tools; scheduling and routines; signed skill bundles; cost, digest and dashboard observability.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> Current Linux pre-release: [v0.96.0](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0) · [Release notes](docs/release/RELEASE_NOTES.en.md).
+> Current Linux pre-release: [v0.96.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1) · [Release notes](docs/release/RELEASE_NOTES.en.md).
 
 ---
 
@@ -68,8 +68,8 @@ These are listed honestly in [Status & Roadmap](docs/status.en.md).
 Download the Linux archive from Releases:
 
 ```bash
-tar -xzf 1agent-0.96.0-linux-x86_64.tar.gz
-cd 1agent-0.96.0
+tar -xzf 1agent-0.96.1-linux-x86_64.tar.gz
+cd 1agent-0.96.1
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 

@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::master::AssignmentProposal;
 use crate::production_line::ProductionPlan;
 use crate::safety::{contains_disallowed_control, is_disallowed_control};
+use crate::tui_prompts::PromptLanguage;
 
 const LEGACY_SESSION_VERSION: u8 = 1;
 const SESSION_VERSION: u8 = 2;
@@ -35,34 +36,73 @@ struct SessionRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "SessionPreferencesWire")]
 pub struct SessionPreferences {
     pub max_steps: usize,
     pub max_tool_calls: usize,
     pub max_provider_attempts: usize,
-    pub max_context_chars: usize,
-    #[serde(default = "default_auto_compact_percent")]
-    pub auto_compact_percent: u8,
+    pub max_context_tokens: usize,
+    pub auto_compact_tokens: usize,
     pub timeout_seconds: u64,
+    #[serde(default)]
+    pub prompt_language: PromptLanguage,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionPreferencesWire {
+    max_steps: usize,
+    max_tool_calls: usize,
+    max_provider_attempts: usize,
+    #[serde(default)]
+    max_context_tokens: Option<usize>,
+    #[serde(default)]
+    auto_compact_tokens: Option<usize>,
+    #[serde(default)]
+    max_context_chars: Option<usize>,
+    #[serde(default)]
+    auto_compact_percent: Option<u8>,
+    timeout_seconds: u64,
+    #[serde(default)]
+    prompt_language: PromptLanguage,
+}
+
+impl From<SessionPreferencesWire> for SessionPreferences {
+    fn from(wire: SessionPreferencesWire) -> Self {
+        let max_context_tokens = crate::domain::migrate_max_context_tokens(
+            wire.max_context_tokens,
+            wire.max_context_chars,
+        );
+        let auto_compact_tokens = crate::domain::migrate_auto_compact_tokens(
+            wire.auto_compact_tokens,
+            wire.auto_compact_percent,
+            max_context_tokens,
+        );
+        Self {
+            max_steps: wire.max_steps,
+            max_tool_calls: wire.max_tool_calls,
+            max_provider_attempts: wire.max_provider_attempts,
+            max_context_tokens,
+            auto_compact_tokens,
+            timeout_seconds: wire.timeout_seconds,
+            prompt_language: wire.prompt_language,
+        }
+    }
 }
 
 impl SessionPreferences {
     pub fn validate(&self) -> Result<(), TuiSessionError> {
-        if !(1..=64).contains(&self.max_steps)
-            || !(1..=64).contains(&self.max_tool_calls)
-            || !(1..=16).contains(&self.max_provider_attempts)
-            || !(1_000..=1_000_000).contains(&self.max_context_chars)
-            || !(50..=95).contains(&self.auto_compact_percent)
-            || !(1..=3_600).contains(&self.timeout_seconds)
+        if !(0..=4_096).contains(&self.max_steps)
+            || !(0..=4_096).contains(&self.max_tool_calls)
+            || !(0..=4_096).contains(&self.max_provider_attempts)
+            || !(1_000..=1_000_000).contains(&self.max_context_tokens)
+            || !(1..=self.max_context_tokens).contains(&self.auto_compact_tokens)
+            || !(0..=604_800).contains(&self.timeout_seconds)
         {
             return Err(TuiSessionError::InvalidPreferences);
         }
         Ok(())
     }
-}
-
-fn default_auto_compact_percent() -> u8 {
-    80
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1170,7 +1210,7 @@ mod tests {
     }
 
     #[test]
-    fn version_two_preferences_without_auto_compaction_use_the_safe_default() {
+    fn legacy_character_preferences_migrate_to_tokens() {
         let workspace = tempfile::tempdir().unwrap();
         let id = "ses_legacycompact01";
         let root = workspace.path().join(".sessions").join(id);
@@ -1194,7 +1234,9 @@ mod tests {
         )
         .unwrap();
         let session = TuiSession::open(workspace.path(), Some(id)).unwrap();
-        assert_eq!(session.preferences().unwrap().auto_compact_percent, 80);
+        let preferences = session.preferences().unwrap();
+        assert_eq!(preferences.max_context_tokens, 6_667);
+        assert_eq!(preferences.auto_compact_tokens, 5_243);
     }
 
     #[test]
@@ -1377,9 +1419,10 @@ mod tests {
                 max_steps: 4,
                 max_tool_calls: 5,
                 max_provider_attempts: 3,
-                max_context_chars: 20_000,
-                auto_compact_percent: 75,
+                max_context_tokens: 20_000,
+                auto_compact_tokens: 15_000,
                 timeout_seconds: 60,
+                prompt_language: PromptLanguage::Zh,
             }))
             .unwrap();
         session
@@ -1390,7 +1433,7 @@ mod tests {
         assert_eq!(reopened.title(), "Release review");
         assert_eq!(reopened.workspace(), Some(project.as_path()));
         assert_eq!(reopened.mentions().len(), 1);
-        assert_eq!(reopened.preferences().unwrap().max_context_chars, 20_000);
+        assert_eq!(reopened.preferences().unwrap().max_context_tokens, 20_000);
         assert_eq!(
             reopened.context_summary().unwrap().text,
             "Earlier work produced a reviewed release."
@@ -1420,12 +1463,13 @@ mod tests {
         let mut invalid = session.clone();
         assert!(matches!(
             invalid.set_preferences(Some(SessionPreferences {
-                max_steps: 0,
+                max_steps: 4_097,
                 max_tool_calls: 1,
                 max_provider_attempts: 1,
-                max_context_chars: 1_000,
-                auto_compact_percent: 80,
+                max_context_tokens: 1_000,
+                auto_compact_tokens: 800,
                 timeout_seconds: 1,
+                prompt_language: PromptLanguage::Zh,
             })),
             Err(TuiSessionError::InvalidPreferences)
         ));
@@ -1438,6 +1482,23 @@ mod tests {
         assert!(trashed.is_dir());
         assert!(!session.root().exists());
         assert!(trashed.starts_with(workspace.path().join(".trash")));
+    }
+
+    #[test]
+    fn zero_budgets_are_valid_and_mean_unlimited() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let preferences = SessionPreferences {
+            max_steps: 0,
+            max_tool_calls: 0,
+            max_provider_attempts: 0,
+            max_context_tokens: 1_000,
+            auto_compact_tokens: 800,
+            timeout_seconds: 0,
+            prompt_language: PromptLanguage::En,
+        };
+        session.set_preferences(Some(preferences.clone())).unwrap();
+        assert_eq!(session.preferences(), Some(&preferences));
     }
 
     #[test]

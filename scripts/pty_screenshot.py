@@ -23,6 +23,7 @@ import termios
 import time
 
 import pyte
+from wcwidth import wcwidth
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BINARY = os.path.join(ROOT, "target/release/first-principles-agent")
@@ -68,10 +69,25 @@ def main():
         os.write(fd, args.keys.encode().replace(b"\\r", b"\r"))
         drain(args.settle)
     # Snapshot before quitting: leaving the alternate screen restores the blank
-    # primary buffer, so a post-exit capture shows nothing.
+    # primary buffer, so a post-exit capture shows nothing. Skip the empty stub
+    # cell pyte stores after each wide character, and treat an empty cell as a
+    # space (`Screen.display` trips over empty data in this pyte version).
     rows = []
     for y in range(screen.lines):
-        rows.append("".join(screen.buffer[y][x].data or " " for x in range(screen.columns)).rstrip())
+        line = screen.buffer[y]
+        row = []
+        skip_stub = False
+        for x in range(screen.columns):
+            if skip_stub:
+                skip_stub = False
+                continue
+            data = line[x].data
+            if not data:
+                row.append(" ")
+                continue
+            row.append(data)
+            skip_stub = wcwidth(data[0]) == 2
+        rows.append("".join(row).rstrip())
 
     os.write(fd, b"\x11\r")
     drain(1.0)

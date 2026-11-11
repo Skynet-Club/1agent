@@ -133,7 +133,13 @@ pub enum JournalEventKind {
         observation: ToolObservation,
     },
     ContextCompacted {
+        #[serde(default)]
+        before_tokens: usize,
+        #[serde(default)]
+        after_tokens: usize,
+        #[serde(default)]
         before_chars: usize,
+        #[serde(default)]
         after_chars: usize,
         compacted_tool_results: usize,
     },

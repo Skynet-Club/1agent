@@ -3,7 +3,7 @@
 
 [简体中文](features.md) · [English](features.en.md)
 
-> 当前版本：**0.96.0 R1 release candidate**  
+> 当前版本：**0.96.1 R1 release candidate**  
 > 正式验证平台：**Linux x86_64**  
 > 状态标记：**可用（RC）** / **基础可用** / **MVP** / **模块** / **实验性** / **研发中** / **未实现**
 

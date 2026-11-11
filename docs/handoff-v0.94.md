@@ -80,7 +80,8 @@ Cross-runtime capability evidence:
 
 This invokes external runtimes and may consume provider quota.
 
-These controls use character budgets, not exact provider tokens.
+These controls use character budgets, not exact provider tokens. (Historical; context
+budgets are token-based since ADR 0034.)
 
 `/cost` is separate from character headroom: it rebuilds provider usage from run journals
 and applies configured route pricing metadata when the provider does not report cost.

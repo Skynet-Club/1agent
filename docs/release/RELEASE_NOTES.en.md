@@ -1,150 +1,133 @@
-# Release Notes — 0.96.0 Action Layer Preview
+# Release Notes — 0.96.1 TUI, Context and Prompt Library
 
-Date: 2026-11-10  
-Status: **R1 public pre-release (release candidate), not production-stable**
+**English** · [简体中文](https://github.com/Skynet-Club/1agent/blob/main/docs/release/RELEASE_NOTES.md)
 
-GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.96.0>
+Date: 2026-11-11  
+Status: **R1 public pre-release (patch), not production-stable**
 
-[简体中文](https://github.com/Skynet-Club/1agent/blob/main/docs/release/RELEASE_NOTES.md) · **English**
+GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1>
 
-## Development status and community
+## Scope
 
-1Agent is still under rapid iteration. 0.96.0 is an R1 release candidate, not a
-finished or production-stable product; interfaces, configuration and data
-formats may still change.
-
-We welcome developers, testers, researchers, security specialists, product and
-design partners to test the Linux build, report issues, submit pull requests,
-join red-team exercises and validate real workflows. Join **Skynet-Club** to help
-build 1Agent and its open ecosystem: <https://skynet.club>.
+0.96.1 is a patch release on 0.96.0 focused on TUI readability, context
+budgeting, the prompt library and answer formatting. It does **not** include the
+0.97 Reliable Loop scope: streaming, parallel read-only tools, incremental
+journal or crash recovery.
 
 ## Highlights
 
-### 1. From answering to acting
+### 1. Answer readability
 
-- Local `run` / `tui` now enable file writes and terminal execution by default;
-  `--read-only` disables them, and `--allow-write` remains accepted for
-  compatibility.
-- Added `write_file` / `edit_file`: allowed-root containment, symlink rejection,
-  overwrite protection, atomic replacement and bounded content.
-- Added real PTY terminal tools (`terminal_create/write/output/exec/destroy`)
-  backed by Skynet Workshop. They are hidden from the model and denied by the
-  registry without write authority. Verified on Linux x86_64.
-- Added `fetch_url`: public HTTPS only, private/loopback address rejection,
-  per-hop redirect validation, a 2 MiB cap and HTML text extraction.
-- Added `web_search` through Bing RSS: no key, bounded and deduplicated results,
-  rate limits surface as tool failures.
-- Added `browser_read`: headless Chrome rendering and text extraction for public
-  pages; clicks, typing and screenshots are not implemented.
-- Added `read_pdf`: extracts PDF text through the system `pdftotext`, with read
-  root, symlink, control-character and character-count checks. No OCR or image
-  understanding.
-- Added a stdio MCP client (`--mcp-config`): tool discovery and calls; remote
-  tools are write-gated unless the server declares `readOnlyHint: true`.
-- Added `spawn_agent`: bounded child processes with isolated journal/workspace
-  and budget, inherited write/network permissions and a depth cap of 2.
+- The conclusion fence now renders Markdown hierarchy: `##` subheadings,
+  ordered and unordered lists, `- [x]` task boxes, `**bold**` key labels,
+  `---` dividers, link-colored URLs/local paths and column-aligned tables.
+- The system prompt asks for one result sentence first, then short paragraphs,
+  bullets or a comparison table for multi-dimensional answers; simple answers
+  stay one short paragraph.
+- A live `deepseek-flash` canary returned one summary sentence, a capability
+  table, three bullet points and a defaulted question instead of one wall of
+  text.
+- URLs glued to Chinese text (for example `参考：https://...`) are link-colored.
 
-### 2. Always-on execution, scheduling and skill distribution
+### 2. Prompt library
 
-- Added `schedule add/list/remove` and `daemon`: intervals, file-mtime triggers,
-  persistence, pid locking, isolated child runs and restart catch-up.
-- Added `schedule health` with `ok` / `overdue` / `failing` states.
-- The daemon can write a `schedule_run_failed` alert and send a webhook when a
-  scheduled run fails or times out; escalation and restart deduplication remain
-  future work.
-- `run/schedule add --routine-skill NAME@VERSION` accepts only the active exact
-  version, composes its body into the task and grants no extra permissions.
-- Added `skill export/import`: versioned bundles, SHA-256 pinning, manifest
-  preflight, a 4 MiB cap and duplicate-version skipping.
-- Added Ed25519 bundle signing: `skill keygen`, `skill export --signing-key`,
-  `skill import --public-key`. Private key files must be 0600; missing keys,
-  wrong keys and tampering fail closed.
-- Exposed `skill_list/eval/register/activate/rollback` and
-  `delegation_list/register/revoke` tools.
+- `/` still searches the 48 curated Chinese cards and shows three featured
+  prompts on an empty query.
+- `//` opens the complete source library: the 56 verbatim Feishu rows are
+  grouped into 32 author/topic entries and labeled by category. Snapshot and
+  importer:
+  - `docs/evidence/prompt-sources-2026-11-11.ndjson`
+  - `scripts/import-prompt-sources.py`
+- Insertion is the complete body only: the full Chinese translation in Chinese
+  mode or the full English original in English mode. Nothing is truncated or
+  rewritten, and no author/topic header or reference line is written into the
+  composer; those stay in the drawer row.
+- On wide terminals a side pane previews the complete body, author, category,
+  fragment count and character count; `Enter` inserts.
+- Inserting the same body twice is skipped.
+- New `/config set language zh|en`: the source library works in both languages;
+  the curated English `/` subset lists only the 14 cards with verbatim English
+  source text, and cards without an English source stay hidden instead of
+  silently falling back to Chinese.
+- Completeness gate: `tests/prompt_sources.rs` reparses the 56-row snapshot and
+  compares every group's joined `original`/`translation` and row count; import
+  truncation or rewriting fails the build.
 
-### 3. Cost, maintenance and audit
+### 3. Context and budgets
 
-- `cost` aggregates tokens, cost, tool calls/failures and p50/p95 latency by
-  provider/model, task and tool.
-- `digest` summarizes recent runs, stop reasons, schedules, `schedule_health`
-  and alert counts without calling a model.
-- Added `dashboard`: a self-contained static HTML report over journals,
-  schedules and alerts, with escaped dynamic text, a restrictive CSP and 0600
-  file permissions.
-- Audit export supports `after_seq` pagination and `include_records`; the
-  default still returns only a receipt so journal content is not dumped
-  accidentally.
-- Added `retention` (run-journal dry-run/apply with a receipt), `provider-alerts`
-  and `notify` (generic webhook plus Slack/Discord payloads).
-- Added `memory consolidate` (scope + content-hash deduplication with soft
-  forget) and a fingerprint-keyed context-graph cache.
+- Context budgets are token-based: 1,000,000 tokens by default, automatic
+  compaction at 786,432; `--max-context-tokens` replaces `--max-context-chars`.
+- Legacy character budgets migrate on read: the old 100,000-character default
+  maps to 1M tokens; custom values use `ceil(chars / 3)`; old session/task JSON
+  remains readable.
+- TUI, `/status` and `/context` report tokens; provider-reported
+  `usage.input_tokens` is authoritative after each response.
+- Interactive TUI runs no longer stop at six steps: steps, tool calls, provider
+  attempts and run duration default to unlimited (`0`); the status line and
+  `/config` show `不限`. Headless `run`, the daemon and subagents keep finite
+  budgets; interactive TUI provider calls keep a 300-second transport ceiling.
+- Hidden caps removed: the runtime provider-attempt clamp (was 16) and the TUI
+  step/tool validation caps (was 64).
 
-### 4. Safety and execution boundaries
+### 4. TUI visual system and interaction
 
-- Tools are filtered by permission; write tools are hidden from the model in
-  read-only runs.
-- Terminal, file, network, MCP and skill tools have explicit risk levels,
-  timeouts and failure paths.
-- Tool calls and results are paired in the journal; model-visible inputs can be
-  reconstructed from the run journal.
-- ADR-0031/0032/0033 record the decisions for execution by default, PDF text
-  extraction and skill bundles/routines.
-
-## Published assets
-
-- `1agent-0.96.0-linux-x86_64.tar.gz` — Linux x86_64 package;
-- `SHA256SUMS` — archive and Linux provenance checksums;
-- `linux-x86_64.json` — Linux build provenance.
-
-Windows archives are not published. GitHub's generated source archives remain
-available from the tag.
-
-## Upgrade notes
-
-- 0.96.0 allows local writes/execution by default. Use `--read-only`, or
-  `/permissions write off` in the TUI, for read-only runs.
-- Skill CLIs honor `ONEAGENT_SKILL_JOURNAL`; the default is
-  `$HOME/.1a/skills.jsonl`.
-- `--allow-write` is still accepted but conflicts with `--read-only`; it is no
-  longer required.
-- Existing runtime homes continue to migrate through `1agent upgrade`; this
-  release adds no home migration step.
+- Dark-green backdrop `#06100A`; input panel `#08140D`, border `#3F644B`, panel
+  text `#487748`, white input text.
+- The input-panel top border carries state/step and token/cache/context metrics;
+  narrow terminals fold metrics inside the fence. The bottom border carries run
+  status, model and mode. The context meter uses `─` cells (20 wide, 10 narrow).
+- Welcome wordmark: leading `1` bright green, `Agent`/caption deep green,
+  `SKYNET.CLUB` bright green.
+- All popups (`/details`, `/help`, `/` drawer, `Ctrl+T`) share green surfaces
+  `#0A1F12`, selected rows `#143D24`, borders `#3F644B` and bright-green titles.
+- Work log: action names, `•` bullets and links are bright green; details and
+  `⎿` results stay deep green `#487748` and unbolded. `第 N 步` counts actual
+  model requests; `Ctrl+O` opens run details; Bash results include a bounded
+  output preview.
+- Running state is a two-line activity card driven by the run journal with
+  bilingual stages, model step and a minimal fence. A persistent Master-Agent
+  status card covers mission understanding, planning, approval, assignment,
+  starting, worker running, collecting, verification and reporting, with a
+  next-command footer.
+- User messages use the input-panel background and white text; right-click
+  paste is scoped to the composer.
+- Composer mouse selection works across the whole composer. Editing is hardened
+  against stale/mid-grapheme cursors, with a 64 KiB input cap, a deterministic
+  editing fuzz test and a PTY paste/backspace/space fuzz script. TUI panics
+  restore the terminal and append to `$HOME/.1a/tui-crash.log`; transient
+  input-read errors are retried.
+- The final answer fence `╭─ 结论 Conclusion ... ╮` has dimmed deep-green
+  borders, a bright-green bold title and a white body. Structured
+  claim/evidence/assumption/constraint/unknown/conflict/flip sections use deep
+  green `#487748`; only the conclusion body stays white.
+- The status/work marker is the smaller `•`; normal activity uses one cyan
+  accent, while green/amber/red are reserved for completed, waiting/retrying and
+  blocked outcomes.
 
 ## Verification
 
-- Full gate: fmt, clippy `-D warnings`, tests, evals and claims structure all
-  pass.
-- 725 tests passed, 0 failed, 5 live tests ignored by default (terminal, PDF and
-  other host-dependent checks).
-- Claims: 81 checked, 62 verified, 7 partial, 12 without evidence. Unverified
-  older product claims remain explicitly marked in the table.
-- `1agent --version` reports 0.96.0; Linux reproducible-build provenance ships
-  with the package.
-- Live evidence: `docs/evidence/web-2026-11-09/`, `mcp-2026-11-09/`,
-  `subagent-2026-11-09/`, `browser-2026-11-09/`, `terminal-2026-11-09/`,
-  `pdf-2026-11-09/`.
+- `release-check.sh`: fmt, `clippy -D warnings`, full tests, HTTP e2e, ci and
+  TUI interaction, including 400 mixed edit events.
+- `verify-claims.sh`: claims table well-formed; see the current run output for
+  exact verified/partial/no-evidence counts.
+- Real PTY evidence lives in `docs/evidence/tui-2026-11-10/`; answer formatting
+  was also checked with a live provider canary.
 
 ## Known limits
 
-- Not production-stable. A-Gate/S-Gate, external IdP, third-party security audit
-  and the Workshop full release gate remain open.
-- The browser is read-only; computer-use clicks, typing and screenshots are not
-  implemented.
-- PDF support is text-only; scan OCR, images, voice, DOCX/PPTX are not
-  implemented.
-- Semantic retrieval/embeddings and cross-process memory rotation are not
-  implemented.
-- Skill shadow/canary end-to-end flows and a real demonstration corpus are
-  unfinished.
-- Delegation is not wired through the full Router path; per-tenant context and
-  organization audit are not implemented.
-- Watchdog escalation, restart deduplication and a real multi-day task evidence
-  run are still missing.
-- Remote skill marketplace index, revocation and install UI are not implemented.
-- Real external webhook/email/calendar delivery is unverified; the dashboard is
-  a static report, not a live service.
-- Windows is untested and not published; macOS, Android and iOS are planned.
+- Linux x86_64 only; Windows builds are not published.
+- 0.96.1 is still an R1 public pre-release, not production-stable; interfaces,
+  configuration and data formats may change.
+- External side effects (commit, push, publish, spend) remain behind
+  authorization/Policy gates and are never reported as silently executed.
+- The source library groups fragments by author/topic; it is not a full-article
+  reader. Use the original Feishu links for single-row context.
+- The curated English `/` layer has 14 cards; `格式锁定` (Riley Goodside) and
+  `写成脚本` (Karpathy) still lack an English original, so they stay hidden in
+  `/` English mode.
 
-## License
+## Assets
 
-MIT. See `LICENSE`, `THIRD_PARTY_NOTICES.md` and `THIRD_PARTY_LICENSES.md`.
+- `1agent-0.96.1-linux-x86_64.tar.gz` — Linux x86_64 package;
+- `SHA256SUMS` — archive and Linux provenance checksums;
+- `linux-x86_64.json` — Linux build provenance.

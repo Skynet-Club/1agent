@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use first_principles_agent::tui_prompts::{PromptLanguage, prompt_view};
 use first_principles_agent::{
     AgentAnswer, AgentConfig, AgentProfile, AgentRuntime, AnnotationLabel, AnnotationRecord,
     AnnotationStore, AnswerStatus, ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus,
@@ -21,15 +22,16 @@ use first_principles_agent::{
     ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
     RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent,
     SessionPreferences, SkillService, StopReason, TaskRequest, TerminalSession, ToolObservation,
-    ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiCommandId, TuiInput,
-    TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput,
-    WorkItemStatus, WorkshopCliAdapter, add_git_worktree, artifact_expectation, artifacts_summary,
-    audit_events, audit_summary, build_release_verification_report, build_usage_ledger,
-    build_user_message, collect_provenance, collect_release_manifest, commands_for_surface,
-    copy_to_clipboard, create_goldset_manifest, create_trust_anchor, current_time_ms, default_home,
-    default_registry, doctor, epistemic_command_prompt, evaluate_experience_suite,
-    evidence_summary, export, filter_capability_manifest_by_runtime, find_resumable_prefix,
-    git_diff, git_worktrees, home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
+    ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiActivity, TuiActivityKind,
+    TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus,
+    TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter, add_git_worktree,
+    artifact_expectation, artifacts_summary, audit_events, audit_summary,
+    build_release_verification_report, build_usage_ledger, build_user_message, collect_provenance,
+    collect_release_manifest, commands_for_surface, copy_to_clipboard, create_goldset_manifest,
+    create_trust_anchor, current_time_ms, default_home, default_registry, doctor,
+    epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
+    filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
+    home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
     interactive_terminal_available, is_destructive_input, key_escrow::escrow as escrow_keys,
     key_escrow::restore as restore_keys, list_presets, load_agent_profiles, load_eval_report,
     load_preset, load_suite, local_manifest, master_audit_summary, master_evidence_summary,
@@ -108,8 +110,8 @@ enum Command {
         provider_retry_backoff_ms: u64,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
-        #[arg(long, default_value_t = 100_000)]
-        max_context_chars: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_context_tokens: usize,
         #[arg(long)]
         max_provider_p95_latency_ms: Option<u64>,
         #[arg(long)]
@@ -165,9 +167,11 @@ enum Command {
         experience_dir: Option<PathBuf>,
         #[arg(long)]
         experience_scope: Option<String>,
-        #[arg(long, default_value_t = 6)]
+        /// Interactive step limit; 0 means unlimited.
+        #[arg(long, default_value_t = 0)]
         max_steps: usize,
-        #[arg(long, default_value_t = 8)]
+        /// Interactive tool-call limit; 0 means unlimited.
+        #[arg(long, default_value_t = 0)]
         max_tool_calls: usize,
         #[arg(long)]
         max_provider_attempts: Option<usize>,
@@ -175,10 +179,11 @@ enum Command {
         master_agents: Option<PathBuf>,
         #[arg(long, default_value = "skynet-workshop")]
         workshop_prefix: String,
-        #[arg(long, default_value_t = 120)]
+        /// Interactive run timeout in seconds; 0 means unlimited.
+        #[arg(long, default_value_t = 0)]
         timeout_seconds: u64,
-        #[arg(long, default_value_t = 100_000)]
-        max_context_chars: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_context_tokens: usize,
         #[arg(long)]
         route_objective: Option<String>,
     },
@@ -1932,7 +1937,7 @@ async fn main() -> Result<()> {
             max_provider_attempts,
             provider_retry_backoff_ms,
             timeout_seconds,
-            max_context_chars,
+            max_context_tokens,
             max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k,
             evidence_max_age_ms,
@@ -1945,6 +1950,8 @@ async fn main() -> Result<()> {
             alert_webhook,
             json,
         } => {
+            let max_context_tokens =
+                max_context_tokens.clamp(1_000, first_principles_agent::DEFAULT_MAX_CONTEXT_TOKENS);
             let mut request = load_request(task, input)?;
             if let Some(spec) = routine_skill {
                 let service = SkillService::open(default_skill_store())?;
@@ -1974,8 +1981,9 @@ async fn main() -> Result<()> {
                 max_provider_attempts,
                 provider_retry_backoff_ms,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
-                max_context_chars,
-                auto_compact_percent: 80,
+                max_context_tokens,
+                auto_compact_tokens: first_principles_agent::DEFAULT_AUTO_COMPACT_TOKENS
+                    .min(max_context_tokens),
                 max_provider_p95_latency_ms: effective_latency_budget,
                 max_unit_cost_micros_per_k: effective_unit_cost_budget,
             };
@@ -2103,7 +2111,7 @@ async fn main() -> Result<()> {
             master_agents,
             workshop_prefix,
             timeout_seconds,
-            max_context_chars,
+            max_context_tokens,
             route_objective,
         } => {
             run_tui(
@@ -2126,7 +2134,7 @@ async fn main() -> Result<()> {
                 master_agents,
                 workshop_prefix,
                 timeout_seconds,
-                max_context_chars,
+                max_context_tokens,
                 route_objective,
             )
             .await?;
@@ -6550,7 +6558,24 @@ fn now_unix_ms() -> u128 {
 }
 
 fn tui_provider_attempt_budget(configured: Option<usize>, max_steps: usize) -> usize {
-    configured.unwrap_or(max_steps).clamp(1, 16)
+    let value = configured.unwrap_or(max_steps);
+    if value == 0 { 0 } else { value.clamp(1, 4096) }
+}
+
+fn bounded_count_label(value: usize, unit: &str) -> String {
+    if value == 0 {
+        "不限".into()
+    } else {
+        format!("最多 {value} {unit}")
+    }
+}
+
+fn timeout_label(value: u64) -> String {
+    if value == 0 {
+        "不限".into()
+    } else {
+        format!("{value} 秒")
+    }
 }
 
 struct TuiRunSettings {
@@ -6565,8 +6590,9 @@ struct TuiRunSettings {
     master_agents: Option<PathBuf>,
     workshop_prefix: String,
     timeout_seconds: u64,
-    max_context_chars: usize,
-    auto_compact_percent: u8,
+    max_context_tokens: usize,
+    auto_compact_tokens: usize,
+    prompt_language: PromptLanguage,
     default_preferences: SessionPreferences,
     mentions: Vec<PathBuf>,
     planning_provider: Arc<dyn ModelProvider>,
@@ -6583,11 +6609,22 @@ impl TuiRunSettings {
         mut known_facts: Vec<String>,
     ) -> TaskRequest {
         let mut request = TaskRequest::from_objective(instruction, self.cwd.clone());
+        let had_session_context = !known_facts.is_empty();
         known_facts.extend(
             self.mentions
                 .iter()
                 .map(|path| format!("Mentioned workspace path: {}", path.display())),
         );
+        known_facts.extend(prompt_library_facts(instruction, self.prompt_language));
+        let trimmed = instruction.trim();
+        if had_session_context
+            && trimmed.chars().count() <= 24
+            && !trimmed.chars().any(char::is_whitespace)
+        {
+            known_facts.push(format!(
+                "Short reply `{trimmed}`: if it names an entity from the previous turn, treat it as the answer to the previous question instead of a new task."
+            ));
+        }
         request.known_facts = known_facts;
         request.permissions.allow_network = self.allow_network;
         request.permissions.allow_write = self.allow_write;
@@ -6596,8 +6633,8 @@ impl TuiRunSettings {
         request.budget = RunBudget {
             max_steps: self.max_steps,
             max_tool_calls: self.max_tool_calls,
-            max_context_chars: self.max_context_chars,
-            auto_compact_percent: self.auto_compact_percent,
+            max_context_tokens: self.max_context_tokens,
+            auto_compact_tokens: self.auto_compact_tokens,
             max_provider_attempts: self.max_provider_attempts,
             timeout_ms: self.timeout_seconds.saturating_mul(1_000),
             ..RunBudget::default()
@@ -6627,9 +6664,11 @@ async fn run_tui(
     master_agents: Option<PathBuf>,
     workshop_prefix: String,
     timeout_seconds: u64,
-    max_context_chars: usize,
+    max_context_tokens: usize,
     route_objective: Option<String>,
 ) -> Result<()> {
+    let max_context_tokens =
+        max_context_tokens.clamp(1_000, first_principles_agent::DEFAULT_MAX_CONTEXT_TOKENS);
     let host_binding = HostBinding::from_env();
     let mut session = TuiSession::open(&journal_dir, session.as_deref())
         .context("cannot initialize TUI session")?;
@@ -6638,12 +6677,14 @@ async fn run_tui(
         agent_id: host_binding.agent_id().map(str::to_string),
     })?;
     let cli_preferences = SessionPreferences {
-        max_steps: max_steps.max(1),
-        max_tool_calls: max_tool_calls.max(1),
+        max_steps: max_steps.min(4096),
+        max_tool_calls: max_tool_calls.min(4096),
         max_provider_attempts: tui_provider_attempt_budget(max_provider_attempts, max_steps),
-        max_context_chars,
-        auto_compact_percent: 80,
+        max_context_tokens,
+        auto_compact_tokens: first_principles_agent::DEFAULT_AUTO_COMPACT_TOKENS
+            .min(max_context_tokens),
         timeout_seconds,
+        prompt_language: PromptLanguage::Zh,
     };
     let preferences = session.preferences().cloned();
     let max_steps = preferences
@@ -6658,19 +6699,31 @@ async fn run_tui(
         .as_ref()
         .map(|preferences| Some(preferences.max_provider_attempts))
         .unwrap_or(max_provider_attempts);
-    let max_context_chars = preferences
+    let max_context_tokens = preferences
         .as_ref()
-        .map(|preferences| preferences.max_context_chars)
-        .unwrap_or(max_context_chars);
-    let auto_compact_percent = preferences
+        .map(|preferences| preferences.max_context_tokens)
+        .unwrap_or(max_context_tokens);
+    let auto_compact_tokens = preferences
         .as_ref()
-        .map(|preferences| preferences.auto_compact_percent)
-        .unwrap_or(80);
+        .map(|preferences| preferences.auto_compact_tokens)
+        .unwrap_or(first_principles_agent::DEFAULT_AUTO_COMPACT_TOKENS)
+        .min(max_context_tokens);
     let timeout_seconds = preferences
         .as_ref()
         .map(|preferences| preferences.timeout_seconds)
         .unwrap_or(timeout_seconds);
-    let timeout = Duration::from_secs(timeout_seconds.max(1));
+    let prompt_language = preferences
+        .as_ref()
+        .map(|preferences| preferences.prompt_language)
+        .unwrap_or(PromptLanguage::Zh);
+    // A zero run timeout means unlimited; provider calls keep a transport
+    // ceiling so a stalled connection cannot hang the TUI indefinitely.
+    let provider_timeout_seconds = if timeout_seconds == 0 {
+        300
+    } else {
+        timeout_seconds
+    };
+    let timeout = Duration::from_secs(provider_timeout_seconds.max(1));
     let (provider_label, candidates, mut tools) = if let Some(config_path) = config_path {
         let config = AgentConfig::load(&config_path)?;
         let label = config
@@ -6720,8 +6773,9 @@ async fn run_tui(
             .map(canonical_or_original)
             .collect::<Vec<_>>()
     };
-    let mut state = TuiState::new(provider_label, max_steps, timeout_seconds.max(1));
-    state.set_context_budget(max_context_chars);
+    let mut state = TuiState::new(provider_label, max_steps, timeout_seconds);
+    state.set_context_budget(max_context_tokens);
+    state.set_prompt_language(prompt_language);
     state.set_host_binding(host_binding);
     sync_tui_stage(&mut state, &session);
     let mut settings = TuiRunSettings {
@@ -6736,8 +6790,9 @@ async fn run_tui(
         master_agents,
         workshop_prefix,
         timeout_seconds,
-        max_context_chars,
-        auto_compact_percent,
+        max_context_tokens,
+        auto_compact_tokens,
+        prompt_language,
         default_preferences: cli_preferences,
         mentions: session.mentions().to_vec(),
         planning_provider,
@@ -7248,17 +7303,28 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
         ],
         TuiCommandId::Config => vec![
             command_menu_action("当前配置", "查看下次运行配置", "/config show", false),
-            command_menu_action("推理步骤…", "输入最大推理步数", "/config set steps ", true),
+            command_menu_action(
+                "推理步骤…",
+                "最大推理步数（0=不限）",
+                "/config set steps ",
+                true,
+            ),
             command_menu_action(
                 "工具调用…",
-                "输入最大工具调用次数",
+                "最大工具调用次数（0=不限）",
                 "/config set tools ",
                 true,
             ),
             command_menu_action(
                 "模型尝试…",
-                "输入最大模型尝试次数",
+                "最大模型尝试次数（0=不限）",
                 "/config set attempts ",
+                true,
+            ),
+            command_menu_action(
+                "提示词语言…",
+                "中文 / English",
+                "/config set language ",
                 true,
             ),
             command_menu_action(
@@ -8150,6 +8216,26 @@ fn assign_tui_plan(
         state.info(format!("无法保存 assignment：{error}"));
         return;
     }
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterAssignment,
+            format!(
+                "{} 个任务 · plan={}",
+                assignment.assignments.len(),
+                assignment.plan_id
+            ),
+            0,
+        )
+        .with_footer("下一步：/dispatch dry-run 或 /dispatch run"),
+    );
+    state.push_work(
+        TuiActivityKind::MasterAssignment,
+        format!(
+            "{} 个任务 · plan={}",
+            assignment.assignments.len(),
+            assignment.plan_id
+        ),
+    );
     state.info(format_assignment(&assignment));
 }
 
@@ -8310,6 +8396,18 @@ fn run_tui_dispatch(
                 .collect::<Vec<_>>()
                 .join("\n")
         ));
+        state.set_master_activity(
+            TuiActivity::bilingual(
+                TuiActivityKind::MasterAssignment,
+                format!("dry-run · {} 个就绪任务", ready.len()),
+                0,
+            )
+            .with_footer(format!("trace={trace_id} · 输入 /dispatch run 启动 Worker")),
+        );
+        state.push_work(
+            TuiActivityKind::MasterAssignment,
+            format!("dry-run · {} 个就绪任务", ready.len()),
+        );
         return;
     }
     let store = match MasterStore::new(&state_root, &trace_id) {
@@ -8339,6 +8437,7 @@ fn run_tui_dispatch(
             return;
         }
     };
+    let mut submitted_count = 0usize;
     for item in ready {
         let assignment = match master
             .assignment
@@ -8359,6 +8458,28 @@ fn run_tui_dispatch(
             state.info(format!("缺少 Agent profile：{}", assignment.agent_id));
             continue;
         };
+        state.set_master_activity(
+            TuiActivity::bilingual(
+                TuiActivityKind::MasterAssignment,
+                format!(
+                    "{} · agent={} · {}",
+                    item.id,
+                    profile.agent_id,
+                    bounded_tui_text(&item.title, 60)
+                ),
+                0,
+            )
+            .with_footer(format!("trace={trace_id} · 准备租约与 Workshop Session")),
+        );
+        state.push_work(
+            TuiActivityKind::MasterAssignment,
+            format!(
+                "{} · agent={} · {}",
+                item.id,
+                profile.agent_id,
+                bounded_tui_text(&item.title, 60)
+            ),
+        );
         let lease = match master.lease_task(
             &item.id,
             profile,
@@ -8386,6 +8507,24 @@ fn run_tui_dispatch(
                 return;
             }
         };
+        state.set_master_activity(
+            TuiActivity::bilingual(
+                TuiActivityKind::MasterStarting,
+                format!(
+                    "{} · agent={} · generation={}",
+                    item.id, profile.agent_id, lease.generation
+                ),
+                0,
+            )
+            .with_footer(format!("trace={trace_id} · 创建/提交 Workshop Session")),
+        );
+        state.push_work(
+            TuiActivityKind::MasterStarting,
+            format!(
+                "{} · agent={} · generation={}",
+                item.id, profile.agent_id, lease.generation
+            ),
+        );
         if let Err(error) = master.begin_starting(&item.id, lease.generation, now_unix_ms()) {
             state.info(format!("任务 {} 无法启动：{error}", item.id));
             continue;
@@ -8437,6 +8576,7 @@ fn run_tui_dispatch(
                         return;
                     }
                 };
+                submitted_count += 1;
                 state.info(format!(
                     "已提交 {} · agent={} · session={}",
                     item.id,
@@ -8455,6 +8595,20 @@ fn run_tui_dispatch(
             }
         }
     }
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::WorkerRunning,
+            format!("已提交 {submitted_count} 个任务"),
+            0,
+        )
+        .with_footer(format!(
+            "trace={trace_id} · /watch 查看进度 · /board 查看任务"
+        )),
+    );
+    state.push_work(
+        TuiActivityKind::WorkerRunning,
+        format!("已提交 {submitted_count} 个任务"),
+    );
 }
 
 fn tui_master_store(
@@ -8673,9 +8827,27 @@ fn watch_tui_master(state: &mut TuiState, session: &TuiSession, settings: &TuiRu
         })
         .collect::<Vec<_>>();
     if submissions.is_empty() {
+        state.set_master_activity(
+            TuiActivity::bilingual(TuiActivityKind::WorkerRunning, "没有运行中的任务", 0)
+                .with_footer(format!("trace={trace_id} · /board 查看任务状态")),
+        );
+        state.push_work(TuiActivityKind::WorkerRunning, "没有运行中的任务");
         state.info(format!("Watch · trace={trace_id} · 没有运行中的任务"));
         return;
     }
+    let running_count = submissions.len();
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterCollecting,
+            format!("{running_count} 个运行中的任务"),
+            0,
+        )
+        .with_footer(format!("trace={trace_id} · 同步 Workshop Session 状态")),
+    );
+    state.push_work(
+        TuiActivityKind::MasterCollecting,
+        format!("{running_count} 个运行中的任务"),
+    );
     let mut outputs = Vec::new();
     for submission in submissions {
         let previous = master
@@ -8723,6 +8895,20 @@ fn watch_tui_master(state: &mut TuiState, session: &TuiSession, settings: &TuiRu
         }
         outputs.push(format!("{} · {:?}", submission.task_id, observation));
     }
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterCollecting,
+            format!("已同步 {} 个任务", outputs.len()),
+            0,
+        )
+        .with_footer(format!(
+            "trace={trace_id} · /attention 查看异常 · /board 查看任务"
+        )),
+    );
+    state.push_work(
+        TuiActivityKind::MasterCollecting,
+        format!("已同步 {} 个任务", outputs.len()),
+    );
     state.info(bound_tui_command_output(format!(
         "Watch · trace={trace_id}\n{}",
         outputs.join("\n")
@@ -9179,6 +9365,23 @@ fn handle_mission_command(
     };
     match result {
         Ok(()) => {
+            if let Some(mission) = session.mission() {
+                state.set_master_activity(
+                    TuiActivity::bilingual(
+                        TuiActivityKind::MasterUnderstanding,
+                        format!("mission={}", mission.id),
+                        0,
+                    )
+                    .with_footer(format!(
+                        "目标：{} · 下一步 /plan generate",
+                        bounded_tui_text(&mission.goal, 72)
+                    )),
+                );
+                state.push_work(
+                    TuiActivityKind::MasterUnderstanding,
+                    bounded_tui_text(&mission.goal, 120),
+                );
+            }
             state.info(format_mission(session.mission()));
             sync_tui_stage(state, session);
         }
@@ -9461,6 +9664,21 @@ async fn run_tui_master_plan(
         state.info("已批准计划不能直接重写；请先修订 mission。");
         return;
     }
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterUnderstanding,
+            format!("mission={}", mission.id),
+            0,
+        )
+        .with_footer(format!(
+            "目标：{} · 解析约束并判断是否需要计划",
+            bounded_tui_text(&mission.goal, 72)
+        )),
+    );
+    state.push_work(
+        TuiActivityKind::MasterUnderstanding,
+        bounded_tui_text(&mission.goal, 120),
+    );
     let triage = triage_goal(&mission.goal, &TriageSignals::default());
     if !triage.requires_plan {
         state.info("当前目标不需要工作计划。");
@@ -9503,6 +9721,11 @@ async fn run_tui_master_plan(
             return;
         }
     };
+    state.set_master_activity(
+        TuiActivity::bilingual(TuiActivityKind::MasterPlanning, "生成工作计划与任务依赖", 0)
+            .with_footer("Planner 运行中 · 完成后需要人工确认计划"),
+    );
+    state.push_work(TuiActivityKind::MasterPlanning, "生成工作计划与任务依赖");
     let generator = ModelProductionPlanGenerator::new(settings.planning_provider.clone())
         .with_journal_dir(session.root().join("planner-journal"));
     let production = match generator
@@ -9554,6 +9777,28 @@ async fn run_tui_master_plan(
         return;
     }
     sync_tui_stage(state, session);
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterApproval,
+            format!(
+                "plan={} v{} · {} 个任务",
+                production.plan.plan_id,
+                production.plan.version,
+                production.plan.work_items.len()
+            ),
+            0,
+        )
+        .with_footer("回复“确认计划”或 /approve · 审批前不会创建 Worker Session"),
+    );
+    state.push_work(
+        TuiActivityKind::MasterApproval,
+        format!(
+            "plan={} v{} · {} 个任务",
+            production.plan.plan_id,
+            production.plan.version,
+            production.plan.work_items.len()
+        ),
+    );
     state.info(bound_tui_command_output(format!(
         "{}\n\nPlanner journal: {}\n\n请确认目标和任务拆分。回复“确认计划”或执行 /approve；审批前不会写入项目，也不会创建 Worker Session。",
         production
@@ -9658,6 +9903,26 @@ fn approve_tui_plan(state: &mut TuiState, session: &mut TuiSession, args: &str) 
             plan.plan_id, actor, digest
         ));
     }
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterApproval,
+            format!(
+                "plan={} · actor={} · 已批准",
+                plan.plan_id,
+                plan.approved_by.as_deref().unwrap_or(&actor)
+            ),
+            0,
+        )
+        .with_footer("下一步：/assign apply 分配任务，然后 /dispatch run"),
+    );
+    state.push_work(
+        TuiActivityKind::MasterApproval,
+        format!(
+            "plan={} · actor={} · 已批准",
+            plan.plan_id,
+            plan.approved_by.as_deref().unwrap_or(&actor)
+        ),
+    );
     sync_tui_stage(state, session);
 }
 
@@ -9862,6 +10127,18 @@ fn verify_tui_task(state: &mut TuiState, session: &TuiSession, args: &str) {
             return;
         }
     };
+    state.set_master_activity(
+        TuiActivity::bilingual(
+            TuiActivityKind::MasterVerifying,
+            format!("{task_id} · {}", bounded_tui_text(input, 60)),
+            0,
+        )
+        .with_footer("读取验收文件并更新 MasterState"),
+    );
+    state.push_work(
+        TuiActivityKind::MasterVerifying,
+        format!("{task_id} · {}", bounded_tui_text(input, 80)),
+    );
     match verify_master_task(&store, &PathBuf::from(input), Some(task_id)) {
         Ok((result, _)) => {
             let detail = result
@@ -9869,9 +10146,36 @@ fn verify_tui_task(state: &mut TuiState, session: &TuiSession, args: &str) {
                 .as_deref()
                 .map(|reason| format!("\n原因：{reason}"))
                 .unwrap_or_default();
+            state.set_master_activity(
+                TuiActivity::bilingual(
+                    TuiActivityKind::MasterVerifying,
+                    format!("{task_id} · {:?}", result.status),
+                    0,
+                )
+                .with_footer("下一步：/report 或 /board"),
+            );
+            state.push_work(
+                TuiActivityKind::MasterVerifying,
+                format!("{task_id} · {:?}", result.status),
+            );
             state.info(format!("验收：{:?}{detail}", result.status));
         }
-        Err(error) => state.info(format!("验收失败：{error}")),
+        Err(error) => {
+            state.set_master_activity(
+                TuiActivity::bilingual(
+                    TuiActivityKind::Blocked,
+                    format!("{task_id} · {}", bounded_tui_text(&error.to_string(), 80)),
+                    0,
+                )
+                .with_footer("检查验收文件后重试 /verify"),
+            );
+            state.push_work_with_tone(
+                TuiActivityKind::Blocked,
+                format!("{task_id} · {error}"),
+                TuiTone::Danger,
+            );
+            state.info(format!("验收失败：{error}"));
+        }
     }
 }
 
@@ -9898,7 +10202,21 @@ fn display_master_report(state: &mut TuiState, session: &TuiSession) {
         }
     };
     match store.load() {
-        Ok(master) => state.info(bound_tui_command_output(master_report(&master))),
+        Ok(master) => {
+            state.set_master_activity(
+                TuiActivity::bilingual(
+                    TuiActivityKind::MasterReporting,
+                    format!("trace={}", master.trace_id),
+                    0,
+                )
+                .with_footer("/board 查看任务 · /attention 查看异常"),
+            );
+            state.push_work(
+                TuiActivityKind::MasterReporting,
+                format!("trace={}", master.trace_id),
+            );
+            state.info(bound_tui_command_output(master_report(&master)));
+        }
         Err(error) => state.info(format!("无法读取 MasterState：{error}")),
     }
 }
@@ -9952,8 +10270,12 @@ fn run_journal_audits(state: &TuiState, session: &TuiSession, all: bool) -> Vec<
 
 fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &TuiRunSettings) {
     let facts = session_context_facts(session);
-    let context_used = facts.iter().map(|fact| fact.chars().count()).sum::<usize>();
-    let headroom = settings.max_context_chars.saturating_sub(context_used);
+    let injected_tokens = facts
+        .iter()
+        .map(|fact| first_principles_agent::context::estimate_tokens(fact))
+        .sum::<usize>();
+    let context_used = state.context_usage_tokens().max(injected_tokens);
+    let headroom = settings.max_context_tokens.saturating_sub(context_used);
     let summary = session
         .context_summary()
         .filter(|summary| summary.covered_journals == session.journals().len())
@@ -9991,16 +10313,16 @@ fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &Tui
          模型与运行限制\n\
          模型服务      {}\n\
          模型          {}\n\
-         推理步骤      最多 {} 步\n\
-         工具调用      最多 {} 次\n\
-         模型尝试      最多 {} 次\n\
-         单次超时      {} 秒\n\
+         推理步骤      {}\n\
+         工具调用      {}\n\
+         模型尝试      {}\n\
+         单次超时      {}\n\
          \n\
          上下文与压缩\n\
-         上下文上限    {} 字符\n\
-         当前占用      {} 字符\n\
-         剩余空间      {} 字符\n\
-         自动压缩      达到 {}% 时触发\n\
+         上下文上限    {} tokens\n\
+         当前占用      {} tokens\n\
+         剩余空间      {} tokens\n\
+         自动压缩      达到 {} tokens 时触发\n\
          压缩摘要      {}",
         state.status.label_zh(),
         state.mode.label_zh(),
@@ -10018,14 +10340,14 @@ fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &Tui
         session.mentions().len(),
         provider,
         model,
-        settings.max_steps,
-        settings.max_tool_calls,
-        settings.max_provider_attempts,
-        settings.timeout_seconds,
-        settings.max_context_chars,
+        bounded_count_label(settings.max_steps, "步"),
+        bounded_count_label(settings.max_tool_calls, "次"),
+        bounded_count_label(settings.max_provider_attempts, "次"),
+        timeout_label(settings.timeout_seconds),
+        settings.max_context_tokens,
         context_used,
         headroom,
-        settings.auto_compact_percent,
+        settings.auto_compact_tokens,
         summary
     ));
 }
@@ -10094,21 +10416,26 @@ fn handle_context_command(
     match action {
         "show" => {
             let facts = session_context_facts(session);
-            let used = facts.iter().map(|fact| fact.chars().count()).sum::<usize>();
+            let injected_tokens = facts
+                .iter()
+                .map(|fact| first_principles_agent::context::estimate_tokens(fact))
+                .sum::<usize>();
+            let used = state.context_usage_tokens().max(injected_tokens);
             state.info(format!(
                 "上下文使用情况\n\
-                 预算上限      {} 字符\n\
-                 已注入        {} 字符\n\
-                 剩余空间      {} 字符\n\
-                 自动压缩      达到 {}% 时触发\n\
+                 预算上限      {} tokens\n\
+                 当前占用      {} tokens\n\
+                 剩余空间      {} tokens\n\
+                 自动压缩      达到 {} tokens 时触发\n\
                  压缩摘要      {}\n\
                  \n\
                  自动控制方式：裁剪旧工具结果、限制工具输出、保留最近 6 轮事实，\n\
-                 并执行模型、工具和推理步骤预算。字符预算不是精确 token 计数。",
-                settings.max_context_chars,
+                 并执行模型、工具和推理步骤预算。token 数量以 provider usage 为准，\n\
+                 请求前使用字符估算并在响应后校准。",
+                settings.max_context_tokens,
                 used,
-                settings.max_context_chars.saturating_sub(used),
-                settings.auto_compact_percent,
+                settings.max_context_tokens.saturating_sub(used),
+                settings.auto_compact_tokens,
                 session
                     .context_summary()
                     .map(|summary| format!(
@@ -10126,7 +10453,7 @@ fn handle_context_command(
             Err(error) => state.info(error),
         },
         "compact" => {
-            let max_chars = settings.max_context_chars.clamp(1_000, 8_000);
+            let max_chars = 8_000;
             match context_recap(session, max_chars) {
                 Ok((recap, covered)) => match session.set_context_summary(
                     recap.clone(),
@@ -10167,11 +10494,14 @@ fn apply_session_preferences(
     settings.max_steps = preferences.max_steps;
     settings.max_tool_calls = preferences.max_tool_calls;
     settings.max_provider_attempts = preferences.max_provider_attempts;
-    settings.max_context_chars = preferences.max_context_chars;
-    settings.auto_compact_percent = preferences.auto_compact_percent;
+    settings.max_context_tokens = preferences.max_context_tokens;
+    settings.auto_compact_tokens = preferences.auto_compact_tokens;
     settings.timeout_seconds = preferences.timeout_seconds;
+    settings.prompt_language = preferences.prompt_language;
     state.max_steps = preferences.max_steps;
     state.timeout_seconds = preferences.timeout_seconds;
+    state.set_prompt_language(preferences.prompt_language);
+    state.set_context_budget(settings.max_context_tokens);
 }
 
 fn handle_config_command(
@@ -10185,26 +10515,28 @@ fn handle_config_command(
         state.info(format!(
             "运行配置\n\
              配置来源      {}\n\
-             推理步骤      最多 {} 步\n\
-             工具调用      最多 {} 次\n\
-             模型尝试      最多 {} 次\n\
-             上下文上限    {} 字符\n\
-             自动压缩      达到 {}% 时触发\n\
-             单次超时      {} 秒\n\
+             推理步骤      {}\n\
+             工具调用      {}\n\
+             模型尝试      {}\n\
+             提示词语言    {}\n\
+             上下文上限    {} tokens\n\
+             自动压缩      达到 {} tokens 时触发\n\
+             单次超时      {}\n\
              \n\
-             修改方法：/config set <steps|tools|attempts|context|compact|timeout> <value>\n\
+             修改方法：/config set <steps|tools|attempts|language|context|compact|timeout> <value>\n\
              恢复默认：/config reset",
             if session.preferences().is_some() {
                 "当前会话设置"
             } else {
                 "启动参数"
             },
-            settings.max_steps,
-            settings.max_tool_calls,
-            settings.max_provider_attempts,
-            settings.max_context_chars,
-            settings.auto_compact_percent,
-            settings.timeout_seconds
+            bounded_count_label(settings.max_steps, "步"),
+            bounded_count_label(settings.max_tool_calls, "次"),
+            bounded_count_label(settings.max_provider_attempts, "次"),
+            settings.prompt_language.label(),
+            settings.max_context_tokens,
+            settings.auto_compact_tokens,
+            timeout_label(settings.timeout_seconds)
         ));
         return;
     }
@@ -10219,41 +10551,49 @@ fn handle_config_command(
         return;
     }
     let Some(rest) = trimmed.strip_prefix("set ") else {
-        state.info("用法：/config set <steps|tools|attempts|context|compact|timeout> <value>");
+        state.info(
+            "用法：/config set <steps|tools|attempts|language|context|compact|timeout> <value>（steps/tools/attempts/timeout 为 0 表示不限；language 取 zh 或 en）",
+        );
         return;
     };
     let Some((key, value)) = rest.split_once(char::is_whitespace) else {
         state.info("用法：/config set <配置项> <数值>");
         return;
     };
-    let Ok(value) = value.trim().parse::<u64>() else {
-        state.info("配置值必须是正整数。");
-        return;
-    };
     let mut preferences = session
         .preferences()
         .cloned()
         .unwrap_or_else(|| settings.default_preferences.clone());
-    let Ok(value_usize) = usize::try_from(value) else {
-        state.info("配置值超出平台范围。");
-        return;
-    };
-    match key {
-        "steps" => preferences.max_steps = value_usize,
-        "tools" => preferences.max_tool_calls = value_usize,
-        "attempts" => preferences.max_provider_attempts = value_usize,
-        "context" => preferences.max_context_chars = value_usize,
-        "compact" => {
-            let Ok(value) = u8::try_from(value) else {
-                state.info("自动压缩阈值超出平台范围。");
-                return;
-            };
-            preferences.auto_compact_percent = value;
-        }
-        "timeout" => preferences.timeout_seconds = value,
-        _ => {
-            state.info("未知配置项。");
+    let value = value.trim();
+    if key == "language" {
+        let Some(language) = PromptLanguage::parse(value) else {
+            state.info("提示词语言必须是 zh 或 en。");
             return;
+        };
+        preferences.prompt_language = language;
+    } else {
+        let Ok(value) = value.parse::<u64>() else {
+            state.info("配置值必须是正整数。");
+            return;
+        };
+        let Ok(value_usize) = usize::try_from(value) else {
+            state.info("配置值超出平台范围。");
+            return;
+        };
+        match key {
+            "steps" => preferences.max_steps = value_usize,
+            "tools" => preferences.max_tool_calls = value_usize,
+            "attempts" => preferences.max_provider_attempts = value_usize,
+            "context" => {
+                preferences.max_context_tokens = value_usize;
+                preferences.auto_compact_tokens = preferences.auto_compact_tokens.min(value_usize);
+            }
+            "compact" => preferences.auto_compact_tokens = value_usize,
+            "timeout" => preferences.timeout_seconds = value,
+            _ => {
+                state.info("未知配置项。");
+                return;
+            }
         }
     }
     if let Err(error) = session.set_preferences(Some(preferences)) {
@@ -10263,18 +10603,20 @@ fn handle_config_command(
     apply_session_preferences(state, settings, session);
     state.info(format!(
         "运行配置已更新\n\
-         推理步骤      最多 {} 步\n\
-         工具调用      最多 {} 次\n\
-         模型尝试      最多 {} 次\n\
-         上下文上限    {} 字符\n\
-         自动压缩      达到 {}% 时触发\n\
-         单次超时      {} 秒",
-        settings.max_steps,
-        settings.max_tool_calls,
-        settings.max_provider_attempts,
-        settings.max_context_chars,
-        settings.auto_compact_percent,
-        settings.timeout_seconds
+         推理步骤      {}\n\
+         工具调用      {}\n\
+         模型尝试      {}\n\
+         提示词语言    {}\n\
+         上下文上限    {} tokens\n\
+         自动压缩      达到 {} tokens 时触发\n\
+         单次超时      {}",
+        bounded_count_label(settings.max_steps, "步"),
+        bounded_count_label(settings.max_tool_calls, "次"),
+        bounded_count_label(settings.max_provider_attempts, "次"),
+        settings.prompt_language.label(),
+        settings.max_context_tokens,
+        settings.auto_compact_tokens,
+        timeout_label(settings.timeout_seconds)
     ));
 }
 
@@ -11074,7 +11416,7 @@ async fn run_tui_interactive(
         }
         if state.details_open() {
             match input {
-                TuiInput::Escape => state.close_details(),
+                TuiInput::Escape | TuiInput::CtrlO => state.close_details(),
                 TuiInput::Up => state.scroll_details_up(1),
                 TuiInput::Down => state.scroll_details_down(1),
                 TuiInput::PageUp | TuiInput::ScrollUp => state.scroll_details_up(8),
@@ -11110,6 +11452,7 @@ async fn run_tui_interactive(
                     | TuiInput::End
                     | TuiInput::Paste(_)
                     | TuiInput::PasteClipboard
+                    | TuiInput::RightClick { .. }
             ) {
                 continue;
             }
@@ -11151,6 +11494,13 @@ async fn run_tui_interactive(
             }
             TuiInput::Tab => {}
             TuiInput::CtrlTab => state.toggle_mode_menu(),
+            TuiInput::CtrlO => {
+                if state.details_open() {
+                    state.close_details();
+                } else {
+                    state.open_details();
+                }
+            }
             TuiInput::CommandPalette => {
                 state.close_command_panel();
                 state.set_input("/");
@@ -11172,13 +11522,11 @@ async fn run_tui_interactive(
             TuiInput::ScrollUp => state.scroll_up(3),
             TuiInput::ScrollDown => state.scroll_down(3),
             TuiInput::Paste(text) => state.insert_text(&text),
-            TuiInput::PasteClipboard => match read_clipboard() {
-                Ok(text) => {
-                    state.insert_text(&text);
-                    state.set_notice("已从剪贴板粘贴");
-                }
-                Err(error) => state.set_notice(format!("剪贴板粘贴失败：{error}")),
-            },
+            TuiInput::PasteClipboard => paste_clipboard_into_composer(&mut state),
+            TuiInput::RightClick { column, row } if state.input_box_contains(column, row) => {
+                paste_clipboard_into_composer(&mut state);
+            }
+            TuiInput::RightClick { .. } => {}
             // Ctrl+Q is handled before overlays and never reaches this dispatch.
             TuiInput::CtrlQ => {}
             TuiInput::CtrlC => {
@@ -11578,7 +11926,7 @@ async fn run_tui_task(
 ) -> Result<bool> {
     let cancellation = CancellationToken::new();
     let run_started_ms = current_time_ms();
-    let mut active_journal: Option<(PathBuf, u64)> = None;
+    let mut active_journal: Option<(PathBuf, u64, Option<u64>)> = None;
     let run = async {
         match requested_mode {
             Some(mode) => {
@@ -11598,6 +11946,9 @@ async fn run_tui_task(
     loop {
         tokio::select! {
             result = &mut run => {
+                if let Some((path, _, last_seq)) = active_journal.as_mut() {
+                    append_work_events(state, path, last_seq);
+                }
                 match result {
                     Ok(result) => {
                         session.set_title_from_prompt(&state.last_instruction);
@@ -11632,6 +11983,13 @@ async fn run_tui_task(
                         }
                     }
                     Some(TuiInput::CtrlQ) => state.request_quit(),
+                    Some(TuiInput::CtrlO) => {
+                        if state.details_open() {
+                            state.close_details();
+                        } else {
+                            state.open_details();
+                        }
+                    }
                     Some(TuiInput::Enter) if state.quit_requested() => {
                         state.take_quit_request();
                         quit_after_run = true;
@@ -11679,13 +12037,24 @@ async fn run_tui_task(
                     newest_journal_since(runtime.journal_dir(), run_started_ms)
                     && active_journal
                         .as_ref()
-                        .is_none_or(|(active, active_size)| active != &path || *active_size != size)
+                        .is_none_or(|(active, active_size, _)| active != &path || *active_size != size)
                 {
-                    let metrics = run_metrics_from_journal(&path);
-                    if metrics.usage_seen {
-                        state.set_run_metrics(metrics);
+                    let mut last_seq = active_journal
+                        .as_ref()
+                        .filter(|(active, _, _)| active == &path)
+                        .and_then(|(_, _, last_seq)| *last_seq);
+                    append_work_events(state, &path, &mut last_seq);
+                    let snapshot = tui_journal_snapshot(&path);
+                    if snapshot.metrics.usage_seen {
+                        state.set_run_metrics(snapshot.metrics);
                     }
-                    active_journal = Some((path, size));
+                    if let Some(tokens) = snapshot.context_tokens {
+                        state.set_context_tokens(tokens);
+                    }
+                    if let Some(activity) = snapshot.activity {
+                        state.set_activity(activity);
+                    }
+                    active_journal = Some((path, size, last_seq));
                 }
                 if state.selection_autoscroll_active() {
                     state.autoscroll_selection_once();
@@ -11699,6 +12068,16 @@ async fn run_tui_task(
 
 fn draw_tui_frame(terminal: &mut TerminalSession, state: &mut TuiState) -> Result<()> {
     terminal.draw(state).context("cannot draw terminal")
+}
+
+fn paste_clipboard_into_composer(state: &mut TuiState) {
+    match read_clipboard() {
+        Ok(text) => {
+            state.insert_text(&text);
+            state.set_notice("已从剪贴板粘贴");
+        }
+        Err(error) => state.set_notice(format!("剪贴板粘贴失败：{error}")),
+    }
 }
 
 fn copy_selected_text(state: &mut TuiState) -> bool {
@@ -11756,6 +12135,84 @@ fn restore_tui_session(state: &mut TuiState, session: &TuiSession) {
     state.set_status(TuiStatus::Idle);
 }
 
+fn prompt_library_facts(query: &str, language: PromptLanguage) -> Vec<String> {
+    const MAX_FACTS: usize = 7;
+    const MAX_BODY_CHARS: usize = 320;
+    let lower = query.to_lowercase();
+    let mut sources = Vec::new();
+    for (needle, source) in [
+        ("karpathy", "Karpathy"),
+        ("卡帕西", "Karpathy"),
+        ("felix", "Felix Rieseberg"),
+        ("feli", "Felix Rieseberg"),
+        ("费利克斯", "Felix Rieseberg"),
+        ("ethan", "Ethan Mollick"),
+        ("mollick", "Ethan Mollick"),
+        ("riley", "Riley Goodside"),
+        ("goodside", "Riley Goodside"),
+        ("anthropic", "Anthropic 文档"),
+    ] {
+        if lower.contains(needle) && !sources.contains(&source) {
+            sources.push(source);
+        }
+    }
+    let mentions_prompts = lower.contains("提示词") || lower.contains("prompt");
+    let prompts = first_principles_agent::tui_prompts::PROMPT_SUPPLEMENTS;
+    if sources.is_empty() && !mentions_prompts {
+        return Vec::new();
+    }
+    let mut facts = Vec::new();
+    let available = |prompt: &&'static first_principles_agent::tui_prompts::PromptSupplement| {
+        prompt_view(prompt, language).is_some()
+    };
+    if sources.is_empty() {
+        let mut counts = std::collections::BTreeMap::new();
+        for prompt in prompts.iter().filter(available) {
+            *counts.entry(prompt.source).or_insert(0usize) += 1;
+        }
+        facts.push(format!(
+            "Prompt library sources: {}",
+            counts
+                .iter()
+                .map(|(source, count)| format!("{source} ({count})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        return facts;
+    }
+    for source in sources {
+        facts.push(format!("Prompt library source: {source}"));
+        for prompt in prompts
+            .iter()
+            .filter(|prompt| prompt.source == source)
+            .filter(available)
+        {
+            let Some(view) = prompt_view(prompt, language) else {
+                continue;
+            };
+            let body = view.body.chars().take(MAX_BODY_CHARS).collect::<String>();
+            if language == PromptLanguage::En {
+                facts.push(format!(
+                    "- {}: {} | Prompt: {body}",
+                    view.name, view.purpose
+                ));
+            } else {
+                facts.push(format!(
+                    "- {}: {} | 提示词：{body}",
+                    view.name, view.purpose
+                ));
+            }
+            if facts.len() >= MAX_FACTS {
+                break;
+            }
+        }
+        if facts.len() >= MAX_FACTS {
+            break;
+        }
+    }
+    facts
+}
+
 fn session_context_facts(session: &TuiSession) -> Vec<String> {
     const MAX_TURNS: usize = 6;
     const MAX_CHARS_PER_FACT: usize = 1_000;
@@ -11794,14 +12251,76 @@ fn session_context_facts(session: &TuiSession) -> Vec<String> {
     facts
 }
 
+fn tui_run_trace(journal_path: &Path) -> String {
+    let Ok(events) = read_events(journal_path) else {
+        return String::new();
+    };
+    let mut step = 0usize;
+    let mut lines = Vec::new();
+    for event in events {
+        match &event.event {
+            JournalEventKind::ModelRequested { request } => {
+                step += 1;
+                let tokens = first_principles_agent::context::total_request_tokens(
+                    &request.messages,
+                    &request.tools,
+                );
+                lines.push(format!(
+                    "第 {step} 步 · 请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
+                    request.messages.len(),
+                    request.tools.len()
+                ));
+            }
+            JournalEventKind::ModelResponded { response } => {
+                let turn = match &response.turn {
+                    first_principles_agent::ModelTurn::Final { answer } => {
+                        format!("最终答案 · {} 字", answer.conclusion.chars().count())
+                    }
+                    first_principles_agent::ModelTurn::ToolCalls { calls } => format!(
+                        "工具调用 · {}",
+                        calls
+                            .iter()
+                            .map(|call| call.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    first_principles_agent::ModelTurn::InvalidFinal { error, .. } => {
+                        format!("无效结果 · {error}")
+                    }
+                };
+                lines.push(format!(
+                    "第 {step} 步 · 返回 {turn} · 输出 {} tokens",
+                    response.usage.output_tokens
+                ));
+            }
+            JournalEventKind::ToolCalled { call } => {
+                lines.push(format!("工具 · {}", work_tool_detail(call)));
+            }
+            JournalEventKind::ToolObserved { observation } => {
+                lines.push(format!(
+                    "结果 · {}",
+                    work_result_detail(observation).replace('\n', " · ")
+                ));
+            }
+            JournalEventKind::RunStopped { reason } => {
+                lines.push(format!("结束 · {reason:?}"));
+            }
+            _ => {}
+        }
+    }
+    lines.join("\n")
+}
+
 fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunResult) {
     let answer = &result.answer;
     state.set_status(TuiStatus::Completed);
+    state.clear_activity();
     state.set_last_journal(&result.journal_path);
-    state.set_run_metrics(run_metrics_from_journal(&result.journal_path));
+    let snapshot = tui_journal_snapshot(&result.journal_path);
+    state.set_run_metrics(snapshot.metrics);
     state.finish_run_clock();
-    if let Some(chars) = latest_context_chars(&result.journal_path) {
-        state.set_context_chars(chars);
+    if let Some(tokens) = snapshot.context_tokens {
+        state.set_context_tokens(tokens);
     }
     let mut details = format!(
         "{}\n\n终止原因：{:?}",
@@ -11811,6 +12330,11 @@ fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunR
     if let Some(query_details) = query_result_details(&result.journal_path) {
         details.push_str("\n\n");
         details.push_str(&query_details);
+    }
+    let trace = tui_run_trace(&result.journal_path);
+    if !trace.is_empty() {
+        details.push_str("\n\n运行过程：\n");
+        details.push_str(&trace);
     }
     details.push_str(&format!(
         "\n\nRun journal：{}",
@@ -11856,47 +12380,443 @@ fn newest_journal_since(directory: &std::path::Path, since_ms: u128) -> Option<(
     newest.map(|(path, size, _)| (path, size))
 }
 
-fn run_metrics_from_journal(
-    journal_path: &std::path::Path,
-) -> first_principles_agent::TuiRunMetrics {
-    let mut metrics = first_principles_agent::TuiRunMetrics::default();
-    let Ok(events) = read_events(journal_path) else {
-        return metrics;
-    };
-    for event in events {
-        let JournalEventKind::ModelResponded { response } = event.event else {
-            continue;
-        };
-        metrics.input_tokens = metrics
-            .input_tokens
-            .saturating_add(response.usage.input_tokens);
-        metrics.output_tokens = metrics
-            .output_tokens
-            .saturating_add(response.usage.output_tokens);
-        metrics.cache_hit_tokens = metrics
-            .cache_hit_tokens
-            .saturating_add(response.usage.cache_hit_tokens);
-        metrics.cache_miss_tokens = metrics
-            .cache_miss_tokens
-            .saturating_add(response.usage.cache_miss_tokens);
-        if response.usage.input_tokens > 0 || response.usage.output_tokens > 0 {
-            metrics.usage_seen = true;
-        }
-    }
-    metrics
+struct TuiJournalSnapshot {
+    metrics: first_principles_agent::TuiRunMetrics,
+    activity: Option<TuiActivity>,
+    context_tokens: Option<usize>,
 }
 
-/// The character count of the most recent model request in a run journal. It
-/// uses the same metric the runtime compacts against, so the percentage on the
-/// status bar matches what triggers compaction.
-fn latest_context_chars(journal_path: &std::path::Path) -> Option<usize> {
-    let events = read_events(journal_path).ok()?;
-    events.iter().rev().find_map(|event| match &event.event {
-        JournalEventKind::ModelRequested { request } => Some(
-            first_principles_agent::context::total_chars(&request.messages),
-        ),
-        _ => None,
-    })
+fn tui_journal_snapshot(journal_path: &std::path::Path) -> TuiJournalSnapshot {
+    let mut snapshot = TuiJournalSnapshot {
+        metrics: first_principles_agent::TuiRunMetrics::default(),
+        activity: None,
+        context_tokens: None,
+    };
+    let Ok(events) = read_events(journal_path) else {
+        return snapshot;
+    };
+    let mut step = 0usize;
+    for event in events {
+        match &event.event {
+            JournalEventKind::RunStarted { .. } => {
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Understanding,
+                    "",
+                    step,
+                ));
+            }
+            JournalEventKind::RouteSelected {
+                provider_id, model, ..
+            } => {
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Routing,
+                    format!("{provider_id}/{model}"),
+                    step,
+                ));
+            }
+            JournalEventKind::RoutePlanned { .. } => {
+                snapshot.activity =
+                    Some(TuiActivity::bilingual(TuiActivityKind::Planning, "", step));
+            }
+            JournalEventKind::ModelRequested { request } => {
+                step += 1;
+                snapshot.context_tokens =
+                    Some(first_principles_agent::context::total_request_tokens(
+                        &request.messages,
+                        &request.tools,
+                    ));
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Thinking,
+                    "等待响应",
+                    step,
+                ));
+            }
+            JournalEventKind::ModelResponded { response } => {
+                snapshot.metrics.input_tokens = snapshot
+                    .metrics
+                    .input_tokens
+                    .saturating_add(response.usage.input_tokens);
+                snapshot.metrics.output_tokens = snapshot
+                    .metrics
+                    .output_tokens
+                    .saturating_add(response.usage.output_tokens);
+                snapshot.metrics.cache_hit_tokens = snapshot
+                    .metrics
+                    .cache_hit_tokens
+                    .saturating_add(response.usage.cache_hit_tokens);
+                snapshot.metrics.cache_miss_tokens = snapshot
+                    .metrics
+                    .cache_miss_tokens
+                    .saturating_add(response.usage.cache_miss_tokens);
+                if response.usage.input_tokens > 0 || response.usage.output_tokens > 0 {
+                    snapshot.metrics.usage_seen = true;
+                }
+                if response.usage.input_tokens > 0 {
+                    snapshot.context_tokens = Some(response.usage.input_tokens as usize);
+                }
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Thinking,
+                    format!(
+                        "分析模型输出 · ↑ {} / ↓ {}",
+                        response.usage.input_tokens, response.usage.output_tokens
+                    ),
+                    step,
+                ));
+            }
+            JournalEventKind::ToolCalled { call } => {
+                let kind = tool_activity_kind(&call.name);
+                let detail = tool_activity_detail(call);
+                let detail = if detail.is_empty() {
+                    call.name.clone()
+                } else {
+                    format!("{} · {detail}", call.name)
+                };
+                snapshot.activity = Some(TuiActivity::bilingual(kind, detail, step));
+            }
+            JournalEventKind::ToolObserved { observation } => {
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::ToolResult,
+                    format!(
+                        "{} · {}",
+                        observation.tool,
+                        tool_activity_status(observation.status)
+                    ),
+                    step,
+                ));
+            }
+            JournalEventKind::ProviderFailed { failure } => {
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Retrying,
+                    format!("{} · {}", failure.provider_id, failure.message),
+                    step,
+                ));
+            }
+            JournalEventKind::ProviderRetryScheduled {
+                next_provider_id,
+                next_model,
+                ..
+            } => {
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Retrying,
+                    format!("切换到 {next_provider_id}/{next_model}"),
+                    step,
+                ));
+            }
+            JournalEventKind::ContextCompacted {
+                before_tokens,
+                after_tokens,
+                before_chars,
+                after_chars,
+                ..
+            } => {
+                let before = if *before_tokens > 0 {
+                    *before_tokens
+                } else {
+                    *before_chars
+                };
+                let after = if *after_tokens > 0 {
+                    *after_tokens
+                } else {
+                    *after_chars
+                };
+                let unit = if *before_tokens > 0 {
+                    "tokens"
+                } else {
+                    "字符"
+                };
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Compacting,
+                    format!("{before} → {after} {unit}"),
+                    step,
+                ));
+            }
+            JournalEventKind::AnswerProduced { .. } => {
+                snapshot.activity =
+                    Some(TuiActivity::bilingual(TuiActivityKind::Answering, "", step));
+            }
+            JournalEventKind::RunStopped { reason } => {
+                snapshot.activity = Some(TuiActivity::bilingual(
+                    TuiActivityKind::Answering,
+                    format!("运行结束 · {reason:?}"),
+                    step,
+                ));
+            }
+            _ => {}
+        }
+    }
+    snapshot
+}
+
+fn append_work_events(
+    state: &mut TuiState,
+    journal_path: &std::path::Path,
+    last_seq: &mut Option<u64>,
+) {
+    let Ok(events) = read_events(journal_path) else {
+        return;
+    };
+    let mut step = 0usize;
+    for event in events {
+        if matches!(event.event, JournalEventKind::ModelRequested { .. }) {
+            step += 1;
+        }
+        if last_seq.is_some_and(|seq| event.seq <= seq) {
+            continue;
+        }
+        match &event.event {
+            JournalEventKind::RunStarted { .. } => {
+                state.push_work(TuiActivityKind::Understanding, "解析目标与约束");
+            }
+            JournalEventKind::RoutePlanned { .. } => {
+                state.push_work(TuiActivityKind::Planning, "任务计划已生成");
+            }
+            JournalEventKind::ModelRequested { request } => {
+                state.push_work(TuiActivityKind::Thinking, format!("第 {step} 步"));
+                let tokens = first_principles_agent::context::total_request_tokens(
+                    &request.messages,
+                    &request.tools,
+                );
+                state.push_work_result(
+                    format!(
+                        "请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
+                        request.messages.len(),
+                        request.tools.len()
+                    ),
+                    TuiTone::Muted,
+                );
+            }
+            JournalEventKind::ModelResponded { response } => {
+                let detail = match &response.turn {
+                    first_principles_agent::ModelTurn::Final { .. } => format!(
+                        "返回最终答案 · 输出 {} tokens · ctrl+o 详情",
+                        response.usage.output_tokens
+                    ),
+                    first_principles_agent::ModelTurn::ToolCalls { calls } => format!(
+                        "返回工具调用 · {}",
+                        calls
+                            .iter()
+                            .map(|call| call.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    first_principles_agent::ModelTurn::InvalidFinal { error, .. } => {
+                        format!("返回无效结果 · {error}")
+                    }
+                };
+                state.push_work_result(detail, TuiTone::Muted);
+            }
+            JournalEventKind::ToolCalled { call } => {
+                state.push_work(tool_activity_kind(&call.name), work_tool_detail(call));
+            }
+            JournalEventKind::ToolObserved { observation } => {
+                let tone = if observation.status == ToolStatus::Ok {
+                    TuiTone::Success
+                } else {
+                    TuiTone::Danger
+                };
+                state.push_work_result(work_result_detail(observation), tone);
+            }
+            JournalEventKind::ProviderFailed { failure } => {
+                state.push_work_with_tone(
+                    TuiActivityKind::Retrying,
+                    format!("{} · {}", failure.provider_id, failure.message),
+                    TuiTone::Danger,
+                );
+            }
+            JournalEventKind::ProviderRetryScheduled {
+                next_provider_id,
+                next_model,
+                ..
+            } => {
+                state.push_work(
+                    TuiActivityKind::Retrying,
+                    format!("切换到 {next_provider_id}/{next_model}"),
+                );
+            }
+            JournalEventKind::ContextCompacted {
+                before_tokens,
+                after_tokens,
+                before_chars,
+                after_chars,
+                ..
+            } => {
+                let before = if *before_tokens > 0 {
+                    *before_tokens
+                } else {
+                    *before_chars
+                };
+                let after = if *after_tokens > 0 {
+                    *after_tokens
+                } else {
+                    *after_chars
+                };
+                let unit = if *before_tokens > 0 {
+                    "tokens"
+                } else {
+                    "字符"
+                };
+                state.push_work(
+                    TuiActivityKind::Compacting,
+                    format!("{before} → {after} {unit}"),
+                );
+            }
+            JournalEventKind::RunStopped { reason } => {
+                state.push_work(TuiActivityKind::Answering, format!("运行结束 · {reason:?}"));
+            }
+            _ => {}
+        }
+        *last_seq = Some(event.seq);
+    }
+}
+
+fn work_tool_detail(call: &first_principles_agent::ToolCall) -> String {
+    let mut detail = call.name.clone();
+    let key = match call.name.as_str() {
+        "read_file" | "read_pdf" | "write_file" | "edit_file" => "path",
+        "search_files" => "query",
+        "fetch_url" | "browser_read" => "url",
+        "web_search" => "query",
+        "spawn_agent" => "task",
+        "terminal_exec" => "command",
+        "terminal_write" => "",
+        "skill_list" | "skill_eval" | "skill_register" | "skill_activate" | "skill_rollback" => {
+            "name"
+        }
+        "delegation_get" | "delegation_register" | "delegation_revoke" => "actor_id",
+        _ => "",
+    };
+    if call.name == "terminal_write" {
+        let chars = call
+            .arguments
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .map(str::chars)
+            .map(Iterator::count)
+            .unwrap_or_default();
+        detail.push_str(&format!(" · 输入 {chars} 字符"));
+        return detail;
+    }
+    if key.is_empty() {
+        return detail;
+    }
+    let value = call
+        .arguments
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let value = if call.name == "fetch_url" || call.name == "browser_read" {
+        value.split('?').next().unwrap_or(value)
+    } else {
+        value
+    };
+    if !value.is_empty() {
+        detail.push_str(" · ");
+        detail.push_str(&bounded_tui_text(value, 120));
+    }
+    detail
+}
+
+fn work_result_detail(observation: &ToolObservation) -> String {
+    let status = tool_activity_status(observation.status);
+    let mut detail = if observation.status == ToolStatus::Ok {
+        String::new()
+    } else {
+        format!("{status} · ")
+    };
+    let summary = sanitize_tui_inline(&observation.summary);
+    if summary.is_empty() {
+        if detail.is_empty() {
+            detail.push_str(status);
+        }
+    } else {
+        detail.push_str(&bounded_tui_text(&summary, 160));
+    }
+    if observation.tool.starts_with("terminal_") && !observation.content.trim().is_empty() {
+        let preview = observation
+            .content
+            .lines()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !detail.is_empty() {
+            detail.push('\n');
+        }
+        detail.push_str(&bounded_tui_text(&preview, 240));
+    }
+    detail
+}
+
+fn sanitize_tui_inline(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character == '\n' || character == '\t' || character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn tool_activity_kind(name: &str) -> TuiActivityKind {
+    match name {
+        "read_file" | "read_pdf" => TuiActivityKind::Reading,
+        "write_file" => TuiActivityKind::Writing,
+        "edit_file" => TuiActivityKind::Updating,
+        "terminal_create" => TuiActivityKind::Creating,
+        "terminal_exec" | "terminal_write" | "terminal_output" | "terminal_destroy" => {
+            TuiActivityKind::Bash
+        }
+        "search_files" | "web_search" => TuiActivityKind::Searching,
+        "fetch_url" | "browser_read" => TuiActivityKind::Fetching,
+        "spawn_agent" => TuiActivityKind::Spawning,
+        name if name.starts_with("mcp_") => TuiActivityKind::Querying,
+        name if name.starts_with("skill_") => TuiActivityKind::Skill,
+        name if name.starts_with("delegation_") => TuiActivityKind::Delegating,
+        _ => TuiActivityKind::CallingTool,
+    }
+}
+
+fn tool_activity_detail(call: &first_principles_agent::ToolCall) -> String {
+    let key = match call.name.as_str() {
+        "read_file" | "read_pdf" | "write_file" | "edit_file" => "path",
+        "search_files" => "query",
+        "fetch_url" | "browser_read" => "url",
+        "web_search" => "query",
+        "spawn_agent" => "task",
+        "skill_list" | "skill_eval" | "skill_register" | "skill_activate" | "skill_rollback" => {
+            "name"
+        }
+        "delegation_get" | "delegation_register" | "delegation_revoke" => "actor_id",
+        _ => "",
+    };
+    if key.is_empty() {
+        return String::new();
+    }
+    let value = call
+        .arguments
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let value = if call.name == "fetch_url" || call.name == "browser_read" {
+        value.split('?').next().unwrap_or(value)
+    } else {
+        value
+    };
+    value.chars().take(48).collect()
+}
+
+fn tool_activity_status(status: ToolStatus) -> &'static str {
+    match status {
+        ToolStatus::Ok => "完成",
+        ToolStatus::InvalidArguments => "参数错误",
+        ToolStatus::PermissionDenied => "无权限",
+        ToolStatus::TimedOut => "超时",
+        ToolStatus::Failed => "失败",
+    }
 }
 
 fn query_result_details(journal_path: &std::path::Path) -> Option<String> {
@@ -12067,62 +12987,65 @@ fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::A
     // Direct mode is deliberately conversation-first: the answer is the
     // conclusion. Structured evidence/claims/flip-condition sections are kept
     // in /details, not appended to the transcript.
+    state.assistant_conclusion_start("结论 Conclusion");
     state.assistant_markdown(&answer.conclusion);
+    state.assistant_conclusion_end();
 }
 
 fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
-    state.assistant_heading("结论", tone_for_answer_status(answer.status));
+    state.assistant_conclusion_start("结论 Conclusion");
     state.assistant_markdown(&answer.conclusion);
+    state.assistant_conclusion_end();
 
     if !answer.claims.is_empty() {
-        state.assistant_heading("主张", TuiTone::Accent);
+        state.assistant_heading("主张", TuiTone::SectionText);
         for claim in &answer.claims {
             state.assistant_item(
                 format!("[{}]", claim_status_label(claim.status)),
-                tone_for_claim_status(claim.status),
+                TuiTone::SectionText,
                 &claim.text,
             );
         }
     }
 
     if !answer.evidence.is_empty() {
-        state.assistant_heading("依据", TuiTone::Accent);
+        state.assistant_heading("依据", TuiTone::SectionText);
         for evidence in &answer.evidence {
             state.assistant_evidence(&evidence.source, &evidence.statement);
         }
     }
 
     if !answer.assumptions.is_empty() {
-        state.assistant_heading("假设", TuiTone::Accent);
+        state.assistant_heading("假设", TuiTone::SectionText);
         for assumption in &answer.assumptions {
             state.assistant_item(
                 format!("[假设·{}]", answer_impact_label(assumption.impact)),
-                tone_for_impact(assumption.impact),
+                TuiTone::SectionText,
                 &assumption.description,
             );
         }
     }
 
     if !answer.constraints.is_empty() {
-        state.assistant_heading("约束", TuiTone::Accent);
+        state.assistant_heading("约束", TuiTone::SectionText);
         for constraint in &answer.constraints {
-            state.assistant_item("[约束]", TuiTone::Muted, constraint);
+            state.assistant_item("[约束]", TuiTone::SectionText, constraint);
         }
     }
 
     if !answer.unknowns.is_empty() {
-        state.assistant_heading("未知", TuiTone::Accent);
+        state.assistant_heading("未知", TuiTone::SectionText);
         for unknown in &answer.unknowns {
             state.assistant_item(
                 format!("[未知·{}]", answer_impact_label(unknown.impact)),
-                tone_for_impact(unknown.impact),
+                TuiTone::SectionText,
                 &unknown.description,
             );
         }
     }
 
     if !answer.conflicts.is_empty() {
-        state.assistant_heading("冲突", TuiTone::Accent);
+        state.assistant_heading("冲突", TuiTone::SectionText);
         for conflict in &answer.conflicts {
             let resolved = conflict.status == first_principles_agent::ConflictStatus::Resolved;
             state.assistant_item(
@@ -12131,11 +13054,7 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
                 } else {
                     "[未解决]"
                 },
-                if resolved {
-                    TuiTone::Success
-                } else {
-                    TuiTone::Danger
-                },
+                TuiTone::SectionText,
                 conflict
                     .resolution
                     .as_deref()
@@ -12145,44 +13064,14 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
     }
 
     if !answer.flip_conditions.is_empty() {
-        state.assistant_heading("翻转条件", TuiTone::Accent);
+        state.assistant_heading("翻转条件", TuiTone::SectionText);
         for condition in &answer.flip_conditions {
             state.assistant_item(
                 "⇒",
-                TuiTone::Accent,
+                TuiTone::SectionText,
                 format!("若 {}，则 {}", condition.if_observed, condition.then),
             );
         }
-    }
-}
-
-fn tone_for_answer_status(status: first_principles_agent::AnswerStatus) -> TuiTone {
-    use first_principles_agent::AnswerStatus;
-    match status {
-        AnswerStatus::Completed => TuiTone::Success,
-        AnswerStatus::Conditional | AnswerStatus::NeedsEvidence => TuiTone::Warning,
-        AnswerStatus::NeedsAuthorization => TuiTone::Warning,
-        AnswerStatus::Failed => TuiTone::Danger,
-    }
-}
-
-fn tone_for_claim_status(status: first_principles_agent::ClaimStatus) -> TuiTone {
-    use first_principles_agent::ClaimStatus;
-    match status {
-        ClaimStatus::Verified => TuiTone::Success,
-        ClaimStatus::UserAsserted | ClaimStatus::Derived => TuiTone::Accent,
-        ClaimStatus::Assumed | ClaimStatus::ModelPrior => TuiTone::Warning,
-        ClaimStatus::Conflicting => TuiTone::Danger,
-        ClaimStatus::Unknown => TuiTone::Muted,
-    }
-}
-
-fn tone_for_impact(impact: first_principles_agent::ImpactLevel) -> TuiTone {
-    use first_principles_agent::ImpactLevel;
-    match impact {
-        ImpactLevel::Low => TuiTone::Muted,
-        ImpactLevel::Medium => TuiTone::Warning,
-        ImpactLevel::High => TuiTone::Danger,
     }
 }
 
@@ -12265,9 +13154,10 @@ mod tui_rendering_tests {
     #[test]
     fn tui_provider_budget_defaults_to_requested_steps_and_stays_bounded() {
         assert_eq!(tui_provider_attempt_budget(None, 6), 6);
-        assert_eq!(tui_provider_attempt_budget(None, 0), 1);
+        assert_eq!(tui_provider_attempt_budget(None, 0), 0);
         assert_eq!(tui_provider_attempt_budget(Some(10), 6), 10);
-        assert_eq!(tui_provider_attempt_budget(Some(100), 6), 16);
+        assert_eq!(tui_provider_attempt_budget(Some(100), 6), 100);
+        assert_eq!(tui_provider_attempt_budget(Some(5_000), 6), 4_096);
     }
 
     #[test]
@@ -12284,15 +13174,17 @@ mod tui_rendering_tests {
             master_agents: None,
             workshop_prefix: "skynet-workshop".into(),
             timeout_seconds: 120,
-            max_context_chars: 100_000,
-            auto_compact_percent: 80,
+            max_context_tokens: 1_000_000,
+            auto_compact_tokens: 786_432,
+            prompt_language: PromptLanguage::Zh,
             default_preferences: SessionPreferences {
                 max_steps: 6,
                 max_tool_calls: 8,
                 max_provider_attempts: 6,
-                max_context_chars: 100_000,
-                auto_compact_percent: 80,
+                max_context_tokens: 1_000_000,
+                auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
+                prompt_language: PromptLanguage::Zh,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
@@ -12427,15 +13319,17 @@ mod tui_rendering_tests {
             master_agents: None,
             workshop_prefix: "skynet-workshop".into(),
             timeout_seconds: 120,
-            max_context_chars: 100_000,
-            auto_compact_percent: 80,
+            max_context_tokens: 1_000_000,
+            auto_compact_tokens: 786_432,
+            prompt_language: PromptLanguage::Zh,
             default_preferences: SessionPreferences {
                 max_steps: 6,
                 max_tool_calls: 8,
                 max_provider_attempts: 6,
-                max_context_chars: 100_000,
-                auto_compact_percent: 80,
+                max_context_tokens: 1_000_000,
+                auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
+                prompt_language: PromptLanguage::Zh,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
@@ -12632,15 +13526,17 @@ mod tui_rendering_tests {
             master_agents: None,
             workshop_prefix: "skynet-workshop".into(),
             timeout_seconds: 120,
-            max_context_chars: 100_000,
-            auto_compact_percent: 80,
+            max_context_tokens: 1_000_000,
+            auto_compact_tokens: 786_432,
+            prompt_language: PromptLanguage::Zh,
             default_preferences: SessionPreferences {
                 max_steps: 6,
                 max_tool_calls: 8,
                 max_provider_attempts: 6,
-                max_context_chars: 100_000,
-                auto_compact_percent: 80,
+                max_context_tokens: 1_000_000,
+                auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
+                prompt_language: PromptLanguage::Zh,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
@@ -12869,15 +13765,17 @@ mod tui_rendering_tests {
             master_agents: None,
             workshop_prefix: prefix.display().to_string(),
             timeout_seconds: 120,
-            max_context_chars: 100_000,
-            auto_compact_percent: 80,
+            max_context_tokens: 1_000_000,
+            auto_compact_tokens: 786_432,
+            prompt_language: PromptLanguage::Zh,
             default_preferences: SessionPreferences {
                 max_steps: 6,
                 max_tool_calls: 8,
                 max_provider_attempts: 6,
-                max_context_chars: 100_000,
-                auto_compact_percent: 80,
+                max_context_tokens: 1_000_000,
+                auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
+                prompt_language: PromptLanguage::Zh,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
@@ -13470,15 +14368,17 @@ mod tui_rendering_tests {
             master_agents: None,
             workshop_prefix: "skynet-workshop".into(),
             timeout_seconds: 120,
-            max_context_chars: 100_000,
-            auto_compact_percent: 80,
+            max_context_tokens: 1_000_000,
+            auto_compact_tokens: 786_432,
+            prompt_language: PromptLanguage::Zh,
             default_preferences: SessionPreferences {
                 max_steps: 6,
                 max_tool_calls: 8,
                 max_provider_attempts: 6,
-                max_context_chars: 100_000,
-                auto_compact_percent: 80,
+                max_context_tokens: 1_000_000,
+                auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
+                prompt_language: PromptLanguage::Zh,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
@@ -13525,6 +14425,99 @@ mod tui_rendering_tests {
     }
 
     #[test]
+    fn prompt_library_facts_resolve_felix_and_karpathy() {
+        let felix = prompt_library_facts("felix", PromptLanguage::Zh);
+        assert!(
+            felix.iter().any(|fact| fact.contains("Felix Rieseberg")),
+            "{felix:?}"
+        );
+        assert!(
+            felix.iter().any(|fact| fact.contains("真正的目的是")),
+            "{felix:?}"
+        );
+        let karpathy = prompt_library_facts("卡帕西的提示词", PromptLanguage::Zh);
+        assert!(
+            karpathy.iter().any(|fact| fact.contains("Karpathy")),
+            "{karpathy:?}"
+        );
+        assert!(prompt_library_facts("今天天气", PromptLanguage::Zh).is_empty());
+        let english = prompt_library_facts("felix", PromptLanguage::En);
+        assert!(
+            english.iter().any(|fact| fact.contains("The real goal")),
+            "{english:?}"
+        );
+    }
+
+    #[test]
+    fn follow_up_request_gets_library_and_short_reply_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let settings = phase_six_settings(workspace.path().to_path_buf());
+        let request = settings.request_with_known_facts(
+            "felix",
+            vec!["Previous user request: 搜索 AI 圈大神的提示词".into()],
+        );
+        assert!(
+            request
+                .known_facts
+                .iter()
+                .any(|fact| fact.contains("Felix Rieseberg")),
+            "{:?}",
+            request.known_facts
+        );
+        assert!(
+            request
+                .known_facts
+                .iter()
+                .any(|fact| fact.contains("Short reply `felix`")),
+            "{:?}",
+            request.known_facts
+        );
+    }
+
+    #[test]
+    fn tui_run_trace_lists_requests_and_responses() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("trace.jsonl");
+        let run_id = Uuid::new_v4();
+        let mut journal = first_principles_agent::Journal::create(&path, run_id).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("trace", workspace.path().to_path_buf()),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ModelRequested {
+                request: first_principles_agent::ModelRequest {
+                    run_id,
+                    mode: CognitiveMode::DirectAnswer,
+                    messages: Vec::new(),
+                    tools: Vec::new(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ModelResponded {
+                response: first_principles_agent::ModelResponse {
+                    provider_id: "fixture-provider".into(),
+                    model: "fixture-model".into(),
+                    turn: first_principles_agent::ModelTurn::ToolCalls { calls: Vec::new() },
+                    usage: first_principles_agent::Usage::default(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: first_principles_agent::StopReason::Completed,
+            })
+            .unwrap();
+        let trace = tui_run_trace(&path);
+        assert!(trace.contains("第 1 步 · 请求 0 条消息"), "{trace}");
+        assert!(trace.contains("第 1 步 · 返回 工具调用"), "{trace}");
+        assert!(trace.contains("结束"), "{trace}");
+    }
+
+    #[test]
     fn phase_six_context_config_status_and_exports_are_operational() {
         let workspace = tempfile::tempdir().unwrap();
         let mut session = TuiSession::open(workspace.path(), None).unwrap();
@@ -13551,13 +14544,13 @@ mod tui_rendering_tests {
         assert!(facts[0].contains("Compacted session context"));
 
         handle_config_command(&mut state, &mut settings, &mut session, "set context 20000");
-        assert_eq!(settings.max_context_chars, 20_000);
-        assert_eq!(session.preferences().unwrap().max_context_chars, 20_000);
-        handle_config_command(&mut state, &mut settings, &mut session, "set compact 70");
-        assert_eq!(settings.auto_compact_percent, 70);
+        assert_eq!(settings.max_context_tokens, 20_000);
+        assert_eq!(session.preferences().unwrap().max_context_tokens, 20_000);
+        handle_config_command(&mut state, &mut settings, &mut session, "set compact 15000");
+        assert_eq!(settings.auto_compact_tokens, 15_000);
         handle_config_command(&mut state, &mut settings, &mut session, "reset");
-        assert_eq!(settings.max_context_chars, 100_000);
-        assert_eq!(settings.auto_compact_percent, 80);
+        assert_eq!(settings.max_context_tokens, 1_000_000);
+        assert_eq!(settings.auto_compact_tokens, 786_432);
         handle_cost_command(&mut state, &session);
         let cost = state.render_screen(120, 70);
         assert!(cost.contains("模型调用      2 次"), "{cost}");
@@ -13777,6 +14770,7 @@ mod tui_rendering_tests {
         run.answer.status = first_principles_agent::AnswerStatus::Conditional;
         record_tui_result(&mut state, &run);
         let visible = state.render_screen(80, 24);
+        assert!(visible.contains("结论 Conclusion"));
         assert!(visible.contains("连接测试成功。"));
         assert!(!visible.contains("终止原因"));
         assert!(!visible.contains("allow_write"));

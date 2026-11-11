@@ -127,8 +127,14 @@ impl AgentTool for BrowserReadTool {
                 url.as_str(),
             ])
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        let output = tokio::time::timeout(TIMEOUT, command.output())
+        let run = async {
+            let child = super::spawn_with_retry(&mut command).await?;
+            child.wait_with_output().await
+        };
+        let output = tokio::time::timeout(TIMEOUT, run)
             .await
             .map_err(|_| ToolError::TimedOut)?
             .map_err(|error| {

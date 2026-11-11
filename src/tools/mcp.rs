@@ -76,12 +76,14 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
-        let mut child = command.spawn().map_err(|error| {
-            ToolError::Failed(format!(
-                "cannot start MCP server '{}' ({}): {error}",
-                server.name, program
-            ))
-        })?;
+        let mut child = super::spawn_with_retry(&mut command)
+            .await
+            .map_err(|error| {
+                ToolError::Failed(format!(
+                    "cannot start MCP server '{}' ({}): {error}",
+                    server.name, program
+                ))
+            })?;
         let stdin = child.stdin.take().ok_or_else(|| {
             ToolError::Failed(format!("MCP server '{}' has no stdin", server.name))
         })?;

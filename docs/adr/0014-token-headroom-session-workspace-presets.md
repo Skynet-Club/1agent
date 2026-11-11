@@ -1,10 +1,13 @@
 # ADR 0014: Token Headroom, Session Workspace and Local Presets
 
-Status: accepted
+Status: accepted; context units superseded in part by ADR 0034
 
 Date: 2026-11-03
 
 ## Context
+
+> Context budgeting is now token-based; see ADR 0034. The character measurements
+> below describe the historical contract.
 
 Long TUI sessions can repeatedly inject old tool output and recent turn summaries,
 increasing provider cost. Users also need to switch sessions, inspect or change the

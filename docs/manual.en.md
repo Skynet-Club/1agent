@@ -1,6 +1,6 @@
 # Manual
 
-> Version: **0.96.0 R1 release candidate**  
+> Version: **0.96.1 R1 release candidate**  
 > Platform: **Linux x86_64**  
 > Windows is untested and not published; macOS, Android and iOS are planned.
 
@@ -11,8 +11,8 @@
 ### From the release archive
 
 ```bash
-tar -xzf 1agent-0.96.0-linux-x86_64.tar.gz
-cd 1agent-0.96.0
+tar -xzf 1agent-0.96.1-linux-x86_64.tar.gz
+cd 1agent-0.96.1
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 1agent --version
@@ -104,16 +104,81 @@ Check provider configuration:
 | `Esc` | Close a panel/drawer and return to the conversation |
 | `Ctrl+T` | Open the conversation mode menu |
 | `Ctrl+K` | Open the `/` command drawer |
+| `Ctrl+O` | Open/close the run details and process trace |
 | `Ctrl+Q` | Request exit; `Enter` confirms, `Esc` cancels |
 | `Ctrl+C` | Copy selected text |
 
-While running, the line above the composer shows:
+The session input box uses a dark-green panel whose background, border and panel text are dimmed by 50%. Input text stays white. While the width allows, token metrics sit on the right side of the input box's top border:
 
 ```text
-Working... 12s · ↑1.2k ↓340 · cache 40% · Ctrl+C 取消
+╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ───── • ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ───── 13% · 12s ────╮
+│                                                                                                  │
+│ › Type a task…                                                                                   │
+│                                                                                                  │
+╰─ ● 运行中 · deepseek-flash · 直接回答 · Ctrl+T 模式 ────────────────────────────────────────────╯
 ```
 
-Token and cache values come from provider usage. If the provider does not report cache tokens, the line shows `cache —`.
+On a narrow terminal the state heading stays on the top border and the metrics fold onto their own row inside the same fence instead of being truncated:
+
+```text
+╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ─────────╮
+│ ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ─────── 13% · 12s │
+│                                                     │
+│ › Type a task…                                      │
+│                                                     │
+╰─ ● 运行中 · deepseek-flash · 直接回答 · Ctrl+T 模式 ───────────────╯
+```
+
+- The left side of the top border comes from the run journal and shows the current stage, step and bilingual state.
+- While the width allows, the right side of the top border embeds token arrows, cache hit rate, context meter and elapsed time; otherwise they fold to the row below.
+- The bottom border shows run status, model and session mode, without repeating the context percentage (the top border already has the meter); the `T` in `Ctrl+T` is bright green and bold.
+- The whole TUI backdrop is `#06100A` (80% of the input panel's green brightness), slightly darker than the input panel's `#08140D`; the welcome screen, transcript and command panel share it.
+- Input-panel background is `#08140D`, the border is `#3F644B`, and panel text is `#487748`; input text is white, all unbolded.
+- The context meter uses `─` throughout, matching the fence border: panel green `#487748` for used cells, black for the remaining cells. It shows 20 cells on wide terminals and half that (10) on narrow ones, without changing the displayed percentage. It uses a token budget (1M by default, auto-compacting at 786,432 tokens).
+- Master-Agent next-command footers appear on the right side of the top border, or with the metrics when folded.
+
+The same journal events are appended incrementally to the main transcript as a visible work log, so tool calls and results are not hidden in the status strip:
+
+```text
+ • 任务理解 Task Understanding · 解析目标与约束
+ • 规划 Planning · 任务计划已生成
+ • 模型思考 Thinking · 第 1 步
+   ⎿ 请求 8 条消息 · 上下文 12400 tokens · 工具 12 个
+   ⎿ 返回工具调用 · read_file
+ • 读取 Reading · read_file · /home/skynet/1-agent/README.md
+   ⎿ read README.md (999 bytes)
+```
+
+Tool calls start with `•`, which is always bright green; action names such as `模型思考 Thinking`, `执行命令 Bash` and `整理答案 Answering` are bright green too, and the name and detail are separated by ` · `. Tool names, arguments and `⎿` results use deep green `#487748`, none of them bolded. Each thinking step also prints `⎿` summaries for the request (messages/context/tools) and the response (final answer or tool calls); `Ctrl+O` opens the run details and process trace. Links in the work log — local file paths (`/path/README.md`, `src/main.rs`, …) and http(s) URLs — use bright green. Context counts appear only in the thinking request summary and the input fence, not in tool rows. Bash results include up to three lines / 240 characters of output preview; paths, search queries and subagent tasks are shown with their tool names.
+
+User messages render on the input panel's `#08140D` background with white text, matching the composer.
+
+Short replies in the same session are resolved against the previous request and answer. If the previous turn asked “who is Feli”, a reply of `felix` continues that thread instead of starting a new search. Prompt-author names are checked against the 48-entry local prompt library (Felix Rieseberg, Karpathy, …) before the web.
+
+Right-click pastes from the clipboard only when the pointer is inside the composer; right-clicking the transcript, work log or any other region does nothing. `Ctrl+V` is not restricted by pointer position.
+
+All popup surfaces (`/details`, `/help`, the `/` command drawer and the `Ctrl+T` mode menu) share one green family: surface `#0A1F12`, border `#3F644B`, bright-green titles and commands, and a `#143D24` selected row. Blue labels and gray panel surfaces are gone.
+
+The final answer is wrapped in its own fence titled `结论 Conclusion`, with one blank line of padding above and below the body. The fence border is dimmed deep green `#1F4E28`, the `结论 Conclusion` title is bright green and bold, and the body is white; the following claims/evidence/assumptions/constraints/unknowns/conflicts/flip-condition sections use deep green `#487748` headings, labels, bullets and body text; only the answer inside the fence stays white.
+
+The answer body supports Markdown hierarchy: `##` subheadings, ordered and unordered lists, `- [ ]` task boxes, `**bold**` key terms, `---` dividers, tables and links; tables are padded to aligned columns before rendering, and URLs or local paths use the link color. The model is asked to lead with one result sentence and then use short paragraphs, bullets or a comparison table for multi-dimensional answers instead of one long wall of text.
+
+```text
+╭─ 结论 Conclusion ─────────────────────────────────────────────╮
+
+   不用启动，GridCraft 0.16.0 此刻已经在运行。
+
+╰───────────────────────────────────────────────────────────────╯
+```
+
+Drag with the left mouse button in the transcript or composer to select text; `Ctrl+C` copies it.
+
+Full state vocabulary:
+
+- Cognition: 任务理解 Task Understanding, 规划 Planning, 选择模型 Model Routing, 模型思考 Thinking, 压缩上下文 Compacting, 整理答案 Answering, 验收 Verifying, 重试 Retrying, 阻塞 Blocked
+- Perception: 读取 Reading, 写入 Writing, 创建 Creating, 修改 Updating, 搜索 Searching, 抓取 Fetching, 查询 Querying
+- Execution: 执行命令 Bash, 子 Agent Subagent, 技能 Skill, 委托 Delegation, 调用工具 Tool Call, 工具结果 Tool Result
+- Master: 任务理解 Mission Understanding, 任务规划 Mission Planning, 等待批准 Waiting Approval, 任务分配 Task Assignment, 任务启动 Task Starting, Worker 运行 Worker Running, 收集结果 Collecting Results, 任务验收 Mission Verification, 汇报 Reporting
 
 A bare `1agent tui` starts a new session. The exit banner prints the current session title and the explicit continue command:
 
@@ -127,6 +192,13 @@ Input beginning with `/` opens the command drawer:
 
 - empty query groups commands under `Recent / Session / Thinking / Evidence / Model & Permissions / Master`;
 - the three most recently accepted commands are shown first;
+- a keyword such as `/验收`, `/证据` or `/老板` searches both commands and the 48 built-in prompt supplements;
+- the empty drawer starts with 3 featured prompts so commands stay visible; the other 45 are searchable by keyword;
+- with an empty composer, type `//` to open the complete source library: the 56 verbatim Feishu rows are grouped into 32 author/topic entries and labeled by category. Insertion is the complete body only: the Chinese translation in Chinese mode or the English original in English mode; nothing is truncated or rewritten, and author, topic, category and source link stay in the drawer row rather than being written into the composer. On wide terminals a side pane previews the selected group's complete body, author, category and character count before you press `Enter`. Inserting the same body twice is skipped. `//验收` filters inside the source library;
+- the `/` drawer still keeps the 48 curated cards for a quick keyword search; use `//` when you want the expert's exact words;
+- after typing a task, add a space and `//` (for example `做跨境电商 //验收`) to open the prompt drawer; the selected template is prepended or appended per its entry, and `Esc` restores the task;
+- use `↑` / `↓` to select, `Enter` to insert and `Esc` to close;
+- selecting a prompt fills the composer and leaves `{{variables}}` for editing; each row shows its value level, category, purpose and anti-use;
 - unavailable commands are muted with a reason;
 - `Tab` completes a command such as `/frame `;
 - `Enter` on an incomplete command only completes it; a second Enter executes;
@@ -159,6 +231,10 @@ Input beginning with `/` opens the command drawer:
 
 Destructive commands (`/clear`, non-dry-run `/dispatch`, `/control cancel`, `/control takeover`) require a second Enter. Other input cancels the confirmation.
 
+The interactive TUI has no default limit on steps, tool calls, provider attempts or run duration (`0` means unlimited), so long tasks that drive external CLIs such as `lark-cli` can finish. Headless `run`, the daemon and subagents keep finite budgets. Tighten a session with `/config set steps 20` or `/config set timeout 300`; `/config reset` restores the defaults. Each model HTTP call still has a 300-second transport ceiling.
+
+The prompt drawer supports `/config set language zh|en`. Chinese mode shows the curated Chinese cards. English mode lists and inserts only the 14 cards whose instruction text exists verbatim in the Feishu source table; cards without an English source stay hidden instead of silently falling back to Chinese.
+
 > Master/Workshop commands only appear in a Workshop Master binding; standalone mode hides them.
 
 ## 5. Headless runs
@@ -184,7 +260,7 @@ Common limits:
 | `--max-steps` | 6 | Maximum reasoning/tool steps |
 | `--max-tool-calls` | 8 | Maximum tool calls |
 | `--timeout-seconds` | 120 | Per-run timeout |
-| `--max-context-chars` | 100000 | Context character budget |
+| `--max-context-tokens` | 1000000 | Context token budget; auto-compact at 786,432 |
 | `--read-root` | current directory | Read-only root; repeatable |
 | `--allow-network` | off | Allow provider network access |
 

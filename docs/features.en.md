@@ -1,6 +1,6 @@
 # Features
 
-> Current version: **0.96.0 R1 release candidate**  
+> Current version: **0.96.1 R1 release candidate**  
 > Validated platform: **Linux x86_64**  
 > Labels: **Available (RC)** / **Basic** / **MVP** / **Module** / **Experimental** / **R&D** / **Not implemented**
 

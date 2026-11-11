@@ -1,10 +1,12 @@
 # ADR 0015: Provider Usage Ledger and Threshold Compaction
 
-Status: accepted
+Status: accepted; context threshold superseded in part by ADR 0034
 
 Date: 2026-11-03
 
 ## Context
+
+> Context budgeting and the compaction threshold are now token-based; see ADR 0034.
 
 Character headroom alone does not answer how many tokens were consumed or what the
 configured price metadata implies. Waiting until the hard context limit also causes

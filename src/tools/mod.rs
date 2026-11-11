@@ -116,6 +116,26 @@ impl ToolError {
     }
 }
 
+/// Spawn a child process, retrying the transient `ETXTBSY` that can happen
+/// when another thread has just written the executable (common in tests).
+pub(crate) async fn spawn_with_retry(
+    command: &mut tokio::process::Command,
+) -> std::io::Result<tokio::process::Child> {
+    let mut attempts = 0u8;
+    loop {
+        match command.spawn() {
+            Ok(child) => return Ok(child),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 5 =>
+            {
+                attempts += 1;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 #[async_trait]
 pub trait AgentTool: Send + Sync {
     fn spec(&self) -> ToolSpec;

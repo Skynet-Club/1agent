@@ -1,39 +1,47 @@
 use crate::domain::{CognitiveMode, RiskLevel};
 use crate::safety::is_disallowed_control;
 use crate::tui_commands::{
-    CommandDrawerRow, CommandEntry, CommandStage, TuiCommandId, TuiCommandSpec, command_usage,
-    drawer_rows, visible_commands,
+    CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, TuiCommandSpec, command_usage,
+    drawer_rows, prompt_drawer_rows, visible_commands,
 };
 use crate::tui_host::HostBinding;
+use crate::tui_prompts::{PromptLanguage, prompt_view};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
+};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-const INPUT_BG: Color = Color::Indexed(236);
-const UI_ACCENT: Color = Color::Indexed(75);
+/// Whole-terminal backdrop, 80% of the input panel background.
+const APP_BG: Color = Color::Rgb(0x06, 0x10, 0x0a);
+const PANEL_BG: Color = Color::Rgb(0x08, 0x14, 0x0d);
+const PANEL_GREEN: Color = Color::Rgb(0x3f, 0x64, 0x4b);
+const PANEL_TEXT_GREEN: Color = Color::Rgb(0x48, 0x77, 0x48);
+const INPUT_BG: Color = PANEL_BG;
 const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
-const CAPTION_GREY: Color = Color::Indexed(245);
 const MARK_GREEN: Color = Color::Rgb(0x3f, 0xb9, 0x50);
-const TLD_GREEN: Color = Color::Rgb(0x2e, 0xa0, 0x43);
-const LINK: Color = Color::Indexed(75);
-const LINK_HOVER: Color = Color::Rgb(0x7f, 0xe6, 0xff);
-const BANNER_BG: Color = Color::Indexed(236);
-const COMMAND_DESCRIPTION: Color = Color::Indexed(252);
-const DRAWER_BORDER: Color = Color::Indexed(240);
-const MENU_BG: Color = Color::Indexed(235);
-const MENU_SELECTED_BG: Color = Color::Indexed(238);
-const MENU_LABEL: Color = Color::Indexed(252);
-const MENU_HINT: Color = Color::Indexed(245);
+const LINK: Color = Color::LightGreen;
+const LINK_HOVER: Color = Color::Rgb(0xb7, 0xff, 0xc8);
+const MAX_INPUT_BYTES: usize = 64 * 1024;
+const COMMAND_DESCRIPTION: Color = PANEL_TEXT_GREEN;
+const DRAWER_BORDER: Color = PANEL_GREEN;
+const MENU_BG: Color = Color::Rgb(0x0a, 0x1f, 0x12);
+const MENU_SELECTED_BG: Color = Color::Rgb(0x14, 0x3d, 0x24);
+const MENU_LABEL: Color = Color::LightGreen;
+const MENU_HINT: Color = PANEL_TEXT_GREEN;
+const DEEP_GREEN: Color = Color::Rgb(0x1f, 0x4e, 0x28);
+const CONCLUSION_BORDER: Color = DEEP_GREEN;
+const LOCAL_FILE_GREEN: Color = DEEP_GREEN;
 
 /// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +115,17 @@ pub enum TuiTone {
     Reference,
     Supplementary,
     Muted,
+    Body,
+    White,
+    Link,
+    LocalFile,
+    WorkText,
+    WorkLink,
+    SectionText,
+    Border,
+    ConclusionBorder,
+    ConclusionTitle,
+    Strong,
     User,
 }
 
@@ -152,6 +171,10 @@ enum TranscriptKind {
     Evidence,
     Code,
     Metadata,
+    Work,
+    WorkResult,
+    ConclusionStart,
+    ConclusionEnd,
     System,
     Error,
 }
@@ -219,6 +242,121 @@ pub struct TuiRunMetrics {
     pub usage_seen: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TuiActivityKind {
+    Understanding,
+    Planning,
+    Routing,
+    Thinking,
+    Reading,
+    Writing,
+    Creating,
+    Updating,
+    Searching,
+    Fetching,
+    Querying,
+    Bash,
+    Spawning,
+    Skill,
+    Delegating,
+    CallingTool,
+    ToolResult,
+    Retrying,
+    Compacting,
+    Verifying,
+    Answering,
+    MasterUnderstanding,
+    MasterPlanning,
+    MasterApproval,
+    MasterAssignment,
+    MasterStarting,
+    WorkerRunning,
+    MasterCollecting,
+    MasterVerifying,
+    MasterReporting,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TuiActivity {
+    pub kind: TuiActivityKind,
+    pub title: String,
+    pub detail: String,
+    pub step: usize,
+    pub footer: Option<String>,
+}
+
+impl TuiActivity {
+    pub fn new(
+        kind: TuiActivityKind,
+        title: impl Into<String>,
+        detail: impl Into<String>,
+        step: usize,
+    ) -> Self {
+        Self {
+            kind,
+            title: sanitize_inline(&title.into()),
+            detail: sanitize_inline(&detail.into()),
+            step,
+            footer: None,
+        }
+    }
+
+    pub fn bilingual(kind: TuiActivityKind, detail: impl Into<String>, step: usize) -> Self {
+        let (cn, en) = kind.label();
+        Self {
+            kind,
+            title: format!("{cn} {en}"),
+            detail: sanitize_inline(&detail.into()),
+            step,
+            footer: None,
+        }
+    }
+
+    pub fn with_footer(mut self, footer: impl Into<String>) -> Self {
+        self.footer = Some(sanitize_inline(&footer.into()));
+        self
+    }
+}
+
+impl TuiActivityKind {
+    pub fn label(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Understanding => ("任务理解", "Task Understanding"),
+            Self::Planning => ("规划", "Planning"),
+            Self::Routing => ("选择模型", "Model Routing"),
+            Self::Thinking => ("模型思考", "Thinking"),
+            Self::Reading => ("读取", "Reading"),
+            Self::Writing => ("写入", "Writing"),
+            Self::Creating => ("创建", "Creating"),
+            Self::Updating => ("修改", "Updating"),
+            Self::Searching => ("搜索", "Searching"),
+            Self::Fetching => ("抓取", "Fetching"),
+            Self::Querying => ("查询", "Querying"),
+            Self::Bash => ("执行命令", "Bash"),
+            Self::Spawning => ("子 Agent", "Subagent"),
+            Self::Skill => ("技能", "Skill"),
+            Self::Delegating => ("委托", "Delegation"),
+            Self::CallingTool => ("调用工具", "Tool Call"),
+            Self::ToolResult => ("工具结果", "Tool Result"),
+            Self::Retrying => ("重试", "Retrying"),
+            Self::Compacting => ("压缩上下文", "Compacting"),
+            Self::Verifying => ("验收", "Verifying"),
+            Self::Answering => ("整理答案", "Answering"),
+            Self::MasterUnderstanding => ("任务理解", "Mission Understanding"),
+            Self::MasterPlanning => ("任务规划", "Mission Planning"),
+            Self::MasterApproval => ("等待批准", "Waiting Approval"),
+            Self::MasterAssignment => ("任务分配", "Task Assignment"),
+            Self::MasterStarting => ("任务启动", "Task Starting"),
+            Self::WorkerRunning => ("Worker 运行", "Worker Running"),
+            Self::MasterCollecting => ("收集结果", "Collecting Results"),
+            Self::MasterVerifying => ("任务验收", "Mission Verification"),
+            Self::MasterReporting => ("汇报", "Reporting"),
+            Self::Blocked => ("阻塞", "Blocked"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiState {
     pub last_instruction: String,
@@ -228,6 +366,7 @@ pub struct TuiState {
     pub provider_label: String,
     pub max_steps: usize,
     pub timeout_seconds: u64,
+    pub prompt_language: PromptLanguage,
     host_binding: HostBinding,
     command_stage: CommandStage,
     session_id: Option<String>,
@@ -238,8 +377,8 @@ pub struct TuiState {
     mode_menu: Option<usize>,
     mode_override: Option<CognitiveMode>,
     last_inferred: Option<CognitiveMode>,
-    context_chars: usize,
-    context_budget: usize,
+    context_tokens: usize,
+    context_budget_tokens: usize,
     details_open: bool,
     details_scroll: usize,
     command_panel: Option<CommandPanel>,
@@ -253,12 +392,15 @@ pub struct TuiState {
     quit_requested: bool,
     run_started_unix_ms: Option<u128>,
     run_metrics: TuiRunMetrics,
+    activity: Option<TuiActivity>,
+    activity_persistent: bool,
     input_history: Vec<String>,
     history_cursor: Option<usize>,
     input: String,
     input_cursor: usize,
     input_scroll: usize,
     input_geometry: Option<InputGeometry>,
+    input_box: Option<Rect>,
     selection_anchor: Option<usize>,
     transcript_area: Option<Rect>,
     transcript_lines: Vec<TranscriptVisualLine>,
@@ -287,6 +429,7 @@ impl TuiState {
             provider_label: provider_label.into(),
             max_steps,
             timeout_seconds,
+            prompt_language: PromptLanguage::Zh,
             host_binding: HostBinding::standalone(),
             command_stage: CommandStage::NoMission,
             session_id: None,
@@ -297,8 +440,8 @@ impl TuiState {
             mode_menu: None,
             mode_override: None,
             last_inferred: None,
-            context_chars: 0,
-            context_budget: 100_000,
+            context_tokens: 0,
+            context_budget_tokens: crate::domain::DEFAULT_MAX_CONTEXT_TOKENS,
             details_open: false,
             details_scroll: 0,
             command_panel: None,
@@ -312,12 +455,15 @@ impl TuiState {
             quit_requested: false,
             run_started_unix_ms: None,
             run_metrics: TuiRunMetrics::default(),
+            activity: None,
+            activity_persistent: false,
             input_history: Vec::new(),
             history_cursor: None,
             input: String::new(),
             input_cursor: 0,
             input_scroll: 0,
             input_geometry: None,
+            input_box: None,
             selection_anchor: None,
             transcript_area: None,
             transcript_lines: Vec::new(),
@@ -342,6 +488,12 @@ impl TuiState {
         self.quit_requested = false;
         self.run_started_unix_ms = Some(now_unix_ms());
         self.run_metrics = TuiRunMetrics::default();
+        self.activity = Some(TuiActivity::bilingual(
+            TuiActivityKind::Understanding,
+            "",
+            0,
+        ));
+        self.activity_persistent = false;
         self.last_instruction = sanitize_inline(instruction);
         self.status = TuiStatus::Running;
         self.welcome_visible = false;
@@ -360,6 +512,7 @@ impl TuiState {
 
     pub fn finish(&mut self, status: TuiStatus, output: impl Into<String>) {
         self.status = status;
+        self.clear_activity();
         self.finish_run_clock();
         let (kind, tone) = if status == TuiStatus::Failed {
             (TranscriptKind::Error, TuiTone::Danger)
@@ -407,10 +560,30 @@ impl TuiState {
     pub fn assistant_body(&mut self, text: impl Into<String>) {
         self.push_entry(
             TranscriptKind::Assistant,
-            TuiTone::Default,
+            TuiTone::Body,
             None,
-            TuiTone::Default,
+            TuiTone::Body,
             text.into(),
+        );
+    }
+
+    pub fn assistant_conclusion_start(&mut self, label: impl Into<String>) {
+        self.push_entry(
+            TranscriptKind::ConclusionStart,
+            TuiTone::ConclusionBorder,
+            None,
+            TuiTone::ConclusionBorder,
+            label.into(),
+        );
+    }
+
+    pub fn assistant_conclusion_end(&mut self) {
+        self.push_entry(
+            TranscriptKind::ConclusionEnd,
+            TuiTone::ConclusionBorder,
+            None,
+            TuiTone::White,
+            String::new(),
         );
     }
 
@@ -485,6 +658,76 @@ impl TuiState {
                 continue;
             }
 
+            if let Some(heading) = markdown_heading(trimmed) {
+                self.flush_markdown_prose(&mut prose);
+                self.push_entry(
+                    TranscriptKind::Heading,
+                    TuiTone::Strong,
+                    None,
+                    TuiTone::Strong,
+                    heading.to_string(),
+                );
+                index += 1;
+                continue;
+            }
+
+            if let Some((table, next)) = markdown_table(&lines, index) {
+                self.flush_markdown_prose(&mut prose);
+                self.assistant_body(table.join("\n"));
+                index = next;
+                continue;
+            }
+
+            if markdown_rule(trimmed) {
+                self.flush_markdown_prose(&mut prose);
+                self.assistant_body("─".repeat(40));
+                index += 1;
+                continue;
+            }
+
+            if let Some((number, text)) = markdown_numbered(trimmed) {
+                self.flush_markdown_prose(&mut prose);
+                let indent = lines[index].len().saturating_sub(trimmed.len());
+                let text = strip_bold_markers(text);
+                let text = if indent >= 2 {
+                    format!("  {text}")
+                } else {
+                    text
+                };
+                self.assistant_body(format!("{number}. {text}"));
+                index += 1;
+                continue;
+            }
+
+            if let Some(item) = markdown_bullet(trimmed) {
+                self.flush_markdown_prose(&mut prose);
+                let indent = lines[index].len().saturating_sub(trimmed.len());
+                let item = strip_bold_markers(item);
+                if let Some((checked, text)) = task_checkbox(&item) {
+                    let mark = if checked { "☑" } else { "☐" };
+                    let text = if indent >= 2 {
+                        format!("  {text}")
+                    } else {
+                        text.to_string()
+                    };
+                    self.assistant_item(mark, TuiTone::Strong, text);
+                    index += 1;
+                    continue;
+                }
+                let item = if indent >= 2 {
+                    format!("  {item}")
+                } else {
+                    item
+                };
+                if let Some((label, rest)) = split_bold_label(&item) {
+                    self.assistant_item(label, TuiTone::Strong, strip_bold_markers(rest));
+                } else {
+                    self.assistant_item("", TuiTone::White, item);
+                }
+                index += 1;
+                continue;
+            }
+
             prose.push(lines[index].to_string());
             index += 1;
         }
@@ -499,7 +742,7 @@ impl TuiState {
     ) {
         self.push_entry(
             TranscriptKind::Item,
-            TuiTone::Default,
+            label_tone,
             Some(label.into()),
             label_tone,
             text.into(),
@@ -509,9 +752,9 @@ impl TuiState {
     pub fn assistant_evidence(&mut self, source: impl Into<String>, text: impl Into<String>) {
         self.push_entry(
             TranscriptKind::Evidence,
-            TuiTone::Default,
+            TuiTone::SectionText,
             Some(format!("[{}]", source.into())),
-            TuiTone::Evidence,
+            TuiTone::SectionText,
             text.into(),
         );
     }
@@ -556,6 +799,7 @@ impl TuiState {
         self.close_command_panel();
         self.last_instruction.clear();
         self.status = TuiStatus::Idle;
+        self.context_tokens = 0;
         self.transcript.clear();
         self.clear_input();
         self.last_details = None;
@@ -676,24 +920,83 @@ impl TuiState {
         self.mode_override.unwrap_or(inferred)
     }
 
-    /// The character budget the runtime compacts against. The status bar
-    /// reports usage as a share of this, not of a model token window, because
-    /// no token window metadata exists.
+    /// The token budget the runtime compacts against.
     pub fn set_context_budget(&mut self, budget: usize) {
-        self.context_budget = budget.max(1);
+        self.context_budget_tokens = budget.max(1);
     }
 
-    /// How many characters the most recent model request carried.
-    pub fn set_context_chars(&mut self, used: usize) {
-        self.context_chars = used;
+    pub fn set_prompt_language(&mut self, language: PromptLanguage) {
+        self.prompt_language = language;
+    }
+
+    /// How many tokens the most recent model request carried.
+    pub fn set_context_tokens(&mut self, used: usize) {
+        self.context_tokens = used;
+    }
+
+    pub fn context_usage_tokens(&self) -> usize {
+        self.context_tokens
     }
 
     fn context_percent(&self) -> usize {
-        self.context_chars
+        self.context_tokens
             .saturating_mul(100)
-            .checked_div(self.context_budget.max(1))
+            .checked_div(self.context_budget_tokens.max(1))
             .unwrap_or_default()
             .min(100)
+    }
+
+    fn context_bar_counts_for(&self, cells: usize) -> (usize, usize) {
+        let percent = self.context_percent();
+        let filled = (percent * cells + 50) / 100;
+        (filled, cells - filled)
+    }
+
+    fn context_bar(&self) -> String {
+        self.context_bar_with_cells(20)
+    }
+
+    fn context_bar_with_cells(&self, cells: usize) -> String {
+        let percent = self.context_percent();
+        // The styled renderer colours the first `filled` cells green and the
+        // rest black; the plain text form keeps one glyph for both.
+        format!(
+            "上下文 {} {}/{} {}%",
+            "─".repeat(cells),
+            format_token_count(self.context_tokens as u64),
+            format_token_count(self.context_budget_tokens as u64),
+            percent
+        )
+    }
+
+    fn styled_context_line(&self, text: String, base_style: Style) -> Vec<Span<'static>> {
+        let Some(start) = text.find('─') else {
+            return vec![Span::styled(text, base_style)];
+        };
+        let end = text[start..]
+            .char_indices()
+            .find(|(_, character)| *character != '─')
+            .map(|(offset, _)| start + offset)
+            .unwrap_or(text.len());
+        let run = &text[start..end];
+        let cells = run.chars().count();
+        let filled = self.context_bar_counts_for(cells).0.min(cells);
+        let green = run.chars().take(filled).collect::<String>();
+        let gray = run.chars().skip(filled).collect::<String>();
+        let mut spans = Vec::new();
+        if start > 0 {
+            spans.push(Span::styled(text[..start].to_string(), base_style));
+        }
+        if !green.is_empty() {
+            spans.push(Span::styled(green, base_style.fg(PANEL_TEXT_GREEN)));
+        }
+        if !gray.is_empty() {
+            spans.push(Span::styled(gray, base_style.fg(Color::Black)));
+        }
+        if end < text.len() {
+            spans.push(Span::styled(text[end..].to_string(), base_style));
+        }
+        spans
     }
 
     pub fn set_pointer(&mut self, column: u16, row: u16) {
@@ -856,8 +1159,13 @@ impl TuiState {
 
     pub fn take_submission(&mut self) -> String {
         if self.slash_drawer_open() {
-            let entries = self.filtered_command_entries();
-            if !entries.iter().any(|entry| entry.spec.name == self.input) {
+            let entries = self.filtered_drawer_entries();
+            let exact_command = entries.iter().any(|entry| {
+                entry
+                    .command()
+                    .is_some_and(|command| command.spec.name == self.input)
+            });
+            if !exact_command {
                 if entries.is_empty() {
                     self.dismiss_slash_drawer();
                 } else {
@@ -881,12 +1189,19 @@ impl TuiState {
         if text.is_empty() {
             return;
         }
+        self.normalize_input_state();
         if let Some((start, end)) = self.selection_range() {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
         }
         self.input.insert_str(self.input_cursor, &text);
         self.input_cursor += text.len();
+        if self.input.len() > MAX_INPUT_BYTES {
+            let cut = floor_char_boundary(&self.input, MAX_INPUT_BYTES);
+            self.input.truncate(cut);
+            self.input_cursor = self.input_cursor.min(cut);
+            self.notice = Some("输入过长，已截断到 64 KiB".into());
+        }
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.input_scroll = self.input_scroll.min(self.input_cursor);
@@ -898,6 +1213,7 @@ impl TuiState {
 
     pub fn backspace(&mut self) {
         self.pending_confirmation = None;
+        self.normalize_input_state();
         if let Some((start, end)) = self.selection_range() {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
@@ -913,6 +1229,7 @@ impl TuiState {
 
     pub fn delete(&mut self) {
         self.pending_confirmation = None;
+        self.normalize_input_state();
         if let Some((start, end)) = self.selection_range() {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
@@ -926,12 +1243,14 @@ impl TuiState {
     }
 
     pub fn move_left(&mut self) {
+        self.normalize_input_state();
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.input_cursor = previous_grapheme_boundary(&self.input, self.input_cursor);
     }
 
     pub fn move_right(&mut self) {
+        self.normalize_input_state();
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.input_cursor = next_grapheme_boundary(&self.input, self.input_cursor);
@@ -946,7 +1265,29 @@ impl TuiState {
     pub fn move_end(&mut self) {
         self.selection_anchor = None;
         self.clear_transcript_selection();
+        self.normalize_input_state();
         self.input_cursor = self.input.len();
+    }
+
+    fn normalized_input_cursor(&self) -> usize {
+        let mut cursor = self.input_cursor.min(self.input.len());
+        while cursor > 0 && !self.input.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
+        cursor
+    }
+
+    fn normalize_input_state(&mut self) {
+        self.input_cursor = self.normalized_input_cursor();
+        self.input_scroll = self.input_scroll.min(self.input_cursor);
+        while self.input_scroll > 0 && !self.input.is_char_boundary(self.input_scroll) {
+            self.input_scroll -= 1;
+        }
+        if let Some(anchor) = self.selection_anchor
+            && (anchor > self.input.len() || !self.input.is_char_boundary(anchor))
+        {
+            self.selection_anchor = None;
+        }
     }
 
     pub fn scroll_up(&mut self, lines: usize) {
@@ -1094,16 +1435,20 @@ impl TuiState {
     }
 
     pub fn filtered_drawer_rows(&self) -> Vec<CommandDrawerRow> {
+        if let Some((_, query)) = self.prompt_drawer_parts() {
+            return prompt_drawer_rows(query, self.prompt_language);
+        }
         drawer_rows(
             &self.input,
             &self.host_binding,
             self.command_stage,
             self.status == TuiStatus::Running,
             &self.recent_commands,
+            self.prompt_language,
         )
     }
 
-    pub fn filtered_command_entries(&self) -> Vec<CommandEntry> {
+    pub fn filtered_drawer_entries(&self) -> Vec<DrawerEntry> {
         self.filtered_drawer_rows()
             .into_iter()
             .map(|row| row.entry)
@@ -1160,6 +1505,53 @@ impl TuiState {
         self.run_metrics
     }
 
+    pub fn set_activity(&mut self, activity: TuiActivity) {
+        self.activity = Some(activity);
+        self.activity_persistent = false;
+    }
+
+    pub fn set_master_activity(&mut self, activity: TuiActivity) {
+        self.activity = Some(activity);
+        self.activity_persistent = true;
+    }
+
+    pub fn push_work(&mut self, kind: TuiActivityKind, detail: impl Into<String>) {
+        self.push_work_with_tone(kind, detail, activity_kind_tone(kind));
+    }
+
+    pub fn push_work_with_tone(
+        &mut self,
+        kind: TuiActivityKind,
+        detail: impl Into<String>,
+        tone: TuiTone,
+    ) {
+        let (cn, en) = kind.label();
+        self.push_entry(
+            TranscriptKind::Work,
+            tone,
+            Some(format!("{cn} {en}")),
+            tone,
+            detail.into(),
+        );
+    }
+
+    pub fn push_work_result(&mut self, detail: impl Into<String>, tone: TuiTone) {
+        self.push_entry(TranscriptKind::WorkResult, tone, None, tone, detail.into());
+    }
+
+    pub fn clear_activity(&mut self) {
+        self.activity = None;
+        self.activity_persistent = false;
+    }
+
+    pub fn activity(&self) -> Option<&TuiActivity> {
+        self.activity.as_ref()
+    }
+
+    fn activity_visible(&self) -> bool {
+        self.activity.is_some() && (self.status == TuiStatus::Running || self.activity_persistent)
+    }
+
     pub fn finish_run_clock(&mut self) {
         if let Some(started) = self.run_started_unix_ms {
             self.run_metrics.elapsed_ms = now_unix_ms().saturating_sub(started);
@@ -1175,20 +1567,44 @@ impl TuiState {
         )
     }
 
+    fn prompt_drawer_parts(&self) -> Option<(&str, &str)> {
+        if let Some(query) = self.input.strip_prefix("//")
+            && !query.chars().any(char::is_whitespace)
+        {
+            return Some(("", query));
+        }
+        let separator = self.input.rfind(" //")?;
+        let base = self.input[..separator].trim_end();
+        let query = &self.input[separator + 1..];
+        if base.is_empty() || query.chars().any(char::is_whitespace) {
+            return None;
+        }
+        Some((base, query))
+    }
+
     pub fn slash_drawer_open(&self) -> bool {
         if self.slash_drawer_dismissed {
             return false;
+        }
+        if self.prompt_drawer_parts().is_some() {
+            return true;
         }
         let input = self.input.trim_start();
         input.starts_with('/') && !input.chars().any(char::is_whitespace)
     }
 
     pub fn dismiss_slash_drawer(&mut self) {
+        let base = self.prompt_drawer_parts().map(|(base, _)| base.to_string());
+        if let Some(base) = base {
+            self.input = base;
+            self.input_cursor = self.input.len();
+            self.input_scroll = 0;
+        }
         self.slash_drawer_dismissed = true;
     }
 
     pub fn move_command_selection(&mut self, delta: isize) {
-        let count = self.filtered_command_entries().len();
+        let count = self.filtered_drawer_entries().len();
         if count == 0 {
             return;
         }
@@ -1197,44 +1613,117 @@ impl TuiState {
     }
 
     pub fn complete_selected_command(&mut self) -> bool {
-        let entries = self.filtered_command_entries();
+        let entries = self.filtered_drawer_entries();
         let Some(entry) = entries.get(self.selected_command.min(entries.len().saturating_sub(1)))
         else {
             return false;
         };
-        if let Some(reason) = entry.unavailable {
-            self.set_notice(format!("{}  {}", entry.spec.name, reason));
-            return false;
+        let prompt_base = self
+            .prompt_drawer_parts()
+            .map(|(base, _)| base.to_string())
+            .filter(|base| !base.is_empty());
+        match entry {
+            DrawerEntry::Command(entry) => {
+                if let Some(reason) = entry.unavailable {
+                    self.set_notice(format!("{}  {}", entry.spec.name, reason));
+                    return false;
+                }
+                self.input = entry.spec.name.to_string();
+                if entry.spec.supports_inline_args {
+                    self.input.push(' ');
+                }
+                self.input_cursor = self.input.len();
+                self.input_scroll = 0;
+                self.selection_anchor = None;
+                self.slash_drawer_dismissed = false;
+                if let Some(usage) = command_usage(entry.spec.id) {
+                    self.set_notice(format!("参数：{usage}"));
+                }
+                true
+            }
+            DrawerEntry::Prompt(prompt) => {
+                let Some(view) = prompt_view(prompt, self.prompt_language)
+                    .or_else(|| prompt_view(prompt, PromptLanguage::Zh))
+                else {
+                    return false;
+                };
+                self.input = match prompt_base {
+                    Some(base) if prompt.insertion == "作为前置指令" => {
+                        format!("{}\n{base}", view.body)
+                    }
+                    Some(base) => format!("{base}\n{}", view.body),
+                    None => view.body.to_string(),
+                };
+                self.input_cursor = self.input.len();
+                self.input_scroll = 0;
+                self.selection_anchor = None;
+                self.slash_drawer_dismissed = true;
+                if view.variables.is_empty() {
+                    self.set_notice(format!("已插入提示词：{}", view.name));
+                } else {
+                    self.set_notice(format!(
+                        "已插入提示词：{} · 变量：{}",
+                        view.name, view.variables
+                    ));
+                }
+                true
+            }
+            DrawerEntry::Source(source) => {
+                let text = match self.prompt_language {
+                    PromptLanguage::Zh => source.translation,
+                    PromptLanguage::En => source.original,
+                };
+                if self.input.contains(text) {
+                    self.slash_drawer_dismissed = true;
+                    self.set_notice(format!(
+                        "原文已在输入框中：{} · {}",
+                        source.author, source.topic
+                    ));
+                    return true;
+                }
+                self.input = match prompt_base {
+                    Some(base) => format!("{base}\n{text}"),
+                    None => text.to_string(),
+                };
+                self.input_cursor = self.input.len();
+                self.input_scroll = 0;
+                self.selection_anchor = None;
+                self.slash_drawer_dismissed = true;
+                self.set_notice(format!("已插入原文：{} · {}", source.author, source.topic));
+                true
+            }
         }
-        self.input = entry.spec.name.to_string();
-        if entry.spec.supports_inline_args {
-            self.input.push(' ');
-        }
-        self.input_cursor = self.input.len();
-        self.input_scroll = 0;
-        self.selection_anchor = None;
-        self.slash_drawer_dismissed = false;
-        if let Some(usage) = command_usage(entry.spec.id) {
-            self.set_notice(format!("参数：{usage}"));
-        }
-        true
+    }
+
+    pub fn input_box_contains(&self, column: u16, row: u16) -> bool {
+        self.input_box
+            .is_some_and(|area| area.contains((column, row).into()))
     }
 
     pub fn select_at(&mut self, column: u16, row: u16, extend: bool) {
         if let Some(geometry) = self.input_geometry
-            && row == geometry.row
+            && self
+                .input_box
+                .map(|area| area.contains((column, row).into()))
+                .unwrap_or(row == geometry.row)
         {
             if extend && self.selection_anchor.is_none() {
                 return;
             }
-            let position = input_index_for_column(
-                &self.input,
-                geometry.visible_start,
-                geometry.visible_end,
-                geometry.text_x,
-                geometry.text_width,
-                column,
-            );
+            let position = if row < geometry.row {
+                0
+            } else if row > geometry.row {
+                self.input.len()
+            } else {
+                input_index_for_column(
+                    &self.input,
+                    geometry.visible_start,
+                    geometry.visible_end,
+                    geometry.text_x,
+                    geometry.text_width,
+                    column,
+                )
+            };
             if !extend {
                 self.selection_anchor = Some(position);
                 self.clear_transcript_selection();
@@ -1375,7 +1864,11 @@ impl TuiState {
 
     fn selection_range(&self) -> Option<(usize, usize)> {
         let anchor = self.selection_anchor?;
-        let range = anchor.min(self.input_cursor)..anchor.max(self.input_cursor);
+        if anchor > self.input.len() || !self.input.is_char_boundary(anchor) {
+            return None;
+        }
+        let cursor = self.normalized_input_cursor();
+        let range = anchor.min(cursor)..anchor.max(cursor);
         (!range.is_empty()).then_some((range.start, range.end))
     }
 
@@ -1411,20 +1904,22 @@ impl TuiState {
     fn clear_transcript_selection(&mut self) {
         self.transcript_anchor = None;
         self.transcript_focus = None;
-        self.selection_dragging = false;
         self.selection_autoscroll = 0;
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
+        frame.render_widget(
+            Block::default().style(Style::default().bg(APP_BG)),
+            frame.area(),
+        );
+        let folded = self.input_panel_folds(frame.area().width);
+        let panel_height: u16 = if folded { 6 } else { 5 };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(3),
                 Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(3),
-                Constraint::Length(1),
+                Constraint::Length(panel_height),
             ])
             .split(frame.area());
 
@@ -1435,11 +1930,18 @@ impl TuiState {
         } else {
             self.draw_transcript(frame, chunks[0]);
         }
-        self.draw_separator(frame, chunks[1]);
-        self.draw_activity(frame, chunks[2]);
-        frame.render_widget(Clear, chunks[3]);
-        self.draw_composer(frame, chunks[4]);
-        self.draw_status_bar(frame, chunks[5]);
+        frame.render_widget(
+            Block::default().style(Style::default().bg(APP_BG)),
+            chunks[1],
+        );
+        let panel_area = chunks[2];
+        let composer_area = Rect {
+            x: panel_area.x,
+            y: panel_area.y.saturating_add(if folded { 2 } else { 1 }),
+            width: panel_area.width,
+            height: 3,
+        };
+        self.draw_input_panel(frame, panel_area, composer_area, folded);
 
         if self.slash_drawer_open() {
             let rows = self.filtered_drawer_rows();
@@ -1518,14 +2020,6 @@ impl TuiState {
         output
     }
 
-    fn draw_separator(&self, frame: &mut Frame, area: Rect) {
-        frame.render_widget(
-            Paragraph::new("─".repeat(usize::from(area.width)))
-                .style(Style::default().fg(Color::DarkGray)),
-            area,
-        );
-    }
-
     fn draw_transcript(&mut self, frame: &mut Frame, mut area: Rect) {
         if area.width > 2 {
             area = area.inner(Margin {
@@ -1568,7 +2062,7 @@ impl TuiState {
                     Span::styled("› ", Style::default().add_modifier(Modifier::BOLD)),
                     Span::styled(header, Style::default().add_modifier(Modifier::BOLD)),
                 ]))
-                .style(Style::default().bg(Color::Indexed(238)).fg(Color::White)),
+                .style(Style::default().bg(PANEL_BG).fg(Color::White)),
                 header_area,
             );
         }
@@ -1587,7 +2081,7 @@ impl TuiState {
             );
             let line_background = line.background.or(match line.kind {
                 TranscriptKind::Code => Some(CODE_BG),
-                TranscriptKind::User => Some(Color::Indexed(238)),
+                TranscriptKind::User => Some(PANEL_BG),
                 _ => None,
             });
             if let Some(background) = line_background {
@@ -1606,7 +2100,7 @@ impl TuiState {
         if area.is_empty() {
             return;
         }
-        frame.render_widget(Clear, area);
+        frame.render_widget(Block::default().style(Style::default().bg(APP_BG)), area);
         let mark_width = WELCOME_LOGO
             .iter()
             .map(|line| line.chars().count())
@@ -1640,7 +2134,7 @@ impl TuiState {
                 .collect::<Vec<_>>();
             lines.push(Line::raw(""));
             lines.push(
-                Line::styled("超级个体俱乐部", Style::default().fg(CAPTION_GREY))
+                Line::styled("超级个体俱乐部", Style::default().fg(PANEL_TEXT_GREEN))
                     .alignment(Alignment::Center),
             );
 
@@ -1658,9 +2152,9 @@ impl TuiState {
             let link_colour = if hovered { LINK_HOVER } else { LINK };
             lines.push(
                 Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(CAPTION_GREY)),
+                    Span::styled(prefix, Style::default().fg(PANEL_TEXT_GREEN)),
                     Span::styled(name, Style::default().fg(link_colour)),
-                    Span::styled(tld, Style::default().fg(TLD_GREEN)),
+                    Span::styled(tld, Style::default().fg(link_colour)),
                 ])
                 .alignment(Alignment::Center),
             );
@@ -1683,6 +2177,7 @@ impl TuiState {
 
     fn build_transcript_lines(&self, width: u16) -> Vec<TranscriptVisualLine> {
         let mut lines: Vec<TranscriptVisualLine> = Vec::new();
+        let mut in_conclusion = false;
         for entry in &self.transcript {
             if entry.kind == TranscriptKind::User {
                 lines.push(blank_transcript_line(TranscriptKind::User, TuiTone::User));
@@ -1693,6 +2188,7 @@ impl TuiState {
                     | TranscriptKind::Code
                     | TranscriptKind::Quote
                     | TranscriptKind::QueryResult
+                    | TranscriptKind::ConclusionStart
             ) && lines.last().is_some_and(|line| !line.text.is_empty())
             {
                 lines.push(blank_transcript_line(
@@ -1702,18 +2198,76 @@ impl TuiState {
             }
             let (prefix, prefix_tone) = match entry.kind {
                 TranscriptKind::User => ("› ", TuiTone::Success),
-                TranscriptKind::Assistant => ("  ", TuiTone::Default),
+                TranscriptKind::Assistant => {
+                    (if in_conclusion { "   " } else { "  " }, TuiTone::Default)
+                }
                 TranscriptKind::Heading => ("▌ ", entry.tone),
-                TranscriptKind::Item => ("  • ", TuiTone::Muted),
+                TranscriptKind::Item => ("  • ", entry.tone),
                 TranscriptKind::Quote => ("  ▌ ", TuiTone::Supplementary),
                 TranscriptKind::QueryResult => ("  ◇ ", TuiTone::Muted),
-                TranscriptKind::Evidence => ("  ↳ ", TuiTone::Evidence),
+                TranscriptKind::Evidence => ("  ↳ ", entry.tone),
                 TranscriptKind::Code => ("  ", TuiTone::Code),
                 TranscriptKind::Metadata => ("  ", TuiTone::Muted),
+                TranscriptKind::Work => ("• ", entry.tone),
+                TranscriptKind::WorkResult => ("  ⎿ ", TuiTone::Body),
+                TranscriptKind::ConclusionStart | TranscriptKind::ConclusionEnd => {
+                    ("", TuiTone::ConclusionBorder)
+                }
                 TranscriptKind::System => ("Sys ", TuiTone::Muted),
                 TranscriptKind::Error => ("Err ", TuiTone::Danger),
             };
             let label = entry.label.as_deref().unwrap_or_default();
+            if entry.kind == TranscriptKind::ConclusionStart {
+                let label = if entry.text.trim().is_empty() {
+                    "结论 Conclusion"
+                } else {
+                    entry.text.trim()
+                };
+                let top_prefix = "╭─ ";
+                let right = "╮";
+                let label = truncate_to_width(label, usize::from(width.saturating_sub(10)));
+                let fill = usize::from(width)
+                    .saturating_sub(top_prefix.width() + label.width() + 1 + right.width());
+                let text = format!("{top_prefix}{label} {}╮", "─".repeat(fill));
+                lines.push(TranscriptVisualLine {
+                    kind: TranscriptKind::ConclusionStart,
+                    tone: TuiTone::ConclusionBorder,
+                    text,
+                    prompt_text: None,
+                    prefix_len: top_prefix.len(),
+                    prefix_tone: TuiTone::ConclusionBorder,
+                    label_range: Some(top_prefix.len()..top_prefix.len() + label.len()),
+                    label_tone: TuiTone::ConclusionTitle,
+                    syntax_ranges: Vec::new(),
+                    background: None,
+                });
+                lines.push(blank_transcript_line(
+                    TranscriptKind::Assistant,
+                    TuiTone::Body,
+                ));
+                in_conclusion = true;
+                continue;
+            }
+            if entry.kind == TranscriptKind::ConclusionEnd {
+                in_conclusion = false;
+                lines.push(blank_transcript_line(
+                    TranscriptKind::Assistant,
+                    TuiTone::Body,
+                ));
+                lines.push(TranscriptVisualLine {
+                    kind: TranscriptKind::ConclusionEnd,
+                    tone: TuiTone::ConclusionBorder,
+                    text: format!("╰{}╯", "─".repeat(usize::from(width).saturating_sub(2))),
+                    prompt_text: None,
+                    prefix_len: 0,
+                    prefix_tone: TuiTone::ConclusionBorder,
+                    label_range: None,
+                    label_tone: TuiTone::White,
+                    syntax_ranges: Vec::new(),
+                    background: None,
+                });
+                continue;
+            }
             if entry.kind == TranscriptKind::Code {
                 let language = if label.is_empty() { "code" } else { label };
                 let header = format!("  ╭─ {language}");
@@ -1820,6 +2374,100 @@ impl TuiState {
                 ));
                 continue;
             }
+            if entry.kind == TranscriptKind::Work {
+                let first_prefix = if entry.text.trim().is_empty() {
+                    format!("• {label}")
+                } else {
+                    format!("• {label} · ")
+                };
+                let continuation_prefix = "  ";
+                let first_width = usize::from(width)
+                    .saturating_sub(first_prefix.width())
+                    .max(1);
+                let continuation_width = usize::from(width)
+                    .saturating_sub(continuation_prefix.width())
+                    .max(1);
+                let mut first = true;
+                for text_line in entry.text.lines() {
+                    let wrapped = if first {
+                        wrap_first_then_rest(text_line, first_width, continuation_width)
+                    } else {
+                        wrap_display(text_line, continuation_width)
+                    };
+                    for wrapped in wrapped {
+                        let line_prefix = if first {
+                            &first_prefix
+                        } else {
+                            continuation_prefix
+                        };
+                        let syntax_ranges = link_ranges(
+                            &wrapped,
+                            line_prefix.len(),
+                            TuiTone::WorkLink,
+                            TuiTone::WorkLink,
+                        );
+                        lines.push(TranscriptVisualLine {
+                            kind: TranscriptKind::Work,
+                            tone: TuiTone::WorkText,
+                            text: format!("{line_prefix}{wrapped}"),
+                            prompt_text: None,
+                            // Action names, the bullet and links are the
+                            // bright-green accents; details stay deep green.
+                            prefix_len: if first { "•".len() } else { 0 },
+                            prefix_tone: TuiTone::WorkLink,
+                            label_range: (first && !label.is_empty())
+                                .then_some("• ".len().."• ".len() + label.len()),
+                            label_tone: TuiTone::WorkLink,
+                            syntax_ranges,
+                            background: None,
+                        });
+                        first = false;
+                    }
+                }
+                continue;
+            }
+            if entry.kind == TranscriptKind::WorkResult {
+                let first_prefix = "  ⎿ ";
+                let continuation_prefix = "    ";
+                let mut first = true;
+                for text_line in entry.text.lines() {
+                    let line_prefix = if first {
+                        first_prefix
+                    } else {
+                        continuation_prefix
+                    };
+                    let line_width = usize::from(width)
+                        .saturating_sub(line_prefix.width())
+                        .max(1);
+                    for wrapped in wrap_display(text_line, line_width) {
+                        let line_prefix = if first {
+                            first_prefix
+                        } else {
+                            continuation_prefix
+                        };
+                        let syntax_ranges = link_ranges(
+                            &wrapped,
+                            line_prefix.len(),
+                            TuiTone::WorkLink,
+                            TuiTone::WorkLink,
+                        );
+                        lines.push(TranscriptVisualLine {
+                            kind: TranscriptKind::WorkResult,
+                            tone: TuiTone::WorkText,
+                            text: format!("{line_prefix}{wrapped}"),
+                            prompt_text: None,
+                            prefix_len: line_prefix.width(),
+                            prefix_tone: TuiTone::WorkText,
+                            label_range: None,
+                            label_tone: TuiTone::WorkText,
+                            syntax_ranges,
+                            background: None,
+                        });
+                        first = false;
+                    }
+                }
+                continue;
+            }
             let first_prefix = if label.is_empty() {
                 prefix.to_string()
             } else {
@@ -1840,17 +2488,36 @@ impl TuiState {
                     let line_prefix = if first { &first_prefix } else { prefix };
                     let label_range =
                         (first && !label.is_empty()).then_some(prefix.len()..line_prefix.len());
+                    let in_answer = in_conclusion && entry.kind == TranscriptKind::Assistant;
+                    let syntax_ranges = if entry.kind == TranscriptKind::Assistant {
+                        link_ranges(
+                            &wrapped,
+                            line_prefix.len(),
+                            TuiTone::Link,
+                            TuiTone::LocalFile,
+                        )
+                    } else {
+                        Vec::new()
+                    };
                     lines.push(TranscriptVisualLine {
                         kind: entry.kind,
-                        tone: entry.tone,
+                        tone: if in_answer {
+                            TuiTone::White
+                        } else {
+                            entry.tone
+                        },
                         text: format!("{line_prefix}{wrapped}"),
                         prompt_text: (first && entry.kind == TranscriptKind::User)
                             .then(|| entry.text.clone()),
                         prefix_len: prefix.len(),
                         prefix_tone,
                         label_range,
-                        label_tone: entry.label_tone,
-                        syntax_ranges: Vec::new(),
+                        label_tone: if in_answer {
+                            TuiTone::White
+                        } else {
+                            entry.label_tone
+                        },
+                        syntax_ranges,
                         background: None,
                     });
                     first = false;
@@ -1973,56 +2640,213 @@ impl TuiState {
         }
     }
 
-    fn draw_activity(&mut self, frame: &mut Frame, mut area: Rect) {
-        if area.width > 2 {
-            area = area.inner(Margin {
-                horizontal: 1,
-                vertical: 0,
-            });
-        }
-        self.follow_control_area = None;
-        if self.notice.is_none()
-            && let Some(label) = self.follow_control_label(area.width)
-        {
-            let width = label.width() as u16;
-            let target = Rect::new(
-                area.x + area.width.saturating_sub(width) / 2,
-                area.y,
-                width,
-                1,
-            );
-            let mut style = Style::default()
-                .bg(Color::Indexed(238))
-                .fg(Color::Indexed(75))
-                .add_modifier(Modifier::BOLD);
-            if self.follow_control_hovered {
-                style = style.add_modifier(Modifier::REVERSED);
-            }
-            frame.render_widget(Paragraph::new(label).style(style), target);
-            self.follow_control_area = Some(target);
-            return;
-        }
-        self.follow_control_hovered = false;
-        if self.notice.is_none() && self.status == TuiStatus::Running {
-            frame.render_widget(
-                Paragraph::new(self.activity_line()).style(
-                    Style::default()
-                        .fg(UI_ACCENT)
-                        .bg(BANNER_BG)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                area,
-            );
-            return;
-        }
-        let style = if self.notice.is_some() {
-            Style::default()
-                .fg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD)
+    fn input_panel_caption(&self, width: u16, bar_cells: usize) -> (String, String, bool) {
+        let (title, detail, step) = if self.activity_visible() {
+            self.activity_summary()
         } else {
-            Style::default().fg(MUTED_TEXT)
+            ("就绪".to_string(), "Ready".to_string(), 0)
         };
-        frame.render_widget(Paragraph::new(self.activity_line()).style(style), area);
+        let step = if step > 0 {
+            format!(" · 第 {step} 步")
+        } else {
+            String::new()
+        };
+        let heading = if detail.is_empty() {
+            format!("{title}{step}")
+        } else {
+            format!("{title} · {detail}{step}")
+        };
+        let (right_text, follow) = if let Some(notice) = &self.notice {
+            (format!("✓ {notice}"), false)
+        } else if let Some(label) = self.follow_control_label(width) {
+            (label.to_string(), true)
+        } else if let Some(footer) = self
+            .activity
+            .as_ref()
+            .and_then(|activity| activity.footer.clone())
+        {
+            (footer, false)
+        } else {
+            (
+                format!(
+                    "{} · {} · {}",
+                    self.run_metrics_line(),
+                    self.context_bar_with_cells(bar_cells),
+                    self.elapsed_label()
+                ),
+                false,
+            )
+        };
+        (heading, right_text, follow)
+    }
+
+    /// The heading and metrics share the top border only while both fit. On a
+    /// narrow terminal the metrics move to one row inside the same fence
+    /// instead of being truncated away.
+    fn input_panel_folds(&self, width: u16) -> bool {
+        const MIN_FILL: usize = 3;
+        let (heading, right_text, _) = self.input_panel_caption(width, 20);
+        let heading = truncate_to_width(&heading, usize::from(width.saturating_sub(8)));
+        // 15 fixed glyph columns plus the heading, right text and fill.
+        let needed = 15 + MIN_FILL + heading.width() + right_text.width();
+        needed > usize::from(width)
+    }
+
+    fn draw_input_panel(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        composer_area: Rect,
+        folded: bool,
+    ) {
+        self.follow_control_area = None;
+        if area.is_empty() {
+            return;
+        }
+
+        let bg = Style::default().bg(PANEL_BG);
+        let border_style = Style::default().fg(PANEL_GREEN).bg(PANEL_BG);
+        let text_style = Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG);
+        let bar_cells = if folded { 10 } else { 20 };
+        let (heading, right_text, follow) = self.input_panel_caption(area.width, bar_cells);
+        let right_text = if folded && area.width > 4 {
+            truncate_to_width(&right_text, usize::from(area.width - 4))
+        } else {
+            right_text
+        };
+
+        let mut right_style = text_style;
+        if follow && self.follow_control_hovered {
+            right_style = right_style.add_modifier(Modifier::REVERSED);
+        }
+
+        let (top_spans, follow_area) = if folded {
+            let heading = truncate_to_width(&heading, usize::from(area.width.saturating_sub(8)));
+            let left_width = 3 + 2 + heading.width() + 1;
+            let fill = usize::from(area.width)
+                .saturating_sub(left_width + 1)
+                .max(1);
+            let top_spans = vec![
+                Span::styled("╭─ ", border_style),
+                Span::styled("• ", Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG)),
+                Span::styled(heading, text_style),
+                Span::styled(" ", border_style),
+                Span::styled("─".repeat(fill), border_style),
+                Span::styled("╮", border_style),
+            ];
+            let follow_area = follow.then(|| {
+                Rect::new(
+                    area.x.saturating_add(2),
+                    area.y.saturating_add(1),
+                    right_text.width() as u16,
+                    1,
+                )
+            });
+            (top_spans, follow_area)
+        } else {
+            let heading = truncate_to_width(&heading, usize::from(area.width.saturating_sub(12)));
+            let left_width = 3 + 2 + heading.width() + 1;
+            let reserved_right = 3 + 1 + 4 + 1;
+            let max_right = usize::from(area.width)
+                .saturating_sub(left_width + reserved_right + 1)
+                .max(1);
+            let right_text = truncate_to_width(&right_text, max_right);
+            let right_width = 3 + right_text.width() + 1 + 4 + 1;
+            let fill = usize::from(area.width)
+                .saturating_sub(left_width + right_width)
+                .max(1);
+            let mut top_spans = vec![
+                Span::styled("╭─ ", border_style),
+                Span::styled("• ", Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG)),
+                Span::styled(heading, text_style),
+                Span::styled(" ", border_style),
+                Span::styled("─".repeat(fill), border_style),
+                Span::styled(" • ", text_style),
+            ];
+            top_spans.extend(self.styled_context_line(right_text.clone(), right_style));
+            top_spans.push(Span::styled(" ", border_style));
+            top_spans.push(Span::styled("─".repeat(4), border_style));
+            top_spans.push(Span::styled("╮", border_style));
+            let follow_area = follow.then(|| {
+                let x = area.x.saturating_add((left_width + fill + 3) as u16);
+                Rect::new(x, area.y, right_text.width() as u16, 1)
+            });
+            (top_spans, follow_area)
+        };
+
+        let status = self.panel_status_line();
+        let status = truncate_to_width(&status, usize::from(area.width.saturating_sub(4)));
+        let mut bottom_spans = vec![Span::styled("─ ", border_style)];
+        bottom_spans.extend(shortcut_key_spans(status, text_style));
+        bottom_spans.push(Span::styled(" ", border_style));
+        let bottom_title = Line::from(bottom_spans);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(border_style)
+            .style(bg)
+            .title_bottom(bottom_title);
+        frame.render_widget(block, area);
+        frame.render_widget(
+            Paragraph::new(Line::from(top_spans)).style(bg),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+
+        if folded && area.width > 2 {
+            let inner_width = usize::from(area.width - 2);
+            let padding = inner_width.saturating_sub(1 + right_text.width());
+            let mut metric_spans = vec![Span::styled(" ", text_style)];
+            metric_spans.extend(self.styled_context_line(right_text, right_style));
+            if padding > 0 {
+                metric_spans.push(Span::styled(" ".repeat(padding), bg));
+            }
+            frame.render_widget(
+                Paragraph::new(Line::from(metric_spans)).style(bg),
+                Rect::new(
+                    area.x.saturating_add(1),
+                    area.y.saturating_add(1),
+                    area.width.saturating_sub(2),
+                    1,
+                ),
+            );
+        }
+
+        self.follow_control_area = follow_area;
+
+        let inner = area.inner(Margin {
+            horizontal: 1,
+            vertical: 1,
+        });
+        if inner.is_empty() {
+            return;
+        }
+        let composer = Rect::new(
+            composer_area.x,
+            composer_area.y,
+            composer_area.width,
+            composer_area.height.min(inner.height),
+        );
+        self.draw_composer(frame, composer);
+    }
+
+    fn panel_status_line(&self) -> String {
+        let model = self
+            .provider_label
+            .rsplit_once('/')
+            .map(|(_, model)| model)
+            .unwrap_or(&self.provider_label);
+        let status = match self.status {
+            TuiStatus::Running => "● 运行中",
+            TuiStatus::Completed => "✓ 已完成",
+            TuiStatus::Failed => "失败",
+            TuiStatus::Cancelled => "已取消",
+            TuiStatus::Idle => "就绪",
+        };
+        format!(
+            "{status} · {model} · {} · Ctrl+T 模式 ",
+            self.displayed_mode().label_zh()
+        )
     }
 
     fn draw_composer(&mut self, frame: &mut Frame, mut area: Rect) {
@@ -2036,8 +2860,10 @@ impl TuiState {
         frame.render_widget(Block::default().style(background), area);
         if area.width < 4 || area.height < 3 {
             self.input_geometry = None;
+            self.input_box = None;
             return;
         }
+        self.input_box = Some(area);
 
         let input_area = Rect {
             x: area.x,
@@ -2059,10 +2885,7 @@ impl TuiState {
 
         let mut spans = vec![Span::styled(
             "› ",
-            Style::default()
-                .fg(UI_ACCENT)
-                .bg(BANNER_BG)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG),
         )];
         spans.extend(self.input_spans(visible_end));
         frame.render_widget(
@@ -2078,46 +2901,11 @@ impl TuiState {
         ));
     }
 
-    fn draw_status_bar(&self, frame: &mut Frame, area: Rect) {
-        if area.is_empty() {
-            return;
-        }
-        let model = self
-            .provider_label
-            .rsplit_once('/')
-            .map(|(_, model)| model)
-            .unwrap_or(&self.provider_label);
-        let left = format!(
-            " {model} · {} · / 命令 · Ctrl+T 模式",
-            self.displayed_mode().label_zh()
-        );
-        let right = format!("上下文 {}% ", self.context_percent());
-        let style = Style::default().fg(MUTED_TEXT);
-        let right_width = right.width() as u16;
-        if area.width > right_width {
-            let right_area = Rect {
-                x: area.right() - right_width,
-                y: area.y,
-                width: right_width,
-                height: 1,
-            };
-            frame.render_widget(Paragraph::new(Line::styled(right, style)), right_area);
-            let left_area = Rect {
-                width: area.width - right_width,
-                ..area
-            };
-            let text = truncate_to_width(&left, left_area.width as usize);
-            frame.render_widget(Paragraph::new(Line::styled(text, style)), left_area);
-        } else {
-            let text = truncate_to_width(&left, area.width as usize);
-            frame.render_widget(Paragraph::new(Line::styled(text, style)), area);
-        }
-    }
-
     fn input_spans(&self, visible_end: usize) -> Vec<Span<'static>> {
+        let visible_end = visible_end.min(self.input.len());
         let selection = self
             .selection_range()
-            .map(|(start, end)| start.max(self.input_scroll)..end.min(visible_end))
+            .map(|(start, end)| start.max(self.input_scroll).min(visible_end)..end.min(visible_end))
             .filter(|range| !range.is_empty());
         let Some(selection) = selection else {
             return vec![Span::raw(
@@ -2167,23 +2955,23 @@ impl TuiState {
                 Line::raw(" ".repeat(usize::from(area.width)));
                 usize::from(area.height)
             ])
-            .style(Style::default().bg(Color::Indexed(235))),
+            .style(Style::default().bg(MENU_BG)),
             area,
         );
         frame.render_widget(
             Paragraph::new(text)
-                .style(Style::default().fg(Color::White).bg(Color::Indexed(235)))
+                .style(Style::default().fg(Color::White).bg(MENU_BG))
                 .wrap(Wrap { trim: false })
                 .scroll((u16::try_from(top).unwrap_or(u16::MAX), 0))
                 .block(
                     Block::bordered()
                         .border_style(
                             Style::default()
-                                .fg(UI_ACCENT)
-                                .bg(Color::Indexed(235))
+                                .fg(Color::LightGreen)
+                                .bg(MENU_BG)
                                 .add_modifier(Modifier::BOLD),
                         )
-                        .style(Style::default().bg(Color::Indexed(235))),
+                        .style(Style::default().bg(MENU_BG)),
                 ),
             area,
         );
@@ -2214,17 +3002,19 @@ impl TuiState {
                 let bar = if is_selected { "▌ " } else { "  " };
                 let marker = if is_active { "●" } else { " " };
                 let label_style = if is_selected {
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD)
+                    Style::default().fg(MENU_LABEL).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(MENU_LABEL)
                 };
                 ListItem::new(Line::from(vec![
-                    Span::styled(bar, Style::default().fg(UI_ACCENT)),
+                    Span::styled(bar, Style::default().fg(Color::LightGreen)),
                     Span::styled(
                         format!("{marker} "),
-                        Style::default().fg(if is_active { UI_ACCENT } else { MENU_HINT }),
+                        Style::default().fg(if is_active {
+                            Color::LightGreen
+                        } else {
+                            MENU_HINT
+                        }),
                     ),
                     Span::styled(fit_row(item.label, 12), label_style),
                     Span::styled(item.description, Style::default().fg(MENU_HINT)),
@@ -2272,7 +3062,7 @@ impl TuiState {
         } else {
             "↑↓ 选择 · Enter 确认 · Esc 返回"
         };
-        let block = menu_block(&breadcrumb, hint, Color::Reset);
+        let block = menu_block(&breadcrumb, hint, MENU_BG);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.is_empty() {
@@ -2349,10 +3139,12 @@ impl TuiState {
                 .map(|(index, item)| {
                     let bar = if index == selected { "▌ " } else { "  " };
                     ListItem::new(Line::from(vec![
-                        Span::styled(bar, Style::default().fg(UI_ACCENT)),
+                        Span::styled(bar, Style::default().fg(Color::LightGreen)),
                         Span::styled(
                             fit_row(&item.label, 18),
-                            Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::LightGreen)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             item.description.clone(),
@@ -2385,31 +3177,63 @@ impl TuiState {
             if let Some(heading) = row.heading {
                 items.push(ListItem::new(Line::styled(
                     format!("  {heading}"),
-                    Style::default().fg(MUTED_TEXT).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(PANEL_TEXT_GREEN)
+                        .add_modifier(Modifier::BOLD),
                 )));
             }
-            let entry = row.entry;
             let is_selected = selected == Some(index);
             let bar = if is_selected { "▌ " } else { "  " };
-            let (name_style, description_style) = if entry.unavailable.is_some() {
-                (
-                    Style::default().fg(MUTED_TEXT),
-                    Style::default().fg(MUTED_TEXT),
-                )
-            } else {
-                (
-                    Style::default().fg(UI_ACCENT).add_modifier(Modifier::BOLD),
-                    Style::default().fg(COMMAND_DESCRIPTION),
-                )
-            };
-            let detail = match entry.unavailable {
-                Some(reason) => format!("{}  [{reason}]", entry.spec.description),
-                None => entry.spec.description.to_string(),
+            let (name, detail, name_style, detail_style) = match row.entry {
+                DrawerEntry::Command(entry) => {
+                    let detail = match entry.unavailable {
+                        Some(reason) => format!("{}  [{reason}]", entry.spec.description),
+                        None => entry.spec.description.to_string(),
+                    };
+                    let (name_style, detail_style) = if entry.unavailable.is_some() {
+                        (
+                            Style::default().fg(PANEL_TEXT_GREEN),
+                            Style::default().fg(PANEL_TEXT_GREEN),
+                        )
+                    } else {
+                        (
+                            Style::default()
+                                .fg(Color::LightGreen)
+                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(Color::LightGreen),
+                        )
+                    };
+                    (entry.spec.name, detail, name_style, detail_style)
+                }
+                DrawerEntry::Prompt(prompt) => {
+                    let view = prompt_view(prompt, self.prompt_language)
+                        .or_else(|| prompt_view(prompt, PromptLanguage::Zh))
+                        .expect("Chinese prompt view is always available");
+                    (
+                        view.name,
+                        format!("{} · {} · {}", view.value, view.category, view.purpose),
+                        Style::default()
+                            .fg(Color::LightGreen)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(Color::LightGreen),
+                    )
+                }
+                DrawerEntry::Source(source) => (
+                    source.topic,
+                    format!(
+                        "{} · {} · {} 条",
+                        source.author, source.category, source.fragments
+                    ),
+                    Style::default()
+                        .fg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::LightGreen),
+                ),
             };
             items.push(ListItem::new(Line::from(vec![
-                Span::styled(bar, Style::default().fg(UI_ACCENT)),
-                Span::styled(fit_row(entry.spec.name, 16), name_style),
-                Span::styled(detail, description_style),
+                Span::styled(bar, Style::default().fg(Color::LightGreen)),
+                Span::styled(fit_row(name, 22), name_style),
+                Span::styled(detail, detail_style),
             ])));
             if is_selected {
                 selected_item = Some(items.len() - 1);
@@ -2417,27 +3241,67 @@ impl TuiState {
         }
         if items.is_empty() {
             items.push(ListItem::new(Line::styled(
-                " 没有匹配的命令",
-                Style::default().fg(MUTED_TEXT),
+                " 没有匹配的命令或提示词",
+                Style::default().fg(PANEL_TEXT_GREEN),
             )));
             selected_item = Some(0);
         }
         let mut state = ListState::default();
         state.select(selected_item);
         frame.render_widget(Clear, area);
-        let block = menu_block(
-            self.command_drawer_title(),
-            "↑↓ 选择 · Tab 补全 · Esc 关闭",
-            MENU_BG,
-        );
+        let hint = if self.prompt_drawer_parts().is_some() {
+            "↑↓ 选择 · Enter 插入 · Esc 取消"
+        } else {
+            "↑↓ 选择 · Tab 补全 · 输入关键词搜提示词 · Esc 关闭"
+        };
+        let block = menu_block(self.command_drawer_title(), hint, MENU_BG);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let selected_source = selected
+            .and_then(|index| rows.get(index))
+            .and_then(|row| row.entry.source());
+        let (list_area, preview) = match selected_source.filter(|_| inner.width >= 72) {
+            Some(source) => {
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+                    .split(inner);
+                (chunks[0], Some((chunks[1], source)))
+            }
+            None => (inner, None),
+        };
         frame.render_stateful_widget(
             List::new(items)
                 .style(Style::default().bg(MENU_BG))
-                .block(block)
                 .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
-            area,
+            list_area,
             &mut state,
         );
+        if let Some((preview_area, source)) = preview {
+            let body = match self.prompt_language {
+                PromptLanguage::Zh => source.translation,
+                PromptLanguage::En => source.original,
+            };
+            let header = format!(
+                "{} · {}\n{} · {} 条 · {} 字\n\n",
+                source.author,
+                source.topic,
+                source.category,
+                source.fragments,
+                body.chars().count()
+            );
+            let block = Block::default()
+                .borders(Borders::LEFT)
+                .border_style(Style::default().fg(DRAWER_BORDER));
+            let preview_inner = block.inner(preview_area);
+            frame.render_widget(block, preview_area);
+            frame.render_widget(
+                Paragraph::new(format!("{header}{body}"))
+                    .wrap(Wrap { trim: false })
+                    .style(Style::default().fg(Color::White).bg(MENU_BG)),
+                preview_inner,
+            );
+        }
     }
 
     fn follow_control_label(&self, width: u16) -> Option<&'static str> {
@@ -2471,6 +3335,7 @@ impl TuiState {
 
     fn ensure_input_cursor_visible(&mut self, width: u16) {
         let width = usize::from(width.saturating_sub(1).max(1));
+        self.normalize_input_state();
         if self.input_cursor < self.input_scroll {
             self.input_scroll = self.input_cursor;
         }
@@ -2485,20 +3350,32 @@ impl TuiState {
             .rsplit_once('/')
             .map(|(_, model)| model)
             .unwrap_or(&self.provider_label);
+        let steps = if self.max_steps == 0 {
+            "步数不限".to_string()
+        } else {
+            format!("最多 {} 步", self.max_steps)
+        };
+        let time = if self.timeout_seconds == 0 {
+            "不限时".to_string()
+        } else {
+            format!("{} 秒", self.timeout_seconds)
+        };
         format!(
-            " 1A · {} · {} · {}风险 · {} · 最多 {} 步 / {} 秒 · {}",
+            " 1A · {} · {} · {}风险 · {} · {} / {} · {}",
             self.status.label_zh(),
             self.mode.label_zh(),
             self.risk.label_zh(),
             model,
-            self.max_steps,
-            self.timeout_seconds,
+            steps,
+            time,
             self.host_binding.kind().label_zh()
         )
     }
 
     fn command_drawer_title(&self) -> &'static str {
-        if self.host_binding.is_workshop_master() {
+        if self.prompt_drawer_parts().is_some() {
+            " 原文库 "
+        } else if self.host_binding.is_workshop_master() {
             " 总控命令 "
         } else {
             " 命令 "
@@ -2510,19 +3387,49 @@ impl TuiState {
             return format!(" ✓ {notice}");
         }
         let metrics = self.run_metrics_line();
+        let context = self.context_bar();
         match self.status {
             TuiStatus::Running => {
-                let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                let (title, detail, step) = self.activity_summary();
+                let step = if step > 0 {
+                    format!(" · 第 {step} 步")
+                } else {
+                    String::new()
+                };
+                let detail = if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {detail}")
+                };
                 format!(
-                    " {} Working... {} · {metrics} · Ctrl+C 取消",
-                    frames[self.activity_frame % frames.len()],
+                    " {title}{detail}{step} · {metrics} · {context} · {} · Ctrl+C 取消",
                     self.elapsed_label()
                 )
             }
-            TuiStatus::Idle => " 就绪".to_string(),
-            TuiStatus::Completed => format!(" ✓ 已完成 · {} · {metrics}", self.elapsed_label()),
-            TuiStatus::Failed => format!(" 失败 · {} · {metrics}", self.elapsed_label()),
-            TuiStatus::Cancelled => format!(" 已取消 · {} · {metrics}", self.elapsed_label()),
+            TuiStatus::Idle => format!(" 就绪 · {context}"),
+            TuiStatus::Completed => {
+                format!(
+                    " ✓ 已完成 · {} · {metrics} · {context}",
+                    self.elapsed_label()
+                )
+            }
+            TuiStatus::Failed => {
+                format!(" 失败 · {} · {metrics} · {context}", self.elapsed_label())
+            }
+            TuiStatus::Cancelled => {
+                format!(" 已取消 · {} · {metrics} · {context}", self.elapsed_label())
+            }
+        }
+    }
+
+    fn activity_summary(&self) -> (String, String, usize) {
+        match &self.activity {
+            Some(activity) => (
+                activity.title.clone(),
+                activity.detail.clone(),
+                activity.step,
+            ),
+            None => ("准备请求模型 Prepare Request".into(), String::new(), 0),
         }
     }
 
@@ -2544,7 +3451,7 @@ impl TuiState {
 
     fn run_metrics_line(&self) -> String {
         if !self.run_metrics.usage_seen {
-            return "↑— ↓— · cache —".to_string();
+            return "↑ — / ↓ — · 缓存 —".to_string();
         }
         let total_cache = self
             .run_metrics
@@ -2556,10 +3463,10 @@ impl TuiState {
             .saturating_mul(100)
             .saturating_add(total_cache / 2)
             .checked_div(total_cache)
-            .map(|percent| format!("cache {percent}%"))
-            .unwrap_or_else(|| "cache —".to_string());
+            .map(|percent| format!("缓存 {percent}%"))
+            .unwrap_or_else(|| "缓存 —".to_string());
         format!(
-            "↑{} ↓{} · {cache}",
+            "↑ {} / ↓ {} · {cache}",
             format_token_count(self.run_metrics.input_tokens),
             format_token_count(self.run_metrics.output_tokens)
         )
@@ -2604,7 +3511,7 @@ impl TuiState {
 
     fn flush_markdown_prose(&mut self, prose: &mut Vec<String>) {
         if let Some(text) = compact_markdown_prose(prose) {
-            self.assistant_body(text);
+            self.assistant_body(strip_bold_markers(&text));
         }
         prose.clear();
     }
@@ -2641,6 +3548,190 @@ fn compact_markdown_prose(lines: &[String]) -> Option<String> {
         output.pop();
     }
     (!output.is_empty()).then(|| output.join("\n"))
+}
+
+fn markdown_heading(line: &str) -> Option<&str> {
+    for level in 1..=3 {
+        let prefix = "#".repeat(level);
+        let Some(rest) = line.strip_prefix(&prefix) else {
+            continue;
+        };
+        let Some(text) = rest.strip_prefix(' ') else {
+            continue;
+        };
+        let text = text.trim();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn markdown_bullet(line: &str) -> Option<&str> {
+    ["- ", "* ", "+ "]
+        .into_iter()
+        .find_map(|marker| line.strip_prefix(marker))
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
+fn markdown_numbered(line: &str) -> Option<(&str, &str)> {
+    let digits = line
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if digits.is_empty() || digits.len() > 3 {
+        return None;
+    }
+    let number = &line[..digits.len()];
+    let rest = line[digits.len()..].strip_prefix(". ")?;
+    let rest = rest.trim();
+    (!rest.is_empty()).then_some((number, rest))
+}
+
+fn task_checkbox(text: &str) -> Option<(bool, &str)> {
+    let rest = text.strip_prefix('[')?;
+    let close = rest.find(']')?;
+    let mark = rest[..close].trim();
+    let tail = rest[close + 1..].trim();
+    match mark {
+        "" => Some((false, tail)),
+        "x" | "X" => Some((true, tail)),
+        _ => None,
+    }
+}
+
+fn markdown_rule(line: &str) -> bool {
+    let line = line.trim();
+    line.len() >= 3
+        && (line.chars().all(|character| character == '-')
+            || line.chars().all(|character| character == '*')
+            || line.chars().all(|character| character == '_'))
+}
+
+fn split_bold_label(text: &str) -> Option<(&str, &str)> {
+    let rest = text.strip_prefix("**")?;
+    let end = rest.find("**")?;
+    let label = rest[..end].trim();
+    if label.is_empty() {
+        return None;
+    }
+    let tail = rest[end + 2..].trim_start_matches([' ', ':', '：']);
+    Some((label, tail))
+}
+
+fn strip_bold_markers(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("**") {
+        output.push_str(&rest[..start]);
+        rest = &rest[start + 2..];
+        if let Some(end) = rest.find("**") {
+            output.push_str(&rest[..end]);
+            rest = &rest[end + 2..];
+        } else {
+            output.push_str(rest);
+            return output;
+        }
+    }
+    output.push_str(rest);
+    output
+}
+
+fn is_table_row(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.matches('|').count() >= 2
+}
+
+fn is_table_separator(line: &str) -> bool {
+    if !is_table_row(line) {
+        return false;
+    }
+    let cells = line
+        .trim()
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    !cells.is_empty()
+        && cells.iter().all(|cell| {
+            let cell = cell.trim_matches(':');
+            !cell.is_empty() && cell.chars().all(|character| character == '-')
+        })
+}
+
+fn parse_table_row(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+fn pad_to_width(text: &str, width: usize) -> String {
+    let text = truncate_to_width(text, width);
+    let actual = text.width();
+    if actual < width {
+        format!("{text}{}", " ".repeat(width - actual))
+    } else {
+        text
+    }
+}
+
+fn markdown_table(lines: &[&str], start: usize) -> Option<(Vec<String>, usize)> {
+    let header = *lines.get(start)?;
+    if !is_table_row(header) || !is_table_separator(lines.get(start + 1)?) {
+        return None;
+    }
+    let mut rows = vec![parse_table_row(header)];
+    let mut index = start + 2;
+    while let Some(line) = lines.get(index) {
+        if !is_table_row(line) {
+            break;
+        }
+        rows.push(parse_table_row(line));
+        index += 1;
+    }
+    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if columns < 2 {
+        return None;
+    }
+    let mut widths = vec![1usize; columns];
+    for row in &rows {
+        for (column, cell) in row.iter().enumerate() {
+            widths[column] = widths[column].max(cell.width()).min(24);
+        }
+    }
+    while widths.iter().sum::<usize>() + columns * 3 + 1 > 100 {
+        let Some(max) = widths.iter().copied().max() else {
+            break;
+        };
+        if max <= 6 {
+            break;
+        }
+        for width in &mut widths {
+            *width = (*width).min(max - 1).max(6);
+        }
+    }
+    let mut output = Vec::new();
+    for (row_index, row) in rows.iter().enumerate() {
+        let cells = (0..columns)
+            .map(|column| {
+                let cell = row.get(column).map(String::as_str).unwrap_or("");
+                pad_to_width(&strip_bold_markers(cell), widths[column])
+            })
+            .collect::<Vec<_>>();
+        output.push(format!("| {} |", cells.join(" | ")));
+        if row_index == 0 {
+            let separator = widths
+                .iter()
+                .map(|width| "-".repeat(width + 2))
+                .collect::<Vec<_>>()
+                .join("|");
+            output.push(format!("|{separator}|"));
+        }
+    }
+    Some((output, index))
 }
 
 pub fn sanitize_multiline(text: &str) -> String {
@@ -2688,6 +3779,50 @@ fn format_token_count(value: u64) -> String {
     } else {
         format!("{:.1}M", value as f64 / 1_000_000.0)
     }
+}
+
+fn activity_kind_tone(kind: TuiActivityKind) -> TuiTone {
+    // One accent for work in progress; colour is reserved for outcomes.
+    match kind {
+        TuiActivityKind::Verifying
+        | TuiActivityKind::Answering
+        | TuiActivityKind::MasterVerifying
+        | TuiActivityKind::MasterReporting => TuiTone::Success,
+        TuiActivityKind::Retrying | TuiActivityKind::MasterApproval => TuiTone::Warning,
+        TuiActivityKind::Blocked => TuiTone::Danger,
+        TuiActivityKind::Understanding
+        | TuiActivityKind::Planning
+        | TuiActivityKind::Routing
+        | TuiActivityKind::Thinking
+        | TuiActivityKind::Reading
+        | TuiActivityKind::Writing
+        | TuiActivityKind::Creating
+        | TuiActivityKind::Updating
+        | TuiActivityKind::Searching
+        | TuiActivityKind::Fetching
+        | TuiActivityKind::Querying
+        | TuiActivityKind::Bash
+        | TuiActivityKind::Spawning
+        | TuiActivityKind::Skill
+        | TuiActivityKind::Delegating
+        | TuiActivityKind::CallingTool
+        | TuiActivityKind::ToolResult
+        | TuiActivityKind::Compacting
+        | TuiActivityKind::MasterUnderstanding
+        | TuiActivityKind::MasterPlanning
+        | TuiActivityKind::MasterAssignment
+        | TuiActivityKind::MasterStarting
+        | TuiActivityKind::WorkerRunning
+        | TuiActivityKind::MasterCollecting => TuiTone::Evidence,
+    }
+}
+
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 fn previous_grapheme_boundary(text: &str, cursor: usize) -> usize {
@@ -2758,6 +3893,178 @@ fn transcript_tone_at(line: &TranscriptVisualLine, index: usize) -> TuiTone {
     }
 }
 
+const BARE_FILE_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "html", "htm", "pdf", "txt", "rst", "adoc", "org", "csv", "tsv", "json",
+    "jsonl", "yaml", "yml", "toml", "xml", "ini", "cfg", "conf", "env", "log", "jpg", "jpeg",
+    "png", "gif", "webp", "svg", "bmp", "tiff", "tif", "ico", "heic", "doc", "docx", "xls", "xlsx",
+    "ppt", "pptx", "odt", "ods", "odp", "rtf", "rs", "py", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+    "go", "java", "kt", "kts", "c", "cc", "cpp", "cxx", "h", "hpp", "cs", "rb", "php", "swift",
+    "scala", "sh", "bash", "zsh", "fish", "ps1", "sql", "graphql", "gql", "proto", "ipynb", "lock",
+    "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "mp3", "wav", "flac", "ogg", "mp4", "mov", "avi",
+    "mkv", "webm", "woff", "woff2", "ttf", "otf", "wasm", "bin", "exe",
+];
+
+fn link_ranges(
+    text: &str,
+    offset: usize,
+    link_tone: TuiTone,
+    file_tone: TuiTone,
+) -> Vec<(Range<usize>, TuiTone)> {
+    let mut ranges = Vec::new();
+    let mut token_start = 0usize;
+    for (index, character) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), '\0')))
+    {
+        if index == text.len() || character.is_whitespace() {
+            if index > token_start {
+                push_link_range(
+                    &text[token_start..index],
+                    offset + token_start,
+                    &mut ranges,
+                    link_tone,
+                    file_tone,
+                );
+            }
+            token_start = index.saturating_add(character.len_utf8());
+        }
+    }
+    ranges
+}
+
+fn push_link_range(
+    token: &str,
+    start: usize,
+    ranges: &mut Vec<(Range<usize>, TuiTone)>,
+    link_tone: TuiTone,
+    file_tone: TuiTone,
+) {
+    let trimmed = token.trim_matches(|character: char| {
+        matches!(
+            character,
+            ',' | ';'
+                | ':'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '"'
+                | '\''
+                | '`'
+                | '。'
+                | '，'
+                | '；'
+                | '：'
+                | '？'
+                | '！'
+                | '、'
+        )
+    });
+    if trimmed.is_empty() {
+        return;
+    }
+    let leading = token.len().saturating_sub(
+        token
+            .trim_start_matches(|character: char| {
+                matches!(
+                    character,
+                    ',' | ';'
+                        | ':'
+                        | '('
+                        | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '"'
+                        | '\''
+                        | '`'
+                        | '。'
+                        | '，'
+                        | '；'
+                        | '：'
+                        | '？'
+                        | '！'
+                        | '、'
+                )
+            })
+            .len(),
+    );
+    let range_start = start + leading;
+    let range_end = range_start + trimmed.len();
+
+    if let Some(position) = trimmed.find("http://").or_else(|| trimmed.find("https://")) {
+        let start = range_start + position;
+        let url = &trimmed[position..];
+        ranges.push((start..start + url.len(), link_tone));
+        return;
+    }
+
+    let normalized = trimmed.replace('\\', "/");
+    let path = normalized
+        .split_once(':')
+        .filter(|(_, rest)| {
+            !rest.is_empty()
+                && rest
+                    .chars()
+                    .all(|character| character.is_ascii_digit() || character == ':')
+        })
+        .map(|(path, _)| path)
+        .unwrap_or(normalized.as_str());
+    if path.starts_with("http://") || path.starts_with("https://") || path.contains("://") {
+        return;
+    }
+    let Some((stem, extension)) = path
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+    else {
+        return;
+    };
+    if stem.is_empty()
+        || extension.is_empty()
+        || extension.len() > 8
+        || !extension
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+    {
+        return;
+    }
+    let extension = extension.to_ascii_lowercase();
+    let has_slash = path.contains('/');
+    let absolute = path.starts_with('/')
+        || path.starts_with("./")
+        || path.starts_with("../")
+        || path.starts_with("~/");
+    if has_slash || absolute || BARE_FILE_EXTENSIONS.contains(&extension.as_str()) {
+        ranges.push((range_start..range_end, file_tone));
+    }
+}
+
+/// Render the `T` in `Ctrl+T` as a bright-green, bold shortcut key while the
+/// rest of the status keeps the panel text style.
+fn shortcut_key_spans(text: String, base: Style) -> Vec<Span<'static>> {
+    let Some(start) = text.find("Ctrl+T") else {
+        return vec![Span::styled(text, base)];
+    };
+    let key = start + "Ctrl+".len();
+    let mut spans = Vec::new();
+    if start > 0 {
+        spans.push(Span::styled(text[..start].to_string(), base));
+    }
+    spans.push(Span::styled("Ctrl+".to_string(), base));
+    spans.push(Span::styled(
+        "T".to_string(),
+        base.fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+    ));
+    if key + 1 < text.len() {
+        spans.push(Span::styled(text[key + 1..].to_string(), base));
+    }
+    spans
+}
+
 fn tone_style(tone: TuiTone) -> Style {
     match tone {
         TuiTone::Default => Style::default().fg(Color::Reset),
@@ -2794,7 +4101,22 @@ fn tone_style(tone: TuiTone) -> Style {
             .fg(Color::Indexed(245))
             .add_modifier(Modifier::DIM),
         TuiTone::Muted => Style::default().fg(MUTED_TEXT),
-        TuiTone::User => Style::default().fg(Color::White).bg(Color::Indexed(238)),
+        TuiTone::Body => Style::default().fg(Color::Indexed(250)),
+        TuiTone::White => Style::default().fg(Color::White),
+        TuiTone::Link => Style::default().fg(Color::LightBlue),
+        TuiTone::LocalFile => Style::default().fg(LOCAL_FILE_GREEN),
+        TuiTone::WorkText => Style::default().fg(PANEL_TEXT_GREEN),
+        TuiTone::WorkLink => Style::default().fg(Color::LightGreen),
+        TuiTone::SectionText => Style::default().fg(PANEL_TEXT_GREEN),
+        TuiTone::Border => Style::default().fg(Color::DarkGray),
+        TuiTone::ConclusionBorder => Style::default().fg(CONCLUSION_BORDER),
+        TuiTone::ConclusionTitle => Style::default()
+            .fg(Color::LightGreen)
+            .add_modifier(Modifier::BOLD),
+        TuiTone::Strong => Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+        TuiTone::User => Style::default().fg(Color::White).bg(PANEL_BG),
     }
 }
 
@@ -3787,7 +5109,7 @@ fn welcome_mark_lines() -> Vec<Line<'static>> {
                         } else if column < 4 {
                             Style::default().fg(MARK_GREEN)
                         } else {
-                            Style::default().fg(LINK)
+                            Style::default().fg(PANEL_TEXT_GREEN)
                         };
                         Span::styled(c.to_string(), style)
                     })
@@ -3797,10 +5119,19 @@ fn welcome_mark_lines() -> Vec<Line<'static>> {
         .collect()
 }
 
-pub fn welcome_logo_green_range(_index: usize) -> Range<usize> {
-    // The plain-text banner printed after a session uses one colour; the coloured
-    // mark only exists on the welcome screen, where it has no terminal colours.
-    0..0
+pub fn welcome_logo_green_range(index: usize) -> Range<usize> {
+    let Some(line) = WELCOME_LOGO.get(index) else {
+        return 0..0;
+    };
+    let mut start = None;
+    let mut end = 0;
+    for (column, character) in line.chars().enumerate() {
+        if column < 4 && character != ' ' {
+            start.get_or_insert(column);
+            end = column + 1;
+        }
+    }
+    start.unwrap_or(0)..end
 }
 
 fn wrap_first_then_rest(text: &str, first_width: usize, rest_width: usize) -> Vec<String> {
@@ -3864,7 +5195,7 @@ fn menu_block(title: &str, hint: &str, background: Color) -> Block<'static> {
         .title_top(Line::from(Span::styled(
             format!(" {} ", title.trim()),
             Style::default()
-                .fg(Color::White)
+                .fg(Color::LightGreen)
                 .add_modifier(Modifier::BOLD),
         )))
         .border_style(Style::default().fg(DRAWER_BORDER))
@@ -3963,6 +5294,63 @@ mod tests {
     }
 
     #[test]
+    fn editing_fuzz_keeps_the_cursor_on_a_character_boundary() {
+        let backend = TestBackend::new(74, 26);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        let samples = [
+            "",
+            "plain",
+            "  spaces  ",
+            "中文😀",
+            "e\u{301}",
+            "line\nnext\ttab",
+            "/help",
+            "\u{1b}[31mred",
+            "a😀b 中 c",
+            "\u{0}\u{202e}hidden",
+        ];
+        let chars = [
+            'a', ' ', '中', '😀', '\u{301}', '/', '\n', '\t', '\u{1b}', '\u{202e}',
+        ];
+        let mut seed = 0x9e37_79b9_u64;
+        for _ in 0..2500 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            match (seed >> 33) % 10 {
+                0 => state.insert_text(samples[(seed as usize) % samples.len()]),
+                1 => state.insert_char(chars[(seed as usize) % chars.len()]),
+                2 => state.backspace(),
+                3 => state.delete(),
+                4 => state.move_left(),
+                5 => state.move_right(),
+                6 => state.move_home(),
+                7 => state.move_end(),
+                8 => {
+                    terminal.draw(|frame| state.draw(frame)).unwrap();
+                    let column = ((seed >> 8) % 90) as u16;
+                    let row = ((seed >> 16) % 30) as u16;
+                    state.select_at(column, row, false);
+                }
+                _ => {
+                    state.select_at(40, 20, false);
+                    state.update_selection_drag(((seed >> 8) % 90) as u16, 20);
+                    state.end_selection_drag();
+                }
+            }
+            assert!(state.input_cursor <= state.input.len());
+            assert!(state.input.is_char_boundary(state.input_cursor));
+            if let Some(anchor) = state.selection_anchor {
+                assert!(anchor <= state.input.len());
+                assert!(state.input.is_char_boundary(anchor));
+            }
+            if state.input.len() > 4096 {
+                state.clear_input();
+            }
+        }
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+    }
+
+    #[test]
     fn editing_is_grapheme_aware_and_replaces_selection() {
         let mut state = TuiState::new("mock", 6, 120);
         state.insert_char(' ');
@@ -4043,9 +5431,10 @@ mod tests {
             "term-1790000000000-1234-1",
         ));
         state.set_input("/app");
-        let entries = state.filtered_command_entries();
+        let entries = state.filtered_drawer_entries();
         let approve = entries
             .iter()
+            .filter_map(|entry| entry.command())
             .find(|entry| entry.spec.name == "/approve")
             .expect("approve should be listed");
         assert_eq!(approve.unavailable, Some("Approval"));
@@ -4073,15 +5462,174 @@ mod tests {
         state.record_command_use(TuiCommandId::Status);
         state.set_input("/");
         let rows = state.filtered_drawer_rows();
-        assert_eq!(rows[0].heading, Some("最近"));
-        assert_eq!(rows[0].entry.spec.id, TuiCommandId::Status);
-        assert_eq!(rows[1].entry.spec.id, TuiCommandId::Mode);
+        let commands = rows
+            .iter()
+            .filter(|row| row.entry.command().is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(commands[0].heading, Some("最近"));
+        assert_eq!(
+            commands[0].entry.command().unwrap().spec.id,
+            TuiCommandId::Status
+        );
+        assert_eq!(
+            commands[1].entry.command().unwrap().spec.id,
+            TuiCommandId::Mode
+        );
         assert_eq!(
             rows.iter()
-                .filter(|row| row.entry.spec.id == TuiCommandId::Status)
+                .filter(|row| {
+                    row.entry
+                        .command()
+                        .is_some_and(|entry| entry.spec.id == TuiCommandId::Status)
+                })
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn prompt_supplement_completion_fills_the_composer() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("/验收");
+        let rows = state.filtered_drawer_rows();
+        let index = rows
+            .iter()
+            .position(|row| {
+                row.entry
+                    .prompt()
+                    .is_some_and(|prompt| prompt.name == "先说验收标准")
+            })
+            .expect("prompt row");
+        state.selected_command = index;
+        assert!(state.complete_selected_command());
+        assert!(state.input().contains("先别动手"));
+        assert!(state.input().contains("验收标准"));
+        assert_eq!(state.input_cursor, state.input().len());
+        assert!(!state.slash_drawer_open());
+    }
+
+    #[test]
+    fn double_slash_opens_the_whole_source_library() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("//");
+        assert!(state.slash_drawer_open());
+        assert_eq!(state.command_drawer_title(), " 原文库 ");
+        let rows = state.filtered_drawer_rows();
+        assert_eq!(rows.len(), 32);
+        assert!(rows.iter().all(|row| row.entry.source().is_some()));
+        let source = rows[0].entry.source().expect("source row");
+        state.selected_command = 0;
+        assert!(state.complete_selected_command());
+        assert!(state.input().contains("先想再写"));
+        assert!(state.input().contains(source.translation));
+        assert!(!state.input().contains('【'));
+        assert!(!state.input().contains("参考："));
+        assert!(!state.input().contains("https://x.com"));
+        assert!(!state.input().starts_with('\n'));
+        assert!(!state.input().ends_with('\n'));
+        assert!(!state.slash_drawer_open());
+    }
+
+    #[test]
+    fn source_drawer_previews_the_complete_body_before_insert() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("//");
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let screen = (0..40)
+            .map(|y| {
+                (0..120)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let compact = screen.replace(' ', "");
+        assert!(compact.contains("ThinkBeforeCoding"), "{screen}");
+        assert!(compact.contains("先想再写"), "{screen}");
+        assert!(compact.contains("Enter插入"), "{screen}");
+    }
+
+    #[test]
+    fn prompt_drawer_opens_after_a_task_and_merges_the_source_text() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("做跨境电商 //");
+        assert!(state.slash_drawer_open());
+        assert_eq!(state.command_drawer_title(), " 原文库 ");
+        let rows = state.filtered_drawer_rows();
+        assert!(rows.iter().all(|row| row.entry.source().is_some()));
+        let source = rows[0].entry.source().expect("source row");
+        state.selected_command = 0;
+        assert!(state.complete_selected_command());
+        assert!(state.input().starts_with("做跨境电商\n"));
+        assert!(state.input().contains(source.translation));
+        assert!(!state.input().contains('【'));
+        assert!(!state.slash_drawer_open());
+    }
+
+    #[test]
+    fn english_source_mode_inserts_the_complete_english_original() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_prompt_language(PromptLanguage::En);
+        state.set_input("做跨境电商 //Altitude");
+        let rows = state.filtered_drawer_rows();
+        assert!(rows.iter().all(|row| row.entry.source().is_some()));
+        let index = rows
+            .iter()
+            .position(|row| {
+                row.entry
+                    .source()
+                    .is_some_and(|source| source.topic == "Altitude")
+            })
+            .expect("english source row");
+        let source = rows[index].entry.source().expect("source row");
+        state.selected_command = index;
+        assert!(state.complete_selected_command());
+        assert!(state.input().starts_with("做跨境电商"));
+        assert!(
+            state.input().contains("Altitude: Going up in abstraction"),
+            "{}",
+            state.input()
+        );
+        assert!(state.input().contains(source.original));
+        assert!(!state.input().contains("高度：往上提高抽象层级"));
+        assert!(!state.input().contains("[Felix Rieseberg"));
+        assert!(!state.input().contains("Reference:"));
+    }
+
+    #[test]
+    fn inserting_the_same_source_twice_does_not_duplicate_it() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("//");
+        let source = state.filtered_drawer_rows()[0]
+            .entry
+            .source()
+            .expect("source row");
+        state.selected_command = 0;
+        assert!(state.complete_selected_command());
+        let first = state.input().to_string();
+        state.set_input(&format!("{first} //"));
+        state.selected_command = 0;
+        assert!(state.complete_selected_command());
+        assert_eq!(state.input().matches(source.translation).count(), 1);
+    }
+
+    #[test]
+    fn prompt_drawer_searches_inside_a_task_and_escape_restores_it() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("做跨境电商 //Think");
+        assert!(state.slash_drawer_open());
+        let rows = state.filtered_drawer_rows();
+        assert!(rows.iter().all(|row| row.entry.source().is_some()));
+        assert!(rows.iter().any(|row| {
+            row.entry
+                .source()
+                .is_some_and(|source| source.topic == "Think Before Coding")
+        }));
+        state.dismiss_slash_drawer();
+        assert_eq!(state.input(), "做跨境电商");
+        assert!(!state.slash_drawer_open());
     }
 
     #[test]
@@ -4167,8 +5715,8 @@ mod tests {
             .cell((geometry.text_x - 2, geometry.row))
             .unwrap();
         assert_eq!(prompt_cell.symbol(), "›");
-        assert_eq!(prompt_cell.fg, UI_ACCENT);
-        assert!(prompt_cell.modifier.contains(Modifier::BOLD));
+        assert_eq!(prompt_cell.fg, PANEL_TEXT_GREEN);
+        assert!(!prompt_cell.modifier.contains(Modifier::BOLD));
         assert_eq!(
             terminal
                 .backend()
@@ -4190,6 +5738,22 @@ mod tests {
         state.select_at(geometry.text_x, geometry.row, false);
         state.select_at(geometry.text_x + 3, geometry.row, true);
         assert_eq!(state.selected_input_text().as_deref(), Some("hel"));
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((geometry.text_x, geometry.row))
+                .unwrap()
+                .modifier
+                .contains(Modifier::REVERSED)
+        );
+
+        // The whole composer is a hit target, so a drag that starts on the
+        // block padding still selects the input line.
+        state.begin_selection_drag(geometry.text_x, geometry.row + 1);
+        state.update_selection_drag(geometry.text_x, geometry.row);
+        assert_eq!(state.selected_input_text().as_deref(), Some("hello"));
     }
 
     #[test]
@@ -4219,6 +5783,21 @@ mod tests {
         assert!(state.transcript_lines[answer_row - 2].text.is_empty());
 
         let area = state.transcript_area.unwrap();
+        let user_row = state
+            .transcript_lines
+            .iter()
+            .position(|line| line.text.contains("用户问题"))
+            .unwrap();
+        let user_y = area.y + u16::try_from(user_row - state.transcript_scroll_top).unwrap();
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((area.x, user_y))
+                .unwrap()
+                .bg,
+            PANEL_BG
+        );
         let gap_y = area.y + u16::try_from(answer_row - 1 - state.transcript_scroll_top).unwrap();
         assert_ne!(
             terminal
@@ -4227,7 +5806,7 @@ mod tests {
                 .cell((area.x, gap_y))
                 .unwrap()
                 .bg,
-            Color::Indexed(238)
+            PANEL_BG
         );
     }
 
@@ -4344,7 +5923,38 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::DIM)
         );
-        assert_eq!(tone_style(TuiTone::User).bg, Some(Color::Indexed(238)));
+        assert_eq!(tone_style(TuiTone::Body).fg, Some(Color::Indexed(250)));
+        assert!(
+            !tone_style(TuiTone::Body)
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(tone_style(TuiTone::White).fg, Some(Color::White));
+        assert!(
+            !tone_style(TuiTone::White)
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(tone_style(TuiTone::Link).fg, Some(Color::LightBlue));
+        assert_eq!(tone_style(TuiTone::LocalFile).fg, Some(LOCAL_FILE_GREEN));
+        assert_eq!(tone_style(TuiTone::WorkText).fg, Some(PANEL_TEXT_GREEN));
+        assert_eq!(tone_style(TuiTone::WorkLink).fg, Some(Color::LightGreen));
+        assert_eq!(tone_style(TuiTone::SectionText).fg, Some(PANEL_TEXT_GREEN));
+        assert_eq!(tone_style(TuiTone::Border).fg, Some(Color::DarkGray));
+        assert_eq!(
+            tone_style(TuiTone::ConclusionBorder).fg,
+            Some(CONCLUSION_BORDER)
+        );
+        assert_eq!(
+            tone_style(TuiTone::ConclusionTitle).fg,
+            Some(Color::LightGreen)
+        );
+        assert!(
+            tone_style(TuiTone::ConclusionTitle)
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(tone_style(TuiTone::User).bg, Some(PANEL_BG));
     }
 
     #[test]
@@ -4365,26 +5975,573 @@ mod tests {
             elapsed_ms: 0,
             usage_seen: true,
         });
+        state.set_context_budget(1_000);
+        state.set_context_tokens(250);
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
-        let activity_y = 18 - 3 - 1 - 1 - 1;
-        let row = (0..120)
-            .map(|x| {
+        let rows = (0..18)
+            .map(|y| {
+                (0..120)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let top = rows
+            .iter()
+            .find(|row| row.contains('╭') && row.replace(' ', "").contains("任务理解"))
+            .expect("input panel top");
+        let metrics = rows
+            .iter()
+            .find(|row| row.contains("↑ 1.2k / ↓ 340"))
+            .expect("metrics card");
+        let top_compact = top.replace(' ', "");
+        let metrics_compact = metrics.replace(' ', "");
+        assert!(top_compact.contains("任务理解"), "top: {top}");
+        assert!(top_compact.contains("TaskUnderstanding"), "top: {top}");
+        assert!(top.contains('╭') && top.contains('╮'), "top: {top}");
+        assert!(metrics.contains("↑ 1.2k / ↓ 340"), "metrics: {metrics}");
+        assert!(metrics_compact.contains("缓存40%"), "metrics: {metrics}");
+        assert!(metrics.contains("250/1.0k"), "metrics: {metrics}");
+        assert!(state.context_bar().contains("25%"));
+        assert!(state.context_bar().contains("────────────────────"));
+    }
+
+    #[test]
+    fn work_entries_use_a_bilingual_label_in_the_transcript_log() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_work(TuiActivityKind::Reading, "read_file · src/main.rs");
+        let entry = state.transcript.last().unwrap();
+        assert_eq!(entry.kind, TranscriptKind::Work);
+        assert_eq!(entry.label.as_deref(), Some("读取 Reading"));
+        assert!(entry.text.contains("read_file · src/main.rs"));
+        assert_eq!(entry.label_tone, TuiTone::Evidence);
+
+        state.push_work_result("read README.md (999 bytes)", TuiTone::Success);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let screen = (0..20)
+            .map(|y| {
+                (0..80)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let compact = screen.replace(' ', "");
+        assert!(compact.contains("•读取Reading·read_file"), "{screen}");
+        assert!(compact.contains("⎿readREADME.md"), "{screen}");
+    }
+
+    #[test]
+    fn work_log_uses_bright_green_labels_and_deep_green_details() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_work(TuiActivityKind::Reading, "read_file · src/main.rs");
+        state.push_work_result("read README.md (999 bytes)", TuiTone::Success);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let mut marker = None;
+        let mut label = None;
+        let mut result = None;
+        for y in 0..20 {
+            let work_row = (0..80).any(|x| buffer.cell((x, y)).unwrap().symbol() == "读");
+            for x in 0..80 {
+                let cell = buffer.cell((x, y)).unwrap();
+                match cell.symbol() {
+                    "•" if work_row => marker = Some(cell.clone()),
+                    "读" => label = Some(cell.clone()),
+                    "⎿" => result = Some(cell.clone()),
+                    _ => {}
+                }
+            }
+        }
+        let marker = marker.expect("• marker");
+        let label = label.expect("work label");
+        let result = result.expect("result marker");
+
+        // Action names and the bullet are bright-green accents; process text
+        // and results stay deep green.
+        assert_eq!(marker.fg, Color::LightGreen);
+        assert_eq!(label.fg, Color::LightGreen);
+        assert!(!label.modifier.contains(Modifier::BOLD));
+        assert_eq!(result.fg, PANEL_TEXT_GREEN);
+        assert!(!result.modifier.contains(Modifier::BOLD));
+        let detail = state
+            .transcript_lines
+            .iter()
+            .find(|line| line.text.contains("read_file"))
+            .expect("work detail line");
+        assert_eq!(detail.tone, TuiTone::WorkText);
+        assert_eq!(detail.label_tone, TuiTone::WorkLink);
+    }
+
+    #[test]
+    fn work_log_colors_links_bright_green() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_work(
+            TuiActivityKind::Reading,
+            "read_file · /home/skynet/1-agent/README.md",
+        );
+        state.push_work(
+            TuiActivityKind::Fetching,
+            "fetch_url · https://www.ruby-lang.org/en/documentation/",
+        );
+        state.transcript_lines = state.build_transcript_lines(120);
+
+        let file = state
+            .transcript_lines
+            .iter()
+            .find(|line| line.text.contains("README.md"))
+            .expect("file line");
+        assert!(file.syntax_ranges.iter().any(|(range, tone)| {
+            *tone == TuiTone::WorkLink && file.text[range.clone()].contains("README.md")
+        }));
+
+        let url = state
+            .transcript_lines
+            .iter()
+            .find(|line| line.text.contains("ruby-lang.org"))
+            .expect("url line");
+        assert!(url.syntax_ranges.iter().any(|(range, tone)| {
+            *tone == TuiTone::WorkLink && url.text[range.clone()].contains("https://")
+        }));
+    }
+
+    #[test]
+    fn conclusion_markdown_renders_headings_bullets_and_bold_labels() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_conclusion_start("结论 Conclusion");
+        state.assistant_markdown(
+            "**结论**：可以。\n\n## 能力\n- **文件**：读写\n- 联网：搜索\n1. 第一步\n2. 第二步\n- [x] 已完成\n- [ ] 未完成\n---\n参考：https://example.com\n",
+        );
+        state.assistant_conclusion_end();
+        state.transcript_lines = state.build_transcript_lines(100);
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.kind == TranscriptKind::Heading && line.text.contains("能力"))
+        );
+        assert!(state.transcript_lines.iter().any(|line| {
+            line.kind == TranscriptKind::Item
+                && line.text.contains('•')
+                && line.text.contains("文件")
+        }));
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.label_tone == TuiTone::Strong)
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains("1. 第一步"))
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains('☑') && line.text.contains("已完成"))
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains('☐') && line.text.contains("未完成"))
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains("────"))
+        );
+        let link = state
+            .transcript_lines
+            .iter()
+            .find(|line| line.text.contains("example.com"))
+            .expect("link line");
+        assert!(link.syntax_ranges.iter().any(|(range, tone)| {
+            *tone == TuiTone::Link && link.text[range.clone()].contains("example.com")
+        }));
+        assert!(
+            !state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains("**"))
+        );
+    }
+
+    #[test]
+    fn conclusion_markdown_renders_an_aligned_table() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_conclusion_start("结论 Conclusion");
+        state.assistant_markdown(
+            "| 维度 | A | B |\n|---|---|---|\n| 速度 | 快 | 慢 |\n| 成本 | 高 | 低 |\n",
+        );
+        state.assistant_conclusion_end();
+        state.transcript_lines = state.build_transcript_lines(100);
+        let rows = state
+            .transcript_lines
+            .iter()
+            .filter(|line| line.text.contains('|'))
+            .collect::<Vec<_>>();
+        assert!(rows.len() >= 4, "{rows:?}");
+        let widths = rows
+            .iter()
+            .map(|line| line.text.width())
+            .collect::<Vec<_>>();
+        assert!(
+            widths.windows(2).all(|pair| pair[0] == pair[1]),
+            "{widths:?}"
+        );
+    }
+
+    #[test]
+    fn final_answer_is_wrapped_in_a_conclusion_fence() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_conclusion_start("结论 Conclusion");
+        state.assistant_markdown("不用启动，GridCraft 已经在运行。");
+        state.assistant_conclusion_end();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let screen = (0..20)
+            .map(|y| {
+                (0..80)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let compact = screen.replace(' ', "");
+        assert!(compact.contains("╭─结论Conclusion"), "{screen}");
+        assert!(compact.contains("不用启动"), "{screen}");
+        assert!(compact.contains("╰─"), "{screen}");
+
+        let title = state
+            .transcript_lines
+            .iter()
+            .find(|line| line.text.contains("结论"))
+            .expect("conclusion title");
+        assert_eq!(title.label_tone, TuiTone::ConclusionTitle);
+        let title_row = state
+            .transcript_lines
+            .iter()
+            .position(|line| line.text.contains("结论"))
+            .expect("conclusion title row");
+        let area = state.transcript_area.unwrap();
+        let title_y = area.y + u16::try_from(title_row - state.transcript_scroll_top).unwrap();
+        let title_cell = (0..80)
+            .map(|x| terminal.backend().buffer().cell((x, title_y)).unwrap())
+            .find(|cell| cell.symbol() == "结")
+            .expect("conclusion title glyph");
+        assert_eq!(title_cell.fg, Color::LightGreen);
+        assert!(title_cell.modifier.contains(Modifier::BOLD));
+
+        let body = state
+            .transcript_lines
+            .iter()
+            .position(|line| line.text.contains("不用启动"))
+            .expect("answer body");
+        assert!(state.transcript_lines[body].text.starts_with("   不用启动"));
+        assert_eq!(state.transcript_lines[body].tone, TuiTone::White);
+        assert!(state.transcript_lines[body - 1].text.is_empty());
+        assert!(state.transcript_lines[body + 1].text.is_empty());
+
+        let border = (0..20)
+            .flat_map(|y| (0..80).map(move |x| (x, y)))
+            .map(|(x, y)| terminal.backend().buffer().cell((x, y)).unwrap())
+            .find(|cell| cell.symbol() == "╭")
+            .expect("top border");
+        assert_eq!(border.fg, CONCLUSION_BORDER);
+    }
+
+    #[test]
+    fn structured_sections_are_deep_green_while_the_answer_stays_white() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_conclusion_start("结论 Conclusion");
+        state.assistant_markdown("答案正文");
+        state.assistant_conclusion_end();
+        state.assistant_heading("主张", TuiTone::SectionText);
+        state.assistant_item("[已证实]", TuiTone::SectionText, "该文档是字幕翻译");
+        state.assistant_evidence("source", "证据正文");
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let cell_at = |needle: &str| {
+            (0..24)
+                .flat_map(|y| (0..80).map(move |x| (x, y)))
+                .map(|(x, y)| buffer.cell((x, y)).unwrap())
+                .find(|cell| cell.symbol() == needle)
+                .unwrap_or_else(|| panic!("cell {needle}"))
+        };
+        let answer = cell_at("答");
+        assert_eq!(answer.fg, Color::White);
+        let heading = cell_at("主");
+        assert_eq!(heading.fg, PANEL_TEXT_GREEN);
+        let item = cell_at("该");
+        assert_eq!(item.fg, PANEL_TEXT_GREEN);
+        let item_row = (0..24)
+            .find(|y| (0..80).any(|x| buffer.cell((x, *y)).unwrap().symbol() == "该"))
+            .expect("item row");
+        let bullet = (0..80)
+            .map(|x| buffer.cell((x, item_row)).unwrap())
+            .find(|cell| cell.symbol() == "•")
+            .map(|cell| cell.fg)
+            .expect("item bullet");
+        assert_eq!(bullet, PANEL_TEXT_GREEN);
+        let evidence = cell_at("据");
+        assert_eq!(evidence.fg, PANEL_TEXT_GREEN);
+        let marker = cell_at("↳");
+        assert_eq!(marker.fg, PANEL_TEXT_GREEN);
+    }
+
+    #[test]
+    fn activity_card_survives_narrow_and_short_terminals() {
+        for (width, height) in [(20, 8), (24, 9), (40, 12), (80, 18), (120, 34)] {
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut state = TuiState::new("mock", 6, 120);
+            state.begin("窄终端测试", CognitiveMode::DirectAnswer, RiskLevel::Low);
+            state.set_activity(TuiActivity::bilingual(
+                TuiActivityKind::CallingTool,
+                "read_file · 一个很长的路径/with/many/segments/README.md",
+                3,
+            ));
+            terminal.draw(|frame| state.draw(frame)).unwrap();
+        }
+    }
+
+    #[test]
+    fn activity_taxonomy_is_bilingual_and_color_coded() {
+        let cases = [
+            (TuiActivityKind::Reading, "读取", "Reading", Color::Cyan),
+            (TuiActivityKind::Writing, "写入", "Writing", Color::Cyan),
+            (TuiActivityKind::Updating, "修改", "Updating", Color::Cyan),
+            (TuiActivityKind::Bash, "执行命令", "Bash", Color::Cyan),
+            (TuiActivityKind::Searching, "搜索", "Searching", Color::Cyan),
+            (TuiActivityKind::Fetching, "抓取", "Fetching", Color::Cyan),
+            (TuiActivityKind::Querying, "查询", "Querying", Color::Cyan),
+            (
+                TuiActivityKind::Spawning,
+                "子Agent",
+                "Subagent",
+                Color::Cyan,
+            ),
+            (
+                TuiActivityKind::MasterUnderstanding,
+                "任务理解",
+                "MissionUnderstanding",
+                Color::Cyan,
+            ),
+            (
+                TuiActivityKind::MasterPlanning,
+                "任务规划",
+                "MissionPlanning",
+                Color::Cyan,
+            ),
+            (
+                TuiActivityKind::MasterAssignment,
+                "任务分配",
+                "TaskAssignment",
+                Color::Cyan,
+            ),
+            (
+                TuiActivityKind::MasterStarting,
+                "任务启动",
+                "TaskStarting",
+                Color::Cyan,
+            ),
+            (
+                TuiActivityKind::WorkerRunning,
+                "Worker运行",
+                "WorkerRunning",
+                Color::Cyan,
+            ),
+            (
+                TuiActivityKind::MasterVerifying,
+                "任务验收",
+                "MissionVerification",
+                Color::LightGreen,
+            ),
+            (TuiActivityKind::Blocked, "阻塞", "Blocked", Color::LightRed),
+        ];
+        for (kind, title_cn, title_en, _color) in cases {
+            let backend = TestBackend::new(100, 20);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let mut state = TuiState::new("mock", 6, 120);
+            state.set_master_activity(
+                TuiActivity::bilingual(kind, "detail", 0).with_footer("footer-state"),
+            );
+            terminal.draw(|frame| state.draw(frame)).unwrap();
+            let rows = (0..20)
+                .map(|y| {
+                    (0..100)
+                        .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>();
+            let top_y = rows
+                .iter()
+                .position(|row| row.contains('╭') && row.replace(' ', "").contains(title_en))
+                .unwrap_or_else(|| panic!("{kind:?}: panel top missing: {rows:?}"));
+            let top = &rows[top_y];
+            let compact = top.replace(' ', "");
+            assert!(compact.contains(title_cn), "{kind:?}: {top}");
+            assert!(compact.contains(title_en), "{kind:?}: {top}");
+            assert!(top.contains('╭') && top.contains('╮'), "{kind:?}: {top}");
+            assert!(top.contains('•'), "{kind:?}: {top}");
+            assert_eq!(
                 terminal
                     .backend()
                     .buffer()
-                    .cell((x, activity_y))
+                    .cell((1, top_y as u16))
                     .unwrap()
-                    .symbol()
+                    .fg,
+                PANEL_GREEN,
+                "{kind:?}"
+            );
+            assert!(
+                (0..100).any(|x| terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, top_y as u16))
+                    .unwrap()
+                    .fg
+                    == PANEL_TEXT_GREEN),
+                "{kind:?}: panel text color missing"
+            );
+            assert!(
+                (0..100).all(|x| !terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, top_y as u16))
+                    .unwrap()
+                    .modifier
+                    .contains(Modifier::BOLD)),
+                "{kind:?}: title must not be bold"
+            );
+            let footer_y = rows
+                .iter()
+                .position(|row| row.contains("footer-state"))
+                .unwrap_or_else(|| panic!("{kind:?}: footer missing: {rows:?}"));
+            assert!(
+                rows.iter()
+                    .any(|row| row.contains('╰') && row.contains('╯')),
+                "{kind:?}: panel bottom missing: {rows:?}"
+            );
+            assert!(
+                (0..100).all(|x| !terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, footer_y as u16))
+                    .unwrap()
+                    .modifier
+                    .contains(Modifier::BOLD)),
+                "{kind:?}: work content must not be bold"
+            );
+        }
+    }
+
+    #[test]
+    fn tool_activity_shows_step_and_context_with_minimal_fence() {
+        let backend = TestBackend::new(110, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.begin("检查文件", CognitiveMode::Execute, RiskLevel::Low);
+        state.set_activity(TuiActivity::bilingual(
+            TuiActivityKind::CallingTool,
+            "read_file · src/main.rs",
+            3,
+        ));
+        state.set_context_budget(10_000);
+        state.set_context_tokens(2_500);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let rows = (0..20)
+            .map(|y| {
+                (0..110)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
             })
-            .collect::<String>();
-        assert!(row.contains("Working..."), "row: {row}");
-        assert!(row.contains("↑1.2k"), "row: {row}");
-        assert!(row.contains("↓340"), "row: {row}");
-        assert!(row.contains("cache 40%"), "row: {row}");
-        let spinner = terminal.backend().buffer().cell((2, activity_y)).unwrap();
-        assert_eq!(spinner.fg, Color::Indexed(75));
-        assert!(spinner.modifier.contains(Modifier::BOLD));
+            .collect::<Vec<_>>();
+        let y = rows
+            .iter()
+            .position(|row| row.contains('╭') && row.replace(' ', "").contains("调用工具ToolCall"))
+            .expect("input panel top");
+        let top = &rows[y];
+        let compact = top.replace(' ', "");
+        assert!(compact.contains("调用工具ToolCall"), "top: {top}");
+        assert!(compact.contains("read_file"), "top: {top}");
+        assert!(compact.contains("src/main.rs"), "top: {top}");
+        assert!(compact.contains("第3步"), "top: {top}");
+        assert!(top.contains('╭') && top.contains('╮'), "top: {top}");
+        assert!(state.context_bar().contains("────────────────────"));
+
+        let buffer = terminal.backend().buffer();
+        let bulb = (0..110)
+            .map(|x| buffer.cell((x, y as u16)).unwrap())
+            .find(|cell| cell.symbol() == "•")
+            .expect("bulb");
+        let heading = (0..110)
+            .map(|x| buffer.cell((x, y as u16)).unwrap())
+            .find(|cell| cell.symbol() == "调")
+            .expect("heading");
+        assert_eq!(bulb.fg, PANEL_TEXT_GREEN);
+        assert_eq!(heading.fg, PANEL_TEXT_GREEN);
+        assert!(!heading.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn default_context_budget_is_one_million_tokens() {
+        let mut state = TuiState::new("mock", 6, 120);
+        assert!(state.context_bar().contains("/1.0M"));
+        state.set_context_tokens(1_234);
+        state.clear();
+        assert_eq!(state.context_usage_tokens(), 0);
+    }
+
+    #[test]
+    fn context_meter_colors_used_and_unused_cells_separately() {
+        let backend = TestBackend::new(90, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_activity(TuiActivity::bilingual(
+            TuiActivityKind::Thinking,
+            "working",
+            1,
+        ));
+        state.set_context_budget(10_000);
+        state.set_context_tokens(2_500);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let metrics_y = (0..20)
+            .find(|y| (0..90).any(|x| buffer.cell((x, *y)).unwrap().symbol() == "↑"))
+            .expect("folded metrics row");
+        let bars: Vec<Color> = (0..90)
+            .map(|x| buffer.cell((x, metrics_y)).unwrap())
+            .filter(|cell| cell.symbol() == "─")
+            .map(|cell| cell.fg)
+            .collect();
+        assert_eq!(bars.len(), 10, "narrow context meter halves its cells");
+        assert_eq!(
+            bars.iter()
+                .filter(|color| **color == PANEL_TEXT_GREEN)
+                .count(),
+            3
+        );
+        assert_eq!(
+            bars.iter().filter(|color| **color == Color::Black).count(),
+            7
+        );
     }
 
     #[test]
@@ -4456,12 +6613,69 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_shows_the_model_the_mode_and_context_usage() {
+    fn interaction_overlays_use_green_surfaces() {
+        for color in [MENU_BG, MENU_SELECTED_BG] {
+            let Color::Rgb(r, g, b) = color else {
+                panic!("overlay colors must be RGB");
+            };
+            assert!(g > r && g > b, "overlay backgrounds must be green");
+        }
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_last_details("details body");
+        state.open_details();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(
+            buffer
+                .content
+                .iter()
+                .all(|cell| cell.symbol() == " " || cell.bg == MENU_BG),
+            "details text sits on the green surface"
+        );
+        for (x, y) in [(0, 0), (79, 23), (40, 10)] {
+            assert_eq!(
+                terminal.backend().buffer().cell((x, y)).unwrap().bg,
+                MENU_BG,
+                "details surface at ({x}, {y})"
+            );
+        }
+        let border = buffer
+            .content
+            .iter()
+            .find(|cell| cell.symbol() == "┌")
+            .expect("details border");
+        assert_eq!(border.fg, Color::LightGreen);
+
+        state.close_details();
+        state.toggle_mode_menu();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|cell| cell.symbol() != " " && cell.bg == MENU_BG),
+            "mode menu surface is green"
+        );
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|cell| cell.symbol() != " " && cell.bg == MENU_SELECTED_BG),
+            "selected mode row uses a green highlight"
+        );
+    }
+
+    #[test]
+    fn status_bar_shows_the_model_mode_and_bold_shortcut_key() {
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("openai-compatible/deepseek-flash", 6, 120);
         state.set_context_budget(1000);
-        state.set_context_chars(250);
+        state.set_context_tokens(250);
         state.begin("任务", CognitiveMode::EvidenceResearch, RiskLevel::Low);
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
@@ -4480,7 +6694,216 @@ mod tests {
         assert!(tight.contains("deepseek-flash"), "model: {row}");
         assert!(tight.contains("证据研究"), "mode: {row}");
         assert!(tight.contains("Ctrl+T模式"), "hint: {row}");
-        assert!(tight.contains("上下文25%"), "usage: {row}");
+        assert!(
+            !tight.contains("上下文"),
+            "context stays on the top border: {row}"
+        );
+        let key = (0..80)
+            .map(|x| terminal.backend().buffer().cell((x, 19)).unwrap())
+            .find(|cell| cell.symbol() == "T")
+            .expect("T shortcut key");
+        assert_eq!(key.fg, Color::LightGreen);
+        assert!(key.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn terminal_backdrop_is_darker_green_than_the_input_panel() {
+        let Color::Rgb(r, g, b) = APP_BG else {
+            panic!("APP_BG must be RGB");
+        };
+        let Color::Rgb(pr, pg, pb) = PANEL_BG else {
+            panic!("PANEL_BG must be RGB");
+        };
+        assert!(r < pr && g < pg && b < pb, "backdrop must be darker");
+        assert_eq!(
+            (r, g, b),
+            (pr * 4 / 5, pg * 4 / 5, pb * 4 / 5),
+            "backdrop must be 80% of the panel background"
+        );
+
+        let backend = TestBackend::new(80, 18);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.info("Welcome");
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let panel_top = (0..18)
+            .find(|y| (0..80).any(|x| buffer.cell((x, *y)).unwrap().symbol() == "╭"))
+            .expect("panel top");
+        assert_eq!(
+            buffer.cell((0, panel_top - 1)).unwrap().bg,
+            APP_BG,
+            "the gap above the panel keeps the terminal backdrop"
+        );
+        assert_eq!(
+            buffer.cell((79, 0)).unwrap().bg,
+            APP_BG,
+            "the transcript area keeps the terminal backdrop"
+        );
+    }
+
+    #[test]
+    fn composer_and_panel_text_share_one_fence() {
+        let backend = TestBackend::new(100, 18);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("openai-compatible/deepseek-flash", 6, 120);
+        state.info("Welcome");
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let rows = (0..18)
+            .map(|y| {
+                (0..100)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let top = rows
+            .iter()
+            .position(|row| row.contains('╭') && row.contains('•'))
+            .expect("top");
+        let bottom = rows
+            .iter()
+            .rposition(|row| row.contains('╰'))
+            .expect("bottom");
+        assert!(rows[top].contains('•'), "top: {}", rows[top]);
+        assert!(rows[top].contains('↑'), "top: {}", rows[top]);
+        assert!(
+            rows[bottom].contains("deepseek-flash"),
+            "bottom: {}",
+            rows[bottom]
+        );
+        assert!(rows[bottom].contains("Ctrl+T"), "bottom: {}", rows[bottom]);
+
+        let metrics_y = rows
+            .iter()
+            .position(|row| row.contains('╭') && row.contains('↑'))
+            .expect("metrics fence");
+        let metrics_cell = (0..100)
+            .map(|x| {
+                terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, metrics_y as u16))
+                    .unwrap()
+            })
+            .find(|cell| cell.symbol() == "↑")
+            .expect("metrics text");
+        assert_eq!(metrics_cell.fg, PANEL_TEXT_GREEN);
+        assert_eq!(
+            (0..100)
+                .map(|x| {
+                    terminal
+                        .backend()
+                        .buffer()
+                        .cell((x, metrics_y as u16))
+                        .unwrap()
+                })
+                .filter(|cell| cell.symbol() == "─" && cell.fg == Color::Black)
+                .count(),
+            20,
+            "wide context meter keeps 20 cells"
+        );
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((1, top as u16))
+                .unwrap()
+                .fg,
+            PANEL_GREEN
+        );
+
+        let composer = rows
+            .iter()
+            .position(|row| row.contains('›'))
+            .expect("composer");
+        assert!(composer > top && composer < bottom, "{rows:?}");
+        assert!(rows[composer].starts_with('│'), "{}", rows[composer]);
+        assert!(rows[composer].ends_with('│'), "{}", rows[composer]);
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((5, composer as u16))
+                .unwrap()
+                .bg,
+            PANEL_BG
+        );
+    }
+
+    #[test]
+    fn right_click_paste_is_limited_to_the_composer() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.info("Welcome");
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let composer = state.input_box.expect("composer box");
+        assert!(state.input_box_contains(composer.x, composer.y));
+        assert!(state.input_box_contains(
+            composer.right().saturating_sub(1),
+            composer.bottom().saturating_sub(1)
+        ));
+        assert!(!state.input_box_contains(0, 0));
+        assert!(!state.input_box_contains(composer.x, composer.y.saturating_sub(3)));
+    }
+
+    #[test]
+    fn narrow_terminal_folds_metrics_inside_the_same_fence() {
+        let backend = TestBackend::new(72, 18);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("openai-compatible/deepseek-flash", 6, 120);
+        state.info("Welcome");
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let rows = (0..18)
+            .map(|y| {
+                (0..72)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let top = rows
+            .iter()
+            .position(|row| row.contains('╭') && row.contains('•'))
+            .expect("top");
+        let metrics = rows
+            .iter()
+            .position(|row| row.contains('↑'))
+            .expect("folded metrics");
+        assert!(!rows[top].contains('↑'), "top: {}", rows[top]);
+        assert_eq!(metrics, top + 1, "{rows:?}");
+        assert!(rows[metrics].starts_with('│'), "{}", rows[metrics]);
+        assert!(rows[metrics].ends_with('│'), "{}", rows[metrics]);
+        assert!(
+            rows[metrics].replace(' ', "").contains("上下文"),
+            "{}",
+            rows[metrics]
+        );
+        assert!(rows[metrics].contains("0s"), "{}", rows[metrics]);
+        assert_eq!(
+            (0..72)
+                .map(|x| terminal
+                    .backend()
+                    .buffer()
+                    .cell((x, metrics as u16))
+                    .unwrap())
+                .filter(|cell| cell.symbol() == "─")
+                .count(),
+            10,
+            "narrow context meter halves its cells"
+        );
+
+        let bottom = rows
+            .iter()
+            .rposition(|row| row.contains('╰'))
+            .expect("bottom");
+        let composer = rows
+            .iter()
+            .position(|row| row.contains('›'))
+            .expect("composer");
+        assert!(composer > metrics && composer < bottom, "{rows:?}");
     }
 
     #[test]
@@ -4501,10 +6924,13 @@ mod tests {
 
         state.set_notice("已复制选择内容");
         terminal.draw(|frame| state.draw(frame)).unwrap();
-        let notice_y = 18 - 3 - 1 - 1 - 1;
-        let notice = terminal.backend().buffer().cell((1, notice_y)).unwrap();
-        assert_eq!(notice.fg, Color::LightGreen);
-        assert!(notice.modifier.contains(Modifier::BOLD));
+        let notice = (0..18)
+            .flat_map(|y| (0..60).map(move |x| (x, y)))
+            .map(|(x, y)| terminal.backend().buffer().cell((x, y)).unwrap())
+            .find(|cell| cell.symbol() == "已")
+            .expect("notice cell");
+        assert_eq!(notice.fg, PANEL_TEXT_GREEN);
+        assert!(!notice.modifier.contains(Modifier::BOLD));
     }
 
     #[test]
@@ -4563,12 +6989,16 @@ mod tests {
             .map(|cell| cell.fg)
             .collect::<Vec<_>>();
         assert!(
-            colours.contains(&CAPTION_GREY),
-            "the mark and the captions are grey"
+            colours.contains(&MARK_GREEN),
+            "the leading 1 keeps its green"
+        );
+        assert!(
+            colours.contains(&PANEL_TEXT_GREEN),
+            "Agent and the captions are deep green"
         );
         assert!(
             colours.contains(&LINK),
-            "the domain is the only highlighted element"
+            "the domain is the bright-green highlight"
         );
         assert!(
             !colours.contains(&LINK_HOVER),
@@ -4589,6 +7019,36 @@ mod tests {
         assert!(!content.contains("输入任务开始"));
         assert!(!content.contains("Ctrl+Q"));
         assert!(!content.contains("1-Agent | status="));
+    }
+
+    #[test]
+    fn welcome_logo_keeps_one_green_and_paints_agent_deep_green() {
+        let backend = TestBackend::new(80, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let mut colours = Vec::new();
+        for y in 0..buffer.area.height {
+            let row: String = (0..buffer.area.width)
+                .map(|x| buffer.cell((x, y)).unwrap().symbol())
+                .collect();
+            if !['╔', '╚', '╝', '╗']
+                .iter()
+                .any(|glyph| row.contains(*glyph))
+            {
+                continue;
+            }
+            for x in 0..buffer.area.width {
+                let cell = buffer.cell((x, y)).unwrap();
+                if cell.symbol() != " " {
+                    colours.push(cell.fg);
+                }
+            }
+        }
+        assert!(colours.contains(&MARK_GREEN), "the 1 stays bright green");
+        assert!(colours.contains(&PANEL_TEXT_GREEN), "Agent uses deep green");
+        assert!(!colours.contains(&LINK), "Agent is no longer blue");
     }
 
     #[test]
@@ -5139,7 +7599,7 @@ int main(int argc, char **argv) {
             .saturating_add(u16::try_from(result_line - state.transcript_scroll_top).unwrap());
         assert_eq!(
             terminal.backend().buffer().cell((area.x, y)).unwrap().bg,
-            Color::Reset
+            APP_BG
         );
         assert!(
             state
@@ -5166,7 +7626,7 @@ int main(int argc, char **argv) {
     }
 
     #[test]
-    fn command_drawer_uses_readable_codex_like_hierarchy() {
+    fn command_drawer_uses_bright_green_entries() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
@@ -5181,22 +7641,26 @@ int main(int argc, char **argv) {
         assert!(rendered.contains("/help"));
         assert!(rendered.contains('命'));
         assert!(
-            buffer
-                .content
-                .iter()
-                .any(|cell| { cell.symbol() != " " && cell.fg == UI_ACCENT })
+            buffer.content.iter().any(|cell| {
+                cell.symbol() != " "
+                    && cell.fg == Color::LightGreen
+                    && cell.modifier.contains(Modifier::BOLD)
+            }),
+            "command names are bright green and bold"
+        );
+        assert!(
+            buffer.content.iter().any(|cell| {
+                cell.symbol() != " "
+                    && cell.fg == Color::LightGreen
+                    && !cell.modifier.contains(Modifier::BOLD)
+            }),
+            "command descriptions are bright green"
         );
         assert!(
             buffer
                 .content
                 .iter()
-                .any(|cell| { cell.symbol() != " " && cell.fg == COMMAND_DESCRIPTION })
-        );
-        assert!(
-            buffer
-                .content
-                .iter()
-                .any(|cell| { cell.symbol() != " " && cell.bg == Color::Indexed(238) })
+                .any(|cell| { cell.symbol() != " " && cell.bg == MENU_SELECTED_BG })
         );
 
         state.set_input("/no-such-command");

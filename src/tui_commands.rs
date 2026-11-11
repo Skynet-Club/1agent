@@ -1,4 +1,9 @@
 use crate::tui_host::HostBinding;
+use crate::tui_prompt_sources::{PROMPT_SOURCE_GROUPS, PromptSourceGroup};
+use crate::tui_prompts::{
+    FEATURED_PROMPTS, PROMPT_SUPPLEMENTS, PromptLanguage, PromptSupplement, prompt_score,
+    prompt_view,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TuiCommandScope {
@@ -572,6 +577,39 @@ pub struct CommandEntry {
     pub unavailable: Option<&'static str>,
 }
 
+/// A drawer row is either a real command, a curated prompt card, or a
+/// complete source-table group. Both prompt kinds insert text into the
+/// composer instead of executing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawerEntry {
+    Command(CommandEntry),
+    Prompt(&'static PromptSupplement),
+    Source(&'static PromptSourceGroup),
+}
+
+impl DrawerEntry {
+    pub fn command(self) -> Option<CommandEntry> {
+        match self {
+            Self::Command(entry) => Some(entry),
+            Self::Prompt(_) | Self::Source(_) => None,
+        }
+    }
+
+    pub fn prompt(self) -> Option<&'static PromptSupplement> {
+        match self {
+            Self::Command(_) | Self::Source(_) => None,
+            Self::Prompt(prompt) => Some(prompt),
+        }
+    }
+
+    pub fn source(self) -> Option<&'static PromptSourceGroup> {
+        match self {
+            Self::Command(_) | Self::Prompt(_) => None,
+            Self::Source(source) => Some(source),
+        }
+    }
+}
+
 /// Drawer sections, in display order. Recent commands form their own section
 /// and are removed from the category they would otherwise appear in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -653,7 +691,7 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandDrawerRow {
     pub heading: Option<&'static str>,
-    pub entry: CommandEntry,
+    pub entry: DrawerEntry,
 }
 
 fn stage_label(stage: CommandStage) -> &'static str {
@@ -723,28 +761,164 @@ pub fn command_entries(
     entries.into_iter().map(|(_, entry)| entry).collect()
 }
 
+fn prompt_entries(prefix: &str, language: PromptLanguage) -> Vec<&'static PromptSupplement> {
+    let available = |prompt: &&'static PromptSupplement| prompt_view(prompt, language).is_some();
+    if prefix.trim_start_matches('/').is_empty() {
+        if language == PromptLanguage::En {
+            return PROMPT_SUPPLEMENTS.iter().filter(available).collect();
+        }
+        return FEATURED_PROMPTS
+            .iter()
+            .filter_map(|id| PROMPT_SUPPLEMENTS.iter().find(|prompt| prompt.id == *id))
+            .filter(available)
+            .collect();
+    }
+    let mut matches = PROMPT_SUPPLEMENTS
+        .iter()
+        .filter(available)
+        .filter_map(|prompt| prompt_score(prompt, prefix).map(|score| (score, prompt)))
+        .collect::<Vec<_>>();
+    matches.sort_by_key(|(score, _)| *score);
+    matches.into_iter().map(|(_, prompt)| prompt).collect()
+}
+
+fn source_score(source: &PromptSourceGroup, query: &str) -> Option<u8> {
+    let query = query.trim_start_matches('/').to_lowercase();
+    if query.is_empty() {
+        return Some(0);
+    }
+    let topic = source.topic.to_lowercase();
+    if topic == query {
+        return Some(0);
+    }
+    if topic.starts_with(&query) {
+        return Some(1);
+    }
+    if topic.contains(&query) {
+        return Some(2);
+    }
+    let metadata_search = !query.is_ascii() || query.len() >= 3;
+    if metadata_search
+        && (source.author.to_lowercase().contains(&query)
+            || source.category.to_lowercase().contains(&query)
+            || source.original.to_lowercase().contains(&query)
+            || source.translation.to_lowercase().contains(&query)
+            || source.source_doc.to_lowercase().contains(&query))
+    {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+/// Source-table rows used by `//` and `//keyword`. Each row is one complete
+/// (author, topic) group; labels and categories come from the table.
+pub fn prompt_drawer_rows(prefix: &str, _language: PromptLanguage) -> Vec<CommandDrawerRow> {
+    let query = prefix.trim();
+    if query.is_empty() {
+        let mut rows = Vec::new();
+        let mut last_category = None;
+        for source in PROMPT_SOURCE_GROUPS {
+            let heading = if rows.is_empty() {
+                Some("原文库 · 完整原文")
+            } else if last_category != Some(source.category) {
+                Some(source.category)
+            } else {
+                None
+            };
+            last_category = Some(source.category);
+            rows.push(CommandDrawerRow {
+                heading,
+                entry: DrawerEntry::Source(source),
+            });
+        }
+        return rows;
+    }
+    let mut matches = PROMPT_SOURCE_GROUPS
+        .iter()
+        .filter_map(|source| source_score(source, query).map(|score| (score, source)))
+        .collect::<Vec<_>>();
+    matches.sort_by_key(|(score, _)| *score);
+    matches
+        .into_iter()
+        .map(|(_, source)| CommandDrawerRow {
+            heading: None,
+            entry: DrawerEntry::Source(source),
+        })
+        .collect()
+}
+
 /// Drawer rows for the empty `/` query: recent commands first, then category
-/// sections. A non-empty query keeps the flat fuzzy-match order.
+/// sections, then a small prompt-supplement set. A non-empty query keeps the
+/// flat command order and adds matching prompts under their own heading.
 pub fn drawer_rows(
     prefix: &str,
     host: &HostBinding,
     stage: CommandStage,
     running: bool,
     recent: &[TuiCommandId],
+    language: PromptLanguage,
 ) -> Vec<CommandDrawerRow> {
     let entries = command_entries(prefix, host, stage, running);
+    let prompts = prompt_entries(prefix, language);
     if prefix.trim() != "/" {
-        return entries
-            .into_iter()
-            .map(|entry| CommandDrawerRow {
-                heading: None,
-                entry,
-            })
-            .collect();
+        let best_command = entries
+            .iter()
+            .filter_map(|entry| command_score(&entry.spec, prefix))
+            .min();
+        let best_prompt = prompts
+            .iter()
+            .filter_map(|prompt| prompt_score(prompt, prefix))
+            .min();
+        let prompts_first = match (best_command, best_prompt) {
+            (None, Some(_)) => true,
+            (Some(command), Some(prompt)) => prompt < command,
+            _ => false,
+        };
+        let mut rows = Vec::new();
+        if prompts_first {
+            for (index, prompt) in prompts.iter().copied().enumerate() {
+                rows.push(CommandDrawerRow {
+                    heading: (index == 0).then_some("提示词补充"),
+                    entry: DrawerEntry::Prompt(prompt),
+                });
+            }
+            for entry in entries {
+                rows.push(CommandDrawerRow {
+                    heading: None,
+                    entry: DrawerEntry::Command(entry),
+                });
+            }
+        } else {
+            for entry in entries {
+                rows.push(CommandDrawerRow {
+                    heading: None,
+                    entry: DrawerEntry::Command(entry),
+                });
+            }
+            for (index, prompt) in prompts.iter().copied().enumerate() {
+                rows.push(CommandDrawerRow {
+                    heading: (index == 0).then_some("提示词补充"),
+                    entry: DrawerEntry::Prompt(prompt),
+                });
+            }
+        }
+        return rows;
     }
 
     let mut used = vec![false; entries.len()];
     let mut rows = Vec::new();
+    let prompt_limit = if language == PromptLanguage::En {
+        prompts.len()
+    } else {
+        3
+    };
+    for (index, prompt) in prompts.iter().take(prompt_limit).copied().enumerate() {
+        rows.push(CommandDrawerRow {
+            heading: (index == 0).then_some("提示词补充 · 输入关键词 · // 原文库"),
+            entry: DrawerEntry::Prompt(prompt),
+        });
+    }
     let mut recent_entries = Vec::new();
     for id in recent.iter().take(5) {
         let Some((index, entry)) = entries
@@ -763,7 +937,7 @@ pub fn drawer_rows(
     for (index, entry) in recent_entries.into_iter().enumerate() {
         rows.push(CommandDrawerRow {
             heading: (index == 0).then_some("最近"),
-            entry,
+            entry: DrawerEntry::Command(entry),
         });
     }
 
@@ -775,11 +949,12 @@ pub fn drawer_rows(
             }
             rows.push(CommandDrawerRow {
                 heading: first.then_some(group.label()),
-                entry: *entry,
+                entry: DrawerEntry::Command(*entry),
             });
             first = false;
         }
     }
+
     rows
 }
 
@@ -1454,13 +1629,25 @@ mod next_action_stage_tests {
             CommandStage::NoMission,
             false,
             &[TuiCommandId::Mode, TuiCommandId::Status],
+            PromptLanguage::Zh,
         );
-        assert_eq!(rows[0].heading, Some("最近"));
-        assert_eq!(rows[0].entry.spec.id, TuiCommandId::Mode);
-        assert_eq!(rows[1].entry.spec.id, TuiCommandId::Status);
+        let commands = rows
+            .iter()
+            .filter(|row| row.entry.command().is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(commands[0].heading, Some("最近"));
+        assert_eq!(
+            commands[0].entry.command().unwrap().spec.id,
+            TuiCommandId::Mode
+        );
+        assert_eq!(
+            commands[1].entry.command().unwrap().spec.id,
+            TuiCommandId::Status
+        );
         assert!(
             rows.iter()
-                .all(|row| row.entry.spec.scope == TuiCommandScope::Core)
+                .filter_map(|row| row.entry.command())
+                .all(|entry| entry.spec.scope == TuiCommandScope::Core)
         );
         assert!(
             rows.iter()
@@ -1472,7 +1659,11 @@ mod next_action_stage_tests {
         );
         assert_eq!(
             rows.iter()
-                .filter(|row| row.entry.spec.id == TuiCommandId::Mode)
+                .filter(|row| {
+                    row.entry
+                        .command()
+                        .is_some_and(|entry| entry.spec.id == TuiCommandId::Mode)
+                })
                 .count(),
             1
         );
@@ -1486,12 +1677,108 @@ mod next_action_stage_tests {
             CommandStage::NoMission,
             false,
             &[],
+            PromptLanguage::Zh,
         );
         assert!(rows.iter().all(|row| row.heading.is_none()));
+        assert!(rows.iter().any(|row| {
+            row.entry
+                .command()
+                .is_some_and(|entry| entry.spec.id == TuiCommandId::Status)
+        }));
+    }
+
+    #[test]
+    fn prompt_supplements_are_featured_and_searchable() {
+        let host = host(HostKind::Standalone);
+        let rows = drawer_rows(
+            "/",
+            &host,
+            CommandStage::NoMission,
+            false,
+            &[],
+            PromptLanguage::Zh,
+        );
         assert!(
             rows.iter()
-                .any(|row| row.entry.spec.id == TuiCommandId::Status)
+                .any(|row| row.heading == Some("提示词补充 · 输入关键词 · // 原文库"))
         );
+        assert!(rows.iter().any(|row| {
+            row.entry
+                .prompt()
+                .is_some_and(|prompt| prompt.name == "真正的目的是")
+        }));
+
+        let rows = drawer_rows(
+            "/验收",
+            &host,
+            CommandStage::NoMission,
+            false,
+            &[],
+            PromptLanguage::Zh,
+        );
+        assert!(rows.iter().any(|row| row.heading == Some("提示词补充")));
+        assert!(rows.iter().any(|row| {
+            row.entry
+                .prompt()
+                .is_some_and(|prompt| prompt.name == "先说验收标准")
+        }));
+    }
+
+    #[test]
+    fn prompt_drawer_without_a_task_lists_the_whole_source_library_by_category() {
+        let rows = prompt_drawer_rows("", PromptLanguage::Zh);
+        assert_eq!(rows.len(), 32);
+        assert_eq!(rows[0].heading, Some("原文库 · 完整原文"));
+        assert!(rows.iter().any(|row| row.heading == Some("先验证再算完")));
+        let source = rows[0].entry.source().expect("source row");
+        assert_eq!(source.topic, "Think Before Coding");
+        assert_eq!(source.fragments, 6);
+        assert!(source.translation.contains("先想再写"));
+        assert!(source.original.contains("Think Before Coding"));
+        let rows = prompt_drawer_rows("", PromptLanguage::En);
+        assert_eq!(rows.len(), 32);
+    }
+
+    #[test]
+    fn english_drawer_only_lists_cards_with_english_source() {
+        let host = host(HostKind::Standalone);
+        let empty = drawer_rows(
+            "/",
+            &host,
+            CommandStage::NoMission,
+            false,
+            &[],
+            PromptLanguage::En,
+        );
+        assert_eq!(
+            empty
+                .iter()
+                .filter(|row| row.entry.prompt().is_some())
+                .count(),
+            14
+        );
+        let rows = drawer_rows(
+            "/real goal",
+            &host,
+            CommandStage::NoMission,
+            false,
+            &[],
+            PromptLanguage::En,
+        );
+        assert!(rows.iter().any(|row| {
+            row.entry
+                .prompt()
+                .is_some_and(|prompt| prompt.id == "prompt-01")
+        }));
+        let rows = drawer_rows(
+            "/验收",
+            &host,
+            CommandStage::NoMission,
+            false,
+            &[],
+            PromptLanguage::En,
+        );
+        assert!(rows.iter().all(|row| row.entry.prompt().is_none()));
     }
 
     #[test]

@@ -1481,7 +1481,7 @@ fn cli_tui_phase_six_session_workspace_context_preset_export_and_copy_work() {
                  /workspace diff\n\
                  /context show\n\
                  /config set context 20000\n\
-                 /config set compact 70\n\
+                 /config set compact 15000\n\
                  /status\n\
                  Compare option A and option B\n\
                  /context recap\n\
@@ -1510,15 +1510,15 @@ fn cli_tui_phase_six_session_workspace_context_preset_export_and_copy_work() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("推理步骤      最多 6 步"), "{stdout}");
+    assert!(stdout.contains("推理步骤      不限"), "{stdout}");
     assert!(stdout.contains("工作区概览"), "{stdout}");
     assert!(stdout.contains("已创建"), "{stdout}");
     assert!(stdout.contains("已记录引用"), "{stdout}");
     assert!(stdout.contains("无法读取 git diff"), "{stdout}");
     assert!(stdout.contains("剩余空间"), "{stdout}");
-    assert!(stdout.contains("推理步骤      最多 6 步"), "{stdout}");
-    assert!(stdout.contains("上下文上限    20000 字符"), "{stdout}");
-    assert!(stdout.contains("达到 70% 时触发"), "{stdout}");
+    assert!(stdout.contains("推理步骤      不限"), "{stdout}");
+    assert!(stdout.contains("上下文上限    20000 tokens"), "{stdout}");
+    assert!(stdout.contains("达到 15000 tokens 时触发"), "{stdout}");
     assert!(stdout.contains("上下文回顾"), "{stdout}");
     assert!(stdout.contains("上下文已压缩"), "{stdout}");
     assert!(stdout.contains("最近回答已复制"), "{stdout}");

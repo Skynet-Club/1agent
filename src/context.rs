@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{MessageRole, ModelMessage, ToolObservation};
+use crate::domain::{MessageRole, ModelMessage, ToolObservation, ToolSpec};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ContextCompaction {
+    pub before_tokens: usize,
+    pub after_tokens: usize,
     pub before_chars: usize,
     pub after_chars: usize,
     pub compacted_tool_results: usize,
@@ -23,8 +25,24 @@ pub fn compact_messages_at(
     trigger_chars: usize,
     preserve_recent: usize,
 ) -> (Vec<ModelMessage>, Option<ContextCompaction>) {
-    let before_chars = total_chars(messages);
-    if before_chars <= trigger_chars {
+    compact_messages_with(messages, trigger_chars, preserve_recent, total_chars)
+}
+
+pub fn compact_messages_at_tokens(
+    messages: &[ModelMessage],
+    trigger_tokens: usize,
+    preserve_recent: usize,
+) -> (Vec<ModelMessage>, Option<ContextCompaction>) {
+    compact_messages_with(messages, trigger_tokens, preserve_recent, total_tokens)
+}
+
+fn compact_messages_with(
+    messages: &[ModelMessage],
+    trigger: usize,
+    preserve_recent: usize,
+    measure: impl Fn(&[ModelMessage]) -> usize,
+) -> (Vec<ModelMessage>, Option<ContextCompaction>) {
+    if measure(messages) <= trigger {
         return (messages.to_vec(), None);
     }
 
@@ -49,10 +67,11 @@ pub fn compact_messages_at(
         }
     }
 
-    let after_chars = total_chars(&compacted);
     let stats = (compacted_tool_results > 0).then_some(ContextCompaction {
-        before_chars,
-        after_chars,
+        before_tokens: total_tokens(messages),
+        after_tokens: total_tokens(&compacted),
+        before_chars: total_chars(messages),
+        after_chars: total_chars(&compacted),
         compacted_tool_results,
     });
     (compacted, stats)
@@ -70,6 +89,59 @@ pub fn total_chars(messages: &[ModelMessage]) -> usize {
                     .sum::<usize>()
         })
         .sum()
+}
+
+/// Provider-neutral token estimate used for context budgeting.
+///
+/// ASCII text is estimated at four characters per token; every non-ASCII
+/// character is counted as one token. Provider-reported `usage.input_tokens`
+/// is still the authoritative value after a response.
+pub fn estimate_tokens(text: &str) -> usize {
+    let mut ascii = 0usize;
+    let mut non_ascii = 0usize;
+    for character in text.chars() {
+        if character.is_ascii() {
+            ascii += 1;
+        } else {
+            non_ascii += 1;
+        }
+    }
+    ascii.div_ceil(4).saturating_add(non_ascii)
+}
+
+pub fn total_tokens(messages: &[ModelMessage]) -> usize {
+    const MESSAGE_OVERHEAD_TOKENS: usize = 4;
+    messages
+        .iter()
+        .map(|message| {
+            MESSAGE_OVERHEAD_TOKENS
+                + estimate_tokens(&message.content)
+                + message
+                    .tool_calls
+                    .iter()
+                    .map(|call| {
+                        MESSAGE_OVERHEAD_TOKENS
+                            + estimate_tokens(&call.name)
+                            + estimate_tokens(&call.arguments.to_string())
+                    })
+                    .sum::<usize>()
+        })
+        .sum()
+}
+
+pub fn estimate_tool_specs(tools: &[ToolSpec]) -> usize {
+    tools
+        .iter()
+        .map(|tool| {
+            estimate_tokens(&tool.name)
+                + estimate_tokens(&tool.description)
+                + estimate_tokens(&tool.parameters.to_string())
+        })
+        .sum()
+}
+
+pub fn total_request_tokens(messages: &[ModelMessage], tools: &[ToolSpec]) -> usize {
+    total_tokens(messages).saturating_add(estimate_tool_specs(tools))
 }
 
 #[cfg(test)]
@@ -137,6 +209,32 @@ mod tests {
         let (compact, stats) = compact_messages(&messages, 10, 2);
         assert!(stats.is_none());
         assert_eq!(compact, messages);
+    }
+
+    #[test]
+    fn token_estimates_handle_ascii_and_cjk() {
+        assert_eq!(estimate_tokens(""), 0);
+        assert_eq!(estimate_tokens("abcd"), 1);
+        assert_eq!(estimate_tokens("abcdefgh"), 2);
+        assert_eq!(estimate_tokens("中文"), 2);
+        assert_eq!(estimate_tokens("中文abcd"), 3);
+        let messages = vec![ModelMessage::system("abcd"), ModelMessage::user("中文")];
+        assert_eq!(total_tokens(&messages), 4 + 1 + 4 + 2);
+    }
+
+    #[test]
+    fn token_compaction_triggers_before_the_hard_limit() {
+        let messages = vec![
+            ModelMessage::system("system"),
+            ModelMessage::user("user"),
+            ModelMessage::assistant("", Vec::new()),
+            ModelMessage::tool("call-1", observation(&"x".repeat(5_000)).model_content()),
+            ModelMessage::assistant("recent", Vec::new()),
+        ];
+        let (_, triggered) = compact_messages_at_tokens(&messages, 1_000, 1);
+        assert!(triggered.is_some());
+        let (_, no_trigger) = compact_messages_at_tokens(&messages, 10_000, 1);
+        assert!(no_trigger.is_none());
     }
 
     #[test]
