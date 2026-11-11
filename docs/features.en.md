@@ -157,7 +157,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 | MCP client | **Partial** | stdio and streamable HTTP (JSON/SSE responses, `Mcp-Session-Id`, bearer token from an environment variable only) discovery and calls; OAuth claims validation is available; issuer discovery, token exchange and a tool marketplace are not implemented |
 | Always-on daemon/Routine/Trigger | **Partial** | Interval and file triggers, restart catch-up, `--routine-skill`, `schedule health`; failed/timed-out runs can write alerts and webhook them; escalation and cross-restart deduplication are not implemented |
 | Full Attention/Digest | **Partial** | `digest` summarizes recent runs, schedules, health, alerts, open inbox items, open handoffs for a named recipient and the local verification summary; the maintenance loop is not implemented |
-| Automatic evolution/skill marketplace | **Partial** | Human approval/rollback plus SHA-256 skill bundles; signatures and a remote marketplace index are not implemented |
+| Automatic evolution/skill marketplace | **Partial** | Human approval/rollback plus SHA-256/Ed25519 skill bundles with signature verification; a remote marketplace index is not implemented |
 | Voice/image understanding | **Not implemented** | `read_pdf` extracts PDF text only; voice, images and scanned-document OCR are not implemented |
 | Multi-tenant/organization audit | **Not implemented** | Single-user, local-first today |
 | Android/iOS app | **Planned** | With the Bot/mobile work |

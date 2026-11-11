@@ -159,7 +159,7 @@
 | MCP 客户端 | **部分** | stdio + streamable HTTP（JSON/SSE 响应、`Mcp-Session-Id`、bearer token 仅从环境变量读）：发现并调用工具；OAuth claims 校验已提供；issuer discovery/token exchange/工具市场未实现 |
 | 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；`--heartbeat` + `1agent watchdog` 提供带外存活检查；`--quiet-hours` 在窗口内跳过到期任务（任务保持 due，窗口后运行）；升级阶梯未实现，跨重启去重仅有持久原语（未接入 daemon） |
 | 全量 Attention/Digest | **部分** | `digest` 汇总最近运行、计划任务、健康状态、告警、inbox open 与指定 recipient 的 open handoffs；维护循环未实现 |
-| 自动进化/技能市场 | **部分** | 人工审批/回滚 + SHA-256 技能包分发；签名和远程市场索引未实现 |
+| 自动进化/技能市场 | **部分** | 人工审批/回滚 + SHA-256/Ed25519 技能包分发与验签；远程市场索引未实现 |
 | 语音/图片理解 | **未实现** | `read_pdf` 只能抽取 PDF 文本；语音、图片、扫描件 OCR 未实现 |
 | 多租户/组织级审计 | **部分** | 本地组织审计哈希链、团队角色策略与交接；IdP、多租户隔离、远程透明日志未实现 |
 | Android/iOS App | **规划中** | 与 Bot 一起推进 |
