@@ -363,6 +363,10 @@ enum Command {
         #[command(subcommand)]
         command: MemoryCommand,
     },
+    Inbox {
+        #[command(subcommand)]
+        command: InboxCommand,
+    },
     Surface {
         #[command(subcommand)]
         command: SurfaceCommand,
@@ -1045,6 +1049,54 @@ enum MemoryCommand {
         payloads: PathBuf,
         #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
         key: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum InboxCommand {
+    List {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Add {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long, default_value = "notify")]
+        kind: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value = "manual")]
+        why_now: String,
+        #[arg(long, default_value = "manual")]
+        source: String,
+        #[arg(long)]
+        due_ms: Option<u128>,
+        #[arg(long)]
+        json: bool,
+    },
+    Resolve {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        item_id: String,
+        #[arg(long)]
+        status: String,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    Snooze {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        item_id: String,
+        #[arg(long)]
+        until_ms: u128,
         #[arg(long)]
         json: bool,
     },
@@ -3782,6 +3834,89 @@ async fn main() -> Result<()> {
                         rotation.rewrapped_keks,
                         rotation.retired_master_ids
                     );
+                }
+            }
+        },
+        Command::Inbox { command } => match command {
+            InboxCommand::List { store, json } => {
+                let store = first_principles_agent::InboxStore::open(store)?;
+                let items = store.open_sorted(current_time_ms());
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&items)?);
+                } else {
+                    println!("1Agent Inbox");
+                    if items.is_empty() {
+                        println!("(empty)");
+                    }
+                    for item in &items {
+                        println!(
+                            "- [{}] {} {} | {} | due={:?}",
+                            item.kind.as_str(),
+                            item.status.as_str(),
+                            item.item_id,
+                            item.title,
+                            item.due_ms
+                        );
+                    }
+                }
+            }
+            InboxCommand::Add {
+                store,
+                kind,
+                title,
+                why_now,
+                source,
+                due_ms,
+                json,
+            } => {
+                let mut store = first_principles_agent::InboxStore::open(store)?;
+                let kind: first_principles_agent::InboxKind = kind.parse()?;
+                let mut item = first_principles_agent::InboxItem::new(
+                    Uuid::new_v4().to_string(),
+                    kind,
+                    title,
+                    why_now,
+                    source,
+                    current_time_ms(),
+                );
+                if let Some(due) = due_ms {
+                    item = item.with_due_ms(due);
+                }
+                store.add(item.clone())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&item)?);
+                } else {
+                    println!("added {}", item.item_id);
+                }
+            }
+            InboxCommand::Resolve {
+                store,
+                item_id,
+                status,
+                note,
+                json,
+            } => {
+                let mut store = first_principles_agent::InboxStore::open(store)?;
+                let status: first_principles_agent::InboxStatus = status.parse()?;
+                let item = store.resolve(&item_id, status, current_time_ms(), note)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&item)?);
+                } else {
+                    println!("{} -> {}", item.item_id, item.status.as_str());
+                }
+            }
+            InboxCommand::Snooze {
+                store,
+                item_id,
+                until_ms,
+                json,
+            } => {
+                let mut store = first_principles_agent::InboxStore::open(store)?;
+                let item = store.snooze(&item_id, until_ms, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&item)?);
+                } else {
+                    println!("{} snoozed until {}", item.item_id, until_ms);
                 }
             }
         },

@@ -49,6 +49,12 @@
   duplicate-id, empty-field, invalid-transition and invalid-snooze failures
   closed. `open_sorted` orders review → question → notify, then due time.
 - Tests: five inbox unit tests (`cargo test inbox --lib`).
+- Agent Inbox CLI and projections (ADR-0042): `1agent inbox
+  add|list|resolve|snooze`; `project_attention` maps overdue/missed
+  commitments to review and due items to notify; `project_alerts` maps
+  failed/error alerts to review. Projections are pure; `inbox sync` is next.
+- Tests: two more inbox unit tests and two `inbox_cli` e2e tests
+  (`cargo test inbox --lib`, `cargo test --test inbox_cli`).
 
 ## 0.96.1 - 2026-11-11
 

@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::alerts::AlertRecord;
+use crate::attention::{AttentionCandidate, AttentionKind};
+
 #[derive(Debug, Error)]
 pub enum InboxError {
     #[error("inbox io: {0}")]
@@ -85,6 +88,40 @@ impl InboxStatus {
             Self::Rejected => "rejected",
             Self::Answered => "answered",
             Self::Dismissed => "dismissed",
+        }
+    }
+}
+
+impl std::str::FromStr for InboxKind {
+    type Err = InboxError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "notify" => Ok(Self::Notify),
+            "question" => Ok(Self::Question),
+            "review" => Ok(Self::Review),
+            _ => Err(InboxError::Invalid(
+                "inbox kind must be notify, question or review".into(),
+            )),
+        }
+    }
+}
+
+impl std::str::FromStr for InboxStatus {
+    type Err = InboxError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "open" => Ok(Self::Open),
+            "snoozed" => Ok(Self::Snoozed),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "answered" => Ok(Self::Answered),
+            "dismissed" => Ok(Self::Dismissed),
+            _ => Err(InboxError::Invalid(
+                "inbox status must be open, snoozed, approved, rejected, answered or dismissed"
+                    .into(),
+            )),
         }
     }
 }
@@ -332,6 +369,63 @@ impl InboxStore {
     }
 }
 
+/// Project attention candidates into inbox items. Overdue or missed
+/// commitments need a decision; ordinary due reminders are informational.
+pub fn project_attention(candidates: &[AttentionCandidate], now_ms: u128) -> Vec<InboxItem> {
+    candidates
+        .iter()
+        .map(|candidate| {
+            let kind = match candidate.kind {
+                AttentionKind::CommitmentOverdue | AttentionKind::CommitmentMissed => {
+                    InboxKind::Review
+                }
+                AttentionKind::CommitmentDue | AttentionKind::GoalDue => InboxKind::Notify,
+            };
+            InboxItem {
+                item_id: format!("attention:{}", candidate.id),
+                kind,
+                title: candidate.title.clone(),
+                why_now: candidate.why_now.clone(),
+                source: format!("attention:{:?}", candidate.kind),
+                created_ms: now_ms,
+                updated_ms: now_ms,
+                due_ms: candidate.due_ms,
+                status: InboxStatus::Open,
+                snoozed_until_ms: None,
+                resolution: None,
+            }
+        })
+        .collect()
+}
+
+/// Project alert records into inbox items. Failed/timeout alerts need a
+/// decision; health notices are informational.
+pub fn project_alerts(alerts: &[AlertRecord], now_ms: u128) -> Vec<InboxItem> {
+    alerts
+        .iter()
+        .map(|alert| {
+            let kind = if alert.kind.contains("fail") || alert.kind.contains("error") {
+                InboxKind::Review
+            } else {
+                InboxKind::Notify
+            };
+            InboxItem {
+                item_id: format!("alert:{}", alert.alert_id),
+                kind,
+                title: alert.message.clone(),
+                why_now: format!("alert kind: {}", alert.kind),
+                source: "alerts".into(),
+                created_ms: alert.at_ms.min(now_ms),
+                updated_ms: alert.at_ms.min(now_ms),
+                due_ms: None,
+                status: InboxStatus::Open,
+                snoozed_until_ms: None,
+                resolution: None,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,5 +511,73 @@ mod tests {
             .map(|item| item.item_id)
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["r2", "r1", "q1", "n1"]);
+    }
+
+    #[test]
+    fn attention_projection_maps_overdue_to_review_and_due_to_notify() {
+        let overdue = AttentionCandidate {
+            kind: AttentionKind::CommitmentOverdue,
+            id: "c1".into(),
+            goal_id: "g1".into(),
+            title: "send the report".into(),
+            due_ms: Some(10),
+            urgency: 100,
+            why_now: "overdue".into(),
+        };
+        let due = AttentionCandidate {
+            kind: AttentionKind::GoalDue,
+            id: "g1".into(),
+            goal_id: "g1".into(),
+            title: "ship".into(),
+            due_ms: Some(50),
+            urgency: 80,
+            why_now: "due soon".into(),
+        };
+        let items = project_attention(&[overdue, due], 20);
+        assert_eq!(items[0].kind, InboxKind::Review);
+        assert_eq!(items[0].item_id, "attention:c1");
+        assert!(items[0].source.contains("CommitmentOverdue"));
+        assert_eq!(items[1].kind, InboxKind::Notify);
+        assert_eq!(items[1].item_id, "attention:g1");
+    }
+
+    #[test]
+    fn alert_projection_maps_failures_to_review() {
+        let failed = AlertRecord {
+            alert_id: "a1".into(),
+            at_ms: 10,
+            kind: "schedule_run_failed".into(),
+            provider_id: None,
+            model: None,
+            observed: 1,
+            threshold: 1,
+            message: "run failed".into(),
+        };
+        let health = AlertRecord {
+            alert_id: "a2".into(),
+            at_ms: 11,
+            kind: "provider_health".into(),
+            provider_id: Some("p".into()),
+            model: Some("m".into()),
+            observed: 2,
+            threshold: 2,
+            message: "provider unhealthy".into(),
+        };
+        let items = project_alerts(&[failed, health], 20);
+        assert_eq!(items[0].kind, InboxKind::Review);
+        assert_eq!(items[0].item_id, "alert:a1");
+        assert_eq!(items[1].kind, InboxKind::Notify);
+        assert_eq!(items[1].item_id, "alert:a2");
+    }
+
+    #[test]
+    fn kind_and_status_parse_round_trip() {
+        assert_eq!("review".parse::<InboxKind>().unwrap(), InboxKind::Review);
+        assert!("robot".parse::<InboxKind>().is_err());
+        assert_eq!(
+            "approved".parse::<InboxStatus>().unwrap(),
+            InboxStatus::Approved
+        );
+        assert!("pending".parse::<InboxStatus>().is_err());
     }
 }
