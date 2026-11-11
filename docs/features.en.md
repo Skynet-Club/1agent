@@ -59,7 +59,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - unauthorized actions are rejected before tool execution;
 - independent verification and hack-verifiable acceptance: executor ≠ verifier; a public pass with a hidden failure is `hacked`, not clean; reports expose `hacked_resolved_bps`;
 - Trust & Repair: the side-effect ledger projects to applied / compensated / failed / pending / needs_user; an applied reversible action without compensation fails closed; `1agent away-digest` shows what happened while you were away;
-- Value report v0: `1agent value-report` summarizes completed / blocked / failed / cancelled runs, tokens/cost, tool calls/failures, alerts and pending decisions; it reports reproducible outcomes and cost per completed outcome, not an invented time saving.
+- Value report v0: `1agent value-report` summarizes completed / blocked / failed / cancelled runs, tokens/cost, tool calls/failures, alerts and pending decisions; it reports reproducible outcomes and cost per completed outcome, not an invented time saving;
+- Partner voice: operator / advisor / companion; `--voice-mode` selects it; it changes how the answer speaks, not the evidence/authority/action rules; companion does not flatter or role-play.
 
 ### 2.4 Local memory (available, RC)
 

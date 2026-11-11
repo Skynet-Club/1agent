@@ -37,6 +37,13 @@
   exposes it. It does not invent a time-saved estimate.
 - Tests: two value-report unit tests plus two `value_report_cli` e2e tests
   (`cargo test value_report --lib`, `cargo test --test value_report_cli`).
+- Partner voice modes (ADR-0040): `operator` (default), `advisor` and
+  `companion` blocks are appended to the base system prompt.
+  `AgentRuntime::with_voice_mode` and `1agent run --voice-mode` select one.
+  The block changes how the answer speaks, not the evidence/authority/action
+  rules; companion is warm but does not flatter or role-play.
+- Tests: three voice unit tests plus two `voice_mode_cli` e2e tests
+  (`cargo test voice --lib`, `cargo test --test voice_mode_cli`).
 
 ## 0.96.1 - 2026-11-11
 

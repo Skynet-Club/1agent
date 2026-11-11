@@ -180,6 +180,12 @@ Return only one JSON object matching this shape:
 "#
 }
 
+/// Base system prompt plus a partner voice block. The base prompt and evidence
+/// rules are unchanged; the voice block only changes how the answer speaks.
+pub fn agent_system_prompt_for(mode: crate::user_model::VoiceMode) -> String {
+    crate::voice::with_voice(agent_system_prompt(), mode)
+}
+
 pub async fn probe_provider(
     provider: &dyn ModelProvider,
     manifest: &ProviderManifest,

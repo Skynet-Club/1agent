@@ -87,6 +87,7 @@ pub mod usage_ledger;
 pub mod user_model;
 pub mod value_report;
 pub mod verification;
+pub mod voice;
 pub mod worker_runtime;
 pub mod workshop_worker;
 
@@ -170,5 +171,6 @@ pub use tui_workspace::*;
 pub use usage_ledger::*;
 pub use user_model::*;
 pub use value_report::*;
+pub use voice::*;
 pub use worker_runtime::*;
 pub use workshop_worker::*;

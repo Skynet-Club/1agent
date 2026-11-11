@@ -120,6 +120,9 @@ enum Command {
         evidence_max_age_ms: Option<u64>,
         #[arg(long)]
         route_objective: Option<String>,
+        /// Partner voice: operator, advisor or companion.
+        #[arg(long, value_name = "MODE")]
+        voice_mode: Option<String>,
         #[arg(long)]
         authority: Option<PathBuf>,
         #[arg(long, default_value = "operator")]
@@ -1984,6 +1987,7 @@ async fn main() -> Result<()> {
             max_unit_cost_micros_per_k,
             evidence_max_age_ms,
             route_objective,
+            voice_mode,
             authority,
             actor_id,
             authority_scope,
@@ -2087,8 +2091,17 @@ async fn main() -> Result<()> {
                 ))),
                 None => None,
             };
+            let voice_mode = match voice_mode {
+                Some(value) => {
+                    first_principles_agent::VoiceMode::parse(&value).ok_or_else(|| {
+                        anyhow::anyhow!("voice mode must be operator, advisor or companion")
+                    })?
+                }
+                None => first_principles_agent::VoiceMode::Operator,
+            };
             let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
                 .with_route_objective(objective)
+                .with_voice_mode(voice_mode)
                 .with_route_policy_sources(RoutePolicySources {
                     objective: objective_source,
                     latency_budget: latency_budget_source,
