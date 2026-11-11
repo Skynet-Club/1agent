@@ -258,8 +258,8 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   still requires Authority/Policy/Approval.
 - `value_report`: `ValueReport` counts runs by stop reason, tokens/cost, tool
   calls/failures, alerts and pending decisions over a bounded window, plus
-  cost per completed outcome. `1agent value-report` exposes it. v0 does not
-  invent a time-saved estimate.
+  cost per completed outcome and the open inbox queue size. `1agent
+  value-report` exposes it. v0 does not invent a time-saved estimate.
 - Voice modes: `voice::with_voice` appends an `operator` / `advisor` /
   `companion` block to the base system prompt. `AgentRuntime` defaults to
   `operator`; `with_voice_mode` selects another mode and `1agent run

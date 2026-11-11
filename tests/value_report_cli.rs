@@ -25,6 +25,8 @@ fn value_report_cli_reads_a_real_journal() {
     let output = Command::new(bin)
         .args(["value-report", "--journal-dir"])
         .arg(&journal_dir)
+        .arg("--inbox-store")
+        .arg(dir.path().join("inbox.jsonl"))
         .args(["--since-ms", "0", "--until-ms", "99999999999999", "--json"])
         .output()
         .unwrap();
@@ -38,6 +40,7 @@ fn value_report_cli_reads_a_real_journal() {
     assert_eq!(report["journals"], 1);
     assert!(report["tokens"].as_u64().is_some());
     assert_eq!(report["alerts"], 0);
+    assert_eq!(report["inbox_open"], 0);
     assert!(report["pending_decisions"].as_u64().is_some());
 }
 
@@ -49,6 +52,8 @@ fn value_report_cli_human_output_is_readable() {
     let output = Command::new(bin)
         .args(["value-report", "--journal-dir"])
         .arg(&journal_dir)
+        .arg("--inbox-store")
+        .arg(dir.path().join("inbox.jsonl"))
         .args(["--since-ms", "0", "--until-ms", "99999999999999"])
         .output()
         .unwrap();
@@ -57,4 +62,38 @@ fn value_report_cli_human_output_is_readable() {
     assert!(text.contains("1Agent Value Report"));
     assert!(text.contains("runs: 1"));
     assert!(text.contains("cost:"));
+    assert!(text.contains("inbox: open=0"));
+}
+
+#[test]
+fn value_report_includes_open_inbox_items() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal_dir = run_one_journal(&dir);
+    let inbox = dir.path().join("inbox.jsonl");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let add = Command::new(bin)
+        .args(["inbox", "add", "--store"])
+        .arg(&inbox)
+        .args([
+            "--kind",
+            "review",
+            "--title",
+            "Approve the deploy",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(add.status.success());
+
+    let output = Command::new(bin)
+        .args(["value-report", "--journal-dir"])
+        .arg(&journal_dir)
+        .arg("--inbox-store")
+        .arg(&inbox)
+        .args(["--since-ms", "0", "--until-ms", "99999999999999", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["inbox_open"], 1);
 }

@@ -57,7 +57,7 @@ file: <路径>              → 文件必须存在
 | 平台能力状态显式；`untested` 不宣称支持 | cmd: cargo test platform --lib && cargo test --test platform_cli | ✅ | Linux 状态图；macOS/Windows/other 全部 `untested`；不是 P-Gate 通过 |
 | 独立验证器拒绝自验证、重复/缺失结果和无证据通过；public pass + hidden fail 记为 hacked | cmd: cargo test verification --lib && cargo test --test hack_verifiable | ✅ | 确定性契约夹具；不代表真实模型质量；隐藏测试需与公开测试分开维护 |
 | 可逆副作用无补偿时失败关闭；不可逆/失败需人工；away digest 分区可见 | cmd: cargo test repair --lib && cargo test --test away_digest_cli | ✅ | 只规划补偿，不执行；执行仍需 Authority/Policy/Approval |
-| 价值周报只报可复现结果与每完成结果成本，不编造“省时” | cmd: cargo test value_report --lib && cargo test --test value_report_cli | ✅ | mock journal；真实用户价值需后续测量基线 |
+| 价值周报只报可复现结果与每完成结果成本，不编造“省时”；包含 open inbox 计数 | cmd: cargo test value_report --lib && cargo test --test value_report_cli | ✅ | mock journal；真实用户价值需后续测量基线；inbox 与 alerts 未去重 |
 | 三种伙伴声音进入系统提示；无效模式失败关闭；不改变证据规则 | cmd: cargo test voice --lib && cargo test --test voice_mode_cli | ✅ | 契约级；盲评质量未做 |
 | Inbox 快照可重放；终端状态不可迁移；重复 ID/空字段/无效 snooze 失败关闭；CLI 可操作；sync 去重且默认 dry-run | cmd: cargo test inbox --lib && cargo test --test inbox_cli && cargo test --test inbox_sync_cli | ✅ | CLI/投影/sync 已实现；TUI 与桌面/聊天入口未接 |
 | 自治档位策略：observe/suggest 不行动；act 仅低风险可逆；auto 低/中风险可逆；高风险/不可逆需审批 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 偏好不是授权；Authority/Policy/ExecutionGate 仍决定执行 |
