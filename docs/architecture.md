@@ -250,6 +250,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   delivered while the budget and false-alarm ceiling hold, otherwise moved to
   a digest. Alerts at or above `critical_urgency` bypass both. This module
   does not send, persist or acknowledge alerts.
+- `escalation`: an ordered ladder of `(after_ms, action)`; `plan` selects the
+  highest rung whose threshold the item has reached, returns no level before
+  the first threshold or after resolution, and requires strictly increasing
+  thresholds. It computes a level; delivery is separate.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;

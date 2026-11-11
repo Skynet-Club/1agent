@@ -22,6 +22,7 @@ pub mod cua;
 pub mod dashboard;
 pub mod delegation;
 pub mod domain;
+pub mod escalation;
 pub mod eval;
 pub mod evolution;
 pub mod execution_gate;
