@@ -239,6 +239,14 @@ fn inbox_notify_partial_target_failure_keeps_the_watermark() {
         .unwrap();
     assert!(!both.status.success());
 
+    let bad_format = Command::new(bin())
+        .args(["inbox-notify", "--store"])
+        .arg(&store)
+        .args(["--target", "pager=http://127.0.0.1:9/hook"])
+        .output()
+        .unwrap();
+    assert!(!bad_format.status.success());
+
     let duplicate = Command::new(bin())
         .args(["inbox-notify", "--store"])
         .arg(&store)

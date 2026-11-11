@@ -250,6 +250,29 @@ fn mcp_token_exchange_fails_closed_on_invalid_inputs() {
 
     let (endpoint, _form) =
         start_token_server(r#"{"access_token":"bad token","token_type":"Bearer","expires_in":60}"#);
+    let both_sources = Command::new(bin())
+        .args([
+            "mcp-token-exchange",
+            "--endpoint",
+            "http://127.0.0.1:9/token",
+            "--issuer",
+            "http://127.0.0.1:9",
+        ])
+        .args([
+            "--audience",
+            "mcp://server",
+            "--scope",
+            "tools.read",
+            "--subject-token-env",
+            "TEST_SUBJECT_TOKEN",
+            "--out",
+        ])
+        .arg(workspace.path().join("both-sources.token"))
+        .env("TEST_SUBJECT_TOKEN", "subject-secret")
+        .output()
+        .unwrap();
+    assert!(!both_sources.status.success());
+
     let bad_token = Command::new(bin())
         .args(["mcp-token-exchange", "--endpoint", &endpoint])
         .args([
