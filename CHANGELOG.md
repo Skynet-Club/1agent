@@ -258,6 +258,13 @@
   Execution still requires Authority/Policy/Approval.
 - Tests: one repair unit test plus two `repair_plan_cli` e2e tests
   (`cargo test repair --lib`, `cargo test --test repair_plan_cli`).
+- One-way inbox presence (ADR-0080): `1agent inbox-notify` posts open inbox
+  items to a generic/Slack/Discord webhook. HTTPS is required except for
+  loopback; embedded credentials are rejected; the payload is bounded and an
+  empty queue sends nothing. It does not read replies or mutate items.
+- Tests: two notifier unit tests plus two `inbox_notify_cli` e2e tests with a
+  loopback webhook (`cargo test notify --lib`,
+  `cargo test --test inbox_notify_cli`).
 - Onboarding context import (ADR-0072): `onboard --import-file PATH
   --import-kind fact|preference|project|feedback` writes one memory per
   non-empty, non-comment line. Files must be regular, not symlinks, ≤256 KiB,

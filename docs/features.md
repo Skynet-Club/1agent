@@ -74,6 +74,7 @@
 - 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。`1agent run --max-cost-micros/--max-tokens` 在运行时累计 provider usage，超限以 `BudgetExhausted` 停止；
 - OTel GenAI 投影：`1agent otel --journal PATH [--json]` 从 journal 生成确定性 spans（invoke_agent / chat / execute_tool），带 provider/model/token/cost 属性；是 JSON 投影，不是完整 OTel SDK/exporter；
 - Chat 适配契约：`ChatMessage → TaskRequest`；`ChatReply` 先结论、一行信任摘要（证据/未知）、`needs_approval` 与 `inbox_open`，不泄露 schema 字段；具体 Slack/Telegram/微信传输是下一层；
+- 单向在场通知：`1agent inbox-notify --store PATH --webhook URL [--format generic|slack|discord]` 把 open inbox 项发到 webhook；仅 HTTPS 或 loopback HTTP，拒绝 URL 内嵌凭证，5s 超时，最多 50 项/标题 200 字符；空队列不发送；只发不收、不改 item 状态；与既有 `notify`（发送一条 operator 消息）区分；
 - 团队角色策略：`1agent team-check` 按 owner/approver/member/viewer、read/write/approve/manage 与 scope 判定；空 scopes 表示全部，未知 actor/越权/未授权 scope 拒绝；策略模块，非 IdP；
 - 团队交接：`1agent handoff create --from ... --to ... --summary ... --evidence ... [--open-item ...]` 写入 append-only JSONL；必须有至少一个 evidence、from≠to；只有 addressee 可 `handoff accept`，终态不可再转换；`handoff list` 按创建时间排序；本地交接，不共享实时上下文；
 - 交接投影：`inbox sync --handoff-store PATH --recipient NAME` 只把 `to=recipient` 且 open 的 handoff 投影为 review 项（`handoff:<id>`），按 item_id 去重；默认只提醒，不自动接受；可在 inbox 显式 `resolve ... approved --handoff-store ... --actor ...` 接受；
