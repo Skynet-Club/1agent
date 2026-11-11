@@ -609,6 +609,28 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Exchange an OAuth subject token for an audience-restricted MCP token.
+    McpTokenExchange {
+        #[arg(long)]
+        endpoint: String,
+        #[arg(long)]
+        audience: String,
+        #[arg(long)]
+        scope: String,
+        #[arg(long)]
+        subject_token_env: String,
+        #[arg(long)]
+        client_id_env: Option<String>,
+        #[arg(long)]
+        client_secret_env: Option<String>,
+        #[arg(long, default_value_t = 3600)]
+        max_ttl_seconds: u64,
+        /// Write the access token to this new 0600 file.
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Autonomy {
         #[arg(long, default_value = "suggest")]
         level: String,
@@ -6625,6 +6647,49 @@ async fn main() -> Result<()> {
                     }
                     anyhow::bail!("MCP token rejected: {error}");
                 }
+            }
+        }
+        Command::McpTokenExchange {
+            endpoint,
+            audience,
+            scope,
+            subject_token_env,
+            client_id_env,
+            client_secret_env,
+            max_ttl_seconds,
+            out,
+            json,
+        } => {
+            let config = first_principles_agent::mcp_exchange::TokenExchangeConfig {
+                token_endpoint: endpoint,
+                audience,
+                scope,
+                subject_token_env,
+                client_id_env,
+                client_secret_env,
+                max_ttl_seconds,
+            };
+            let token = first_principles_agent::mcp_exchange::exchange(&config).await?;
+            write_key_file(&out, &token.access_token)?;
+            let digest = hex::encode(Sha256::digest(token.access_token.as_bytes()));
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "token_type": token.token_type,
+                        "expires_in_seconds": token.expires_in_seconds,
+                        "access_token_sha256": digest,
+                        "out": out,
+                    }))?
+                );
+            } else {
+                println!(
+                    "wrote {} ({}; {}s; sha256 {})",
+                    out.display(),
+                    token.token_type,
+                    token.expires_in_seconds,
+                    digest
+                );
             }
         }
         Command::Handoff { command } => match command {

@@ -86,3 +86,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0080 | One-Way Inbox Notification | [0080-one-way-inbox-notification.md](0080-one-way-inbox-notification.md) |
 | 0081 | File Chat Bridge | [0081-file-chat-bridge.md](0081-file-chat-bridge.md) |
 | 0082 | OTLP/HTTP JSON Export | [0082-otlp-http-export.md](0082-otlp-http-export.md) |
+| 0083 | MCP OAuth Token Exchange | [0083-mcp-token-exchange.md](0083-mcp-token-exchange.md) |

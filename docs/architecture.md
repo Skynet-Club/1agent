@@ -457,7 +457,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `readOnlyHint: true`; `destructiveHint: true` raises its risk. The MCP server
   validates its own input schema; 1Agent owns process, permission, timeout and
   journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
-  metadata for the journal.
+  metadata for the journal. `1agent mcp-token-exchange` obtains a short-lived
+  bearer token through an RFC 8693-style loopback/HTTPS exchange and writes it
+  to a new 0600 file for `bearer_token_file`; refresh is manual.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, requested write/network
   permissions are intersected with the parent's (they can only restrict), and
