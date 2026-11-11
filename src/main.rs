@@ -425,6 +425,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    AlarmBudget {
+        #[arg(long, default_value_t = 50)]
+        urgency: u8,
+        #[arg(long, default_value_t = 0)]
+        delivered: u32,
+        #[arg(long, default_value_t = 0)]
+        false_alarms: u32,
+        #[arg(long, default_value_t = 20)]
+        max_delivered: u32,
+        #[arg(long, default_value_t = 2000)]
+        max_false_alarm_bps: u32,
+        #[arg(long, default_value_t = 90)]
+        critical_urgency: u8,
+        #[arg(long)]
+        json: bool,
+    },
     CuaCheck {
         #[arg(long, default_value = "click")]
         action: String,
@@ -4512,6 +4528,41 @@ async fn main() -> Result<()> {
             } else {
                 println!("decision: {}", plan.decision.as_str());
                 println!("reason: {}", plan.reason);
+            }
+        }
+        Command::AlarmBudget {
+            urgency,
+            delivered,
+            false_alarms,
+            max_delivered,
+            max_false_alarm_bps,
+            critical_urgency,
+            json,
+        } => {
+            if urgency > 100 || critical_urgency > 100 {
+                anyhow::bail!("urgency must be 0..=100");
+            }
+            if max_false_alarm_bps > 10_000 {
+                anyhow::bail!("--max-false-alarm-bps must be 0..=10000");
+            }
+            let verdict = first_principles_agent::alarm_budget::evaluate(
+                urgency,
+                first_principles_agent::alarm_budget::AlarmWindow {
+                    delivered,
+                    false_alarms,
+                },
+                first_principles_agent::alarm_budget::AlarmBudget {
+                    max_delivered,
+                    max_false_alarm_bps,
+                    critical_urgency,
+                },
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&verdict)?);
+            } else {
+                println!("decision: {:?}", verdict.decision);
+                println!("reason: {}", verdict.reason);
+                println!("false_alarm_rate_bps: {:?}", verdict.false_alarm_rate_bps);
             }
         }
         Command::CuaCheck {

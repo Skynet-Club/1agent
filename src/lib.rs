@@ -3,6 +3,7 @@ mod jsonl;
 pub mod action_log;
 pub mod action_log_journal;
 pub mod agent_card;
+pub mod alarm_budget;
 pub mod alerts;
 pub mod annotation;
 pub mod approval;
