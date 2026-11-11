@@ -47,6 +47,10 @@ test result: ok. 2 passed; 0 failed
   effect; the evidence string carries the actor, `repair-plan
   --require-clean` then succeeds, and repeated marks, wrong tickets, unknown
   ids and empty evidence fail closed.
+- After moving an effect to `failed`, `repair-mark` clears it with evidence
+  prefixed `failed-effect clearance by`, reports `previous_status: failed`,
+  and the runbook becomes clean; a unit test replays the
+  `failed -> compensated` transition.
 
 ## What this does not prove
 

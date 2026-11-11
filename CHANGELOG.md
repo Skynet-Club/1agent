@@ -366,9 +366,16 @@
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event
-  whose evidence includes the actor. Only applied effects can be marked;
-  repeated marks, wrong tickets and unknown/non-applied effects fail closed.
-  The command does not execute the compensation or verify the claim.
+  whose evidence includes the actor. Applied effects are marked as a manual
+  compensation; failed effects can be cleared after a human verifies no partial
+  effect remains, with evidence recorded as `failed-effect clearance by ...`.
+  Repeated marks, wrong tickets, unknown and planned effects fail closed. The
+  command does not execute the compensation or verify the claim.
+- Ledger transition: `failed -> compensated` is now allowed for that verified
+  clearance path; `failed -> applied` remains the retry path.
+- Tests: a task-graph unit test covers failed-to-compensated replay, and a
+  second `repair_mark_cli` e2e test covers clearing a failed effect to a clean
+  runbook (`cargo test task_graph --lib`, `cargo test --test repair_mark_cli`).
 - Tests: one `repair_mark_cli` e2e test covers the full flow, the now-clean
   runbook, repeated marking, wrong ticket, unknown id and empty evidence
   (`cargo test --test repair_mark_cli`).

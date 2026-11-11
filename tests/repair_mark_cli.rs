@@ -165,3 +165,102 @@ fn repair_mark_records_a_manual_compensation() {
         String::from_utf8_lossy(&empty_evidence.stderr)
     );
 }
+
+#[test]
+fn repair_mark_clears_a_verified_failed_effect() {
+    use first_principles_agent::{SideEffectStatus, TaskGraphService};
+
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("task-graph.jsonl");
+    let demo = Command::new(bin())
+        .args(["task-graph", "demo", "--store"])
+        .arg(&store)
+        .output()
+        .unwrap();
+    assert!(
+        demo.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&demo.stderr)
+    );
+
+    let snapshot = Command::new(bin())
+        .args(["task-graph", "snapshot", "--store"])
+        .arg(&store)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(snapshot.status.success());
+    let snapshot: serde_json::Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    let effect = snapshot["side_effects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|effect| effect["status"] == "applied")
+        .unwrap();
+    let side_effect_id = effect["side_effect_id"].as_str().unwrap().to_string();
+    let ticket_id = effect["ticket_id"].as_str().unwrap().to_string();
+
+    let mut service = TaskGraphService::open(&store).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    service
+        .with_graph_mut(|graph| {
+            graph.set_side_effect_status(
+                &ticket_id,
+                &side_effect_id,
+                SideEffectStatus::Failed,
+                "connection dropped mid-write",
+                now,
+            )
+        })
+        .unwrap();
+
+    let marked = Command::new(bin())
+        .args(["repair-mark", "--store"])
+        .arg(&store)
+        .args([
+            "--ticket-id",
+            &ticket_id,
+            "--side-effect-id",
+            &side_effect_id,
+        ])
+        .args([
+            "--actor",
+            "bob",
+            "--evidence",
+            "checked the target; no partial file remains",
+        ])
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        marked.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&marked.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&marked.stdout).unwrap();
+    assert_eq!(report["status"], "compensated");
+    assert_eq!(report["previous_status"], "failed");
+    assert!(
+        report["evidence"]
+            .as_str()
+            .unwrap()
+            .contains("failed-effect clearance by bob")
+    );
+    assert_eq!(report["runbook"]["manual"], 0);
+    assert_eq!(report["runbook"]["clean"], true);
+
+    let clean = Command::new(bin())
+        .args(["repair-plan", "--store"])
+        .arg(&store)
+        .arg("--require-clean")
+        .output()
+        .unwrap();
+    assert!(
+        clean.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&clean.stderr)
+    );
+}

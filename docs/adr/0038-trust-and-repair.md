@@ -38,10 +38,13 @@ states, not just execution states.
 8. After a human performs the compensation, `1agent repair-mark --store PATH
    --ticket-id ID --side-effect-id ID --actor NAME --evidence TEXT` appends a
    `SideEffectStatusChanged` event marking the effect compensated, with the
-   evidence string `manual compensation by <actor>: <evidence>`. Only applied
-   effects are eligible; repeated marks, wrong tickets and unknown/non-applied
-   effects fail closed. The command records a claim; it does not execute or
-   verify the compensation.
+   evidence string `manual compensation by <actor>: <evidence>`. An applied
+   effect takes that path; a failed effect can be cleared after a human
+   verifies no partial effect remains, with the evidence string
+   `failed-effect clearance by <actor>: <evidence>`. The ledger therefore
+   allows `failed -> compensated` in addition to `failed -> applied` (retry).
+   Repeated marks, wrong tickets, unknown and planned effects fail closed. The
+   command records a claim; it does not execute or verify the compensation.
 9. The slice **plans** compensation and records human completion; it does not
    execute it. Execution must still pass Authority/Policy/Approval and is a
    later increment.
@@ -71,4 +74,7 @@ filtering, receipt fields and the runbook counts. The repair-plan CLI tests
 cover an empty clean store, a corrupt store and a `task-graph demo` fixture
 that reports one compensation and fails `--require-clean`. The repair-mark
 test records a manual compensation, shows the runbook becoming clean, and
-rejects a repeated mark, wrong ticket, unknown id and empty evidence.
+rejects a repeated mark, wrong ticket, unknown id and empty evidence. A second
+test first moves an effect to failed, then clears it with human evidence and
+shows the runbook becoming clean; a unit test covers the failed-to-compensated
+replay.
