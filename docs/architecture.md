@@ -404,8 +404,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `--reconcile-apply`, the daemon runs that reconcile on every tick and logs
   only when it resolves something. With `--alert-log` and
   `--alert-inbox-store`, it also projects new alert records into the inbox
-  every tick, using sync's item-id dedupe. Sync never updates an existing
-  item's status. The TUI exposes a
+  every tick, using sync's item-id dedupe. With `--goal-journal` and
+  `--goal-inbox-store`, it projects overdue goals/commitments the same way.
+  Sync never updates an existing item's status. The TUI exposes a
   `/inbox` transcript command for the default store, with inline
   `resolve`/`snooze` actions parsed by the same `parse_action`/`apply_action`
   contract as the CLI.
