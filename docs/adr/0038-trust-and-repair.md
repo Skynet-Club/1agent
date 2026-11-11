@@ -35,10 +35,18 @@ states, not just execution states.
    `clean` is true only when every plan is `none` and there are no errors.
 7. `1agent repair-plan --store ... [--require-clean] [--json]` exposes the
    runbook; `--require-clean` exits non-zero while any repair remains.
-8. This slice **plans** compensation; it does not execute it. Execution must
-   still pass Authority/Policy/Approval and is a later increment.
-9. Repair is not a new source of truth: it is a projection over the side-effect
-   ledger, so it can be rebuilt from replay.
+8. After a human performs the compensation, `1agent repair-mark --store PATH
+   --ticket-id ID --side-effect-id ID --actor NAME --evidence TEXT` appends a
+   `SideEffectStatusChanged` event marking the effect compensated, with the
+   evidence string `manual compensation by <actor>: <evidence>`. Only applied
+   effects are eligible; repeated marks, wrong tickets and unknown/non-applied
+   effects fail closed. The command records a claim; it does not execute or
+   verify the compensation.
+9. The slice **plans** compensation and records human completion; it does not
+   execute it. Execution must still pass Authority/Policy/Approval and is a
+   later increment.
+10. Repair is not a new source of truth: it is a projection over the
+    side-effect ledger, so it can be rebuilt from replay.
 
 ## Consequences
 
@@ -54,10 +62,13 @@ states, not just execution states.
 cargo test repair --lib
 cargo test --test away_digest_cli
 cargo test --test repair_plan_cli
+cargo test --test repair_mark_cli
 ```
 
 The unit tests cover planned/compensated, reversible compensation,
 missing compensation, irreversible manual review, failed cleanup, window
 filtering, receipt fields and the runbook counts. The repair-plan CLI tests
 cover an empty clean store, a corrupt store and a `task-graph demo` fixture
-that reports one compensation and fails `--require-clean`.
+that reports one compensation and fails `--require-clean`. The repair-mark
+test records a manual compensation, shows the runbook becoming clean, and
+rejects a repeated mark, wrong ticket, unknown id and empty evidence.

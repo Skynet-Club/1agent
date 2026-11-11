@@ -355,6 +355,15 @@
 - Tests: `quiet_hours_ms_until_end_tracks_the_boundary` covers the overnight
   boundary, a 30-second remainder and a fixed offset (`cargo test autonomy
   --lib`).
+- Repair marking: `1agent repair-mark --store PATH --ticket-id ID
+  --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
+  human-performed compensation by appending a `SideEffectStatusChanged` event
+  whose evidence includes the actor. Only applied effects can be marked;
+  repeated marks, wrong tickets and unknown/non-applied effects fail closed.
+  The command does not execute the compensation or verify the claim.
+- Tests: one `repair_mark_cli` e2e test covers the full flow, the now-clean
+  runbook, repeated marking, wrong ticket, unknown id and empty evidence
+  (`cargo test --test repair_mark_cli`).
 - Multi-target inbox notifications: `inbox-notify --target FORMAT=URL` may
   repeat (mutually exclusive with `--webhook`), letting one run fan out to
   several webhooks with per-target generic/Slack/Discord formats. Targets share

@@ -365,7 +365,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   away-digest` exposes the view. `build_runbook` maps the side-effect ledger
   into plans, errors and compensate/manual counts; `1agent repair-plan
   --require-clean` exits non-zero while any compensation or manual action
-  remains. This slice plans compensation; executing it still requires
+  remains. After a human performs a compensation, `1agent repair-mark`
+  appends a `SideEffectStatusChanged` event with `manual compensation by
+  <actor>: <evidence>` and re-checks the runbook. It records a human claim; it
+  does not execute the compensation or verify it, and execution still requires
   Authority/Policy/Approval.
 - `value_report`: `ValueReport` counts runs by stop reason, tokens/cost, tool
   calls/failures, alerts and pending decisions over a bounded window, plus

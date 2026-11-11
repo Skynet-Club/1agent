@@ -340,6 +340,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Record that a human performed an applied side effect's compensation.
+    RepairMark {
+        #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        ticket_id: String,
+        #[arg(long)]
+        side_effect_id: String,
+        #[arg(long)]
+        actor: String,
+        /// What was done and how it was verified; stored in the ledger.
+        #[arg(long)]
+        evidence: String,
+        #[arg(long)]
+        json: bool,
+    },
     AwayDigest {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -3865,6 +3881,86 @@ async fn main() -> Result<()> {
             }
             if require_clean && !runbook.clean {
                 anyhow::bail!("repair runbook is not clean");
+            }
+        }
+        Command::RepairMark {
+            store,
+            ticket_id,
+            side_effect_id,
+            actor,
+            evidence,
+            json,
+        } => {
+            let actor = actor.trim();
+            let evidence = evidence.trim();
+            if actor.is_empty() {
+                anyhow::bail!("--actor must not be empty");
+            }
+            if evidence.is_empty() {
+                anyhow::bail!("--evidence must not be empty");
+            }
+            let mut service = first_principles_agent::TaskGraphService::open(&store)
+                .with_context(|| format!("cannot open {}", store.display()))?;
+            let effect = service
+                .snapshot()
+                .side_effects
+                .into_iter()
+                .find(|effect| effect.side_effect_id == side_effect_id)
+                .ok_or_else(|| anyhow::anyhow!("side effect {side_effect_id} was not found"))?;
+            if effect.ticket_id != ticket_id {
+                anyhow::bail!(
+                    "side effect {side_effect_id} belongs to ticket {}",
+                    effect.ticket_id
+                );
+            }
+            match effect.status {
+                first_principles_agent::SideEffectStatus::Applied => {}
+                first_principles_agent::SideEffectStatus::Compensated => {
+                    anyhow::bail!("side effect {side_effect_id} is already compensated");
+                }
+                status => {
+                    anyhow::bail!(
+                        "side effect {side_effect_id} is {:?}; only applied side effects can be marked compensated",
+                        status
+                    );
+                }
+            }
+            let note = format!("manual compensation by {actor}: {evidence}");
+            service.with_graph_mut(|graph| {
+                graph.compensate_side_effect(
+                    &ticket_id,
+                    &side_effect_id,
+                    note.clone(),
+                    current_time_ms(),
+                )
+            })?;
+            let snapshot = service.snapshot();
+            let runbook = first_principles_agent::repair::build_runbook(&snapshot.side_effects);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ticket_id": ticket_id,
+                        "side_effect_id": side_effect_id,
+                        "status": "compensated",
+                        "evidence": note,
+                        "runbook": {
+                            "compensate": runbook.compensate,
+                            "manual": runbook.manual,
+                            "errors": runbook.errors.len(),
+                            "clean": runbook.clean,
+                        }
+                    }))?
+                );
+            } else {
+                println!("compensated {side_effect_id} ({ticket_id})");
+                println!(
+                    "runbook: compensate={} manual={} errors={} clean={}",
+                    runbook.compensate,
+                    runbook.manual,
+                    runbook.errors.len(),
+                    runbook.clean
+                );
             }
         }
         Command::AwayDigest {
