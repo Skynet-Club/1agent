@@ -1532,6 +1532,20 @@ enum ChatBridgeCommand {
         #[arg(long)]
         json: bool,
     },
+    Ingest {
+        #[arg(long)]
+        inbox: PathBuf,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        processed: Option<PathBuf>,
+        #[arg(long)]
+        failed: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2992,6 +3006,34 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&reply)?);
                 } else {
                     println!("{}", reply.text);
+                }
+            }
+            ChatBridgeCommand::Ingest {
+                inbox,
+                workspace,
+                out,
+                processed,
+                failed,
+                json,
+            } => {
+                let processed = processed.unwrap_or_else(|| inbox.join("processed"));
+                let failed = failed.unwrap_or_else(|| inbox.join("failed"));
+                let report = first_principles_agent::chat_bridge::ingest_dir(
+                    &inbox, &workspace, &out, &processed, &failed,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "scanned={} converted={} failed={}",
+                        report.scanned, report.converted, report.failed
+                    );
+                    for error in &report.errors {
+                        println!("- {error}");
+                    }
+                }
+                if report.failed > 0 {
+                    anyhow::bail!("chat bridge ingest had {} failed message(s)", report.failed);
                 }
             }
         },
