@@ -179,7 +179,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "mcp_token_exchange",
                 CapabilityStatus::Verified,
-                "manual, spawn-time, pre-expiry or 401-refresh RFC 8693-style exchange with env-only secrets and a 0600 token-file output",
+                "manual/spawn-time/pre-expiry/401-refresh RFC 8693 exchange with issuer discovery, env-only secrets and a 0600 token-file output",
             ),
             capability(
                 "otel_export",

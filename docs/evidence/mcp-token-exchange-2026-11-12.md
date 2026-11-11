@@ -19,11 +19,12 @@ running 2 tests
 test mcp_exchange::tests::environment_names_and_values_fail_closed ... ok
 test mcp_exchange::tests::invalid_configs_are_rejected_before_the_network ... ok
 
-running 4 tests
+running 5 tests
 test mcp_token_exchange_refuses_to_overwrite_the_output_file ... ok
 test mcp_token_exchange_writes_a_private_token_file ... ok
 test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
 test mcp_token_exchange_does_not_follow_redirects ... ok
+test mcp_token_exchange_discovers_the_token_endpoint ... ok
 ```
 
 ## What this proves
@@ -42,6 +43,9 @@ test mcp_token_exchange_does_not_follow_redirects ... ok
   MCP server receives `Authorization: Bearer exchanged-token`.
 - A 302 token endpoint is an error and the Location target receives no second
   connection.
+- `--issuer` tries `oauth-authorization-server` (404), falls back to
+  `openid-configuration`, discovers the loopback token endpoint and completes
+  the exchange; a remote plain-HTTP issuer is rejected.
 - A rotating endpoint returns `stale-token`, the MCP server rejects it with
   401, the client re-exchanges for `refreshed-token`, retries the request and
   completes initialization and discovery.
@@ -51,7 +55,7 @@ test mcp_token_exchange_does_not_follow_redirects ... ok
 
 ## What this does not prove
 
-- Interoperability with a real OAuth/IdP token endpoint.
+- Interoperability with a real OAuth/IdP issuer or token endpoint.
 - A retry budget, concurrent-refresh deduplication or issuer discovery; the
   proactive check is a fixed 30-second window.
 - That the IdP enforces audience restriction; this validates the response

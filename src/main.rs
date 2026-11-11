@@ -630,8 +630,12 @@ enum Command {
     },
     /// Exchange an OAuth subject token for an audience-restricted MCP token.
     McpTokenExchange {
-        #[arg(long)]
-        endpoint: String,
+        /// Token endpoint URL; mutually exclusive with --issuer.
+        #[arg(long, conflicts_with = "issuer")]
+        endpoint: Option<String>,
+        /// Issuer URL for RFC 8414/OpenID discovery.
+        #[arg(long, conflicts_with = "endpoint")]
+        issuer: Option<String>,
         #[arg(long)]
         audience: String,
         #[arg(long)]
@@ -6842,6 +6846,7 @@ async fn main() -> Result<()> {
         }
         Command::McpTokenExchange {
             endpoint,
+            issuer,
             audience,
             scope,
             subject_token_env,
@@ -6851,6 +6856,13 @@ async fn main() -> Result<()> {
             out,
             json,
         } => {
+            let endpoint = match (endpoint, issuer) {
+                (Some(endpoint), None) => endpoint,
+                (None, Some(issuer)) => {
+                    first_principles_agent::mcp_exchange::discover_token_endpoint(&issuer).await?
+                }
+                _ => anyhow::bail!("exactly one of --endpoint or --issuer is required"),
+            };
             let config = first_principles_agent::mcp_exchange::TokenExchangeConfig {
                 token_endpoint: endpoint,
                 audience,
