@@ -119,6 +119,13 @@
   steering to targets outside the approved plan. `1agent cua-check` exposes it.
 - Tests: five policy unit tests plus two `cua_check_cli` e2e tests
   (`cargo test cua --lib`, `cargo test --test cua_check_cli`).
+- Cascade containment metrics (ADR-0054): `cascade::simulate` walks a directed
+  failure graph with containment points and reports affected/contained/
+  propagated, `containment_rate_bps`, `cascade_depth` and `blast_radius`;
+  `cascade::evaluate` gates them. `1agent cascade-check` exposes it. This is a
+  deterministic simulation, not a live multi-agent run.
+- Tests: four cascade unit tests plus three `cascade_check_cli` e2e tests
+  (`cargo test cascade --lib`, `cargo test --test cascade_check_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
