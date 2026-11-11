@@ -373,6 +373,12 @@
   sync (item-id dedupe, existing statuses preserved). Quiet hours skip it.
 - Tests: two `daemon_alert_inbox_cli` e2e tests cover projection/dedupe and
   the missing-log rejection (`cargo test --test daemon_alert_inbox_cli`).
+- Daemon goal projection: with `--goal-journal PATH` and `--goal-inbox-store
+  PATH`, every tick projects overdue goals/commitments into the inbox using
+  the default attention policy and sync's item-id dedupe. The two flags are
+  required together; quiet hours skip it.
+- Tests: two `daemon_goal_inbox_cli` e2e tests cover projection/dedupe and
+  flag pairing (`cargo test --test daemon_goal_inbox_cli`).
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event

@@ -469,6 +469,11 @@ enum Command {
         /// Project new --alert-log records into this inbox store every tick.
         #[arg(long)]
         alert_inbox_store: Option<PathBuf>,
+        /// Project overdue goals/commitments into an inbox every tick.
+        #[arg(long)]
+        goal_journal: Option<PathBuf>,
+        #[arg(long)]
+        goal_inbox_store: Option<PathBuf>,
     },
     Watchdog {
         #[arg(long)]
@@ -2784,6 +2789,8 @@ async fn run_daemon(
     reconcile_handoff_store: Option<PathBuf>,
     reconcile_apply: bool,
     alert_inbox_store: Option<PathBuf>,
+    goal_journal: Option<PathBuf>,
+    goal_inbox_store: Option<PathBuf>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2835,6 +2842,9 @@ async fn run_daemon(
         .transpose()?;
     if alert_inbox_store.is_some() && alerts.is_none() {
         bail!("--alert-inbox-store requires --alert-log");
+    }
+    if goal_journal.is_some() != goal_inbox_store.is_some() {
+        bail!("--goal-journal and --goal-inbox-store are required together");
     }
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
     loop {
@@ -2994,6 +3004,39 @@ async fn run_daemon(
                 }
                 Err(error) => {
                     eprintln!("[daemon] cannot read alert log: {error}");
+                }
+            }
+        }
+        if let (Some(goals_path), Some(inbox_path)) = (&goal_journal, &goal_inbox_store) {
+            match first_principles_agent::GoalStore::open(goals_path) {
+                Ok(goals) => {
+                    let now = current_time_ms();
+                    let candidates = first_principles_agent::attention_candidates(
+                        goals.graph(),
+                        now,
+                        &first_principles_agent::AttentionPolicy::default(),
+                    );
+                    let projected = first_principles_agent::project_attention(&candidates, now);
+                    match first_principles_agent::InboxStore::open(inbox_path) {
+                        Ok(mut inbox) => match inbox.sync(projected, true) {
+                            Ok(report) if report.added > 0 => {
+                                eprintln!(
+                                    "[daemon] inbox goal sync: added {} item(s)",
+                                    report.added
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                eprintln!("[daemon] inbox goal sync failed: {error}");
+                            }
+                        },
+                        Err(error) => {
+                            eprintln!("[daemon] cannot open goal inbox store: {error}");
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("[daemon] cannot open goal journal: {error}");
                 }
             }
         }
@@ -4811,6 +4854,8 @@ async fn main() -> Result<()> {
             reconcile_handoff_store,
             reconcile_apply,
             alert_inbox_store,
+            goal_journal,
+            goal_inbox_store,
         } => {
             run_daemon(
                 store,
@@ -4831,6 +4876,8 @@ async fn main() -> Result<()> {
                 reconcile_handoff_store,
                 reconcile_apply,
                 alert_inbox_store,
+                goal_journal,
+                goal_inbox_store,
             )
             .await?;
         }
