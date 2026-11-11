@@ -19,12 +19,13 @@ running 2 tests
 test mcp_exchange::tests::environment_names_and_values_fail_closed ... ok
 test mcp_exchange::tests::invalid_configs_are_rejected_before_the_network ... ok
 
-running 5 tests
+running 6 tests
 test mcp_token_exchange_refuses_to_overwrite_the_output_file ... ok
 test mcp_token_exchange_writes_a_private_token_file ... ok
 test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
 test mcp_token_exchange_does_not_follow_redirects ... ok
 test mcp_token_exchange_discovers_the_token_endpoint ... ok
+test issuer_discovery_does_not_follow_redirects ... ok
 ```
 
 ## What this proves
@@ -37,6 +38,8 @@ test mcp_token_exchange_discovers_the_token_endpoint ... ok
 - Missing environment variables, insecure remote HTTP, wrong token type,
   excessive TTL and partial client credentials fail closed.
 - An existing output file is not overwritten.
+- A token containing whitespace is rejected rather than sent as a malformed
+  Authorization header.
 - Invalid audience/scope/TTL/client-pair and insecure endpoints are rejected
   before any secret is read or request is sent.
 - An MCP HTTP config with `token_exchange` exchanges once at spawn; the fake
