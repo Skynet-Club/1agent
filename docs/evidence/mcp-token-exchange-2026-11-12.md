@@ -19,10 +19,11 @@ running 2 tests
 test mcp_exchange::tests::environment_names_and_values_fail_closed ... ok
 test mcp_exchange::tests::invalid_configs_are_rejected_before_the_network ... ok
 
-running 3 tests
+running 4 tests
 test mcp_token_exchange_refuses_to_overwrite_the_output_file ... ok
 test mcp_token_exchange_writes_a_private_token_file ... ok
 test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
+test mcp_token_exchange_does_not_follow_redirects ... ok
 ```
 
 ## What this proves
@@ -39,6 +40,8 @@ test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
   before any secret is read or request is sent.
 - An MCP HTTP config with `token_exchange` exchanges once at spawn; the fake
   MCP server receives `Authorization: Bearer exchanged-token`.
+- A 302 token endpoint is an error and the Location target receives no second
+  connection.
 - A rotating endpoint returns `stale-token`, the MCP server rejects it with
   401, the client re-exchanges for `refreshed-token`, retries the request and
   completes initialization and discovery.
