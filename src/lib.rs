@@ -106,6 +106,7 @@ pub mod usage_ledger;
 pub mod user_model;
 pub mod value_report;
 pub mod verification;
+pub mod verification_store;
 pub mod voice;
 pub mod watchdog;
 pub mod worker_runtime;

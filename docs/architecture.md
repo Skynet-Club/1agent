@@ -188,6 +188,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 `hacked` (public pass, hidden fail); `summarize` exposes
 `hacked_resolved_bps` so a high public pass rate cannot hide reward hacking.
 
+`verification_store` appends one validation report per `verification_id` to
+JSONL and syncs each record. Duplicate ids and self-verification are rejected.
+`summary` reuses `verification::summarize`; `verified_count` counts only clean
+`Verified` outcomes in a window, so `value-report --verification-store` can
+derive cost per verified outcome without a hand-supplied count.
+
 ## Implemented contracts
 
 - `TaskRequest`: objective, deliverable, known facts, constraints, unknowns, decision and

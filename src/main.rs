@@ -290,6 +290,9 @@ enum Command {
     ValueReport {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
+        /// Count clean Verified outcomes from this store in the window.
+        #[arg(long)]
+        verification_store: Option<PathBuf>,
         #[arg(long)]
         alert_log: Option<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
@@ -458,6 +461,10 @@ enum Command {
     Handoff {
         #[command(subcommand)]
         command: HandoffCommand,
+    },
+    Verification {
+        #[command(subcommand)]
+        command: VerificationCommand,
     },
     McpTokenCheck {
         /// JSON claims that were already signature-verified by the caller.
@@ -1453,6 +1460,31 @@ enum IdempotencyCommand {
         key: String,
         #[arg(long)]
         fingerprint: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum VerificationCommand {
+    Record {
+        #[arg(long, default_value_os_t = home_or_legacy("verification.jsonl", ".1a/verification.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        verification_id: String,
+        #[arg(long)]
+        run_id: String,
+        #[arg(long)]
+        input: PathBuf,
+        /// Defaults to the current clock.
+        #[arg(long)]
+        at_ms: Option<u128>,
+        #[arg(long)]
+        json: bool,
+    },
+    Summary {
+        #[arg(long, default_value_os_t = home_or_legacy("verification.jsonl", ".1a/verification.jsonl"))]
+        store: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -3139,6 +3171,7 @@ async fn main() -> Result<()> {
         }
         Command::ValueReport {
             journal_dir,
+            verification_store,
             alert_log,
             inbox_store,
             since_ms,
@@ -3149,6 +3182,17 @@ async fn main() -> Result<()> {
         } => {
             let until = until_ms.unwrap_or_else(current_time_ms);
             let since = since_ms.unwrap_or_else(|| until.saturating_sub(window_ms));
+            if verified_outcomes.is_some() && verification_store.is_some() {
+                anyhow::bail!("use either --verified-outcomes or --verification-store, not both");
+            }
+            let verified_outcomes = match verification_store {
+                Some(path) => {
+                    let store =
+                        first_principles_agent::verification_store::VerificationStore::open(path)?;
+                    Some(store.verified_count(since, until))
+                }
+                None => verified_outcomes,
+            };
             let runs = if journal_dir.is_dir() {
                 scan_history(&journal_dir, 200)?
             } else {
@@ -5210,6 +5254,60 @@ async fn main() -> Result<()> {
                 } else {
                     println!("private key: {}", private_out.display());
                     println!("public key: {public}");
+                }
+            }
+        },
+        Command::Verification { command } => match command {
+            VerificationCommand::Record {
+                store,
+                verification_id,
+                run_id,
+                input,
+                at_ms,
+                json,
+            } => {
+                let raw = std::fs::read_to_string(&input)
+                    .with_context(|| format!("cannot read {}", input.display()))?;
+                let input: first_principles_agent::verification::VerificationInput =
+                    serde_json::from_str(&raw).context("invalid verification input")?;
+                let report = first_principles_agent::verification::verify(&input)?;
+                let mut store =
+                    first_principles_agent::verification_store::VerificationStore::open(store)?;
+                let record = store.append(
+                    first_principles_agent::verification_store::VerificationRecord {
+                        verification_id,
+                        run_id,
+                        at_ms: at_ms.unwrap_or_else(current_time_ms),
+                        report,
+                    },
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(record)?);
+                } else {
+                    println!(
+                        "recorded {}: {:?} executor={} verifier={}",
+                        record.verification_id,
+                        record.report.outcome,
+                        record.report.executor_id,
+                        record.report.verifier_id
+                    );
+                }
+            }
+            VerificationCommand::Summary { store, json } => {
+                let store =
+                    first_principles_agent::verification_store::VerificationStore::open(store)?;
+                let summary = store.summary();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&summary)?);
+                } else {
+                    println!(
+                        "verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}",
+                        summary.verified,
+                        summary.hacked,
+                        summary.rejected,
+                        summary.resolved,
+                        summary.hacked_resolved_bps
+                    );
                 }
             }
         },
