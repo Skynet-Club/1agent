@@ -8,6 +8,7 @@ Scope: `mcp_exchange::exchange`, `1agent mcp-token-exchange`.
 ```bash
 cargo test mcp_exchange --lib
 cargo test --test mcp_token_exchange_cli
+cargo test tools::mcp --lib
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -36,11 +37,14 @@ test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
 - An existing output file is not overwritten.
 - Invalid audience/scope/TTL/client-pair and insecure endpoints are rejected
   before any secret is read or request is sent.
+- An MCP HTTP config with `token_exchange` exchanges once at spawn; the fake
+  MCP server receives `Authorization: Bearer exchanged-token`.
 
 ## What this does not prove
 
 - Interoperability with a real OAuth/IdP token endpoint.
-- Automatic exchange, refresh, retry or in-process wiring into MCP spawn.
+- Refresh, retry on expiry or issuer discovery; the spawn-time exchange is
+  one-shot.
 - That the IdP enforces audience restriction; this validates the response
   shape and TTL, not the remote policy.
 - Cross-platform behavior; tests ran on Linux only.

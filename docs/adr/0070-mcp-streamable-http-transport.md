@@ -18,8 +18,9 @@ credential path that does not put tokens in a config file or argv.
    - HTTPS is required except for loopback (`localhost` or a loopback IP);
    - URLs with embedded credentials are rejected;
    - a bearer token is read from the environment variable named by
-     `bearer_token_env` or from a 0600 regular non-symlink file named by
-     `bearer_token_file`; setting both is an error;
+     `bearer_token_env`, from a 0600 regular non-symlink file named by
+     `bearer_token_file`, or exchanged once at spawn via `token_exchange`;
+     setting more than one source is an error;
    - the token is never stored in the config, logged or included in errors;
    - a missing, empty, loose-permission or symlinked token source fails
      closed.
