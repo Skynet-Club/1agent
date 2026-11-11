@@ -252,6 +252,9 @@
   all-time local verified/hacked/rejected/bps summary.
 - Tests: one `digest_cli` e2e test covers a hacked report
   (`cargo test --test digest_cli`).
+- A-Gate soak evidence: five consecutive `a_gate_soak` cycles pass locally
+  (`docs/evidence/a-gate-soak-2026-11-12.md`). This is the software soak, not
+  the external A-Gate checklist or a 24h multi-agent acceptance run.
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
