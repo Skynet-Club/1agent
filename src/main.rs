@@ -1504,6 +1504,17 @@ enum InboxCommand {
         /// Defaults to the current clock.
         #[arg(long)]
         now_ms: Option<u128>,
+        /// Deliver notify/urgent rungs to this webhook; requires --state.
+        #[arg(long)]
+        webhook: Option<String>,
+        #[arg(long, default_value = "generic")]
+        format: String,
+        /// Highest delivered rung per item; required with --webhook.
+        #[arg(long)]
+        state: Option<PathBuf>,
+        /// Report what would be delivered without calling the webhook.
+        #[arg(long)]
+        dry_run: bool,
         #[arg(long)]
         json: bool,
     },
@@ -5511,44 +5522,149 @@ async fn main() -> Result<()> {
                 store,
                 step,
                 now_ms,
+                webhook,
+                format,
+                state,
+                dry_run,
                 json,
             } => {
                 let ladder = parse_escalation_ladder(&step)?;
+                if webhook.is_some() != state.is_some() {
+                    anyhow::bail!("--webhook and --state are required together");
+                }
+                if dry_run && webhook.is_none() {
+                    anyhow::bail!("--dry-run requires --webhook and --state");
+                }
                 let now = now_ms.unwrap_or_else(current_time_ms);
                 let store = first_principles_agent::InboxStore::open(store)?;
                 let items = store.open_sorted(now);
                 let mut rows = Vec::with_capacity(items.len());
-                if json {
-                    for item in &items {
-                        let plan = first_principles_agent::escalation::plan(
-                            &ladder,
-                            item.created_ms,
-                            now,
-                            false,
-                        );
-                        rows.push(serde_json::json!({
-                            "item_id": item.item_id,
-                            "kind": item.kind.as_str(),
-                            "title": item.title,
-                            "created_ms": item.created_ms,
-                            "elapsed_ms": plan.elapsed_ms,
-                            "level": plan.level.map(|level| level.as_str()),
-                            "reason": plan.reason,
-                        }));
+                for item in &items {
+                    let plan = first_principles_agent::escalation::plan(
+                        &ladder,
+                        item.created_ms,
+                        now,
+                        false,
+                    );
+                    rows.push((item, plan));
+                }
+
+                let notifier = match &webhook {
+                    Some(url) => {
+                        let format: first_principles_agent::alerts::WebhookFormat =
+                            format.parse().map_err(|error| anyhow::anyhow!("{error}"))?;
+                        Some(
+                            first_principles_agent::notify::InboxNotifier::new(url.clone())?
+                                .with_format(format),
+                        )
                     }
-                    println!("{}", serde_json::to_string_pretty(&rows)?);
+                    None => None,
+                };
+                let mut escalation_state = match state {
+                    Some(path) => {
+                        let state =
+                            first_principles_agent::escalation::EscalationState::open(&path)?;
+                        Some((path, state))
+                    }
+                    None => None,
+                };
+
+                let mut to_notify = Vec::new();
+                if notifier.is_some() {
+                    let delivered = escalation_state.as_ref().map(|(_, state)| &state.delivered);
+                    to_notify = rows
+                        .iter()
+                        .filter(|(item, plan)| {
+                            let Some(level) = plan.level else {
+                                return false;
+                            };
+                            level >= first_principles_agent::escalation::EscalationAction::Notify
+                                && delivered.is_some_and(|delivered| {
+                                    delivered
+                                        .get(&item.item_id)
+                                        .is_none_or(|sent| *sent < level)
+                                })
+                        })
+                        .take(50)
+                        .collect();
+                }
+
+                let mut sent = false;
+                if let Some(notifier) = &notifier
+                    && !to_notify.is_empty()
+                    && !dry_run
+                {
+                    let mut text = format!("1Agent Escalation: {} item(s)\n", to_notify.len());
+                    for (item, plan) in &to_notify {
+                        text.push_str(&format!(
+                            "[{}] {} ({})\n",
+                            plan.level.map_or("none", |level| level.as_str()),
+                            item.title,
+                            item.item_id
+                        ));
+                    }
+                    notifier.send_text(text.trim_end()).await?;
+                    sent = true;
+                }
+                if let Some((path, state)) = escalation_state.as_mut()
+                    && !dry_run
+                {
+                    let open_items = rows
+                        .iter()
+                        .map(|(item, _)| item.item_id.as_str())
+                        .collect::<std::collections::BTreeSet<_>>();
+                    let before = state.delivered.len();
+                    state
+                        .delivered
+                        .retain(|item_id, _| open_items.contains(item_id.as_str()));
+                    let pruned = state.delivered.len() != before;
+                    if sent {
+                        for (item, plan) in &to_notify {
+                            if let Some(level) = plan.level {
+                                state.delivered.insert(item.item_id.clone(), level);
+                            }
+                        }
+                    }
+                    if sent || pruned {
+                        state.save(path)?;
+                    }
+                }
+
+                if json {
+                    let rows = rows
+                        .iter()
+                        .map(|(item, plan)| {
+                            serde_json::json!({
+                                "item_id": item.item_id,
+                                "kind": item.kind.as_str(),
+                                "title": item.title,
+                                "created_ms": item.created_ms,
+                                "elapsed_ms": plan.elapsed_ms,
+                                "level": plan.level.map(|level| level.as_str()),
+                                "reason": plan.reason,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    let notification = notifier.as_ref().map(|_| {
+                        serde_json::json!({
+                            "sent": sent,
+                            "notified": to_notify.len(),
+                            "dry_run": dry_run,
+                        })
+                    });
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "items": rows,
+                            "notification": notification,
+                        }))?
+                    );
                 } else {
                     println!("1Agent Inbox Escalation");
-                    if items.is_empty() {
+                    if rows.is_empty() {
                         println!("(empty)");
                     }
-                    for item in &items {
-                        let plan = first_principles_agent::escalation::plan(
-                            &ladder,
-                            item.created_ms,
-                            now,
-                            false,
-                        );
+                    for (item, plan) in &rows {
                         println!(
                             "- [{}] {} {} | elapsed={}ms | level={} | {}",
                             item.kind.as_str(),
@@ -5558,6 +5674,18 @@ async fn main() -> Result<()> {
                             plan.level.map_or("none", |level| level.as_str()),
                             plan.reason
                         );
+                    }
+                    if notifier.is_some() {
+                        if dry_run {
+                            println!(
+                                "dry-run: would notify {} escalated item(s)",
+                                to_notify.len()
+                            );
+                        } else if sent {
+                            println!("notified {} escalated item(s)", to_notify.len());
+                        } else {
+                            println!("no new escalation to notify");
+                        }
                     }
                 }
             }

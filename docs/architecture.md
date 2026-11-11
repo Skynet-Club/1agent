@@ -265,8 +265,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   highest rung whose threshold the item has reached, returns no level before
   the first threshold or after resolution, and requires strictly increasing
   thresholds. `1agent inbox escalate` applies the ladder to every open or
-  due-snoozed item using its `created_ms`; terminal items are excluded. It
-  computes a level; delivery is separate.
+  due-snoozed item using its `created_ms`; terminal items are excluded. With
+  `--webhook` and `--state`, it delivers at most 50 items whose level is newly
+  `notify` or `urgent` (higher than the state's recorded rung), then advances
+  the per-item watermark; a crash between send and save can duplicate one
+  batch. Resolved items are pruned from the state. Digest-rung delivery is
+  not implemented.
 - `org_audit`: append-only organization index. Each entry carries seq,
   actor/action/scope/decision, the previous hash and its own SHA-256 hash over
   a canonical field body. `append` writes and syncs one JSON line; `verify`

@@ -3,6 +3,9 @@
 //! The ladder is a pure policy: the caller supplies the item age and the
 //! ordered steps. It does not send messages or change an item's status.
 
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -14,7 +17,7 @@ pub enum EscalationError {
     NotIncreasing,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum EscalationAction {
     Inbox,
@@ -114,6 +117,46 @@ pub fn plan(
             step.after_ms,
             step.action.as_str()
         ),
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum EscalationStateError {
+    #[error("escalation state io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("escalation state json: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+/// Highest delivered rung per inbox item. A missing item has never been
+/// delivered; a resolved item may be pruned by the caller.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EscalationState {
+    #[serde(default)]
+    pub delivered: BTreeMap<String, EscalationAction>,
+}
+
+impl EscalationState {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, EscalationStateError> {
+        match std::fs::read(path.into()) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), EscalationStateError> {
+        use std::io::Write;
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        let bytes = serde_json::to_vec_pretty(self)?;
+        {
+            let mut file = std::fs::File::create(&temporary)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+        }
+        std::fs::rename(&temporary, path)?;
+        Ok(())
     }
 }
 
