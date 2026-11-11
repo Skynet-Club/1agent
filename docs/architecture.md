@@ -308,8 +308,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   URL; `--dry-run` computes open/new counts but sends nothing and does not
   advance the watermark. `send_text` reuses the same URL policy for the digest
   `--notify-webhook` path; `digest --notify-log` appends a receipt with run,
-  alert and open-inbox counts but not the URL. It is one-way presence, not a
-  chat transport;
+  alert and open-inbox counts but not the URL. `notify-receipts` summarizes a
+  mixed inbox/digest receipt log and fails closed on unknown or malformed
+  lines. It is one-way presence, not a chat transport;
   `notify` remains the one-message operator command.
 - `unit_economics`: a pure subscription/usage/BYOK calculator. The caller
   supplies revenue, variable cost, fixed cost and an optional verified-outcome

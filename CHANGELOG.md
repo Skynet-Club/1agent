@@ -407,6 +407,13 @@
   child's JSON content. Tests cover requested restriction and a widening
   attempt against a read-only parent (`cargo test --offline --lib
   tools::subagent`).
+- Notification receipt summary: `notify-receipts --log PATH [--json]` reads a
+  mixed inbox/digest receipt log and reports total/inbox/digest/last_sent_ms/
+  format counts. Malformed or unknown lines fail closed; a missing log is
+  empty. It does not verify real delivery.
+- Tests: three `notify_receipts_cli` e2e tests cover mixed logs, malformed and
+  unknown lines, and the missing-file case (`cargo test --test
+  notify_receipts_cli`).
 - Digest receipts: `digest --notify-log PATH` appends one JSONL receipt after
   a successful `--notify-webhook` send (sent_at_ms/runs/alerts/inbox_open/
   format, no URL). The flag requires the webhook.

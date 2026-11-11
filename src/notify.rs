@@ -4,6 +4,7 @@
 //! open inbox items to a generic/Slack/Discord webhook. It does not read
 //! replies, change item state or store the webhook URL.
 
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -297,6 +298,57 @@ pub fn append_digest_receipt(
     receipt: &DigestNotifyReceipt,
 ) -> Result<(), NotifyError> {
     append_json_line(path, receipt)
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReceiptSummary {
+    pub total: usize,
+    pub inbox: usize,
+    pub digest: usize,
+    pub last_sent_ms: u128,
+    pub formats: BTreeMap<String, usize>,
+}
+
+/// Reads a receipt JSONL log. Unknown shapes and malformed lines fail closed;
+/// a missing file is an empty log. Returns the parsed receipts for rendering.
+pub fn read_receipts(path: &Path) -> Result<(ReceiptSummary, Vec<serde_json::Value>), NotifyError> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let mut summary = ReceiptSummary::default();
+    let mut receipts = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(line)
+            .map_err(|error| NotifyError::State(format!("line {}: {error}", index + 1)))?;
+        let is_inbox = value.get("open").is_some() && value.get("new_items").is_some();
+        let is_digest = value.get("inbox_open").is_some() && value.get("runs").is_some();
+        if !is_inbox && !is_digest {
+            return Err(NotifyError::State(format!(
+                "line {} is not a notification receipt",
+                index + 1
+            )));
+        }
+        summary.total += 1;
+        if is_inbox {
+            summary.inbox += 1;
+        } else {
+            summary.digest += 1;
+        }
+        if let Some(sent_at_ms) = value.get("sent_at_ms").and_then(serde_json::Value::as_u64) {
+            summary.last_sent_ms = summary.last_sent_ms.max(u128::from(sent_at_ms));
+        }
+        if let Some(format) = value.get("format").and_then(serde_json::Value::as_str) {
+            *summary.formats.entry(format.to_string()).or_default() += 1;
+        }
+        receipts.push(value);
+    }
+    Ok((summary, receipts))
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {
