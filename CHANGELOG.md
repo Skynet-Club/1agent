@@ -96,6 +96,10 @@
   A2A HTTP service.
 - Tests: three agent-card unit tests plus two `agent_card_cli` e2e tests
   (`cargo test agent_card --lib`, `cargo test --test agent_card_cli`).
+- Agent Card over HTTP (ADR-0051): `GET /v0/agent-card` serves the same
+  unsigned card as a public read-only route; no bearer or body is required.
+- Tests: HTTP surface route returns 200 with the card name and non-empty
+  capabilities (`cargo test http_surface --lib`).
 - Skill scan (ADR-0048): `1agent skill scan --path SKILL.md [--json]` validates
   frontmatter and runs the registry scan without registering or executing the
   skill. Adds instruction-override markers (`disregard previous instructions`,

@@ -246,8 +246,9 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;
   `cross_platform` is untested and team/marketplace are unsupported.
-  `1agent agent-card` prints it. This is a local unsigned card, not an A2A
-  HTTP/served card.
+  `1agent agent-card` prints it and `GET /v0/agent-card` serves the same
+  payload on the public read-only HTTP Surface. This is a local unsigned card,
+  not an A2A registry-signed card.
 - `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
   TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
   `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.
