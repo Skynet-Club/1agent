@@ -216,6 +216,13 @@
   it. This is a local index, not a remote transparency log or an IdP.
 - Tests: four org-audit unit tests plus two `org_audit_cli` e2e tests
   (`cargo test org_audit --lib`, `cargo test --test org_audit_cli`).
+- MCP OAuth claims policy (ADR-0066): `mcp_auth::authorize` checks exact
+  audience, expiry/not-before with clock skew, a maximum TTL and an exact
+  required scope over claims the caller already signature-verified.
+  `1agent mcp-token-check` reads claims from a file, never argv, and never
+  prints the subject on rejection. HTTP/SSE transport is still absent.
+- Tests: four mcp-auth unit tests plus three `mcp_token_cli` e2e tests
+  (`cargo test mcp_auth --lib`, `cargo test --test mcp_token_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

@@ -408,6 +408,24 @@ enum Command {
         #[command(subcommand)]
         command: OrgAuditCommand,
     },
+    McpTokenCheck {
+        /// JSON claims that were already signature-verified by the caller.
+        #[arg(long, value_name = "PATH")]
+        claims: PathBuf,
+        #[arg(long)]
+        audience: String,
+        #[arg(long)]
+        scope: String,
+        #[arg(long, default_value_t = 300_000)]
+        max_ttl_ms: u128,
+        #[arg(long, default_value_t = 5_000)]
+        skew_ms: u128,
+        /// Defaults to the current clock.
+        #[arg(long)]
+        now_ms: Option<u128>,
+        #[arg(long)]
+        json: bool,
+    },
     Autonomy {
         #[arg(long, default_value = "suggest")]
         level: String,
@@ -4576,6 +4594,52 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Command::McpTokenCheck {
+            claims,
+            audience,
+            scope,
+            max_ttl_ms,
+            skew_ms,
+            now_ms,
+            json,
+        } => {
+            let raw = std::fs::read_to_string(&claims)
+                .with_context(|| format!("cannot read {}", claims.display()))?;
+            let token: first_principles_agent::mcp_auth::McpToken =
+                serde_json::from_str(&raw).context("invalid MCP token claims JSON")?;
+            let policy = first_principles_agent::mcp_auth::McpTokenPolicy {
+                expected_audience: audience,
+                max_ttl_ms,
+                clock_skew_ms: skew_ms,
+            };
+            match first_principles_agent::mcp_auth::authorize(
+                &token,
+                &policy,
+                now_ms.unwrap_or_else(current_time_ms),
+                &scope,
+            ) {
+                Ok(decision) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&decision)?);
+                    } else {
+                        println!("authorized: {} for {}", decision.subject, decision.audience);
+                        println!("reason: {}", decision.reason);
+                    }
+                }
+                Err(error) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "authorized": false,
+                                "reason": error.to_string(),
+                            })
+                        );
+                    }
+                    anyhow::bail!("MCP token rejected: {error}");
+                }
+            }
+        }
         Command::Autonomy {
             level,
             risk,

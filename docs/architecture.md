@@ -259,6 +259,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   a canonical field body. `append` writes and syncs one JSON line; `verify`
   detects edited fields, reordering and broken links. It is a local index, not
   a remote transparency log, and it does not authenticate the actor.
+- `mcp_auth`: policy over already-signature-verified MCP OAuth claims. It
+  enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
+  an exact required scope. Signature verification and token acquisition are
+  the caller's; this module never stores or prints the token.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;
