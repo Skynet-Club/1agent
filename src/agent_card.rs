@@ -157,6 +157,11 @@ pub fn build_card(version: &str) -> AgentCard {
                 "streamable HTTP JSON/SSE transport with environment-only bearer tokens",
             ),
             capability(
+                "chat_bridge",
+                CapabilityStatus::Verified,
+                "file-based message→task and run-result→reply adapter",
+            ),
+            capability(
                 "computer_use",
                 platform_status("computer_use"),
                 "status comes from the platform registry",
@@ -294,6 +299,7 @@ mod tests {
             "repair_runbook",
             "org_audit",
             "mcp_http_transport",
+            "chat_bridge",
         ] {
             let capability = card
                 .capabilities

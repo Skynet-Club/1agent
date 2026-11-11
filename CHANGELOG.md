@@ -279,6 +279,13 @@
   `repair_runbook`, `org_audit` and `mcp_http_transport`.
 - Tests: the agent-card unit test asserts the new entries are verified
   (`cargo test agent_card --lib`).
+- File chat bridge (ADR-0081): `chat-bridge task` converts a validated
+  `ChatMessage` JSON to a `TaskRequest` file; `chat-bridge reply` converts a
+  `RunResult` JSON to a `ChatReply` file. Inputs are bounded to 1 MiB and
+  regular non-symlink files; writes are atomic. This is an adapter building
+  block, not a Slack/Telegram/WeChat connection.
+- Tests: two chat-bridge unit tests plus two `chat_bridge_cli` e2e tests
+  (`cargo test chat_bridge --lib`, `cargo test --test chat_bridge_cli`).
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.

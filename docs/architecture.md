@@ -277,6 +277,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
   an exact required scope. Signature verification and token acquisition are
   the caller's; this module never stores or prints the token.
+- `chat_bridge`: file-based chat adapter. `task` reads a `ChatMessage` JSON,
+  validates non-empty sender/thread/text, converts it to a `TaskRequest` and
+  writes it atomically. `reply` reads a `RunResult` JSON, formats the answer
+  with `chat::format_reply` and writes a `ChatReply`. Inputs are bounded to
+  1 MiB and must be regular non-symlink files. It is not a live transport.
 - `notify`: `InboxNotifier` posts the open inbox queue to a
   generic/Slack/Discord webhook. It requires HTTPS except for loopback, rejects
   embedded credentials, bounds the payload, and returns `sent=false` for an

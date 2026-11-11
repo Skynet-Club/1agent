@@ -16,6 +16,7 @@ pub mod capability_probe;
 pub mod card_trust;
 pub mod cascade;
 pub mod chat;
+pub mod chat_bridge;
 pub mod config;
 pub mod context;
 pub mod context_graph;
