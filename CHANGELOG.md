@@ -394,6 +394,13 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Trust Center HTML output: `trust-center --html-out PATH` writes a static,
+  script-free disclosure page. Capability counts, limits, audit, data policy,
+  verification, evaluations and contacts are HTML-escaped; contact URLs are
+  rendered as text rather than links.
+- Tests: one unit and one `trust_center_cli` e2e test cover escaping
+  (`<script>`/`javascript:`) and the static-page disclaimer
+  (`cargo test trust_center --lib`, `cargo test --test trust_center_cli`).
 - Subagent permission intersection: `spawn_agent` accepts `allow_write` and
   `allow_network` booleans. Each is intersected with the parent's permission,
   so a child can only be more restrictive; the result is returned in the

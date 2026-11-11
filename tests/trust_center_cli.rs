@@ -144,3 +144,33 @@ fn trust_center_rejects_invalid_evaluations() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn trust_center_writes_escaped_static_html() {
+    let workspace = tempfile::tempdir().unwrap();
+    let html_path = workspace.path().join("trust.html");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args([
+            "trust-center",
+            "--security-contact",
+            "<script>alert(1)</script>",
+            "--incident-url",
+            "javascript:alert(1)",
+            "--html-out",
+            html_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!html.contains("<script>alert(1)</script>"));
+    assert!(!html.contains("href=\"javascript"));
+    assert!(html.contains("not_audited"));
+    assert!(html.contains("Static disclosure"));
+}

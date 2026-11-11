@@ -304,6 +304,9 @@ enum Command {
         /// Write a human-readable Markdown disclosure.
         #[arg(long)]
         markdown_out: Option<PathBuf>,
+        /// Write a static, escaped HTML disclosure.
+        #[arg(long)]
+        html_out: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -3846,6 +3849,7 @@ async fn main() -> Result<()> {
             incident_url,
             out,
             markdown_out,
+            html_out,
             json,
         } => {
             let mut evaluations = Vec::with_capacity(evaluation.len());
@@ -3886,6 +3890,13 @@ async fn main() -> Result<()> {
                 std::fs::write(
                     path,
                     first_principles_agent::trust_center::render_markdown(&disclosure),
+                )
+                .with_context(|| format!("cannot write {}", path.display()))?;
+            }
+            if let Some(path) = &html_out {
+                std::fs::write(
+                    path,
+                    first_principles_agent::trust_center::render_html(&disclosure),
                 )
                 .with_context(|| format!("cannot write {}", path.display()))?;
             }

@@ -43,12 +43,16 @@ test result: ok. 3 passed; 0 failed
   verified/hacked/rejected/bps summary.
 - `--markdown-out` writes a Markdown page containing the version, audit
   status, limits, evaluation result and contact.
+- `--html-out` writes a static page whose caller-supplied contact
+  (`<script>alert(1)</script>`) and incident URL (`javascript:alert(1)`) are
+  escaped and rendered as text; no script tag or `javascript:` href appears.
 
 ## What this does not prove
 
 - That a supplied evaluation actually ran or passed.
 - Third-party audit, SOC2, ISO 42001 or EU AI Act conformance.
-- Incident reporting, a hosted page or public availability.
+- Incident reporting, a hosted page or public availability; the HTML output is
+  a local static file.
 - Per-deployment data-policy enforcement.
 - Cross-platform behavior; tests ran on Linux only.
 
