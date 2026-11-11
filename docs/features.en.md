@@ -62,7 +62,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - Value report v0: `1agent value-report` summarizes completed / blocked / failed / cancelled runs, tokens/cost, tool calls/failures, alerts and pending decisions; it reports reproducible outcomes and cost per completed outcome, not an invented time saving;
 - Partner voice: operator / advisor / companion; `--voice-mode` selects it; it changes how the answer speaks, not the evidence/authority/action rules; companion does not flatter or role-play;
 - Agent Inbox: notify / question / review items; append-only JSONL snapshots; snooze and approve/reject/answer/dismiss state machine; terminal statuses cannot transition; duplicate ids, empty fields and invalid snoozes fail closed; `1agent inbox add|list|resolve|snooze|sync`; pure attention/alert projections; `sync` dedupes by `item_id`, is dry-run by default and applies with `--apply` without overwriting existing status;
-- Autonomy dial policy: `1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`; observe/suggest never act; act allows only low-risk reversible actions; auto allows low/medium risk; high risk or irreversible actions require approval unless explicitly approved. A preference is not an authorization grant.
+- Autonomy dial policy: `1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`; observe/suggest never act; act allows only low-risk reversible actions; auto allows low/medium risk; high risk or irreversible actions require approval unless explicitly approved. A preference is not an authorization grant;
+- Onboarding v0: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` writes ordinary memory records and prints the resulting `UserModel`; invalid values fail closed. It is not yet an interview or context import.
 
 ### 2.4 Local memory (available, RC)
 

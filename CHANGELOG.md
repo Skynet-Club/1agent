@@ -71,6 +71,12 @@
   grant.
 - Tests: five autonomy unit tests plus two `autonomy_cli` e2e tests
   (`cargo test autonomy --lib`, `cargo test --test autonomy_cli`).
+- Onboarding v0 (ADR-0045): `1agent onboard --voice ... --autonomy
+  DOMAIN=LEVEL --boundary TEXT` writes ordinary memory records and prints the
+  resulting `UserModel`. Invalid levels, voices, domains and boundaries fail
+  closed. This is scriptable profile setup, not the full interview/context
+  import.
+- Tests: two `onboard_cli` e2e tests (`cargo test --test onboard_cli`).
 
 ## 0.96.1 - 2026-11-11
 

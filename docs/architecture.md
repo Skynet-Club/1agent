@@ -242,6 +242,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   low-risk reversible actions; `auto` allows low/medium risk; high risk and
   irreversible actions require approval unless explicitly approved. This is a
   preference policy; Authority/Policy/ExecutionGate still enforce execution.
+- `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
+  TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
+  `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.
+  Invalid values fail before writing. This is v0 profile setup, not the full
+  interview/context-import flow.
 - `repair`: `plan_repair` classifies an applied side effect as `none`,
   `compensate` or `manual`; an applied reversible action without a recorded
   compensation fails closed, and an irreversible action always requires a

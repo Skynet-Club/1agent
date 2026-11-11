@@ -379,6 +379,28 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Onboard {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        memory_journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        memory_payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        memory_key: PathBuf,
+        #[arg(long, default_value = "default")]
+        bot_id: String,
+        #[arg(long, default_value = "local-user")]
+        user_id: String,
+        #[arg(long)]
+        voice: Option<String>,
+        /// Repeatable domain=level, e.g. workspace=suggest.
+        #[arg(long, value_name = "DOMAIN=LEVEL")]
+        autonomy: Vec<String>,
+        /// Repeatable boundary, e.g. "never touch production".
+        #[arg(long)]
+        boundary: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
     Surface {
         #[command(subcommand)]
         command: SurfaceCommand,
@@ -1640,6 +1662,29 @@ enum ReleaseCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn write_onboard(
+    service: &mut first_principles_agent::MemoryService,
+    scope: &first_principles_agent::MemoryScope,
+    kind: first_principles_agent::MemoryKind,
+    content: String,
+    now: u128,
+) -> Result<()> {
+    let mut record = first_principles_agent::MemoryRecord::new(
+        Uuid::new_v4().to_string(),
+        first_principles_agent::MemoryLayer::Semantic,
+        kind,
+        scope.clone(),
+        content,
+        first_principles_agent::MemorySource::new(
+            first_principles_agent::MemorySourceKind::UserMessage,
+            "onboard",
+        ),
+    );
+    record.valid_from_ms = now;
+    service.remember_at(record, now)?;
+    Ok(())
 }
 
 fn run_task_graph_demo(store: &std::path::Path, json: bool) -> Result<()> {
@@ -4010,6 +4055,94 @@ async fn main() -> Result<()> {
             } else {
                 println!("decision: {}", plan.decision.as_str());
                 println!("reason: {}", plan.reason);
+            }
+        }
+        Command::Onboard {
+            memory_journal,
+            memory_payloads,
+            memory_key,
+            bot_id,
+            user_id,
+            voice,
+            autonomy,
+            boundary,
+            json,
+        } => {
+            let mut service = first_principles_agent::MemoryService::open(
+                memory_journal,
+                memory_payloads,
+                &memory_key,
+            )?;
+            let scope = first_principles_agent::MemoryScope::bot(bot_id);
+            let now = current_time_ms();
+            let mut written = 0usize;
+            for spec in autonomy {
+                let (domain, level) = spec
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--autonomy must be DOMAIN=LEVEL"))?;
+                let level =
+                    first_principles_agent::AutonomyLevel::parse(level).ok_or_else(|| {
+                        anyhow::anyhow!("autonomy level must be observe, suggest, act or auto")
+                    })?;
+                let domain = domain.trim();
+                if domain.is_empty() {
+                    anyhow::bail!("autonomy domain must be non-empty");
+                }
+                write_onboard(
+                    &mut service,
+                    &scope,
+                    first_principles_agent::MemoryKind::Preference,
+                    format!("autonomy.{domain}={}", level.as_str()),
+                    now,
+                )?;
+                written += 1;
+            }
+            if let Some(voice) = voice {
+                let voice = first_principles_agent::VoiceMode::parse(&voice).ok_or_else(|| {
+                    anyhow::anyhow!("voice must be operator, advisor or companion")
+                })?;
+                write_onboard(
+                    &mut service,
+                    &scope,
+                    first_principles_agent::MemoryKind::Preference,
+                    format!("voice_mode={}", voice.as_str()),
+                    now,
+                )?;
+                written += 1;
+            }
+            for boundary in boundary {
+                let boundary = boundary.trim();
+                if boundary.is_empty() {
+                    anyhow::bail!("boundary must be non-empty");
+                }
+                write_onboard(
+                    &mut service,
+                    &scope,
+                    first_principles_agent::MemoryKind::Feedback,
+                    format!("boundary: {boundary}"),
+                    now,
+                )?;
+                written += 1;
+            }
+            let model = service.build_user_model(&user_id, &scope);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "written": written,
+                        "user_model": model
+                    }))?
+                );
+            } else {
+                println!("1Agent Onboard");
+                println!("wrote {written} memory record(s) for {}", scope.scope_id());
+                println!("voice: {}", model.voice_mode().as_str());
+                for (domain, entry) in &model.autonomy {
+                    println!("- autonomy {domain}: {}", entry.level.as_str());
+                }
+                for boundary in &model.boundaries {
+                    println!("- boundary: {}", boundary.rule);
+                }
             }
         }
         Command::Surface { command } => match command {
