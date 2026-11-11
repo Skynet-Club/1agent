@@ -65,6 +65,7 @@ file: <路径>              → 文件必须存在
 | TUI `/inbox` 列出并可 resolve/snooze；解析与应用契约与 CLI 一致 | cmd: cargo test inbox --lib && cargo test tui_commands --lib | ✅ | 只操作 inbox store；不绕过 Authority/Policy/Approval |
 | Agent Card 列出能力状态与限制；unsupported/untested 不标为 verified | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli | ✅ | 本地未签名；非 A2A HTTP/served 卡 |
 | skill scan 预检 frontmatter/控制字符/密钥/指令覆盖；不注册不执行 | cmd: cargo test skill --lib && cargo test --test skill_scan_cli | ✅ | 启发式扫描，不是 malware sandbox；签名/权限另算 |
+| Tool search 按名称/前缀/描述/参数名确定性排序；空查询返回空 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli | ✅ | 纯排序；尚未接入模型工具列表 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
 | 1A 在写权限下用终端工具启动 copilot 并读取 GitHub 登录状态 | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机验收；gh 已登录，未做交互式 device-code 登录 |

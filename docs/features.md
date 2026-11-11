@@ -66,7 +66,8 @@
 - 自治档位策略：`1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`；observe/suggest 不行动；act 仅低风险可逆；auto 允许低/中风险可逆；高风险/不可逆需审批（显式批准除外）。偏好不是授权；
 - Onboarding v0：`1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` 写入普通 memory 记录并回显 `UserModel`；非法值失败关闭；`--goal/--commitment` 可写入首个目标/承诺，随后 `inbox sync` 可投影；还不是访谈/上下文导入，memory 与 goal 写入非原子；
 - TUI `/inbox`：列出 open / due-snoozed 项（kind/status/title/why_now）；支持 `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]` 与 `/inbox snooze <id> <until_ms>`，与 CLI 共用解析/应用契约；
-- Agent Card v0：`1agent agent-card [--json]` 输出 schema/version/platform/能力状态/限制；平台能力取平台注册表，unsupported/untested 不得标为 verified；本地未签名，尚非 A2A HTTP 服务。
+- Agent Card v0：`1agent agent-card [--json]` 输出 schema/version/platform/能力状态/限制；平台能力取平台注册表，unsupported/untested 不得标为 verified；本地未签名，尚非 A2A HTTP 服务；
+- Tool search v0：`1agent tools --query TEXT [--json]` 按名称/前缀/描述/参数名确定性排序；纯函数，尚未改变模型可见工具列表。
 
 ### 2.4 本地记忆（可用，RC）
 
