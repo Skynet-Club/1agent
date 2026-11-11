@@ -40,6 +40,8 @@ test result: ok. 3 passed; 0 failed
 - Invalid windows (`07:00-07:00`, `24:00-07:00`, `bedtime`) exit non-zero.
 - Later: `onboard --quiet-hours 22:00-07:00` writes a preference and
   `UserModel` exposes start=1320 and end=420.
+- `autonomy-for --domain workspace --now 23:30` returns `defer` from the
+  persisted model; `--now 12:00` and `--user-initiated` return `act`.
 
 ## What this does not prove
 

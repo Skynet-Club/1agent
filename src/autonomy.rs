@@ -193,6 +193,32 @@ pub fn decide_proactive(
     }
 }
 
+/// Resolve the user's per-domain preference, quiet hours and proactive context.
+pub fn decide_for_proactive(
+    model: &UserModel,
+    domain: &str,
+    risk: RiskLevel,
+    reversible: bool,
+    explicit_approval: bool,
+    now_minute: u16,
+    user_initiated: bool,
+) -> AutonomyPlan {
+    let level = model.autonomy_for(domain);
+    let mut plan = decide_proactive(
+        level,
+        risk,
+        reversible,
+        explicit_approval,
+        ProactiveContext {
+            now_minute,
+            user_initiated,
+            quiet_hours: model.quiet_hours(),
+        },
+    );
+    plan.reason = format!("domain {domain}: {}", plan.reason);
+    plan
+}
+
 /// Resolve the user's per-domain preference and apply the same policy.
 pub fn decide_for(
     model: &UserModel,

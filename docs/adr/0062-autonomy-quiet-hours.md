@@ -25,8 +25,10 @@ technically allowed yet socially wrong. SA98-52 requires quiet hours.
 5. Add `1agent autonomy --quiet HH:MM-HH:MM --now HH:MM [--user-initiated]`.
    Invalid windows or times exit non-zero.
 6. This is policy, not a scheduler. `onboard --quiet-hours` persists the window
-   as a `quiet_hours=` preference and `UserModel` exposes it; waking at the end
-   of the window and re-running deferred work remain separate slices.
+   as a `quiet_hours=` preference and `UserModel` exposes it.
+   `decide_for_proactive` and `1agent autonomy-for` read the domain level and
+   window from that model. Waking at the end of the window and re-running
+   deferred work remain separate slices.
 
 ## Consequences
 

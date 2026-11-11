@@ -301,6 +301,12 @@
 - Tests: the user-model parsing test and one `onboard_cli` test cover the
   window, text/JSON output and invalid input
   (`cargo test user_model --lib`, `cargo test --test onboard_cli`).
+- Autonomy from the UserModel: `autonomy::decide_for_proactive` reads the
+  domain level and persisted quiet hours. `1agent autonomy-for --domain ...
+  --now ...` exposes it; user-initiated work and explicit approval still bypass
+  quiet deferral.
+- Tests: one `autonomy_cli` e2e test covers defer, daytime act and
+  user-initiated act (`cargo test --test autonomy_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.

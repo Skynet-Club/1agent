@@ -245,7 +245,8 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `decide_proactive` adds quiet hours (`QuietHours`, cross-midnight windows) and
   returns `Defer` for proactive act/require_approval inside the window, with
   minutes until it ends; user-initiated work and explicit approval are never
-  deferred. This is a preference policy; Authority/Policy/ExecutionGate still
+  deferred. `decide_for_proactive` reads the domain level and persisted quiet
+  hours from a `UserModel`; `1agent autonomy-for` exposes it. This is a preference policy; Authority/Policy/ExecutionGate still
   enforce execution.
 - `alarm_budget`: given the delivery window counts, an ordinary alert is
   delivered while the budget and false-alarm ceiling hold, otherwise moved to

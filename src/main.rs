@@ -490,6 +490,32 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    AutonomyFor {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        key: PathBuf,
+        #[arg(long, default_value = "default")]
+        bot_id: String,
+        #[arg(long, default_value = "local-user")]
+        user_id: String,
+        #[arg(long)]
+        domain: String,
+        #[arg(long, default_value = "low")]
+        risk: String,
+        #[arg(long)]
+        reversible: bool,
+        #[arg(long)]
+        explicit_approval: bool,
+        #[arg(long, default_value = "12:00")]
+        now: String,
+        #[arg(long)]
+        user_initiated: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Escalate {
         #[arg(long, default_value_t = 0)]
         created_ms: u128,
@@ -5296,6 +5322,50 @@ async fn main() -> Result<()> {
                     user_initiated,
                     quiet_hours,
                 },
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!("decision: {}", plan.decision.as_str());
+                println!("reason: {}", plan.reason);
+            }
+        }
+        Command::AutonomyFor {
+            journal,
+            payloads,
+            key,
+            bot_id,
+            user_id,
+            domain,
+            risk,
+            reversible,
+            explicit_approval,
+            now,
+            user_initiated,
+            json,
+        } => {
+            if domain.trim().is_empty() {
+                anyhow::bail!("--domain must be non-empty");
+            }
+            let risk = match risk.trim().to_ascii_lowercase().as_str() {
+                "low" => first_principles_agent::RiskLevel::Low,
+                "medium" => first_principles_agent::RiskLevel::Medium,
+                "high" => first_principles_agent::RiskLevel::High,
+                _ => anyhow::bail!("risk must be low, medium or high"),
+            };
+            let now_minute = first_principles_agent::autonomy::parse_hhmm(&now)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let service = first_principles_agent::MemoryService::open(journal, payloads, &key)?;
+            let scope = first_principles_agent::MemoryScope::bot(bot_id);
+            let model = service.build_user_model(&user_id, &scope);
+            let plan = first_principles_agent::autonomy::decide_for_proactive(
+                &model,
+                domain.trim(),
+                risk,
+                reversible,
+                explicit_approval,
+                now_minute,
+                user_initiated,
             );
             if json {
                 println!("{}", serde_json::to_string_pretty(&plan)?);
