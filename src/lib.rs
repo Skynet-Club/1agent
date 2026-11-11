@@ -13,6 +13,7 @@ pub mod authority;
 pub mod autonomy;
 pub mod budget;
 pub mod capability_probe;
+pub mod card_trust;
 pub mod cascade;
 pub mod chat;
 pub mod config;

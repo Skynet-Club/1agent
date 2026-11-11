@@ -311,6 +311,10 @@ enum Command {
         #[arg(long, value_name = "HEX")]
         trusted_key: Option<String>,
     },
+    CardTrust {
+        #[command(subcommand)]
+        command: CardTrustCommand,
+    },
     Dashboard {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -1355,6 +1359,44 @@ enum IdempotencyCommand {
         key: String,
         #[arg(long)]
         fingerprint: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CardTrustCommand {
+    Add {
+        #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
+        store: PathBuf,
+        #[arg(long, value_name = "HEX")]
+        public_key: String,
+        #[arg(long, default_value = "")]
+        note: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Revoke {
+        #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
+        store: PathBuf,
+        #[arg(long, value_name = "HEX")]
+        public_key: String,
+        #[arg(long, default_value = "")]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
+    List {
+        #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Verify {
+        #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
+        store: PathBuf,
+        #[arg(long)]
+        card: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -3003,6 +3045,71 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::CardTrust { command } => match command {
+            CardTrustCommand::Add {
+                store,
+                public_key,
+                note,
+                json,
+            } => {
+                let mut trust = first_principles_agent::card_trust::CardTrustStore::open(&store)?;
+                let key = trust.add(&store, &public_key, &note, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(key)?);
+                } else {
+                    println!("trusted {}", key.public_key);
+                }
+            }
+            CardTrustCommand::Revoke {
+                store,
+                public_key,
+                reason,
+                json,
+            } => {
+                let mut trust = first_principles_agent::card_trust::CardTrustStore::open(&store)?;
+                let key = trust.revoke(&store, &public_key, &reason, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(key)?);
+                } else {
+                    println!("revoked {}", key.public_key);
+                }
+            }
+            CardTrustCommand::List { store, json } => {
+                let trust = first_principles_agent::card_trust::CardTrustStore::open(store)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&trust)?);
+                } else if trust.keys.is_empty() {
+                    println!("(no trusted keys)");
+                } else {
+                    for key in &trust.keys {
+                        println!(
+                            "- {} note={} revoked_at={:?}",
+                            key.public_key, key.note, key.revoked_at_ms
+                        );
+                    }
+                }
+            }
+            CardTrustCommand::Verify { store, card, json } => {
+                let trust = first_principles_agent::card_trust::CardTrustStore::open(&store)?;
+                let raw = std::fs::read_to_string(&card)
+                    .with_context(|| format!("cannot read {}", card.display()))?;
+                let card: first_principles_agent::AgentCard =
+                    serde_json::from_str(&raw).context("invalid agent card JSON")?;
+                trust.verify(&card)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "verified": true,
+                            "name": card.name,
+                            "version": card.version,
+                        }))?
+                    );
+                } else {
+                    println!("verified: {} {}", card.name, card.version);
+                }
+            }
+        },
         Command::Dashboard {
             journal_dir,
             schedule_store,
