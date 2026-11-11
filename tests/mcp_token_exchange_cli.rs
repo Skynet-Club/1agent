@@ -8,6 +8,44 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_first-principles-agent")
 }
 
+fn start_redirect() -> (String, mpsc::Receiver<bool>) {
+    let primary = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = primary.local_addr().unwrap();
+    let target = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let target_address = target.local_addr().unwrap();
+    target.set_nonblocking(true).unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = primary.accept().unwrap();
+        let mut buffer = [0u8; 4096];
+        let _ = stream.read(&mut buffer);
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 302 Found\r\nLocation: http://{target_address}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .ok();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+        let mut followed = false;
+        while std::time::Instant::now() < deadline {
+            match target.accept() {
+                Ok(_) => {
+                    followed = true;
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = sender.send(followed);
+    });
+    (format!("http://{address}/token"), receiver)
+}
+
 fn start_token_server(response: &'static str) -> (String, mpsc::Receiver<String>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -260,4 +298,36 @@ fn mcp_token_exchange_refuses_to_overwrite_the_output_file() {
         .unwrap();
     assert!(!output.status.success());
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "keep-me");
+}
+
+#[test]
+fn mcp_token_exchange_does_not_follow_redirects() {
+    let workspace = tempfile::tempdir().unwrap();
+    let (endpoint, followed) = start_redirect();
+    let output = Command::new(bin())
+        .args(["mcp-token-exchange", "--endpoint", &endpoint])
+        .args([
+            "--audience",
+            "mcp://server",
+            "--scope",
+            "tools.read",
+            "--subject-token-env",
+            "TEST_SUBJECT_TOKEN",
+            "--out",
+        ])
+        .arg(workspace.path().join("redirect.token"))
+        .env("TEST_SUBJECT_TOKEN", "subject-secret")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("302"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !followed
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+    );
 }
