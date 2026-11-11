@@ -252,6 +252,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `operator`; `with_voice_mode` selects another mode and `1agent run
   --voice-mode` exposes it. The block changes how the answer speaks, not the
   evidence, authority or action rules.
+- `inbox`: an append-only JSONL queue of `notify` / `question` / `review`
+  items. Each mutation writes a full snapshot; replay keeps the latest state.
+  `open_sorted` returns open or due-snoozed items ordered review → question →
+  notify, then due time. Terminal statuses cannot transition; duplicate ids,
+  empty fields and invalid snoozes fail closed. This is the domain/store slice;
+  CLI/TUI actions and projections follow.
 
 ## Security behavior
 

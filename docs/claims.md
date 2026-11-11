@@ -59,6 +59,7 @@ file: <路径>              → 文件必须存在
 | 可逆副作用无补偿时失败关闭；不可逆/失败需人工；away digest 分区可见 | cmd: cargo test repair --lib && cargo test --test away_digest_cli | ✅ | 只规划补偿，不执行；执行仍需 Authority/Policy/Approval |
 | 价值周报只报可复现结果与每完成结果成本，不编造“省时” | cmd: cargo test value_report --lib && cargo test --test value_report_cli | ✅ | mock journal；真实用户价值需后续测量基线 |
 | 三种伙伴声音进入系统提示；无效模式失败关闭；不改变证据规则 | cmd: cargo test voice --lib && cargo test --test voice_mode_cli | ✅ | 契约级；盲评质量未做 |
+| Inbox 快照可重放；终端状态不可迁移；重复 ID/空字段/无效 snooze 失败关闭 | test: add_and_reload_keeps_the_latest_state | ✅ | 领域/store 层；CLI/TUI 与来源投影未接 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
 | 1A 在写权限下用终端工具启动 copilot 并读取 GitHub 登录状态 | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机验收；gh 已登录，未做交互式 device-code 登录 |

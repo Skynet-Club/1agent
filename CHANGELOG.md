@@ -44,6 +44,11 @@
   rules; companion is warm but does not flatter or role-play.
 - Tests: three voice unit tests plus two `voice_mode_cli` e2e tests
   (`cargo test voice --lib`, `cargo test --test voice_mode_cli`).
+- Agent Inbox domain/store (ADR-0041): append-only JSONL snapshots for
+  `notify` / `question` / `review` items, snooze and terminal statuses, with
+  duplicate-id, empty-field, invalid-transition and invalid-snooze failures
+  closed. `open_sorted` orders review → question → notify, then due time.
+- Tests: five inbox unit tests (`cargo test inbox --lib`).
 
 ## 0.96.1 - 2026-11-11
 
