@@ -24,8 +24,14 @@ escalation ladder so a forgotten approval does not stay silent forever.
    actions exit non-zero.
 5. `1agent inbox escalate` applies the same ladder to open and due-snoozed
    inbox items using each item's `created_ms`; terminal items are excluded.
-6. This is a pure policy. Sending the escalation, changing the item status,
-   stopping after acknowledgement and per-channel ladders are separate.
+6. With `--webhook URL --state PATH`, the command delivers a batch of items
+   whose level is newly `notify` or `urgent` (higher than the highest rung
+   recorded for that item), at most 50 per invocation. Delivery uses the
+   existing no-redirect notifier. The state advances only after a successful
+   send, so a crash in between can duplicate one batch. Resolved items are
+   pruned from the state. `--dry-run` reports without sending.
+7. Delivery does not change item status or stop after acknowledgement, and
+   `digest`-rung delivery plus per-channel ladders remain separate.
 
 ## Consequences
 
@@ -35,7 +41,8 @@ escalation ladder so a forgotten approval does not stay silent forever.
   channel; the caller must pass a resolved/acknowledged flag.
 - The action names are abstract. Mapping them to chat, email, phone or a
   desktop notification is a transport concern.
-- No persistence; each call recomputes from the item age.
+- Delivery state persists only the highest delivered rung per item, not the
+  item itself; each call recomputes the level from the item age.
 
 ## Evidence
 
@@ -46,5 +53,5 @@ cargo test --test inbox_escalate_cli
 ```
 
 The tests cover each rung, resolution, a grace period, invalid/empty ladders,
-CLI parsing of repeated steps, and the inbox projection over open versus
-resolved items.
+CLI parsing of repeated steps, the inbox projection over open versus resolved
+items, and one delivery per reached rung including a raised level.

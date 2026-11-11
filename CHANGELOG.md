@@ -326,9 +326,14 @@
   ... [--now-ms ...] [--json]` applies the existing ladder to every open or
   due-snoozed item using its `created_ms`. Terminal items are excluded; it
   reports levels and reasons without sending or changing status.
-- Tests: three `inbox_escalate_cli` e2e tests cover open-vs-resolved items,
-  the below-first-threshold case and invalid ladders (`cargo test --test
-  inbox_escalate_cli`).
+- Escalation delivery: with `--webhook URL --state PATH`, newly reached
+  `notify`/`urgent` rungs are delivered in one batch (at most 50 items) and
+  the per-item watermark advances only after a successful send. Resolved items
+  are pruned; `--dry-run` reports without sending. A crash between send and
+  save can duplicate one batch; digest-rung delivery is not implemented.
+- Tests: four `inbox_escalate_cli` e2e tests cover open-vs-resolved items, the
+  below-first-threshold case, invalid ladders, and one delivery per reached
+  rung including a raised level (`cargo test --test inbox_escalate_cli`).
 - Quiet-hours boundary wake: `QuietHours::ms_until_end` measures milliseconds
   to the exclusive window end in a fixed UTC offset. The daemon's quiet-period
   sleep is `min(poll interval, ms_until_end)`, so deferred due jobs re-check at
