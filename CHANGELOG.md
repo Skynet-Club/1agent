@@ -236,6 +236,11 @@
   from completed runs.
 - Tests: value-report unit and CLI tests cover the supplied count and zero-cost
   output (`cargo test value_report --lib`, `cargo test --test value_report_cli`).
+- Windows cross-check: `RUSTFLAGS="-D warnings" cargo check --target
+  x86_64-pc-windows-gnu` passes. `read_key_hex` now consumes its `secret` flag
+  on non-Unix targets. The macOS arm64 check is blocked by the host C
+  toolchain for `ring`, so macOS remains unverified.
+- Evidence: `docs/evidence/cross-check-windows-2026-11-12.md`.
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.

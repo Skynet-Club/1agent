@@ -2212,6 +2212,8 @@ fn read_key_hex(path: &Path, secret: bool) -> Result<String> {
     if !metadata.is_file() {
         bail!("key file is not a regular file: {}", path.display());
     }
+    #[cfg(not(unix))]
+    let _ = secret;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
