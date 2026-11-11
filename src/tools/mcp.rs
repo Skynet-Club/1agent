@@ -212,6 +212,7 @@ impl McpClient {
         };
         let client = reqwest::Client::builder()
             .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| {
                 ToolError::Failed(format!(

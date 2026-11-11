@@ -322,6 +322,11 @@
   accepted/cancelled. Open handoffs are untouched; dry-run is the default.
 - Tests: one inbox unit test plus one `handoff_inbox_cli` reconcile test
   (`cargo test inbox --lib`, `cargo test --test handoff_inbox_cli`).
+- Webhook redirect hardening: the inbox notifier, alert webhook and MCP HTTP
+  client no longer follow redirects, so a loopback/HTTPS endpoint cannot bounce
+  a request to a private/metadata host.
+- Tests: one notifier unit test serves a 302 and asserts no second connection
+  (`cargo test notify --lib`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

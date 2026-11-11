@@ -115,6 +115,7 @@ impl InboxNotifier {
         }
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| NotifyError::Http(error.without_url().to_string()))?;
         Ok(Self {
@@ -319,6 +320,36 @@ mod tests {
                 .unwrap()
                 .contains("Approve the deploy")
         );
+    }
+
+    #[tokio::test]
+    async fn redirects_are_not_followed() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await;
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: http://{address}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .ok();
+            let followed =
+                tokio::time::timeout(std::time::Duration::from_millis(300), listener.accept())
+                    .await
+                    .is_ok();
+            let _ = sender.send(followed);
+        });
+        let notifier = InboxNotifier::new(format!("http://{address}/hook")).unwrap();
+        assert!(notifier.send_text("hello").await.is_err());
+        assert!(!receiver.await.unwrap());
     }
 
     #[tokio::test]

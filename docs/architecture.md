@@ -291,8 +291,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
   non-symlink files. It is not a live transport.
 - `notify`: `InboxNotifier` posts the open inbox queue to a
   generic/Slack/Discord webhook. It requires HTTPS except for loopback, rejects
-  embedded credentials, bounds the payload, and returns `sent=false` for an
-  empty queue. `--state PATH` stores a watermark and suppresses a re-send when
+  embedded credentials, does not follow redirects, bounds the payload, and
+  returns `sent=false` for an empty queue. `--state PATH` stores a watermark and suppresses a re-send when
   no item is newer; the watermark advances only after a successful send.
   `--log PATH` appends one JSONL receipt per successful send without storing
   the webhook URL; `--dry-run` computes open/new counts but sends nothing and
@@ -419,7 +419,7 @@ Rejected outcomes; Verified outcomes are not surfaced.
   requires HTTPS except for loopback, rejects credentials in the URL, carries
   `Mcp-Session-Id`, accepts JSON or `text/event-stream` responses, and reads a
   bearer token only from the environment variable named by
-  `bearer_token_env`. `timeout_seconds` (1..=300, default 20) bounds each
+  `bearer_token_env`, and does not follow HTTP redirects. `timeout_seconds` (1..=300, default 20) bounds each
   request and the tool execution timeout; responses are capped at 2 MiB
   before further allocation (stdio lines are read in bounded chunks) and
   non-UTF-8 bodies fail closed. A tool is write-gated unless the server declares
