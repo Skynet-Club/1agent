@@ -49,6 +49,80 @@ fn agent_card_cli_human_output_lists_limits() {
 }
 
 #[test]
+fn agent_card_cli_uses_private_and_public_key_files() {
+    let workspace = tempfile::tempdir().unwrap();
+    let private_key = workspace.path().join("agent-card.key");
+    let public_key = workspace.path().join("agent-card.pub");
+    let card_path = workspace.path().join("card.json");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let generated = Command::new(bin)
+        .args([
+            "agent-card",
+            "--generate-key",
+            "--private-out",
+            private_key.to_str().unwrap(),
+            "--public-out",
+            public_key.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let keys: serde_json::Value = serde_json::from_slice(&generated.stdout).unwrap();
+    assert!(keys["private_key_pkcs8_hex"].is_null());
+    let public_hex = keys["public_key_hex"].as_str().unwrap();
+    assert!(private_key.exists());
+    assert!(public_key.exists());
+
+    let signed = Command::new(bin)
+        .args([
+            "agent-card",
+            "--sign-key-file",
+            private_key.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(signed.status.success());
+    std::fs::write(&card_path, &signed.stdout).unwrap();
+
+    let verified = Command::new(bin)
+        .args([
+            "agent-card",
+            "--verify",
+            card_path.to_str().unwrap(),
+            "--trusted-key",
+            public_hex,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        verified.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+
+    let both = Command::new(bin)
+        .args([
+            "agent-card",
+            "--sign-key",
+            "00",
+            "--sign-key-file",
+            private_key.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!both.status.success());
+}
+
+#[test]
 fn agent_card_cli_signs_and_verifies() {
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let keys = Command::new(bin)

@@ -72,7 +72,7 @@ file: <路径>              → 文件必须存在
 | OTel 投影生成 invoke_agent/chat/execute_tool spans，带 gen_ai 属性且确定性 | cmd: cargo test otel --lib && cargo test --test otel_cli | ✅ | JSON 投影，非完整 OTel SDK/exporter |
 | Chat 适配契约：消息→TaskRequest；回复先结论+信任摘要+needs_approval+inbox_open，不泄露 schema | cmd: cargo test chat --lib | ✅ | 传输层未实现 |
 | 团队角色策略：owner/approver/member/viewer × read/write/approve/manage + scope；未知 actor/越权/未授权拒绝 | cmd: cargo test team --lib && cargo test --test team_check_cli | ✅ | 策略模块，非 IdP |
-| Agent Card Ed25519 签名与信任公钥验签；篡改/错钥/未签名拒绝 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli | ✅ | 本地签名，非 A2A registry 发现/签名条目 |
+| Agent Card Ed25519 签名与信任公钥验签；私钥可写 0600 文件并从文件签名；篡改/错钥/未签名拒绝 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test --test card_trust_cli | ✅ | 本地签名，非 A2A registry 发现/签名条目；`--sign-key` 仍会进 argv |
 | 持久幂等记录：key+fingerprint→response append-only JSONL，sync 后确认，跨重启重放；冲突/半条记录处理 | cmd: cargo test idempotency --lib && cargo test --test idempotency_cli | ✅ | 去重原语；未接入所有外部写 |
 | 带外 watchdog：daemon 每轮写心跳；缺失/过期/损坏非零退出 | cmd: cargo test watchdog --lib && cargo test --test watchdog_cli | ✅ | 只观察存活；不重启/不清理锁 |
 | 自治安静时段：跨午夜窗口内主动 act/approval → defer 并报告剩余分钟；用户发起/显式批准不延后 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 策略级；运行时调度/安静时段持久化未接线 |

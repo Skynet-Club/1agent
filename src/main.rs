@@ -339,8 +339,16 @@ enum Command {
         json: bool,
         #[arg(long)]
         generate_key: bool,
+        /// Write the generated private key to a new 0600 file.
+        #[arg(long)]
+        private_out: Option<PathBuf>,
+        #[arg(long)]
+        public_out: Option<PathBuf>,
         #[arg(long, value_name = "PKCS8_HEX")]
         sign_key: Option<String>,
+        /// Read the signing key from a 0600 file (preferred over --sign-key).
+        #[arg(long, value_name = "PATH")]
+        sign_key_file: Option<PathBuf>,
         #[arg(long, value_name = "PATH")]
         verify: Option<PathBuf>,
         #[arg(long, value_name = "HEX")]
@@ -3309,19 +3317,46 @@ async fn main() -> Result<()> {
         Command::AgentCard {
             json,
             generate_key,
+            private_out,
+            public_out,
             sign_key,
+            sign_key_file,
             verify,
             trusted_key,
         } => {
             if generate_key {
                 let (private_key, public_key) = first_principles_agent::generate_signing_key()?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "private_key_pkcs8_hex": private_key,
-                        "public_key_hex": public_key,
-                    }))?
-                );
+                if let Some(path) = private_out {
+                    write_key_file(&path, &private_key)?;
+                    if let Some(public_path) = &public_out {
+                        std::fs::write(public_path, format!("{public_key}\n"))
+                            .with_context(|| format!("cannot write {}", public_path.display()))?;
+                    }
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "private_key_path": path,
+                                "public_key_hex": public_key,
+                                "public_key_path": public_out,
+                            }))?
+                        );
+                    } else {
+                        println!("private key: {}", path.display());
+                        println!("public key: {public_key}");
+                    }
+                } else {
+                    eprintln!(
+                        "warning: printing a private key to stdout; prefer --private-out PATH"
+                    );
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "private_key_pkcs8_hex": private_key,
+                            "public_key_hex": public_key,
+                        }))?
+                    );
+                }
             } else if let Some(path) = verify {
                 let Some(trusted_key) = trusted_key.as_deref() else {
                     anyhow::bail!("--trusted-key is required with --verify");
@@ -3346,7 +3381,15 @@ async fn main() -> Result<()> {
                     anyhow::bail!("--trusted-key requires --verify");
                 }
                 let mut card = first_principles_agent::build_card(env!("CARGO_PKG_VERSION"));
-                if let Some(key) = sign_key {
+                let signing_key = match (sign_key, sign_key_file) {
+                    (Some(_), Some(_)) => {
+                        anyhow::bail!("use either --sign-key or --sign-key-file, not both")
+                    }
+                    (Some(key), None) => Some(key),
+                    (None, Some(path)) => Some(read_key_hex(&path, true)?),
+                    (None, None) => None,
+                };
+                if let Some(key) = signing_key {
                     first_principles_agent::sign_card(&mut card, &key)?;
                 }
                 if json {

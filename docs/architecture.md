@@ -290,10 +290,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   notes and local audit only) and marketplace is unsupported.
   `1agent agent-card` prints it and `GET /v0/agent-card` plus the A2A-style
   `GET /.well-known/agent-card.json` serve the same payload on the public
-  read-only HTTP Surface. `--generate-key` creates an
-  Ed25519 key pair, `--sign-key` signs the canonical payload (the card without
-  the signature field), and `--verify PATH --trusted-key HEX` rejects tampered,
-  wrong-key and unsigned cards. This is a local trust statement, not A2A
+  read-only HTTP Surface. `--generate-key [--private-out --public-out]`
+  creates an Ed25519 key pair (0600 private file), `--sign-key-file` signs the
+  canonical payload (the card without the signature field), and `--verify PATH
+  --trusted-key HEX` rejects tampered, wrong-key and unsigned cards. This is a local trust statement, not A2A
   registry discovery or a signed registry entry. `card_trust` keeps a local
   JSON store of trusted/revoked Ed25519 public keys; verification requires the
   card's embedded key to be trusted and unrevoked before delegating to

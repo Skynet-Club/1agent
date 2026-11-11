@@ -24,8 +24,11 @@ a remote agent's claims.
    - the algorithm is not `ed25519`;
    - the embedded public key differs from the trusted key;
    - the signature is not 64 bytes or does not verify.
-5. Add `1agent agent-card --generate-key`, `--sign-key <PKCS8_HEX>`, and
-   `--verify <PATH> --trusted-key <HEX>`. A failed verification exits non-zero.
+5. Add `1agent agent-card --generate-key [--private-out PATH --public-out
+   PATH]`, `--sign-key-file <PATH>`, and `--verify <PATH> --trusted-key <HEX>`.
+   The file path is preferred: the private key is written as a new 0600 file
+   and is not printed. `--sign-key <PKCS8_HEX>` remains for compatibility but
+   exposes the key in argv. A failed verification exits non-zero.
 6. Add `signed_agent_card` as a verified capability in the card.
 7. This is a local signature and trust anchor. It is not A2A registry
    discovery, key distribution, revocation, or a signed registry entry.

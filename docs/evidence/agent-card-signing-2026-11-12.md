@@ -41,6 +41,8 @@ test result: ok. 3 passed; 0 failed
 - An unsigned card is rejected.
 - The CLI generates keys, signs, verifies, and exits non-zero for a tampered
   card or a missing trusted key.
+- `--generate-key --private-out/--public-out` writes a 0600 private key file
+  and does not print the private key; `--sign-key-file` signs from it.
 
 ## What this does not prove
 
