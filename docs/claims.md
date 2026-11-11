@@ -98,7 +98,7 @@ file: <路径>              → 文件必须存在
 | Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |
 | 安静时段持久化：onboard --quiet-hours 写入 preference，UserModel 读取并回显；autonomy-for 读取域档位+安静时段 | cmd: cargo test user_model --lib && cargo test --test onboard_cli && cargo test --test autonomy_cli | ✅ | 偏好视图；无窗口结束唤醒/调度 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |
-| 团队交接：必须有 evidence、from≠to；仅 addressee 可接受；终态不可再转换 | cmd: cargo test handoff --lib && cargo test --test handoff_cli | ✅ | 本地交接；无实时共享上下文/IdP |
+| 团队交接：必须有 evidence、from≠to；仅 addressee 可接受；终态不可再转换；list 可按 open/to 过滤 | cmd: cargo test handoff --lib && cargo test --test handoff_cli | ✅ | 本地交接；无实时共享上下文/IdP |
 | 交接投影：open + to=recipient → inbox review，`handoff:<id>` 去重，不自动接受 | cmd: cargo test inbox --lib && cargo test --test handoff_inbox_cli | ✅ | 仅投影；通知/实时上下文未实现 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |

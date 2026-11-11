@@ -35,7 +35,8 @@ test result: ok. 2 passed; 0 failed
 - The sender cannot accept; the addressee can; a second accept is rejected.
 - An unknown id, duplicate id, missing evidence, empty summary and self-handoff
   are rejected.
-- Listing is ordered by creation time.
+- Listing is ordered by creation time and can filter with `--open` or
+  `--to NAME`.
 - The CLI create/accept/list flow matches the store semantics.
 
 ## What this does not prove

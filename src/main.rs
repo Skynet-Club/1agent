@@ -1629,6 +1629,10 @@ enum HandoffCommand {
         #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
         store: PathBuf,
         #[arg(long)]
+        open: bool,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long)]
         json: bool,
     },
 }
@@ -5838,9 +5842,22 @@ async fn main() -> Result<()> {
                     println!("accepted {} by {}", handoff.id, actor);
                 }
             }
-            HandoffCommand::List { store, json } => {
+            HandoffCommand::List {
+                store,
+                open,
+                to,
+                json,
+            } => {
                 let store = first_principles_agent::handoff::HandoffStore::open(store)?;
-                let items = store.list();
+                let items = store
+                    .list()
+                    .into_iter()
+                    .filter(|item| {
+                        (!open
+                            || item.status == first_principles_agent::handoff::HandoffStatus::Open)
+                            && to.as_deref().is_none_or(|recipient| item.to == recipient)
+                    })
+                    .collect::<Vec<_>>();
                 if json {
                     println!("{}", serde_json::to_string_pretty(&items)?);
                 } else if items.is_empty() {

@@ -283,6 +283,10 @@
 - Cross-check evidence now records that the MSVC attempt is blocked by the
   host lacking `lib.exe`, alongside the macOS host-toolchain block; the GNU
   target remains the verified Windows compile.
+- Handoff filters: `handoff list --open --to NAME` filters the list by status
+  and recipient while preserving creation-time order.
+- Tests: the `handoff_cli` test covers open and recipient filters
+  (`cargo test --test handoff_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
