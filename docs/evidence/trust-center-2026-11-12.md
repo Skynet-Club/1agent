@@ -1,0 +1,55 @@
+# Trust Disclosure Manifest — Evidence (2026-11-12)
+
+Status: **passed on this machine**  
+Scope: `trust_center::build_disclosure` and `1agent trust-center`.
+
+## Commands
+
+```bash
+cargo test trust_center --lib
+cargo test --test trust_center_cli
+cargo clippy --all-targets -- -D warnings
+```
+
+## Expected results
+
+```text
+running 3 tests
+test trust_center::tests::disclosure_counts_capabilities_without_overclaiming_audit ... ok
+test trust_center::tests::disclosure_round_trips_through_json ... ok
+test trust_center::tests::evaluations_are_validated_and_sorted ... ok
+
+test result: ok. 3 passed; 0 failed
+
+running 2 tests (tests/trust_center_cli.rs)
+test trust_center_rejects_invalid_evaluations ... ok
+test trust_center_writes_a_disclosure_with_evaluations ... ok
+
+test result: ok. 2 passed; 0 failed
+```
+
+## What this proves
+
+- Capability counts sum to the Agent Card total and include verified entries.
+- Audit is always `not_audited` with `external_audit: false`.
+- Data policy reports no telemetry.
+- Evaluations with `passed > total` or a malformed digest are rejected.
+- The CLI writes the same JSON it prints, including capability counts,
+  evaluations, contact and incident URL.
+
+## What this does not prove
+
+- That a supplied evaluation actually ran or passed.
+- Third-party audit, SOC2, ISO 42001 or EU AI Act conformance.
+- Incident reporting, a hosted page or public availability.
+- Per-deployment data-policy enforcement.
+- Cross-platform behavior; tests ran on Linux only.
+
+## Files
+
+- `src/trust_center.rs`
+- `src/main.rs` (`trust-center`)
+- `tests/trust_center_cli.rs`
+- `docs/adr/0076-trust-disclosure-manifest.md`
+- `docs/architecture.md`, `docs/features.md`, `docs/features.en.md`,
+  `docs/claims.md`, `CHANGELOG.md`

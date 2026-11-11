@@ -90,6 +90,7 @@ pub mod task_graph_store;
 pub mod team;
 pub mod tool_search;
 pub mod tools;
+pub mod trust_center;
 pub mod tui;
 pub mod tui_commands;
 pub mod tui_first_principles;
