@@ -230,6 +230,116 @@ pub fn render_markdown(disclosure: &TrustDisclosure) -> String {
     out
 }
 
+/// Static, script-free HTML disclosure. Every caller-supplied value is
+/// escaped; contact URLs are rendered as text, not links.
+pub fn render_html(disclosure: &TrustDisclosure) -> String {
+    let mut out = String::from(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+         <title>1Agent Trust Disclosure</title><style>\
+         body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;line-height:1.5}\
+         table{border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #ccc;padding:.35rem .6rem;text-align:left}\
+         code{background:#f4f4f4;padding:.1rem .3rem}</style></head><body>",
+    );
+    out.push_str("<h1>1Agent Trust Disclosure</h1>");
+    out.push_str(&format!(
+        "<p>Version: <code>{}</code><br>Platform: <code>{}</code><br>Generated: {} (unix ms)</p>",
+        escape_html(&disclosure.version),
+        escape_html(&disclosure.platform),
+        disclosure.generated_at_ms
+    ));
+    out.push_str("<h2>Capabilities</h2><table><tr><th>Status</th><th>Count</th></tr>");
+    for (label, count) in [
+        ("verified", disclosure.capabilities.verified),
+        ("degraded", disclosure.capabilities.degraded),
+        ("unsupported", disclosure.capabilities.unsupported),
+        ("untested", disclosure.capabilities.untested),
+        ("total", disclosure.capabilities.total),
+    ] {
+        out.push_str(&format!("<tr><td>{label}</td><td>{count}</td></tr>"));
+    }
+    out.push_str("</table>");
+    out.push_str("<h2>Limits</h2><ul>");
+    for limit in &disclosure.limits {
+        out.push_str(&format!("<li>{}</li>", escape_html(&one_line(limit))));
+    }
+    out.push_str("</ul>");
+    out.push_str(&format!(
+        "<h2>Audit</h2><p>Status: <code>{}</code><br>External audit: {}<br>{}</p>",
+        escape_html(&disclosure.audit.status),
+        disclosure.audit.external_audit,
+        escape_html(&one_line(&disclosure.audit.note))
+    ));
+    out.push_str("<h2>Data policy</h2><table>");
+    for (label, value) in [
+        ("Storage", &disclosure.data_policy.storage),
+        ("Telemetry", &disclosure.data_policy.telemetry),
+        ("Cloud dependency", &disclosure.data_policy.cloud_dependency),
+        ("Network default", &disclosure.data_policy.network_default),
+    ] {
+        out.push_str(&format!(
+            "<tr><th>{label}</th><td>{}</td></tr>",
+            escape_html(&one_line(value))
+        ));
+    }
+    out.push_str("</table>");
+    if let Some(verification) = &disclosure.verification {
+        out.push_str(&format!(
+            "<h2>Verification</h2><p>verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}</p>",
+            verification.verified,
+            verification.hacked,
+            verification.rejected,
+            verification.resolved,
+            verification.hacked_resolved_bps
+        ));
+    }
+    if !disclosure.evaluations.is_empty() {
+        out.push_str("<h2>Evaluations</h2><table><tr><th>Name</th><th>Version</th><th>Passed</th><th>Total</th><th>Evidence SHA-256</th><th>Note</th></tr>");
+        for evaluation in &disclosure.evaluations {
+            out.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td><code>{}</code></td><td>{}</td></tr>",
+                escape_html(&evaluation.name),
+                escape_html(&evaluation.version),
+                evaluation.passed,
+                evaluation.total,
+                escape_html(evaluation.evidence_sha256.as_deref().unwrap_or("-")),
+                escape_html(&one_line(&evaluation.note))
+            ));
+        }
+        out.push_str("</table>");
+    }
+    if disclosure.security_contact.is_some() || disclosure.incident_url.is_some() {
+        out.push_str("<h2>Contact</h2><ul>");
+        if let Some(contact) = &disclosure.security_contact {
+            out.push_str(&format!(
+                "<li>Security: {}</li>",
+                escape_html(&one_line(contact))
+            ));
+        }
+        if let Some(url) = &disclosure.incident_url {
+            out.push_str(&format!(
+                "<li>Incidents: {}</li>",
+                escape_html(&one_line(url))
+            ));
+        }
+        out.push_str("</ul>");
+    }
+    out.push_str(
+        "<p><small>Static disclosure generated from the Agent Card and caller-supplied \
+         evaluations. It is not a hosted Trust Center or an external audit.</small></p>",
+    );
+    out.push_str("</body></html>");
+    out
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 fn one_line(value: &str) -> String {
     value.replace(['\r', '\n'], " ")
 }
@@ -297,6 +407,25 @@ mod tests {
             disclosure.security_contact.as_deref(),
             Some("security@example.com")
         );
+    }
+
+    #[test]
+    fn html_escapes_caller_supplied_text() {
+        let disclosure = build_disclosure(
+            "0.97.0",
+            10,
+            Some("<script>alert(1)</script>".into()),
+            Some("javascript:alert(1)".into()),
+            None,
+            vec![evaluation()],
+        )
+        .unwrap();
+        let html = render_html(&disclosure);
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("href=\"javascript"));
+        assert!(html.contains("not_audited"));
+        assert!(html.contains("core-v2"));
     }
 
     #[test]
