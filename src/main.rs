@@ -2727,7 +2727,7 @@ async fn run_daemon(
         if let Some(path) = &heartbeat {
             first_principles_agent::watchdog::touch(path, std::process::id(), now)?;
         }
-        if quiet_hours.is_some_and(|quiet| {
+        if let Some(quiet) = quiet_hours.filter(|quiet| {
             quiet.contains(first_principles_agent::autonomy::local_minute(
                 now,
                 utc_offset_minutes,
@@ -2736,10 +2736,16 @@ async fn run_daemon(
             if once {
                 break;
             }
-            eprintln!("[daemon] quiet hours; deferring due jobs");
+            let wake_ms = quiet
+                .ms_until_end(now, utc_offset_minutes)
+                .clamp(1_000, u128::from(poll_seconds) * 1_000);
+            eprintln!(
+                "[daemon] quiet hours; deferring due jobs; waking in {}s",
+                wake_ms.div_ceil(1_000)
+            );
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => break,
-                _ = tokio::time::sleep(Duration::from_secs(poll_seconds)) => {}
+                _ = tokio::time::sleep(Duration::from_millis(wake_ms as u64)) => {}
             }
             continue;
         }

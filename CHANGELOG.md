@@ -322,6 +322,14 @@
   accepted/cancelled. Open handoffs are untouched; dry-run is the default.
 - Tests: one inbox unit test plus one `handoff_inbox_cli` reconcile test
   (`cargo test inbox --lib`, `cargo test --test handoff_inbox_cli`).
+- Quiet-hours boundary wake: `QuietHours::ms_until_end` measures milliseconds
+  to the exclusive window end in a fixed UTC offset. The daemon's quiet-period
+  sleep is `min(poll interval, ms_until_end)`, so deferred due jobs re-check at
+  the boundary instead of only after a full poll; the heartbeat cadence is
+  unchanged.
+- Tests: `quiet_hours_ms_until_end_tracks_the_boundary` covers the overnight
+  boundary, a 30-second remainder and a fixed offset (`cargo test autonomy
+  --lib`).
 - Webhook redirect hardening: the inbox notifier, alert webhook and MCP HTTP
   client no longer follow redirects, so a loopback/HTTPS endpoint cannot bounce
   a request to a private/metadata host.
