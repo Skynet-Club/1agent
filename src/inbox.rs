@@ -4,7 +4,7 @@
 //! The store is append-only JSONL. Every status change is a new snapshot, so
 //! replay keeps the latest state and the history remains inspectable.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
@@ -612,6 +612,57 @@ pub fn reconcile_handoffs(
     Ok(report)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AttentionReconcileReport {
+    pub scanned: usize,
+    pub resolved: usize,
+    pub dry_run: bool,
+    pub item_ids: Vec<String>,
+}
+
+/// Dismiss open attention items whose condition is no longer active. Items
+/// for other sources and terminal items are untouched. A dismissed item is
+/// not re-added by sync if the condition returns; the caller can `reopen` it.
+pub fn reconcile_attention(
+    store: &mut InboxStore,
+    candidates: &[AttentionCandidate],
+    now_ms: u128,
+    apply: bool,
+) -> Result<AttentionReconcileReport, InboxError> {
+    let active = project_attention(candidates, now_ms)
+        .into_iter()
+        .map(|item| item.item_id)
+        .collect::<BTreeSet<_>>();
+    let attention_items = store
+        .items()
+        .filter(|item| !item.status.is_terminal() && item.item_id.starts_with("attention:"))
+        .map(|item| item.item_id.clone())
+        .collect::<Vec<_>>();
+    let mut report = AttentionReconcileReport {
+        scanned: attention_items.len(),
+        resolved: 0,
+        dry_run: !apply,
+        item_ids: Vec::new(),
+    };
+    for item_id in attention_items {
+        if active.contains(&item_id) {
+            continue;
+        }
+        if apply {
+            store.resolve(
+                &item_id,
+                InboxStatus::Dismissed,
+                now_ms,
+                Some("attention condition cleared".into()),
+            )?;
+        }
+        report.resolved += 1;
+        report.item_ids.push(item_id);
+    }
+    Ok(report)
+}
+
 /// Project alert records into inbox items. Failed/timeout alerts need a
 /// decision; health notices are informational.
 pub fn project_alerts(alerts: &[AlertRecord], now_ms: u128) -> Vec<InboxItem> {
@@ -951,5 +1002,53 @@ mod tests {
             InboxStatus::Approved
         );
         assert!("pending".parse::<InboxStatus>().is_err());
+    }
+
+    #[test]
+    fn attention_reconcile_dismisses_cleared_items_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("inbox.jsonl");
+        let mut store = InboxStore::open(&path).unwrap();
+        store
+            .add(item("attention:active", InboxKind::Review, None))
+            .unwrap();
+        store
+            .add(item("attention:cleared", InboxKind::Review, None))
+            .unwrap();
+        store
+            .add(item("manual:keep", InboxKind::Review, None))
+            .unwrap();
+        let candidates = vec![AttentionCandidate {
+            kind: AttentionKind::CommitmentDue,
+            id: "active".into(),
+            goal_id: "g1".into(),
+            title: "still active".into(),
+            due_ms: None,
+            urgency: 50,
+            why_now: "due".into(),
+        }];
+
+        let dry = reconcile_attention(&mut store, &candidates, 100, false).unwrap();
+        assert_eq!(dry.scanned, 2);
+        assert_eq!(dry.resolved, 1);
+        assert!(dry.dry_run);
+        assert_eq!(dry.item_ids, vec!["attention:cleared"]);
+        assert_eq!(
+            store.get("attention:cleared").unwrap().status,
+            InboxStatus::Open
+        );
+
+        let applied = reconcile_attention(&mut store, &candidates, 101, true).unwrap();
+        assert_eq!(applied.resolved, 1);
+        assert!(!applied.dry_run);
+        assert_eq!(
+            store.get("attention:cleared").unwrap().status,
+            InboxStatus::Dismissed
+        );
+        assert_eq!(
+            store.get("attention:active").unwrap().status,
+            InboxStatus::Open
+        );
+        assert_eq!(store.get("manual:keep").unwrap().status, InboxStatus::Open);
     }
 }

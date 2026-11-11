@@ -169,7 +169,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "daemon_maintenance",
                 CapabilityStatus::Verified,
-                "opt-in terminal-handoff reconcile plus alert and goal projection on every daemon tick",
+                "opt-in terminal-handoff reconcile plus alert/goal projection and stale-attention cleanup on every daemon tick",
             ),
             capability(
                 "trust_center",

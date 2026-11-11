@@ -10,7 +10,7 @@ fn run(args: &[&str]) -> std::process::Output {
 
 #[test]
 fn daemon_projects_overdue_commitments_into_the_inbox() {
-    use first_principles_agent::GoalStore;
+    use first_principles_agent::{CommitmentStatus, GoalStore};
 
     let workspace = tempfile::tempdir().unwrap();
     let goals = workspace.path().join("goals.jsonl");
@@ -99,6 +99,41 @@ fn daemon_projects_overdue_commitments_into_the_inbox() {
     ]);
     let items: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(items.as_array().unwrap().len(), 1);
+
+    let mut store = GoalStore::open(&goals).unwrap();
+    store
+        .with_graph_mut(|graph| {
+            graph.close_commitment("c1", CommitmentStatus::Kept, "done", now + 2)
+        })
+        .unwrap();
+    drop(store);
+
+    let cleared = run(&[
+        "daemon",
+        "--store",
+        schedules.to_str().unwrap(),
+        "--journal-dir",
+        journals.to_str().unwrap(),
+        "--once",
+        "--goal-journal",
+        goals.to_str().unwrap(),
+        "--goal-inbox-store",
+        inbox.to_str().unwrap(),
+    ]);
+    assert!(
+        cleared.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&cleared.stderr)
+    );
+    let listed = run(&[
+        "inbox",
+        "list",
+        "--store",
+        inbox.to_str().unwrap(),
+        "--json",
+    ]);
+    let items: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 0);
 }
 
 #[test]

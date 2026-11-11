@@ -3018,18 +3018,44 @@ async fn run_daemon(
                     );
                     let projected = first_principles_agent::project_attention(&candidates, now);
                     match first_principles_agent::InboxStore::open(inbox_path) {
-                        Ok(mut inbox) => match inbox.sync(projected, true) {
-                            Ok(report) if report.added > 0 => {
-                                eprintln!(
-                                    "[daemon] inbox goal sync: added {} item(s)",
-                                    report.added
-                                );
+                        Ok(mut inbox) => {
+                            let synced = match inbox.sync(projected, true) {
+                                Ok(report) => {
+                                    if report.added > 0 {
+                                        eprintln!(
+                                            "[daemon] inbox goal sync: added {} item(s)",
+                                            report.added
+                                        );
+                                    }
+                                    true
+                                }
+                                Err(error) => {
+                                    eprintln!("[daemon] inbox goal sync failed: {error}");
+                                    false
+                                }
+                            };
+                            if synced {
+                                match first_principles_agent::reconcile_attention(
+                                    &mut inbox,
+                                    &candidates,
+                                    now,
+                                    true,
+                                ) {
+                                    Ok(report) if report.resolved > 0 => {
+                                        eprintln!(
+                                            "[daemon] inbox attention reconcile: resolved {}",
+                                            report.resolved
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(error) => {
+                                        eprintln!(
+                                            "[daemon] inbox attention reconcile failed: {error}"
+                                        );
+                                    }
+                                }
                             }
-                            Ok(_) => {}
-                            Err(error) => {
-                                eprintln!("[daemon] inbox goal sync failed: {error}");
-                            }
-                        },
+                        }
                         Err(error) => {
                             eprintln!("[daemon] cannot open goal inbox store: {error}");
                         }
