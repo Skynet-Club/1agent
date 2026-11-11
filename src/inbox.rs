@@ -265,11 +265,14 @@ pub enum InboxAction {
         item_id: String,
         until_ms: u128,
     },
+    Reopen {
+        item_id: String,
+    },
 }
 
 /// Parse the inline action form used by the TUI:
-/// `resolve <id> <approved|rejected|answered|dismissed> [note]`
-/// or `snooze <id> <until_ms>`.
+/// `resolve <id> <approved|rejected|answered|dismissed> [note]`,
+/// `snooze <id> <until_ms>` or `reopen <id>`.
 pub fn parse_action(args: &str) -> Result<InboxAction, String> {
     let mut parts = args.split_whitespace();
     match parts.next() {
@@ -306,6 +309,15 @@ pub fn parse_action(args: &str) -> Result<InboxAction, String> {
             Ok(InboxAction::Snooze {
                 item_id: item_id.into(),
                 until_ms,
+            })
+        }
+        Some("reopen") => {
+            let item_id = parts.next().ok_or("reopen needs an item id")?;
+            if parts.next().is_some() {
+                return Err("reopen takes an item id only".into());
+            }
+            Ok(InboxAction::Reopen {
+                item_id: item_id.into(),
             })
         }
         Some(other) => Err(format!("unknown inbox action: {other}")),
@@ -448,6 +460,7 @@ impl InboxStore {
                 note,
             } => self.resolve(item_id, *status, at_ms, note.clone()),
             InboxAction::Snooze { item_id, until_ms } => self.snooze(item_id, *until_ms, at_ms),
+            InboxAction::Reopen { item_id } => self.reopen(item_id, at_ms),
         }
     }
 
@@ -989,9 +1002,35 @@ mod tests {
                 until_ms: 100
             }
         );
+        assert_eq!(
+            parse_action("reopen i1").unwrap(),
+            InboxAction::Reopen {
+                item_id: "i1".into()
+            }
+        );
         assert!(parse_action("resolve i1 open").is_err());
         assert!(parse_action("snooze i1").is_err());
+        assert!(parse_action("reopen i1 extra").is_err());
         assert!(parse_action("unknown").is_err());
+    }
+
+    #[test]
+    fn reopening_through_apply_action_cancels_a_snooze() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("inbox.jsonl");
+        let mut store = InboxStore::open(&path).unwrap();
+        store.add(item("i1", InboxKind::Review, None)).unwrap();
+        store.snooze("i1", 1_000, 10).unwrap();
+        let reopened = store
+            .apply_action(
+                &InboxAction::Reopen {
+                    item_id: "i1".into(),
+                },
+                11,
+            )
+            .unwrap();
+        assert_eq!(reopened.status, InboxStatus::Open);
+        assert_eq!(reopened.snoozed_until_ms, None);
     }
 
     #[test]
