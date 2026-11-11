@@ -499,6 +499,9 @@ enum Command {
         /// Persist the last digest send time across restarts.
         #[arg(long)]
         digest_state: Option<PathBuf>,
+        /// AFTER_MS=inbox|digest|notify|urgent; adds level counts to the digest.
+        #[arg(long, value_name = "AFTER_MS=ACTION")]
+        digest_escalation_step: Vec<String>,
     },
     Watchdog {
         #[arg(long)]
@@ -2888,6 +2891,7 @@ async fn run_daemon(
     digest_journal_dir: Option<PathBuf>,
     digest_inbox_store: Option<PathBuf>,
     digest_state: Option<PathBuf>,
+    digest_escalation_step: Vec<String>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2951,6 +2955,14 @@ async fn run_daemon(
                 .map_err(|error| anyhow::anyhow!("{error}"))?;
             let notifier =
                 first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
+            let ladder = if digest_escalation_step.is_empty() {
+                None
+            } else {
+                if digest_inbox_store.is_none() {
+                    bail!("--digest-escalation-step requires --digest-inbox-store");
+                }
+                Some(parse_escalation_ladder(&digest_escalation_step)?)
+            };
             let state = match digest_state {
                 Some(path) => {
                     let state = first_principles_agent::notify::NotifyState::open(&path)?;
@@ -2963,13 +2975,15 @@ async fn run_daemon(
                 notifier,
                 digest_journal_dir,
                 digest_inbox_store,
+                ladder,
                 state,
             ))
         }
         (None, None)
             if digest_journal_dir.is_none()
                 && digest_inbox_store.is_none()
-                && digest_state.is_none() =>
+                && digest_state.is_none()
+                && digest_escalation_step.is_empty() =>
         {
             None
         }
@@ -2979,7 +2993,7 @@ async fn run_daemon(
     };
     let mut last_digest_ms = digest
         .as_ref()
-        .and_then(|(_, _, _, _, state)| state.as_ref().map(|(_, state)| state.last_sent_ms))
+        .and_then(|(_, _, _, _, _, state)| state.as_ref().map(|(_, state)| state.last_sent_ms))
         .unwrap_or(0);
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
     loop {
@@ -3201,7 +3215,7 @@ async fn run_daemon(
                 }
             }
         }
-        if let Some((every, notifier, journal_dir, inbox_store, state)) = &digest
+        if let Some((every, notifier, journal_dir, inbox_store, ladder, state)) = &digest
             && now >= last_digest_ms.saturating_add(u128::from(*every) * 1_000)
         {
             use std::fmt::Write as _;
@@ -3240,7 +3254,43 @@ async fn run_daemon(
             if let Some(path) = inbox_store
                 && let Ok(inbox) = first_principles_agent::InboxStore::open(path)
             {
-                writeln!(text, "inbox_open: {}", inbox.open_sorted(now).len()).ok();
+                let items = inbox.open_sorted(now);
+                writeln!(text, "inbox_open: {}", items.len()).ok();
+                if let Some(ladder) = ladder {
+                    match first_principles_agent::inbox_escalation::run(
+                        &items,
+                        ladder,
+                        now,
+                        &[],
+                        None,
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(report) => {
+                            let mut levels = std::collections::BTreeMap::<String, usize>::new();
+                            for item in &report.items {
+                                *levels
+                                    .entry(item.level.clone().unwrap_or_else(|| "none".into()))
+                                    .or_default() += 1;
+                            }
+                            let summary = levels
+                                .iter()
+                                .map(|(level, count)| format!("{level}={count}"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            writeln!(
+                                text,
+                                "escalation: {}",
+                                if summary.is_empty() { "none" } else { &summary }
+                            )
+                            .ok();
+                        }
+                        Err(error) => {
+                            eprintln!("[daemon] digest escalation failed: {error}");
+                        }
+                    }
+                }
             }
             if let Err(error) = notifier.send_text(text.trim_end()).await {
                 eprintln!("[daemon] cannot send digest: {error}");
@@ -5105,6 +5155,7 @@ async fn main() -> Result<()> {
             digest_journal_dir,
             digest_inbox_store,
             digest_state,
+            digest_escalation_step,
         } => {
             run_daemon(
                 store,
@@ -5134,6 +5185,7 @@ async fn main() -> Result<()> {
                 digest_journal_dir,
                 digest_inbox_store,
                 digest_state,
+                digest_escalation_step,
             )
             .await?;
         }

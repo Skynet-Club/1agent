@@ -67,6 +67,7 @@ fn daemon_posts_a_lightweight_digest() {
         .arg(workspace.path().join("runs"))
         .arg("--digest-inbox-store")
         .arg(&inbox)
+        .args(["--digest-escalation-step", "0=urgent"])
         .arg("--digest-state")
         .arg(workspace.path().join("digest-state.json"))
         .output()
@@ -84,6 +85,7 @@ fn daemon_posts_a_lightweight_digest() {
     assert!(text.contains("1Agent Digest (daemon)"), "{text}");
     assert!(text.contains("schedules: 0"), "{text}");
     assert!(text.contains("inbox_open: 1"), "{text}");
+    assert!(text.contains("escalation: urgent=1"), "{text}");
 }
 
 #[test]
@@ -182,5 +184,32 @@ fn daemon_digest_state_suppresses_a_restart_resend() {
         String::from_utf8_lossy(&attempted.stderr).contains("cannot send digest"),
         "stderr: {}",
         String::from_utf8_lossy(&attempted.stderr)
+    );
+}
+
+#[test]
+fn daemon_digest_escalation_steps_require_an_inbox_store() {
+    let workspace = tempfile::tempdir().unwrap();
+    let output = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args([
+            "--once",
+            "--digest-webhook",
+            "http://127.0.0.1:9/hook",
+            "--digest-every-seconds",
+            "60",
+            "--digest-escalation-step",
+            "0=urgent",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--digest-inbox-store"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

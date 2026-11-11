@@ -111,7 +111,7 @@ file: <路径>              → 文件必须存在
 | daemon 定期 reconcile 交接项：terminal handoff → approved/dismissed，每个 tick 执行，安静时段跳过 | cmd: cargo test --test daemon_reconcile_cli | ✅ | 需显式三个 `--reconcile-*` flag；仅本地文件；跨平台未测 |
 | daemon 告警投影：`--alert-log` + `--alert-inbox-store` 每个 tick 把新 alert 投影进 inbox，按 item_id 去重 | cmd: cargo test --test daemon_alert_inbox_cli | ✅ | 只投影；不改 alert 日志；需显式 flag；跨平台未测 |
 | daemon 目标投影/清理：`--goal-journal` + `--goal-inbox-store` 每个 tick 把逾期 goal/commitment 投影进 inbox，并 dismiss 条件已消失的 `attention:` 项；按 item_id 去重 | cmd: cargo test inbox --lib && cargo test --test daemon_goal_inbox_cli | ✅ | 只投影；不改 goal journal；dismiss 后条件重现不会自动重新添加（item_id 稳定）；需成对 flag；跨平台未测 |
-| daemon 轻量定期 digest：`--digest-webhook` + `--digest-every-seconds 60..=86400` 发送 runs/schedules/alerts/inbox_open，可选 journal/inbox store 与 `--digest-state` 持久化计时 | cmd: cargo test --test daemon_digest_cli | ✅ | 无 state 时重启立即发送一次；不替代完整 `digest`；发送失败只记录；跨平台未测 |
+| daemon 轻量定期 digest：`--digest-webhook` + `--digest-every-seconds 60..=86400` 发送 runs/schedules/alerts/inbox_open/升级级别，可选 journal/inbox store 与 `--digest-state` 持久化计时 | cmd: cargo test --test daemon_digest_cli | ✅ | 无 state 时重启立即发送一次；不替代完整 `digest`；发送失败只记录；升级计数需 `--digest-escalation-step` + inbox store；跨平台未测 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
