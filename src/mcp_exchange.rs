@@ -194,19 +194,23 @@ async fn read_response_json(
 /// the issuer and the discovered endpoint follow the same HTTPS/loopback and
 /// no-credential policy; redirects are not followed.
 pub async fn discover_token_endpoint(issuer: &str) -> Result<String, TokenExchangeError> {
-    validate_endpoint(issuer, "issuer")?;
-    let base = issuer.trim_end_matches('/');
+    let issuer_url = validate_endpoint(issuer, "issuer")?;
+    let issuer_path = issuer_url.path().trim_end_matches('/').to_string();
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?;
-    for path in [
+    for well_known in [
         "/.well-known/oauth-authorization-server",
         "/.well-known/openid-configuration",
     ] {
+        let mut url = issuer_url.clone();
+        url.set_path(&format!("{well_known}{issuer_path}"));
+        url.set_query(None);
+        url.set_fragment(None);
         let response = client
-            .get(format!("{base}{path}"))
+            .get(url)
             .send()
             .await
             .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?;

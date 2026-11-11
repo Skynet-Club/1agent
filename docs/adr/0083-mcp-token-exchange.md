@@ -23,8 +23,8 @@ primitive to obtain a short-lived token.
    `client_secret_env` (both or neither). Errors name the variable, never its
    value.
 3. The token endpoint may be supplied directly (`--endpoint`) or discovered
-   from `<issuer>/.well-known/oauth-authorization-server`, falling back to
-   `/.well-known/openid-configuration`; both the issuer and the discovered
+   from `/.well-known/oauth-authorization-server<issuer-path>`, falling back
+   to `/.well-known/openid-configuration<issuer-path>`; both the issuer and the discovered
    endpoint must be HTTPS or loopback HTTP, with no embedded credentials.
    Redirects are not followed, the timeout is 5 seconds and the response body
    is capped at 1 MiB.

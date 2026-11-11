@@ -43,9 +43,10 @@ test mcp_token_exchange_discovers_the_token_endpoint ... ok
   MCP server receives `Authorization: Bearer exchanged-token`.
 - A 302 token endpoint is an error and the Location target receives no second
   connection.
-- `--issuer` tries `oauth-authorization-server` (404), falls back to
-  `openid-configuration`, discovers the loopback token endpoint and completes
-  the exchange; a remote plain-HTTP issuer is rejected.
+- `--issuer http://.../tenant` tries
+  `/.well-known/oauth-authorization-server/tenant` (404), falls back to
+  `/.well-known/openid-configuration/tenant`, discovers the loopback token
+  endpoint and completes the exchange; a remote plain-HTTP issuer is rejected.
 - A rotating endpoint returns `stale-token`, the MCP server rejects it with
   401, the client re-exchanges for `refreshed-token`, retries the request and
   completes initialization and discovery.
