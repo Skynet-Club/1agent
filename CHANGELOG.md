@@ -292,6 +292,9 @@
   all-time.
 - Tests: the `verification_store_cli` test covers a windowed summary
   (`cargo test --test verification_store_cli`).
+- Inbox filters: `inbox list --kind KIND --source SOURCE` filters the open
+  queue; an invalid kind fails closed.
+- Tests: one `inbox_cli` filter test (`cargo test --test inbox_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

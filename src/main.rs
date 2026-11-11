@@ -1428,6 +1428,10 @@ enum InboxCommand {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
         #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long)]
         json: bool,
     },
     Add {
@@ -5226,9 +5230,24 @@ async fn main() -> Result<()> {
             }
         },
         Command::Inbox { command } => match command {
-            InboxCommand::List { store, json } => {
+            InboxCommand::List {
+                store,
+                kind,
+                source,
+                json,
+            } => {
+                let kind = kind
+                    .map(|value| value.parse::<first_principles_agent::InboxKind>())
+                    .transpose()?;
                 let store = first_principles_agent::InboxStore::open(store)?;
-                let items = store.open_sorted(current_time_ms());
+                let items = store
+                    .open_sorted(current_time_ms())
+                    .into_iter()
+                    .filter(|item| {
+                        kind.is_none_or(|kind| item.kind == kind)
+                            && source.as_deref().is_none_or(|source| item.source == source)
+                    })
+                    .collect::<Vec<_>>();
                 if json {
                     println!("{}", serde_json::to_string_pretty(&items)?);
                 } else {

@@ -5,6 +5,61 @@ fn bin() -> &'static str {
 }
 
 #[test]
+fn inbox_list_filters_by_kind_and_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("inbox.jsonl");
+    let store = store.to_str().unwrap();
+    for (kind, title, source) in [
+        ("review", "Approve the deploy", "alpha"),
+        ("notify", "FYI", "beta"),
+    ] {
+        let added = Command::new(bin())
+            .args([
+                "inbox", "add", "--store", store, "--kind", kind, "--title", title, "--source",
+                source,
+            ])
+            .output()
+            .unwrap();
+        assert!(added.status.success());
+    }
+
+    let review = Command::new(bin())
+        .args([
+            "inbox", "list", "--store", store, "--kind", "review", "--json",
+        ])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&review.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["kind"], "review");
+
+    let beta = Command::new(bin())
+        .args([
+            "inbox", "list", "--store", store, "--source", "beta", "--json",
+        ])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&beta.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["source"], "beta");
+
+    let empty = Command::new(bin())
+        .args([
+            "inbox", "list", "--store", store, "--kind", "question", "--json",
+        ])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&empty.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 0);
+
+    let invalid = Command::new(bin())
+        .args(["inbox", "list", "--store", store, "--kind", "urgent"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+}
+
+#[test]
 fn inbox_add_list_snooze_resolve_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("inbox.jsonl");
