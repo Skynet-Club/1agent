@@ -623,7 +623,8 @@ pub struct AttentionReconcileReport {
 
 /// Dismiss open attention items whose condition is no longer active. Items
 /// for other sources and terminal items are untouched. A dismissed item is
-/// not re-added by sync if the condition returns; the caller can `reopen` it.
+/// not re-added by sync if the condition returns because its item id is
+/// stable; creating a fresh item requires a new id.
 pub fn reconcile_attention(
     store: &mut InboxStore,
     candidates: &[AttentionCandidate],

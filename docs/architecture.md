@@ -408,8 +408,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `--goal-inbox-store`, it projects overdue goals/commitments the same way and
   then dismisses open `attention:` items absent from the current candidate set
   (their condition cleared). Sync never updates an existing item's status;
-  a dismissed item is not re-added if the condition returns, but
-  `InboxStore::reopen` can reopen it. The TUI exposes a
+  because attention item ids are stable, a dismissed item is not re-added if
+  the condition returns. The TUI exposes a
   `/inbox` transcript command for the default store, with inline
   `resolve`/`snooze` actions parsed by the same `parse_action`/`apply_action`
   contract as the CLI.
