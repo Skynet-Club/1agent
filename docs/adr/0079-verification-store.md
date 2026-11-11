@@ -16,8 +16,9 @@ invites an ungrounded metric and makes historical verification invisible.
 2. `append` validates non-empty ids, distinct executor/verifier, and a unique
    verification id; it writes one JSON line and syncs before returning.
 3. `summary` reuses `verification::summarize` for verified/hacked/rejected/
-   resolved and `hacked_resolved_bps`. `verified_count` counts only clean
-   `Verified` outcomes in an inclusive time window.
+   resolved and `hacked_resolved_bps`. `summary_between` applies the same
+   summary to an inclusive time window; `verified_count` counts only clean
+   `Verified` outcomes in that window.
 4. Add `1agent verification record --store ... --verification-id ...
    --run-id ... --input INPUT.json` and `verification summary --store ...`.
 5. Add `value-report --verification-store PATH`; it conflicts with

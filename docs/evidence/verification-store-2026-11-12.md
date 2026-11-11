@@ -35,8 +35,9 @@ test result: ok. 1 passed; 0 failed
 - Clean Verified counts are windowed; the Hacked report is not counted.
 - Duplicate ids and self-verification are rejected.
 - The store survives reopen and ignores a partial tail.
-- `value-report --verification-store` reports 1 verified outcome; combining it
-  with `--verified-outcomes` exits non-zero.
+- `value-report --verification-store` reports 1 verified outcome and the
+  window summary (verified=1, hacked=1, bps=5000); combining it with
+  `--verified-outcomes` exits non-zero.
 - Recording with `--inbox-store` creates exactly one review item for the
   Hacked report and none for the Verified report.
 

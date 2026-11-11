@@ -3188,13 +3188,16 @@ async fn main() -> Result<()> {
             if verified_outcomes.is_some() && verification_store.is_some() {
                 anyhow::bail!("use either --verified-outcomes or --verification-store, not both");
             }
-            let verified_outcomes = match verification_store {
+            let (verified_outcomes, verification) = match verification_store {
                 Some(path) => {
                     let store =
                         first_principles_agent::verification_store::VerificationStore::open(path)?;
-                    Some(store.verified_count(since, until))
+                    (
+                        Some(store.verified_count(since, until)),
+                        Some(store.summary_between(since, until)),
+                    )
                 }
-                None => verified_outcomes,
+                None => (verified_outcomes, None),
             };
             let runs = if journal_dir.is_dir() {
                 scan_history(&journal_dir, 200)?
@@ -3228,6 +3231,7 @@ async fn main() -> Result<()> {
                 alert_count,
                 inbox_open,
                 verified_outcomes,
+                verification,
                 since,
                 until,
             );
@@ -3253,6 +3257,16 @@ async fn main() -> Result<()> {
                     "verified outcomes: {:?}; cost per verified: {:?} micros",
                     report.verified_outcomes, report.cost_per_verified_outcome_micros
                 );
+                if let Some(verification) = &report.verification {
+                    println!(
+                        "verification: verified={} hacked={} rejected={} resolved={} hacked_resolved_bps={}",
+                        verification.verified,
+                        verification.hacked,
+                        verification.rejected,
+                        verification.resolved,
+                        verification.hacked_resolved_bps
+                    );
+                }
                 println!("inbox: open={}", report.inbox_open);
                 println!(
                     "tools: calls={} failures={} journals={} alerts={} pending_decisions={}",

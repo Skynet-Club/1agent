@@ -116,6 +116,9 @@ fn verification_store_records_summarizes_and_feeds_value_report() {
     let report: serde_json::Value = serde_json::from_slice(&value.stdout).unwrap();
     assert_eq!(report["verified_outcomes"], 1);
     assert_eq!(report["cost_per_verified_outcome_micros"], 0);
+    assert_eq!(report["verification"]["verified"], 1);
+    assert_eq!(report["verification"]["hacked"], 1);
+    assert_eq!(report["verification"]["hacked_resolved_bps"], 5000);
 
     let conflict = Command::new(bin)
         .args(["value-report", "--journal-dir"])

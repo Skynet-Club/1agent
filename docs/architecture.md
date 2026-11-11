@@ -192,7 +192,8 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 JSONL and syncs each record. Duplicate ids and self-verification are rejected.
 `summary` reuses `verification::summarize`; `verified_count` counts only clean
 `Verified` outcomes in a window, so `value-report --verification-store` can
-derive cost per verified outcome without a hand-supplied count. `verification
+derive cost per verified outcome without a hand-supplied count and include the
+window's verified/hacked/rejected summary. `verification
 record --inbox-store` adds a `verification:<id>` review item for Hacked or
 Rejected outcomes; Verified outcomes are not surfaced.
 

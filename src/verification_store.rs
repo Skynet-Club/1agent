@@ -139,6 +139,16 @@ impl VerificationStore {
         summarize(&reports)
     }
 
+    pub fn summary_between(&self, since_ms: u128, until_ms: u128) -> HackSuiteSummary {
+        let reports = self
+            .entries
+            .iter()
+            .filter(|record| record.at_ms >= since_ms && record.at_ms <= until_ms)
+            .map(|record| record.report.clone())
+            .collect::<Vec<_>>();
+        summarize(&reports)
+    }
+
     /// Counts only clean `Verified` outcomes inside the inclusive window.
     pub fn verified_count(&self, since_ms: u128, until_ms: u128) -> u32 {
         self.entries
