@@ -308,8 +308,72 @@ fn inbox_escalate_notifies_once_per_reached_rung() {
     ]);
     assert!(!missing_state.status.success());
     assert!(
-        String::from_utf8_lossy(&missing_state.stderr).contains("--webhook and --state"),
+        String::from_utf8_lossy(&missing_state.stderr).contains("--webhook/--target and --state"),
         "stderr: {}",
         String::from_utf8_lossy(&missing_state.stderr)
     );
+}
+
+#[test]
+fn inbox_escalate_fans_out_to_multiple_targets() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("inbox.jsonl");
+    let state = workspace.path().join("escalation-state.json");
+    add_item(&store, "fan out escalation");
+
+    let (slack_url, slack) = start_webhook();
+    let (discord_url, discord) = start_webhook();
+    let output = run(&[
+        "inbox",
+        "escalate",
+        "--store",
+        store.to_str().unwrap(),
+        "--step",
+        "0=notify",
+        "--target",
+        &format!("slack={slack_url}"),
+        "--target",
+        &format!("discord={discord_url}"),
+        "--state",
+        state.to_str().unwrap(),
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["notification"]["sent"], true);
+    assert_eq!(report["notification"]["notified"], 1);
+    let slack_body = slack
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert!(slack_body.contains("[notify]"), "body: {slack_body}");
+    let discord_body = discord
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert!(discord_body.contains("[notify]"), "body: {discord_body}");
+
+    let repeat = run(&[
+        "inbox",
+        "escalate",
+        "--store",
+        store.to_str().unwrap(),
+        "--step",
+        "0=notify",
+        "--target",
+        "slack=http://127.0.0.1:9/hook",
+        "--state",
+        state.to_str().unwrap(),
+        "--json",
+    ]);
+    assert!(
+        repeat.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&repeat.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&repeat.stdout).unwrap();
+    assert_eq!(report["notification"]["sent"], false);
+    assert_eq!(report["notification"]["notified"], 0);
 }

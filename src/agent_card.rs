@@ -144,7 +144,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "inbox_escalation",
                 CapabilityStatus::Verified,
-                "ladder projection and one-time notify/urgent delivery from CLI or daemon, including digest counts",
+                "ladder projection and one-time notify/urgent delivery from CLI or daemon to one or more targets, including digest counts",
             ),
             capability(
                 "repair_runbook",

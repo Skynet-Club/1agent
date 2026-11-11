@@ -85,7 +85,8 @@ fn daemon_delivers_each_escalation_rung_once() {
     let journals = workspace.path().join("journals");
     let item = add_item(&inbox_store, "daemon escalation");
 
-    let (webhook, received) = start_webhook();
+    let (slack_url, slack) = start_webhook();
+    let (discord_url, discord) = start_webhook();
     let first = Command::new(bin())
         .args(["daemon", "--store"])
         .arg(&schedules)
@@ -93,12 +94,10 @@ fn daemon_delivers_each_escalation_rung_once() {
         .arg(&journals)
         .args(["--once", "--escalate-inbox-store"])
         .arg(&inbox_store)
-        .args([
-            "--escalate-step",
-            "0=notify",
-            "--escalate-webhook",
-            &webhook,
-        ])
+        .args(["--escalate-step", "0=notify", "--escalate-target"])
+        .arg(format!("slack={slack_url}"))
+        .arg("--escalate-target")
+        .arg(format!("discord={discord_url}"))
         .arg("--escalate-state")
         .arg(&state)
         .output()
@@ -108,11 +107,17 @@ fn daemon_delivers_each_escalation_rung_once() {
         "stderr: {}",
         String::from_utf8_lossy(&first.stderr)
     );
-    let body = received
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap();
-    assert!(body.contains("[notify]"), "body: {body}");
-    assert!(body.contains("daemon escalation"), "body: {body}");
+    for body in [
+        slack
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap(),
+        discord
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap(),
+    ] {
+        assert!(body.contains("[notify]"), "body: {body}");
+        assert!(body.contains("daemon escalation"), "body: {body}");
+    }
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
     assert_eq!(
         saved["delivered"][item["item_id"].as_str().unwrap()],
