@@ -9,6 +9,7 @@ Scope: `mcp_exchange::exchange`, `1agent mcp-token-exchange`.
 cargo test mcp_exchange --lib
 cargo test --test mcp_token_exchange_cli
 cargo test tools::mcp --lib
+cargo test journal --lib
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -19,13 +20,14 @@ running 2 tests
 test mcp_exchange::tests::environment_names_and_values_fail_closed ... ok
 test mcp_exchange::tests::invalid_configs_are_rejected_before_the_network ... ok
 
-running 6 tests
+running 7 tests
 test mcp_token_exchange_refuses_to_overwrite_the_output_file ... ok
 test mcp_token_exchange_writes_a_private_token_file ... ok
 test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
 test mcp_token_exchange_does_not_follow_redirects ... ok
 test mcp_token_exchange_discovers_the_token_endpoint ... ok
 test issuer_discovery_does_not_follow_redirects ... ok
+test issuer_discovery_rejects_a_mismatched_metadata_issuer ... ok
 ```
 
 ## What this proves
@@ -48,8 +50,13 @@ test issuer_discovery_does_not_follow_redirects ... ok
   connection.
 - `--issuer http://.../tenant` tries
   `/.well-known/oauth-authorization-server/tenant` (404), falls back to
-  `/.well-known/openid-configuration/tenant`, discovers the loopback token
+  `/tenant/.well-known/openid-configuration`, discovers the loopback token
   endpoint and completes the exchange; a remote plain-HTTP issuer is rejected.
+- Metadata echoing a different issuer is rejected.
+- A remote HTTPS issuer cannot point the discovered endpoint at plaintext
+  loopback; `[::1]` is recognized as loopback.
+- The MCP token-file reader uses `O_NOFOLLOW` and `fstat` on Unix; the unsafe
+  file tests still pass.
 - A rotating endpoint returns `stale-token`, the MCP server rejects it with
   401, the client re-exchanges for `refreshed-token`, retries the request and
   completes initialization and discovery.

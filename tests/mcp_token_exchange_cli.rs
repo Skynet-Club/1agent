@@ -379,9 +379,17 @@ fn mcp_token_exchange_does_not_follow_redirects() {
     );
 }
 
-fn start_discovery_server(token_endpoint: String) -> (String, mpsc::Receiver<Vec<String>>) {
+fn start_discovery_server(
+    token_endpoint: String,
+    issuer_path: &'static str,
+    override_issuer: Option<&'static str>,
+) -> (String, mpsc::Receiver<Vec<String>>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
+    let issuer = format!("http://{address}{issuer_path}");
+    let metadata_issuer = override_issuer
+        .map(str::to_string)
+        .unwrap_or_else(|| issuer.clone());
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let mut paths = Vec::new();
@@ -398,7 +406,9 @@ fn start_discovery_server(token_endpoint: String) -> (String, mpsc::Receiver<Vec
                 .to_string();
             paths.push(path.clone());
             if path.contains("openid-configuration") {
-                let body = serde_json::json!({"token_endpoint": token_endpoint}).to_string();
+                let body =
+                    serde_json::json!({"issuer": metadata_issuer.clone(), "token_endpoint": token_endpoint})
+                        .to_string();
                 stream
                     .write_all(
                         format!(
@@ -419,7 +429,7 @@ fn start_discovery_server(token_endpoint: String) -> (String, mpsc::Receiver<Vec
         }
         let _ = sender.send(paths);
     });
-    (format!("http://{address}"), receiver)
+    (issuer, receiver)
 }
 
 #[test]
@@ -429,10 +439,9 @@ fn mcp_token_exchange_discovers_the_token_endpoint() {
     let (token_endpoint, _token_form) = start_token_server(
         r#"{"access_token":"discovered-token","token_type":"Bearer","expires_in":60}"#,
     );
-    let (issuer, paths) = start_discovery_server(token_endpoint);
-    let tenant_issuer = format!("{issuer}/tenant");
+    let (issuer, paths) = start_discovery_server(token_endpoint, "/tenant", None);
     let output = Command::new(bin())
-        .args(["mcp-token-exchange", "--issuer", &tenant_issuer])
+        .args(["mcp-token-exchange", "--issuer", &issuer])
         .args([
             "--audience",
             "mcp://server",
@@ -461,8 +470,14 @@ fn mcp_token_exchange_discovers_the_token_endpoint() {
     assert_eq!(paths.len(), 2);
     assert!(paths[0].contains("oauth-authorization-server"), "{paths:?}");
     assert!(paths[1].contains("openid-configuration"), "{paths:?}");
-    assert!(paths[0].ends_with("/tenant"), "{paths:?}");
-    assert!(paths[1].ends_with("/tenant"), "{paths:?}");
+    assert!(
+        paths[0].ends_with("/.well-known/oauth-authorization-server/tenant"),
+        "{paths:?}"
+    );
+    assert!(
+        paths[1].ends_with("/tenant/.well-known/openid-configuration"),
+        "{paths:?}"
+    );
 
     let insecure = Command::new(bin())
         .args(["mcp-token-exchange", "--issuer", "http://example.com"])
@@ -511,5 +526,36 @@ fn issuer_discovery_does_not_follow_redirects() {
         !followed
             .recv_timeout(std::time::Duration::from_secs(2))
             .unwrap()
+    );
+}
+
+#[test]
+fn issuer_discovery_rejects_a_mismatched_metadata_issuer() {
+    let workspace = tempfile::tempdir().unwrap();
+    let (issuer, _paths) = start_discovery_server(
+        "http://127.0.0.1:9/token".into(),
+        "/tenant",
+        Some("https://evil.example"),
+    );
+    let output = Command::new(bin())
+        .args(["mcp-token-exchange", "--issuer", &issuer])
+        .args([
+            "--audience",
+            "mcp://server",
+            "--scope",
+            "tools.read",
+            "--subject-token-env",
+            "TEST_SUBJECT_TOKEN",
+            "--out",
+        ])
+        .arg(workspace.path().join("mismatch.token"))
+        .env("TEST_SUBJECT_TOKEN", "subject-secret")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("different issuer"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

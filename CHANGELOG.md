@@ -443,6 +443,18 @@
   scan does not write a journal.
 - Tests: one `reframe_repeat_cli` e2e test covers rejection, repeat suppression,
   `--force` and a different request (`cargo test --test reframe_repeat_cli`).
+- Security review fixes: OIDC discovery now appends
+  `/.well-known/openid-configuration` after the issuer path (RFC 8414 keeps
+  the well-known segment before it); metadata must echo the configured
+  issuer; a remote issuer cannot downgrade the discovered endpoint to
+  plaintext loopback; IPv6 loopback literals are recognized by all outbound
+  HTTP clients; Unix token files are opened with `O_NOFOLLOW` and re-checked
+  with `fstat`; journal audit now rejects an empty reframe actor or one equal
+  to the proposing provider.
+- Tests: discovery issuer-path/mismatch, remote downgrade, IPv6 loopback and
+  the actor invariant are covered
+  (`cargo test mcp_exchange --lib`, `cargo test --test mcp_token_exchange_cli`,
+  `cargo test tools::mcp --lib`, `cargo test journal --lib`).
 - MCP token exchange: `mcp-token-exchange --endpoint URL --audience A --scope
   S --subject-token-env VAR [--client-id-env VAR --client-secret-env VAR]
   [--max-ttl-seconds N] --out PATH [--json]` performs an RFC 8693-style form

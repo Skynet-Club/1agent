@@ -22,12 +22,16 @@ primitive to obtain a short-lived token.
    `subject_token_env`, and optionally `client_id_env` +
    `client_secret_env` (both or neither). Errors name the variable, never its
    value.
-3. The token endpoint may be supplied directly (`--endpoint`) or discovered
-   from `/.well-known/oauth-authorization-server<issuer-path>`, falling back
-   to `/.well-known/openid-configuration<issuer-path>`; both the issuer and the discovered
-   endpoint must be HTTPS or loopback HTTP, with no embedded credentials.
-   Redirects are not followed, the timeout is 5 seconds and the response body
-   is capped at 1 MiB.
+3. The token endpoint may be supplied directly (`--endpoint`) or discovered.
+   RFC 8414 uses `/.well-known/oauth-authorization-server<issuer-path>`;
+   OpenID Discovery appends after the issuer path as
+   `<issuer-path>/.well-known/openid-configuration`. The metadata must echo
+   the configured issuer (a mismatch is rejected). Both the issuer and the
+   discovered endpoint must be HTTPS or loopback HTTP, with no embedded
+   credentials; when the issuer is remote, the discovered endpoint must be
+   HTTPS (no plaintext loopback downgrade). IPv6 loopback literals such as
+   `[::1]` are accepted. Redirects are not followed, the timeout is 5 seconds
+   and the response body is capped at 1 MiB.
 4. The response must contain a non-empty `access_token`, `token_type` equal to
    `Bearer` (case-insensitive) and `expires_in` in `1..=max_ttl_seconds`
    (default 3600, maximum 86400). A non-2xx status fails.

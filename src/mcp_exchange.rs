@@ -4,7 +4,6 @@
 //! environment variables. The returned access token is never logged; callers
 //! write it to a private file or keep it in memory.
 
-use std::net::IpAddr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -147,6 +146,24 @@ pub async fn exchange(config: &TokenExchangeConfig) -> Result<ExchangedToken, To
     })
 }
 
+fn is_loopback_url(url: &reqwest::Url) -> bool {
+    url.host_str()
+        .is_some_and(crate::net_policy::is_loopback_host)
+}
+
+fn validate_discovered_endpoint(
+    issuer: &reqwest::Url,
+    raw: &str,
+) -> Result<reqwest::Url, TokenExchangeError> {
+    let endpoint = validate_endpoint(raw, "discovered token endpoint")?;
+    if !is_loopback_url(issuer) && endpoint.scheme() != "https" {
+        return Err(TokenExchangeError::InvalidConfig(
+            "discovered token endpoint must use https for a remote issuer".into(),
+        ));
+    }
+    Ok(endpoint)
+}
+
 fn validate_endpoint(raw: &str, label: &str) -> Result<reqwest::Url, TokenExchangeError> {
     let endpoint = reqwest::Url::parse(raw)
         .map_err(|_| TokenExchangeError::InvalidConfig(format!("invalid {label}")))?;
@@ -155,14 +172,8 @@ fn validate_endpoint(raw: &str, label: &str) -> Result<reqwest::Url, TokenExchan
             "{label} must not embed credentials"
         )));
     }
-    let loopback = endpoint.host_str().is_some_and(|host| {
-        host.eq_ignore_ascii_case("localhost")
-            || host
-                .parse::<IpAddr>()
-                .map(|address| address.is_loopback())
-                .unwrap_or(false)
-    });
-    if endpoint.scheme() != "https" && !(endpoint.scheme() == "http" && loopback) {
+    if endpoint.scheme() != "https" && !(endpoint.scheme() == "http" && is_loopback_url(&endpoint))
+    {
         return Err(TokenExchangeError::InvalidConfig(format!(
             "{label} must use https (http is allowed only for loopback)"
         )));
@@ -201,12 +212,16 @@ pub async fn discover_token_endpoint(issuer: &str) -> Result<String, TokenExchan
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| TokenExchangeError::Http(error.without_url().to_string()))?;
-    for well_known in [
-        "/.well-known/oauth-authorization-server",
-        "/.well-known/openid-configuration",
+    for (well_known, append_after_issuer) in [
+        ("/.well-known/oauth-authorization-server", false),
+        ("/.well-known/openid-configuration", true),
     ] {
         let mut url = issuer_url.clone();
-        url.set_path(&format!("{well_known}{issuer_path}"));
+        url.set_path(&if append_after_issuer {
+            format!("{issuer_path}{well_known}")
+        } else {
+            format!("{well_known}{issuer_path}")
+        });
         url.set_query(None);
         url.set_fragment(None);
         let response = client
@@ -221,6 +236,14 @@ pub async fn discover_token_endpoint(issuer: &str) -> Result<String, TokenExchan
             Ok(value) => value,
             Err(_) => continue,
         };
+        let Some(metadata_issuer) = value.get("issuer").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if metadata_issuer.trim_end_matches('/') != issuer.trim_end_matches('/') {
+            return Err(TokenExchangeError::InvalidConfig(
+                "issuer discovery returned a different issuer".into(),
+            ));
+        }
         let Some(token_endpoint) = value
             .get("token_endpoint")
             .and_then(serde_json::Value::as_str)
@@ -228,7 +251,7 @@ pub async fn discover_token_endpoint(issuer: &str) -> Result<String, TokenExchan
         else {
             continue;
         };
-        validate_endpoint(token_endpoint, "discovered token endpoint")?;
+        validate_discovered_endpoint(&issuer_url, token_endpoint)?;
         return Ok(token_endpoint.to_string());
     }
     Err(TokenExchangeError::Response(
@@ -316,5 +339,20 @@ mod tests {
             read_env("MISSING_TOKEN_EXCHANGE_VALUE_XYZ"),
             Err(TokenExchangeError::MissingEnv(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    #[test]
+    fn remote_issuers_cannot_downgrade_to_plaintext_loopback() {
+        let remote = reqwest::Url::parse("https://idp.example").unwrap();
+        assert!(validate_discovered_endpoint(&remote, "http://127.0.0.1:9/token").is_err());
+        assert!(validate_discovered_endpoint(&remote, "https://idp.example/token").is_ok());
+        let local = reqwest::Url::parse("http://127.0.0.1:9").unwrap();
+        assert!(validate_discovered_endpoint(&local, "http://127.0.0.1:9/token").is_ok());
+        assert!(validate_discovered_endpoint(&local, "http://[::1]:9/token").is_ok());
     }
 }
