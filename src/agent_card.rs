@@ -139,12 +139,17 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "inbox_notifications",
                 CapabilityStatus::Verified,
-                "one-way generic/Slack/Discord webhook notifications with a watermark",
+                "one-way generic/Slack/Discord webhook notifications with a shared watermark and multi-target fan-out",
+            ),
+            capability(
+                "inbox_escalation",
+                CapabilityStatus::Verified,
+                "ladder projection and one-time notify/urgent delivery from CLI or daemon, including digest counts",
             ),
             capability(
                 "repair_runbook",
                 CapabilityStatus::Verified,
-                "compensation/manual runbook with a require-clean gate",
+                "compensation/manual runbook with require-clean, plus repair-mark for verified human clearance",
             ),
             capability(
                 "org_audit",
@@ -160,6 +165,11 @@ pub fn build_card(version: &str) -> AgentCard {
                 "chat_bridge",
                 CapabilityStatus::Verified,
                 "file-based message→task and run-result→reply adapter",
+            ),
+            capability(
+                "daemon_maintenance",
+                CapabilityStatus::Verified,
+                "opt-in terminal-handoff inbox reconcile on every daemon tick",
             ),
             capability(
                 "trust_center",

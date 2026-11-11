@@ -355,6 +355,11 @@
 - Tests: `quiet_hours_ms_until_end_tracks_the_boundary` covers the overnight
   boundary, a 30-second remainder and a fixed offset (`cargo test autonomy
   --lib`).
+- Agent Card disclosure: verified capabilities now name multi-target inbox
+  notifications, inbox escalation delivery, repair-mark and the opt-in daemon
+  maintenance loop; the trust-center capability counts follow the card.
+- Tests: `agent_card_cli` asserts the four capability ids are verified and the
+  notification note mentions multi-target fan-out.
 - Daemon inbox maintenance: `daemon --reconcile-inbox-store PATH
   --reconcile-handoff-store PATH --reconcile-apply` runs the existing
   terminal-handoff reconcile on every tick, closing accepted handoffs as

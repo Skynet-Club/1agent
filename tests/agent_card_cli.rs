@@ -35,6 +35,28 @@ fn agent_card_cli_reports_capabilities_and_limits() {
         .find(|capability| capability["id"] == "computer_use")
         .unwrap();
     assert_ne!(computer_use["status"], "verified");
+    for id in [
+        "inbox_notifications",
+        "inbox_escalation",
+        "repair_runbook",
+        "daemon_maintenance",
+    ] {
+        let capability = capabilities
+            .iter()
+            .find(|capability| capability["id"] == id)
+            .unwrap_or_else(|| panic!("missing capability {id}"));
+        assert_eq!(capability["status"], "verified", "capability {id}");
+    }
+    let notifications = capabilities
+        .iter()
+        .find(|capability| capability["id"] == "inbox_notifications")
+        .unwrap();
+    assert!(
+        notifications["note"]
+            .as_str()
+            .unwrap()
+            .contains("multi-target")
+    );
 }
 
 #[test]
