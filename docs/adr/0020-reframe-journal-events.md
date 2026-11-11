@@ -1,6 +1,6 @@
 # ADR 0020: 用 journal 承载需求重构的提议与决定
 
-- Status: accepted for the journal layer; CLI still unimplemented
+- Status: accepted; journal layer and reframe CLI are implemented
 - Date: 2026-11-04
 
 ## Context
@@ -58,6 +58,12 @@ other
   `reframe_duplicate_decision`、`reframe_option_out_of_range`。
 - 未决定的提议是合法状态（用户还没答），不得视为错误。
 
+### 不重复提议
+
+`reframe` 在生成新提议前扫描最近 500 个 journal，若同一 `stated_request`
+已有 `rejected` 决定，则输出 `repeated_rejection` 并停止，不调用模型；
+`--force` 显式覆盖。这是 CLI 路径的承诺，不是全局对话记忆。
+
 ### 一次决定 = 一次 run
 
 实现前核对 audit 规则时发现：`MissingAnswerForStop` 会对 `Completed` /
@@ -105,3 +111,14 @@ RunStopped(Completed)
 - 一次决定结束一次 run，因此没有"挂起的提议"。用户没答就是没跑，
   不会留下半开状态。
 - 旧 journal 保持可读；新 journal 需要新的二进制（未知事件变体 fail closed）。
+- 被拒绝的同一请求不会在 CLI 中自动重提；`--force` 是唯一的覆盖方式。
+
+## Evidence
+
+```bash
+cargo test --test reframe_repeat_cli
+```
+
+The test rejects a proposal, verifies a repeat returns `repeated_rejection`
+without writing a journal, verifies `--force` bypasses the check, and verifies
+a different request still gets a proposal.

@@ -36,7 +36,7 @@ file: <路径>              → 文件必须存在
 | 只问一个最值钱的问题 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py | ⚠️ | 设计层证据（8 个构造案例），不是模型行为证据 |
 | 替代方案必须列出新增代价 | 无 | ❌ | 契约字段未实现 |
 | 决定权在用户，只读回答不得产生动作回执 | test: read_only_answer_rejects_action_receipts | ✅ | |
-| 被拒绝后不再重复提议 | 无 | ❌ | 未实现 |
+| 被拒绝后不再重复提议 | cmd: cargo test --test reframe_repeat_cli | ✅ | 扫描最近 500 个 journal 的同一 stated_request rejected 决定；--force 覆盖；仅 CLI reframe 路径，非全局对话记忆 |
 | 可查询历史决策收据 | 无 | ❌ | `/receipt` 未实现 |
 
 ## 工程不变量

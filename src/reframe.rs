@@ -443,6 +443,51 @@ impl ReframeChoice {
 }
 
 /// The durable record a user can read months later. Plain text, no formatting.
+/// Returns the newest decision journal where the same stated request was
+/// rejected. Unrelated or unreadable journals are skipped; the scan is bounded
+/// to 500 newest JSONL files.
+pub fn rejected_request_journal(
+    journal_dir: &std::path::Path,
+    stated_request: &str,
+) -> Option<std::path::PathBuf> {
+    use crate::journal::{read_events, replay_events};
+    let request = stated_request.trim();
+    if request.is_empty() {
+        return None;
+    }
+    let mut entries = std::fs::read_dir(journal_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some((metadata.modified().ok(), path))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    for (_, path) in entries.into_iter().take(500) {
+        let Ok(events) = read_events(&path) else {
+            continue;
+        };
+        let Ok(state) = replay_events(&events) else {
+            continue;
+        };
+        if let (Some(proposal), Some(ReframeChoice::Rejected { .. })) =
+            (state.reframe_proposal, state.reframe_choice)
+            && proposal.stated_request.trim() == request
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
 pub fn render_receipt(
     proposal: &ReframeProposal,
     choice: &ReframeChoice,

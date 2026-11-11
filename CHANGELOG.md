@@ -394,6 +394,12 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Reframe repeat guard: `reframe` scans the newest 500 decision journals; if
+  the same `stated_request` was rejected before, it reports
+  `repeated_rejection` and does not call the model. `--force` overrides. The
+  scan does not write a journal.
+- Tests: one `reframe_repeat_cli` e2e test covers rejection, repeat suppression,
+  `--force` and a different request (`cargo test --test reframe_repeat_cli`).
 - MCP token exchange: `mcp-token-exchange --endpoint URL --audience A --scope
   S --subject-token-env VAR [--client-id-env VAR --client-secret-env VAR]
   [--max-ttl-seconds N] --out PATH [--json]` performs an RFC 8693-style form
