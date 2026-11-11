@@ -322,6 +322,11 @@
 - Tests: three verification-store unit tests plus one
   `verification_store_cli` e2e test (`cargo test verification_store --lib`,
   `cargo test --test verification_store_cli`).
+- Verification failures reach the inbox: `verification record --inbox-store
+  PATH` adds a `verification:<id>` review item for Hacked/Rejected outcomes;
+  Verified outcomes do not create an item and sync dedupes by id.
+- Tests: the `verification_store_cli` test checks one review item for the
+  Hacked report and none for the Verified report.
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.

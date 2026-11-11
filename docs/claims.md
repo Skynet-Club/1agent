@@ -82,7 +82,7 @@ file: <路径>              → 文件必须存在
 | MCP OAuth claims：audience/过期/未生效/最大 TTL/精确 scope；拒绝时不泄露 subject | cmd: cargo test mcp_auth --lib && cargo test --test mcp_token_cli | ✅ | 调用方必须先验签；不实现 issuer discovery/token exchange |
 | MCP streamable HTTP：JSON/SSE 响应、Mcp-Session-Id、仅 loopback HTTP、token 只读环境变量；结果带 server/tool 审计元数据 | cmd: cargo test tools::mcp --lib | ✅ | 覆盖初始化/发现/调用；真实服务端互操作未验证 |
 | 每验证结果成本：value-report 接收验证器计数或 verification store，输出 cost_per_verified_outcome | cmd: cargo test value_report --lib && cargo test --test value_report_cli && cargo test --test verification_store_cli | ✅ | store 只计 clean Verified；不从 completed 推断 |
-| 验证记录库：append+sync、重复 id/自验证拒绝、summary/hacked bps、窗口计数 | cmd: cargo test verification_store --lib && cargo test --test verification_store_cli | ✅ | 本地 JSONL；无跨机聚合 |
+| 验证记录库：append+sync、重复 id/自验证拒绝、summary/hacked bps、窗口计数、Hacked/Rejected 投影 inbox review | cmd: cargo test verification_store --lib && cargo test --test verification_store_cli | ✅ | 本地 JSONL；无跨机聚合 |
 | Windows GNU 交叉编译：`-D warnings` 下 lib/bin 与 all-targets（含测试）cargo check 通过 | cmd: RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu | ✅ | 仅编译；链接/运行/ConPTY/安装包未验证；macOS 被 Host C 工具链阻断 |
 | Onboarding 文本导入：按行写入 memory，大小/行数/行长限制，非法 kind/文件拒绝 | cmd: cargo test --test onboard_cli | ✅ | 纯文本；不脱敏；非日历/邮件导入 |
 | Inbox 接受交接：handoff:<id> approved 需要 store+actor，先接受再关闭；错 actor/终态拒绝 | cmd: cargo test --test handoff_inbox_cli | ✅ | 本地；非原子（接受后 inbox 写入失败可能部分完成） |
