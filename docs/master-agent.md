@@ -208,7 +208,7 @@ Machine-readable probe evidence is in
 |---|---|---|---|
 | Pi | 1.4.0 | DeepSeek auth reports `ready` | blocked by restricted execution network: `Connection error` |
 | Hermes | 0.22.5 | DeepSeek credential configured | one-shot produced no final response within 60 s |
-| Claude Code | 2.1.314 | OAuth login present | rejected current `deepseek-flash[1m]` model selection |
+| Claude | 2.1.314 | OAuth login present | rejected current `deepseek-flash[1m]` model selection |
 | Codex CLI | 0.166.0 | not logged in | not runnable; isolated app-server also hit read-only filesystem |
 
 These results are deliberately not promoted to success rates. `observed_runs`

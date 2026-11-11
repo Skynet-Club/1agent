@@ -74,7 +74,7 @@
   {
     "agent_id": "claude-primary",
     "runtime": "claude",
-    "display_name": "Claude Code",
+    "display_name": "Claude",
     "capabilities": [
       "coding",
       "shell",

@@ -31,6 +31,7 @@ fi
   set -e
   printf 'commit %s (%s)\n' "$commit" "$dirty"
   printf 'started %s\n\n' "$stamp"
+  ./scripts/check-attribution.sh
   ./scripts/verify.sh
   ./scripts/verify-claims.sh --run
   cargo build --offline --release

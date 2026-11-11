@@ -29,7 +29,7 @@ Date: 2026-11-03
 
 ## Blocked measurements
 
-Pi, Hermes, Claude Code and Codex have not completed the same-task capability suite in
+Pi, Hermes, Claude and Codex have not completed the same-task capability suite in
 this environment. See `docs/master-capability-matrix-v1.json`.
 
 ## Start here
