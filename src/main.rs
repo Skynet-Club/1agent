@@ -295,6 +295,9 @@ enum Command {
         incident_url: Option<String>,
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Write a human-readable Markdown disclosure.
+        #[arg(long)]
+        markdown_out: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -3339,6 +3342,7 @@ async fn main() -> Result<()> {
             security_contact,
             incident_url,
             out,
+            markdown_out,
             json,
         } => {
             let mut evaluations = Vec::with_capacity(evaluation.len());
@@ -3374,6 +3378,13 @@ async fn main() -> Result<()> {
                     format!("{}\n", serde_json::to_string_pretty(&disclosure)?),
                 )
                 .with_context(|| format!("cannot write {}", out.display()))?;
+            }
+            if let Some(path) = &markdown_out {
+                std::fs::write(
+                    path,
+                    first_principles_agent::trust_center::render_markdown(&disclosure),
+                )
+                .with_context(|| format!("cannot write {}", path.display()))?;
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&disclosure)?);

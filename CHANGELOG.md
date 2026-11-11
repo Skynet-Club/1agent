@@ -260,6 +260,12 @@
   notifier. URL policy and empty-text rejection are shared.
 - Tests: two `digest_notify_cli` e2e tests with a loopback webhook
   (`cargo test --test digest_notify_cli`).
+- Trust Center Markdown: `trust-center --markdown-out PATH` renders the JSON
+  disclosure as a human-readable page. Audit remains `not_audited` and the
+  output is not a hosted service.
+- Tests: one trust-center unit test plus the `trust_center_cli` e2e test cover
+  the Markdown (`cargo test trust_center --lib`,
+  `cargo test --test trust_center_cli`).
 - MCP per-server timeout: `timeout_seconds` (1..=300, default 20) bounds stdio
   reads, HTTP requests and the tool execution timeout. Out-of-range values
   fail closed.

@@ -142,6 +142,98 @@ pub fn build_disclosure(
     })
 }
 
+pub fn render_markdown(disclosure: &TrustDisclosure) -> String {
+    let mut out = String::new();
+    out.push_str("# 1Agent Trust Disclosure\n\n");
+    out.push_str(&format!("- Version: {}\n", one_line(&disclosure.version)));
+    out.push_str(&format!("- Platform: {}\n", one_line(&disclosure.platform)));
+    out.push_str(&format!(
+        "- Generated: {} (unix ms)\n\n",
+        disclosure.generated_at_ms
+    ));
+    out.push_str("## Capabilities\n\n");
+    out.push_str(&format!(
+        "- verified: {}\n- degraded: {}\n- unsupported: {}\n- untested: {}\n- total: {}\n\n",
+        disclosure.capabilities.verified,
+        disclosure.capabilities.degraded,
+        disclosure.capabilities.unsupported,
+        disclosure.capabilities.untested,
+        disclosure.capabilities.total
+    ));
+    out.push_str("## Limits\n\n");
+    for limit in &disclosure.limits {
+        out.push_str(&format!("- {}\n", one_line(limit)));
+    }
+    out.push('\n');
+    out.push_str("## Audit\n\n");
+    out.push_str(&format!(
+        "- Status: {}\n- External audit: {}\n- Note: {}\n\n",
+        one_line(&disclosure.audit.status),
+        disclosure.audit.external_audit,
+        one_line(&disclosure.audit.note)
+    ));
+    out.push_str("## Data policy\n\n");
+    out.push_str(&format!(
+        "- Storage: {}\n",
+        one_line(&disclosure.data_policy.storage)
+    ));
+    out.push_str(&format!(
+        "- Telemetry: {}\n",
+        one_line(&disclosure.data_policy.telemetry)
+    ));
+    out.push_str(&format!(
+        "- Cloud dependency: {}\n",
+        one_line(&disclosure.data_policy.cloud_dependency)
+    ));
+    out.push_str(&format!(
+        "- Network default: {}\n\n",
+        one_line(&disclosure.data_policy.network_default)
+    ));
+    if let Some(verification) = &disclosure.verification {
+        out.push_str("## Verification\n\n");
+        out.push_str(&format!(
+            "- verified: {}\n- hacked: {}\n- rejected: {}\n- resolved: {}\n- hacked_resolved_bps: {}\n\n",
+            verification.verified,
+            verification.hacked,
+            verification.rejected,
+            verification.resolved,
+            verification.hacked_resolved_bps
+        ));
+    }
+    if !disclosure.evaluations.is_empty() {
+        out.push_str("## Evaluations\n\n");
+        for evaluation in &disclosure.evaluations {
+            out.push_str(&format!(
+                "- {} {}: {}/{}{}\n",
+                one_line(&evaluation.name),
+                one_line(&evaluation.version),
+                evaluation.passed,
+                evaluation.total,
+                evaluation
+                    .evidence_sha256
+                    .as_ref()
+                    .map(|digest| format!(" (sha256 {digest})"))
+                    .unwrap_or_default()
+            ));
+        }
+        out.push('\n');
+    }
+    if disclosure.security_contact.is_some() || disclosure.incident_url.is_some() {
+        out.push_str("## Contact\n\n");
+        if let Some(contact) = &disclosure.security_contact {
+            out.push_str(&format!("- Security: {}\n", one_line(contact)));
+        }
+        if let Some(url) = &disclosure.incident_url {
+            out.push_str(&format!("- Incidents: {}\n", one_line(url)));
+        }
+    }
+    out
+}
+
+fn one_line(value: &str) -> String {
+    value.replace(['\r', '\n'], " ")
+}
+
 fn validate_evaluation(evaluation: &EvaluationDisclosure) -> Result<(), TrustCenterError> {
     if evaluation.name.trim().is_empty() || evaluation.version.trim().is_empty() {
         return Err(TrustCenterError::InvalidEvaluation(
@@ -235,6 +327,26 @@ mod tests {
         };
         let disclosure = build_disclosure("0.97.0", 10, None, None, Some(summary), vec![]).unwrap();
         assert_eq!(disclosure.verification, Some(summary));
+    }
+
+    #[test]
+    fn markdown_states_the_audit_and_limits() {
+        let disclosure = build_disclosure(
+            "0.97.0",
+            10,
+            Some("security@example.com".into()),
+            None,
+            None,
+            vec![evaluation()],
+        )
+        .unwrap();
+        let markdown = render_markdown(&disclosure);
+        assert!(markdown.contains("# 1Agent Trust Disclosure"));
+        assert!(markdown.contains("Version: 0.97.0"));
+        assert!(markdown.contains("Status: not_audited"));
+        assert!(markdown.contains("External audit: false"));
+        assert!(markdown.contains("core-v2 1: 6/6"));
+        assert!(markdown.contains("security@example.com"));
     }
 
     #[test]

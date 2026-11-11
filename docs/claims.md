@@ -92,7 +92,7 @@ file: <路径>              → 文件必须存在
 | 每日摘要：运行/计划/健康/告警/inbox open/指定收件人 open handoffs/验证摘要；可单向上推 webhook | cmd: cargo test --test digest_cli && cargo test --test digest_notify_cli | ✅ | 汇总只读；webhook 只发不收；不含维护循环 |
 | Repair runbook：compensate/manual/errors/clean，require-clean 非零 | cmd: cargo test repair --lib && cargo test --test repair_plan_cli | ✅ | 只计划；不执行补偿/不调用 Authority |
 | 单向 Inbox 通知：open items → webhook，HTTPS/loopback、拒绝凭证、空队列不发送、`--state` watermark 去重、`--log` 回执 | cmd: cargo test notify --lib && cargo test --test inbox_notify_cli | ✅ | 只发不收；不改 item 状态；非完整聊天传输 |
-| 信任披露清单：能力计数/限制/数据政策/评测披露/本地验证摘要；audit 固定 not_audited | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | JSON 清单，非托管页面/外部审计 |
+| 信任披露清单：能力计数/限制/数据政策/评测披露/本地验证摘要；JSON + Markdown；audit 固定 not_audited | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | 清单/页面文件，非托管服务/外部审计 |
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |
 | Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |

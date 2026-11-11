@@ -5,6 +5,7 @@ fn trust_center_writes_a_disclosure_with_evaluations() {
     let workspace = tempfile::tempdir().unwrap();
     let evaluation = workspace.path().join("eval.json");
     let output_path = workspace.path().join("trust.json");
+    let markdown_path = workspace.path().join("trust.md");
     std::fs::write(
         &evaluation,
         serde_json::to_vec(&serde_json::json!({
@@ -31,6 +32,8 @@ fn trust_center_writes_a_disclosure_with_evaluations() {
             "https://example.com/incidents",
             "--out",
             output_path.to_str().unwrap(),
+            "--markdown-out",
+            markdown_path.to_str().unwrap(),
             "--json",
         ])
         .output()
@@ -51,6 +54,10 @@ fn trust_center_writes_a_disclosure_with_evaluations() {
     assert_eq!(printed["evaluations"][0]["passed"], 6);
     assert_eq!(printed["security_contact"], "security@example.com");
     assert_eq!(printed["incident_url"], "https://example.com/incidents");
+    let markdown = std::fs::read_to_string(&markdown_path).unwrap();
+    assert!(markdown.contains("# 1Agent Trust Disclosure"));
+    assert!(markdown.contains("Status: not_audited"));
+    assert!(markdown.contains("core-v2 1: 6/6"));
     let capabilities = &printed["capabilities"];
     assert_eq!(
         capabilities["total"],

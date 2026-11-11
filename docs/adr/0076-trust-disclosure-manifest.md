@@ -25,7 +25,8 @@ invented those would be worse than no manifest.
      `--verification-store` (verified/hacked/rejected/resolved/bps);
    - optional security contact and incident URL.
 2. Add `1agent trust-center [--evaluation PATH ...] [--security-contact ...]
-   [--incident-url ...] [--out PATH] [--json]`.
+   [--incident-url ...] [--out PATH] [--markdown-out PATH] [--json]`.
+   `--markdown-out` renders the same disclosure as a human-readable page.
 3. Evaluations must be supplied by the caller from real runs. The command does
    not run an evaluation or read a hidden benchmark.
 4. `1agent eval --disclosure-out PATH` writes a compatible disclosure for the
