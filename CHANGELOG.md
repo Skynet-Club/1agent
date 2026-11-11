@@ -255,6 +255,11 @@
 - A-Gate soak evidence: five consecutive `a_gate_soak` cycles pass locally
   (`docs/evidence/a-gate-soak-2026-11-12.md`). This is the software soak, not
   the external A-Gate checklist or a 24h multi-agent acceptance run.
+- Digest webhook: `digest --notify-webhook URL --notify-format
+  generic|slack|discord` posts the same text summary through the one-way
+  notifier. URL policy and empty-text rejection are shared.
+- Tests: two `digest_notify_cli` e2e tests with a loopback webhook
+  (`cargo test --test digest_notify_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

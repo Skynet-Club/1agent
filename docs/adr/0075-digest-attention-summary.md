@@ -19,8 +19,11 @@ omits pending decisions is incomplete.
 3. JSON adds `inbox: {open}`, `handoffs: {open, recipient}` and, with
    `--verification-store PATH`, the all-time local verification summary. Text
    prints the counts and summary in Chinese.
-4. The digest is read-only. It does not sync projections, accept handoffs,
-   send notifications or run a maintenance loop.
+4. `--notify-webhook URL --notify-format generic|slack|discord` posts the same
+   text summary through the one-way notifier after building it. The notifier's
+   HTTPS/loopback and credential policy applies.
+5. The digest is otherwise read-only. It does not sync projections, accept
+   handoffs or run a maintenance loop.
 
 ## Consequences
 

@@ -136,11 +136,25 @@ impl InboxNotifier {
     }
 
     async fn send(&self, items: &[InboxItem]) -> Result<(), NotifyError> {
-        let payload = self.payload(items)?;
+        self.post(&self.payload(items)?).await
+    }
+
+    pub async fn send_text(&self, text: &str) -> Result<(), NotifyError> {
+        if text.trim().is_empty() {
+            return Err(NotifyError::Invalid("notification text is empty".into()));
+        }
+        let payload = match self.format {
+            WebhookFormat::Generic | WebhookFormat::Slack => json!({"text": text}),
+            WebhookFormat::Discord => json!({"content": text}),
+        };
+        self.post(&payload).await
+    }
+
+    async fn post(&self, payload: &serde_json::Value) -> Result<(), NotifyError> {
         let response = self
             .client
             .post(&self.url)
-            .json(&payload)
+            .json(payload)
             .send()
             .await
             .map_err(|error| NotifyError::Http(error.without_url().to_string()))?;
@@ -301,6 +315,12 @@ mod tests {
                 .unwrap()
                 .contains("Approve the deploy")
         );
+    }
+
+    #[tokio::test]
+    async fn empty_notification_text_is_rejected() {
+        let notifier = InboxNotifier::new("http://127.0.0.1:9/hook").unwrap();
+        assert!(notifier.send_text("   ").await.is_err());
     }
 
     #[test]

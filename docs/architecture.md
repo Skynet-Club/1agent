@@ -293,8 +293,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   empty queue. `--state PATH` stores a watermark and suppresses a re-send when
   no item is newer; the watermark advances only after a successful send.
   `--log PATH` appends one JSONL receipt per successful send without storing
-  the webhook URL. It is one-way presence, not a chat transport; `notify`
-  remains the one-message operator command.
+  the webhook URL. `send_text` reuses the same URL policy for the digest
+  `--notify-webhook` path. It is one-way presence, not a chat transport;
+  `notify` remains the one-message operator command.
 - `unit_economics`: a pure subscription/usage/BYOK calculator. The caller
   supplies revenue, variable cost, fixed cost and an optional verified-outcome
   count; it reports contribution, net, gross-margin basis points, per-outcome
