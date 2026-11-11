@@ -266,6 +266,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
   an exact required scope. Signature verification and token acquisition are
   the caller's; this module never stores or prints the token.
+- `unit_economics`: a pure subscription/usage/BYOK calculator. The caller
+  supplies revenue, variable cost, fixed cost and an optional verified-outcome
+  count; it reports contribution, net, gross-margin basis points, per-outcome
+  revenue/cost and break-even outcomes. It does not set prices.
 - `trust_center`: `build_disclosure` derives capability counts and limits from
   the Agent Card, states the data policy, and includes caller-supplied
   evaluation disclosures. The audit section is always `not_audited` with
