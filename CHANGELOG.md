@@ -394,6 +394,12 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Subagent permission intersection: `spawn_agent` accepts `allow_write` and
+  `allow_network` booleans. Each is intersected with the parent's permission,
+  so a child can only be more restrictive; the result is returned in the
+  child's JSON content. Tests cover requested restriction and a widening
+  attempt against a read-only parent (`cargo test --offline --lib
+  tools::subagent`).
 - Digest receipts: `digest --notify-log PATH` appends one JSONL receipt after
   a successful `--notify-webhook` send (sent_at_ms/runs/alerts/inbox_open/
   format, no URL). The flag requires the webhook.

@@ -455,8 +455,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
   metadata for the journal.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
-  workspace and budget. Depth is capped at 2, write/network permissions are
-  inherited, and the child is killed with the parent process.
+  workspace and budget. Depth is capped at 2, requested write/network
+  permissions are intersected with the parent's (they can only restrict), and
+  the child is killed with the parent process.
 - `schedule` persists interval jobs under the runtime home and `daemon` runs
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`

@@ -155,7 +155,7 @@
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | 浏览器 / computer-use | **部分** | `browser_read` 可用无头 Chrome 渲染并抽取正文；点击、输入、截图和视觉理解未实现 |
-| 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；Master→Worker 仍是独立路径 |
+| 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；子 Agent 的 write/network 只能与父权限取交集，不能放大；Master→Worker 仍是独立路径 |
 | MCP 客户端 | **部分** | stdio + streamable HTTP（JSON/SSE 响应、`Mcp-Session-Id`、bearer token 仅从环境变量读、per-server `timeout_seconds`）：发现并调用工具；OAuth claims 校验已提供；issuer discovery/token exchange/工具市场未实现 |
 | 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；`--heartbeat` + `1agent watchdog` 提供带外存活检查；`--quiet-hours` 在窗口内跳过到期任务（任务保持 due，静默期睡眠取 `min(poll, 窗口剩余毫秒)`，窗口结束边界即重查）；升级阶梯可手动投影/投递（`inbox escalate`）或由 daemon 自动投递（`--escalate-*`）；`digest` 台阶、ack 后停止、按渠道 ladder 未实现；跨重启去重仅有持久原语（未接入 daemon） |
 | 全量 Attention/Digest | **部分** | `digest` 汇总最近运行、计划任务、健康状态、告警、inbox open、升级级别与指定 recipient 的 open handoffs；daemon 可按 tick 投影告警与逾期 goal/commitment、reconcile 交接；完整维护循环仍未实现 |
