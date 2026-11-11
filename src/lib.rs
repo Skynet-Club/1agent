@@ -14,6 +14,7 @@ pub mod capability_probe;
 pub mod config;
 pub mod context;
 pub mod context_graph;
+pub mod cua;
 pub mod dashboard;
 pub mod delegation;
 pub mod domain;

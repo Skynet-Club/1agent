@@ -344,6 +344,13 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `verify_bundle` used by import: size, SHA-256, schema, signature (signed
   bundles require a trusted key; unsigned with a key is rejected), duplicate
   names and manifest hashes, and the registry scan. It does not import.
+- `cua`: computer-use provenance and branch policy. An action's arguments are
+  tagged `plan`, `trusted_observation` or `untrusted_observation`; a high-risk
+  action with an untrusted argument is denied, other untrusted arguments
+  require approval, and irreversible actions above low risk require approval.
+  The planner must not see untrusted content, and a branch target must be in
+  the pre-approved plan (branch-steering guard). This is policy only; no
+  browser execution.
 - `tool_search`: `search(query, specs, limit)` ranks tools by exact/prefix/name
   token, description token and parameter-name token, deterministically.
   `select` adds the always-on tools (`read_file`, `write_file`, `edit_file`,

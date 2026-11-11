@@ -389,6 +389,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    CuaCheck {
+        #[arg(long, default_value = "click")]
+        action: String,
+        #[arg(long, default_value = "low")]
+        risk: String,
+        #[arg(long)]
+        reversible: bool,
+        #[arg(long)]
+        untrusted: bool,
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
+        planned_branch: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
     Onboard {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         memory_journal: PathBuf,
@@ -4214,6 +4230,60 @@ async fn main() -> Result<()> {
             } else {
                 println!("decision: {}", plan.decision.as_str());
                 println!("reason: {}", plan.reason);
+            }
+        }
+        Command::CuaCheck {
+            action,
+            risk,
+            reversible,
+            untrusted,
+            branch,
+            planned_branch,
+            json,
+        } => {
+            let risk = match risk.trim().to_ascii_lowercase().as_str() {
+                "low" => first_principles_agent::RiskLevel::Low,
+                "medium" => first_principles_agent::RiskLevel::Medium,
+                "high" => first_principles_agent::RiskLevel::High,
+                _ => anyhow::bail!("risk must be low, medium or high"),
+            };
+            let sources = if untrusted {
+                vec![
+                    first_principles_agent::cua::ArgumentSource::Plan,
+                    first_principles_agent::cua::ArgumentSource::UntrustedObservation,
+                ]
+            } else {
+                vec![
+                    first_principles_agent::cua::ArgumentSource::Plan,
+                    first_principles_agent::cua::ArgumentSource::TrustedObservation,
+                ]
+            };
+            let action = first_principles_agent::cua::CuaAction {
+                action,
+                risk,
+                reversible,
+                argument_sources: sources,
+            };
+            let action_verdict = first_principles_agent::cua::evaluate(&action);
+            let branch_verdict = branch
+                .map(|branch| first_principles_agent::cua::check_branch(&branch, &planned_branch));
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "action": action_verdict,
+                        "branch": branch_verdict
+                    }))?
+                );
+            } else {
+                println!(
+                    "action: {} ({})",
+                    action_verdict.decision.as_str(),
+                    action_verdict.reason
+                );
+                if let Some(branch) = branch_verdict {
+                    println!("branch: {} ({})", branch.decision.as_str(), branch.reason);
+                }
             }
         }
         Command::Onboard {
