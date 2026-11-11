@@ -139,6 +139,13 @@
   This is a policy/CI helper; runtime enforcement is pending.
 - Tests: four budget unit tests plus two `budget_check_cli` e2e tests
   (`cargo test budget --lib`, `cargo test --test budget_check_cli`).
+- Runtime budget enforcement: `RunBudget` gains `max_cost_micros` and
+  `max_tokens` (old budgets default to unlimited). The runtime accumulates
+  provider-reported cost and input+output tokens after each response and stops
+  with `StopReason::BudgetExhausted` when either limit is exceeded.
+  `1agent run --max-cost-micros/--max-tokens` sets them.
+- Tests: cost and token budget enforcement in the runtime
+  (`cargo test cost_budget_stops token_budget_stops --lib`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

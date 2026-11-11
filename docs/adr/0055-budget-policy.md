@@ -29,6 +29,16 @@ outcome.
 6. This is a policy and CI helper. The runtime still needs to wire it into
    the run loop; that is a later slice.
 
+## Runtime enforcement
+
+7. `RunBudget` gains optional `max_cost_micros` and `max_tokens`; old
+   serialized budgets default them to `None`.
+8. The runtime accumulates provider-reported cost and input+output tokens
+   after each model response. Exceeding either limit stops the run with
+   `StopReason::BudgetExhausted` and a cost/token budget answer.
+9. `1agent run --max-cost-micros` and `--max-tokens` set the run limits;
+   `budget-check` remains the preflight/CI helper.
+
 ## Consequences
 
 - A CI job or operator can gate a run on cost/tokens/tool calls.

@@ -112,6 +112,10 @@ pub struct RunBudget {
     pub auto_compact_tokens: usize,
     pub max_provider_p95_latency_ms: Option<u64>,
     pub max_unit_cost_micros_per_k: Option<u64>,
+    /// Maximum accumulated provider cost for the run.
+    pub max_cost_micros: Option<u64>,
+    /// Maximum accumulated input+output tokens for the run.
+    pub max_tokens: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -136,6 +140,10 @@ struct RunBudgetWire {
     max_provider_p95_latency_ms: Option<u64>,
     #[serde(default)]
     max_unit_cost_micros_per_k: Option<u64>,
+    #[serde(default)]
+    max_cost_micros: Option<u64>,
+    #[serde(default)]
+    max_tokens: Option<u64>,
 }
 
 impl From<RunBudgetWire> for RunBudget {
@@ -157,6 +165,8 @@ impl From<RunBudgetWire> for RunBudget {
             auto_compact_tokens,
             max_provider_p95_latency_ms: wire.max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k: wire.max_unit_cost_micros_per_k,
+            max_cost_micros: wire.max_cost_micros,
+            max_tokens: wire.max_tokens,
         }
     }
 }
@@ -173,6 +183,8 @@ impl Default for RunBudget {
             auto_compact_tokens: DEFAULT_AUTO_COMPACT_TOKENS,
             max_provider_p95_latency_ms: None,
             max_unit_cost_micros_per_k: None,
+            max_cost_micros: None,
+            max_tokens: None,
         }
     }
 }
