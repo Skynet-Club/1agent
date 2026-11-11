@@ -50,6 +50,16 @@ The failure is the host C toolchain lacking a macOS SDK/arm64 compiler for
 `ring`'s C code, not a Rust type or API error in this repository. It is not
 counted as a macOS pass.
 
+Windows MSVC target:
+
+```text
+error occurred in cc-rs: failed to find tool "lib.exe": No such file or directory
+```
+
+The host has no MSVC build tools, so `ring`'s C code cannot be compiled for
+`x86_64-pc-windows-msvc`. This is also a host-toolchain block, not a Rust type
+or API failure; the GNU target remains the verified Windows compile.
+
 Linux full tests after the change: 954 passed, 0 failed, 5 ignored.
 
 ## What this proves
