@@ -272,7 +272,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   Ed25519 key pair, `--sign-key` signs the canonical payload (the card without
   the signature field), and `--verify PATH --trusted-key HEX` rejects tampered,
   wrong-key and unsigned cards. This is a local trust statement, not A2A
-  registry discovery or a signed registry entry.
+  registry discovery or a signed registry entry. `card_trust` keeps a local
+  JSON store of trusted/revoked Ed25519 public keys; verification requires the
+  card's embedded key to be trusted and unrevoked before delegating to
+  `agent_card::verify_card`. The store is a trust anchor and must be protected
+  like a keyring; it does not discover or fetch keys remotely.
 - `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
   TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
   `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.

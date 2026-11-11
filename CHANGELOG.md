@@ -223,6 +223,13 @@
   prints the subject on rejection. HTTP/SSE transport is still absent.
 - Tests: four mcp-auth unit tests plus three `mcp_token_cli` e2e tests
   (`cargo test mcp_auth --lib`, `cargo test --test mcp_token_cli`).
+- Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
+  public keys with add/revoke timestamps. `verify` requires the card's embedded
+  key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
+  `1agent card-trust add|revoke|list|verify` exposes it. The store is a local
+  trust anchor, not remote key discovery.
+- Tests: four card-trust unit tests plus two `card_trust_cli` e2e tests
+  (`cargo test card_trust --lib`, `cargo test --test card_trust_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
