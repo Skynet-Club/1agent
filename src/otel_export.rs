@@ -3,7 +3,6 @@
 //! This builds the OTLP `resourceSpans` envelope and posts it to a caller's
 //! collector. It is a small wire adapter, not an OTel SDK.
 
-use std::net::IpAddr;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -82,13 +81,9 @@ pub async fn export_otlp(
             "URL must not embed credentials".into(),
         ));
     }
-    let loopback = parsed.host_str().is_some_and(|host| {
-        host.eq_ignore_ascii_case("localhost")
-            || host
-                .parse::<IpAddr>()
-                .map(|address| address.is_loopback())
-                .unwrap_or(false)
-    });
+    let loopback = parsed
+        .host_str()
+        .is_some_and(crate::net_policy::is_loopback_host);
     if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
         return Err(OtelExportError::InvalidEndpoint(
             "endpoint must use https (http is allowed only for loopback)".into(),

@@ -55,6 +55,7 @@ pub mod memory_journal;
 pub mod memory_payload;
 pub mod memory_service;
 pub mod metrics;
+pub mod net_policy;
 pub mod notify;
 pub mod ops_guard;
 pub mod org_audit;

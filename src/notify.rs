@@ -5,7 +5,6 @@
 //! replies, change item state or store the webhook URL.
 
 use std::collections::BTreeMap;
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -112,13 +111,9 @@ impl InboxNotifier {
                 "URL must not embed credentials".into(),
             ));
         }
-        let loopback = parsed.host_str().is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .parse::<IpAddr>()
-                    .map(|address| address.is_loopback())
-                    .unwrap_or(false)
-        });
+        let loopback = parsed
+            .host_str()
+            .is_some_and(crate::net_policy::is_loopback_host);
         if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
             return Err(NotifyError::Invalid(
                 "webhook must use https (http is allowed only for loopback)".into(),

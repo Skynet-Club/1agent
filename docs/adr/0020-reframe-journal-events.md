@@ -126,6 +126,7 @@ cargo test --test reframe_repeat_cli
 cargo test --test receipt_index_cli
 cargo test --test reframe_costs_cli
 cargo test tui_commands --lib
+cargo test journal --lib
 ```
 
 The repeat test rejects a proposal, verifies a repeat returns
@@ -134,4 +135,5 @@ check, and verifies a different request still gets a proposal. The receipt
 index test lists rejected and deferred decisions newest first across journals.
 The TUI registry test covers the `/receipt` command; the renderer itself is
 covered by the reframe receipt tests. The added-cost tests cover complete,
-missing, unknown and empty cost maps and the opt-in flag.
+missing, unknown and empty cost maps and the opt-in flag. Journal audit now
+also rejects an empty actor or an actor equal to the proposing provider.

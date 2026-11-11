@@ -23,7 +23,8 @@ credential path that does not put tokens in a config file or argv.
      setting more than one source is an error;
    - the token is never stored in the config, logged or included in errors;
    - a missing, empty, loose-permission or symlinked token source fails
-     closed.
+     closed; on Unix the file is opened with `O_NOFOLLOW` and re-checked with
+     `fstat` on the open descriptor to close the check/read race.
 3. Requests are JSON-RPC POSTs with `Accept: application/json,
    text/event-stream`. The client records `Mcp-Session-Id`, sends it on later
    requests and accepts either a JSON response or SSE `data:` events. Batched

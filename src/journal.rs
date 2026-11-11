@@ -919,10 +919,15 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
 
 fn audit_reframe(events: &[JournalEvent], findings: &mut Vec<JournalAuditFinding>) {
     let mut current: Option<ReframeProposal> = None;
+    let mut current_provider: Option<String> = None;
     let mut decided = false;
     for (index, event) in events.iter().enumerate() {
         match &event.event {
-            JournalEventKind::ReframeProposed { proposal, .. } => {
+            JournalEventKind::ReframeProposed {
+                proposal,
+                provider_id,
+                ..
+            } => {
                 if let Err(error) = proposal.validate() {
                     push_audit_finding(
                         findings,
@@ -932,9 +937,10 @@ fn audit_reframe(events: &[JournalEvent], findings: &mut Vec<JournalAuditFinding
                     );
                 }
                 current = Some(proposal.clone());
+                current_provider = Some(provider_id.clone());
                 decided = false;
             }
-            JournalEventKind::ReframeDecided { choice, .. } => {
+            JournalEventKind::ReframeDecided { choice, actor, .. } => {
                 let Some(proposal) = &current else {
                     push_audit_finding(
                         findings,
@@ -952,6 +958,16 @@ fn audit_reframe(events: &[JournalEvent], findings: &mut Vec<JournalAuditFinding
                         format!("event {index}: second decision for the same proposal"),
                     );
                     continue;
+                }
+                if actor.trim().is_empty() || current_provider.as_deref() == Some(actor.as_str()) {
+                    push_audit_finding(
+                        findings,
+                        AuditFindingCode::ReframeDecisionInvalid,
+                        Some(index),
+                        format!(
+                            "event {index}: reframe actor must be non-empty and must not be the proposing provider"
+                        ),
+                    );
                 }
                 if let Err(error) = choice.validate_against(proposal) {
                     push_audit_finding(
@@ -2096,6 +2112,24 @@ mod reframe_journal_tests {
             decided(ReframeChoice::Deferred),
         ]);
         assert!(codes(&events).contains(&AuditFindingCode::ReframeDuplicateDecision));
+    }
+
+    #[test]
+    fn audit_flags_an_empty_or_provider_actor() {
+        for actor in ["", "deterministic"] {
+            let events = journal_with(vec![
+                proposed(),
+                JournalEventKind::ReframeDecided {
+                    choice: ReframeChoice::Deferred,
+                    actor: actor.into(),
+                    decided_at_unix_ms: 1_793_000_000_000,
+                },
+            ]);
+            assert!(
+                codes(&events).contains(&AuditFindingCode::ReframeDecisionInvalid),
+                "actor {actor:?} should be rejected"
+            );
+        }
     }
 
     #[test]

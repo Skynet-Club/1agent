@@ -9,6 +9,7 @@
 //! come from an environment variable, never from the config file.
 
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -90,17 +91,34 @@ struct McpClient {
 }
 
 fn read_bearer_token_file(path: &std::path::Path, server: &str) -> Result<String, ToolError> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+    let path_metadata = std::fs::symlink_metadata(path).map_err(|error| {
         ToolError::InvalidArguments(format!(
             "MCP server '{server}' cannot stat bearer token file {}: {error}",
             path.display()
         ))
     })?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
+    if path_metadata.file_type().is_symlink() || !path_metadata.is_file() {
         return Err(ToolError::InvalidArguments(format!(
             "MCP server '{server}' bearer token file must be a regular non-symlink file"
         )));
     }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(path).map_err(|error| {
+        ToolError::InvalidArguments(format!(
+            "MCP server '{server}' cannot open bearer token file: {error}"
+        ))
+    })?;
+    let metadata = file.metadata().map_err(|error| {
+        ToolError::InvalidArguments(format!(
+            "MCP server '{server}' cannot stat bearer token file: {error}"
+        ))
+    })?;
     if metadata.len() == 0 || metadata.len() > 4096 {
         return Err(ToolError::InvalidArguments(format!(
             "MCP server '{server}' bearer token file must be 1..=4096 bytes"
@@ -115,7 +133,8 @@ fn read_bearer_token_file(path: &std::path::Path, server: &str) -> Result<String
             )));
         }
     }
-    let raw = std::fs::read_to_string(path).map_err(|error| {
+    let mut raw = String::new();
+    file.read_to_string(&mut raw).map_err(|error| {
         ToolError::InvalidArguments(format!(
             "MCP server '{server}' cannot read bearer token file: {error}"
         ))
@@ -227,13 +246,9 @@ impl McpClient {
                 server.name
             )));
         }
-        let loopback = parsed.host_str().is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .parse::<std::net::IpAddr>()
-                    .map(|address| address.is_loopback())
-                    .unwrap_or(false)
-        });
+        let loopback = parsed
+            .host_str()
+            .is_some_and(crate::net_policy::is_loopback_host);
         if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
             return Err(ToolError::InvalidArguments(format!(
                 "MCP server '{}' URL must use https (http is allowed only for loopback)",

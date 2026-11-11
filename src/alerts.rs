@@ -1,6 +1,5 @@
 //! Append-only local alert log for operator-visible health events.
 
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -66,13 +65,9 @@ impl AlertWebhook {
         let url = url.into();
         let parsed = reqwest::Url::parse(&url)
             .map_err(|_| AlertError::Invalid("invalid alert webhook URL".into()))?;
-        let loopback = parsed.host_str().is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .parse::<IpAddr>()
-                    .map(|address| address.is_loopback())
-                    .unwrap_or(false)
-        });
+        let loopback = parsed
+            .host_str()
+            .is_some_and(crate::net_policy::is_loopback_host);
         if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
             return Err(AlertError::Invalid(
                 "alert webhook must use https (http is allowed only for loopback)".into(),
