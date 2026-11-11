@@ -280,6 +280,9 @@
   tail entries for operator review.
 - Tests: one `org_audit_cli` tail-listing test
   (`cargo test --test org_audit_cli`).
+- Cross-check evidence now records that the MSVC attempt is blocked by the
+  host lacking `lib.exe`, alongside the macOS host-toolchain block; the GNU
+  target remains the verified Windows compile.
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
