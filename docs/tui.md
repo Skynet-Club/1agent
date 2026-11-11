@@ -211,7 +211,7 @@ presentation. Long panels open at the top so the most important information is v
 first.
 
 Context control is token-based. The default budget is 1,000,000 tokens with automatic
-compaction at 786,432 tokens, matching the current Claude Code session. Runtime
+compaction at 786,432 tokens, matching a current 1M-token coding session. Runtime
 compaction prunes old tool-result content when the context-token budget is exceeded.
 The request-time count is a provider-neutral estimate; after every response the
 provider-reported `usage.input_tokens` replaces it. `/context compact` locally

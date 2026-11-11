@@ -1,4 +1,4 @@
-# ADR 0034: Token-Based Context Budget Aligned with Claude Code
+# ADR 0034: Token-Based Context Budget for 1M-Token Sessions
 
 - Status: accepted
 - Date: 2026-11-10
@@ -6,12 +6,12 @@
 ## Context
 
 1Agent measured context in characters: a 100,000-character budget with automatic
-compaction at 80%. The TUI could not be compared with Claude Code, whose current
+compaction at 80%. The TUI could not be compared with a 1M-token coding session, whose current
 session uses a 1,000,000-token window and compacts at 786,432 tokens. Character
 counts also made model/provider limits hard to reason about, because a Chinese
 character and an ASCII character consume different numbers of tokens.
 
-The user asked 1Agent to align with Claude Code: 1M tokens maximum, automatic
+The user asked 1Agent to align with a 1M-token coding session: 1M tokens maximum, automatic
 compaction at 786,432 tokens, and a full migration from character semantics.
 
 ## Decision
@@ -40,7 +40,7 @@ compaction at 786,432 tokens, and a full migration from character semantics.
 
 ## Consequences
 
-- 1Agent's budget now matches Claude Code's current session: 1M tokens with
+- 1Agent's budget now matches a 1M-token coding session: 1M tokens with
   compaction at 768K (786,432).
 - Request-time token counts are estimates. They can differ from provider usage,
   especially for mixed-language content; each response recalibrates the display.
