@@ -230,6 +230,12 @@
   `bearer_token_env`. Existing stdio configs are unchanged.
 - Tests: three MCP HTTP/SSE unit tests plus the existing stdio tests
   (`cargo test tools::mcp --lib`).
+- Cost per verified outcome (ADR-0071): `value-report --verified-outcomes N`
+  adds `verified_outcomes` and `cost_per_verified_outcome_micros` to the
+  report. The count is caller/verifier-supplied; the report does not infer it
+  from completed runs.
+- Tests: value-report unit and CLI tests cover the supplied count and zero-cost
+  output (`cargo test value_report --lib`, `cargo test --test value_report_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
