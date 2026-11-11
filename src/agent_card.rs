@@ -127,6 +127,36 @@ pub fn build_card(version: &str) -> AgentCard {
                 "Ed25519 signing and trusted-key verification",
             ),
             capability(
+                "verification_store",
+                CapabilityStatus::Verified,
+                "persisted verification reports, summaries and inbox alerts",
+            ),
+            capability(
+                "team_handoff",
+                CapabilityStatus::Verified,
+                "grounded handoffs with addressee acceptance and audit linkage",
+            ),
+            capability(
+                "inbox_notifications",
+                CapabilityStatus::Verified,
+                "one-way generic/Slack/Discord webhook notifications with a watermark",
+            ),
+            capability(
+                "repair_runbook",
+                CapabilityStatus::Verified,
+                "compensation/manual runbook with a require-clean gate",
+            ),
+            capability(
+                "org_audit",
+                CapabilityStatus::Verified,
+                "hash-chained organization audit with optional Ed25519 seals",
+            ),
+            capability(
+                "mcp_http_transport",
+                CapabilityStatus::Verified,
+                "streamable HTTP JSON/SSE transport with environment-only bearer tokens",
+            ),
+            capability(
                 "computer_use",
                 platform_status("computer_use"),
                 "status comes from the platform registry",
@@ -257,6 +287,21 @@ mod tests {
                 .iter()
                 .any(|capability| capability.id == "computer_use")
         );
+        for id in [
+            "verification_store",
+            "team_handoff",
+            "inbox_notifications",
+            "repair_runbook",
+            "org_audit",
+            "mcp_http_transport",
+        ] {
+            let capability = card
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == id)
+                .unwrap();
+            assert_eq!(capability.status, CapabilityStatus::Verified);
+        }
     }
 
     #[test]

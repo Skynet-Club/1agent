@@ -274,6 +274,11 @@
   run after the window; the watchdog heartbeat still advances.
 - Tests: two `daemon_quiet_cli` e2e tests
   (`cargo test --test daemon_quiet_cli`).
+- Agent Card capability disclosure: adds verified entries for
+  `verification_store`, `team_handoff`, `inbox_notifications`,
+  `repair_runbook`, `org_audit` and `mcp_http_transport`.
+- Tests: the agent-card unit test asserts the new entries are verified
+  (`cargo test agent_card --lib`).
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.
