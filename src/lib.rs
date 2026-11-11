@@ -76,6 +76,8 @@ pub mod tui_commands;
 pub mod tui_first_principles;
 pub mod tui_host;
 pub mod tui_master_verification;
+pub mod tui_prompt_sources;
+pub mod tui_prompts;
 pub mod tui_session;
 pub mod tui_terminal;
 pub mod tui_workspace;

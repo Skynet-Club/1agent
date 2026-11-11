@@ -210,14 +210,15 @@ the session ID remain available, but raw `key=value` rows are not used as the pr
 presentation. Long panels open at the top so the most important information is visible
 first.
 
-Context control is intentionally honest. 1A reports characters, not exact provider
-tokens. Runtime compaction prunes old tool-result content when the context-character
-budget is exceeded. `/context compact` locally summarizes up to eight recent runs and
-uses that bounded summary instead of the normal six-turn facts until the next run
-invalidates it. `/config set context|steps|tools|attempts|timeout` persists bounded
-values for subsequent runs, and `/config reset` restores CLI defaults. Context pruning
-also runs automatically at a configurable threshold, defaulting to 80% of the maximum
-characters; use `/config set compact <50..95>` to adjust it.
+Context control is token-based. The default budget is 1,000,000 tokens with automatic
+compaction at 786,432 tokens, matching the current Claude Code session. Runtime
+compaction prunes old tool-result content when the context-token budget is exceeded.
+The request-time count is a provider-neutral estimate; after every response the
+provider-reported `usage.input_tokens` replaces it. `/context compact` locally
+summarizes up to eight recent runs and uses that bounded summary instead of the normal
+six-turn facts until the next run invalidates it. `/config
+set context|compact|steps|tools|attempts|timeout` persists bounded values for subsequent
+runs; `context` and `compact` take token counts. `/config reset` restores CLI defaults.
 
 `/cost` rebuilds a session ledger from provider responses in run journals. It reports
 input/output/total tokens, configured `cost_micros`, provider/model groups and recent run
@@ -253,21 +254,40 @@ same native clipboard or OSC 52 fallback as mouse-copy.
 › Compare A and B under a fixed budget
 structured transcript, wrapped to the terminal width and scrollable
 
-────────────────────────────────────────────────────────────
- ready
-[ three-row dark-gray composer ]
-[ status bar: model · mode                      上下文 N% ]
+╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ───── • ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ─── 13% · 12s ────╮
+│                                                                                                  │
+│ › Compare A and B under a fixed budget                                                           │
+│                                                                                                  │
+╰─ ● 运行中 · deepseek-flash · 直接回答 · Ctrl+T 模式 ────────────────────────────────────────────╯
 ```
 
-The interactive surface has one status row, below the composer: the configured model and the
-current cognitive mode on the left, and context-budget usage on the right. The percentage is
-`chars sent by the last model request / max_context_chars`, the same measure that triggers
-auto-compaction, and it refreshes after each completed run. It is not a model token window: no
-token-window metadata exists, so the row says 上下文 rather than tokens. The row ends with
-`Ctrl+Tab 切换`, which opens the mode menu. While an answer occupies the top of the
-transcript, a filled prompt bar keeps the associated user instruction visible. It yields when the
-original user prompt or a newer visible prompt provides that context itself. The bar is
-presentation-only and is not included in transcript selection or copying.
+When the terminal is too narrow for the heading and metrics together, the metrics fold onto
+their own row inside the same fence instead of being truncated:
+
+```text
+╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ─────────╮
+│ ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ─────── 13% · 12s │
+│                                                     │
+│ › Compare A and B under a fixed budget               │
+│                                                     │
+╰─ ● 运行中 · deepseek-flash · 直接回答 · Ctrl+T 模式 ───────────────╯
+```
+
+The whole terminal is filled with a dark-green backdrop `#06100A`, 80% of the input
+panel background brightness and slightly darker than the panel. The input box is a dark-green panel whose background, border and panel
+text are all dimmed by 50% (`#08140D`, `#3F644B`, `#487748`); input text stays white. Token metrics sit on the
+right side of the top border while they fit, and otherwise fold to the row below it. The
+input-box top title comes from the run journal; the bottom border
+shows run status, the configured model, the current cognitive mode and `Ctrl+T`. The
+context meter uses `─`, the same glyph as the fence border, and halves from 20 to 10 cells
+when the panel folds, keeping the reported percentage unchanged. The
+percentage is `tokens sent by the last model request / max_context_tokens`, the same measure
+that triggers auto-compaction, and it refreshes after each completed run. Provider usage is
+authoritative after a response; the request-time value is an estimate. While an answer
+occupies the top of the transcript, a filled prompt bar keeps the associated user
+instruction visible. It yields when the original user prompt or a newer visible prompt
+provides that context itself. The bar is presentation-only and is not included in transcript
+selection or copying.
 
 The mode menu offers `自动` plus the five reachable modes. The applied row is marked `●`, the
 cursor `▌`; `↑`/`↓` moves, `Enter` applies and `Esc` closes. `升级处理` is deliberately absent
@@ -279,12 +299,16 @@ An empty transcript shows the responsive `1AGENT` welcome surface, session ident
 and command/resume hints. Operational status, mode, risk, provider and budget are available through
 `/status` and the command drawer.
 
-The shade-gradient wordmark uses Codex blue for `Agent`, with the leading `1` highlighted in bright
-green. Its first row includes the same one-column leading pad as the lower `1` rows.
+The wordmark keeps the leading `1` in bright green; `Agent` is deep green `#487748`. The
+Chinese caption and the English prefix are deep green, and the `SKYNET.CLUB` domain is the
+bright-green highlight. Its first row includes the same one-column leading pad as the lower
+`1` rows.
 
-The one-line activity surface reports run state and scroll position. The composer is a three-row
-visual container with the editable text vertically centered, followed by the one-row status bar.
-Its Codex-style `› ` prefix is bold ANSI-blue `75`.
+The composer is a three-row visual container with the editable text vertically centered, inside
+the fenced input panel. The panel top border reports the activity state; token/cache/context/
+elapsed share that border on wide terminals and fold to an inner metrics row on narrow ones;
+the bottom border reports completed/running state, model, session mode and `Ctrl+T`. Its
+Codex-style `› ` prefix uses the dimmed panel green.
 
 All primary TUI chrome and operator panels use Chinese labels. English technical names are
 retained only when they identify a command, model/provider, file path or interoperability
@@ -304,16 +328,24 @@ section.
 
 - type a task and press Enter to run it;
 - type `/` to open the filtered command drawer;
+- type a keyword such as `/验收`, `/证据` or `/老板` to search both commands and the
+  48 built-in prompt supplements; selecting a prompt fills the composer and leaves
+  `{{variables}}` for editing; the empty drawer starts with 3 featured prompts;
+- after typing a task, add a space and `//` to open a prompt-only drawer; selecting a
+  template merges it before or after the task and `Esc` restores the task;
 - use `Up`/`Down` in the command drawer and `Tab` to complete the selected command;
 - `Ctrl+Tab` opens the mode menu; `Shift+Tab` is the fallback on terminals that cannot report
   Ctrl+Tab separately;
+- `Ctrl+O` opens or closes the run-details overlay, which includes the per-event process
+  trace (requests, responses, tool calls and results);
 - drag over input or transcript text to create an internal selection; releasing the mouse copies
   a non-empty selection automatically;
 - while dragging a transcript selection at the top or bottom edge, the viewport continues scrolling
   every 70 ms so the selection can extend into off-screen content;
 - a successful copy shows a bright-green `✓ 已复制选择内容` confirmation;
 - `Ctrl+C` copies a selection, or cancels the active run when nothing is selected;
-- `Ctrl+V` and right-click paste through the host clipboard;
+- `Ctrl+V` pastes through the host clipboard anywhere; right-click pastes only when
+  the pointer is inside the composer;
 - bracketed terminal paste is inserted as one edit and replaces a selection;
 - `Left`, `Right`, `Home` and `End` edit the current input;
 - `PageUp`, `PageDown` and the mouse wheel scroll the transcript;
@@ -391,17 +423,17 @@ metadata is visually de-emphasized.
 | Role | Color |
 |---|---|
 | User prompt marker `›` | bright green, bold |
-| Composer prompt marker `›` | ANSI-256 blue `75`, bold |
-| User prompt body | white on ANSI-256 dark gray `238` |
-| Sticky prompt bar | white on ANSI-256 dark gray `238` |
+| Composer prompt marker `›` | bright green, unbolded |
+| User prompt body | white on the input-panel dark green `#08140D` |
+| Sticky prompt bar | white on the input-panel dark green `#08140D` |
 | Section marker `▌` and accent text | ANSI-256 blue `75` (nearest to Codex accent `#63A8F8`), bold |
 | Normal answer and description text | terminal default foreground |
-| Verified claim `[已验证]` | bright green, bold |
-| User-asserted or derived claim | blue `75`, bold |
-| Assumption, model prior or unknown | yellow, bold |
-| Conflict, failure or error | bright red, bold |
-| Evidence marker `↳` | cyan |
-| Evidence source label | cyan |
+| Verified claim `[已验证]` | deep green `#487748` text and label, unbolded |
+| User-asserted or derived claim | deep green `#487748` text and label, unbolded |
+| Assumption, model prior or unknown | deep green `#487748` text and label, unbolded |
+| Conflict, failure or error | deep green `#487748` text and label, unbolded |
+| Evidence marker `↳` | deep green `#487748` |
+| Evidence source label | deep green `#487748` |
 | Quote marker, `引用` label and quoted body | gray `245`, dim |
 | Code block border `╭ │ ╰` | bright green, bold |
 | Code language label | high-light blue `75`, bold |
@@ -416,22 +448,30 @@ metadata is visually de-emphasized.
 | Code numbers | magenta |
 | Code comments | dark gray, italic |
 | Code import/include references | light cyan |
-| Constraint label and bullets | gray `245` |
+| Constraint label and bullets | deep green `#487748` |
+| Work log text, labels and `⎿` results | deep green `#487748`, unbolded |
+| Work log bullet `•` | bright green |
+| Work log links (local paths and URLs) | bright green |
 | System command output | normal answer foreground |
 | Metadata and journal path | gray `245` |
-| Command drawer background | ANSI-256 dark gray `235` |
-| Mode menu background | ANSI-256 dark gray `235` |
-| Mode menu selected row | ANSI-256 gray `238` |
-| Command drawer border | gray `240` |
-| Command drawer title | white, bold |
-| Command name | Codex blue `75`, bold |
-| Command description | light gray `252` |
-| Selected command row | ANSI-256 gray `238`, bold |
+| Details overlay surface | green `#0A1F12`, bright-green border |
+| Command drawer background | green `#0A1F12` |
+| Mode menu background | green `#0A1F12` |
+| Mode menu selected row | green `#143D24`, bright-green bold label |
+| Command drawer border | dim green `#3F644B` |
+| Command drawer title | bright green, bold |
+| Command name | bright green, bold |
+| Command description | bright green |
+| Selected command row | green `#143D24`, bold |
+| Conclusion title `结论 Conclusion` | bright green, bold |
+| `Ctrl+T` shortcut key `T` | bright green, bold |
 | Selection | reverse video over the semantic color |
-| Composer background | ANSI-256 dark gray `236` |
-| Composer footer | ANSI black background, gray `245` text |
-| Status bar | terminal background, gray `245` text |
-| Running activity | bright blue `75`, bold |
+| Terminal backdrop | dark green `#06100A`, 80% brightness of the input panel |
+| Composer background | dimmed deep green `#08140D` |
+| Input-panel border | dimmed green `#3F644B` |
+| Input-panel text and bottom border | dimmed green `#487748`; no context percentage (top meter only) |
+| Context meter | `─` cells matching the fence border; dimmed green used, black empty; 20 cells wide, 10 narrow |
+| Running activity | dimmed green, unbolded |
 
 While running, the activity line shows `Working... <elapsed> · ↑<input> ↓<output> · cache <hit-rate>`
 and `Ctrl+C 取消`. Elapsed time updates from the run clock; token counts and cache hit rate update as
@@ -465,8 +505,8 @@ After leaving the alternate screen, the terminal prints:
   Continue  1agent tui --session ses_...
 ```
 
-The post-exit banner uses the same bright-green `1` and Codex-blue `Agent` wordmark as the welcome
-surface.
+The post-exit banner uses the same bright-green `1` and deep-green `Agent` wordmark as the
+welcome surface.
 
 A new bare `1agent tui` starts a new session. Run the printed command to restore the transcript:
 

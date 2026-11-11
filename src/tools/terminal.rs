@@ -55,8 +55,14 @@ impl TerminalCli {
         command
             .args(args)
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        match tokio::time::timeout(timeout, command.output()).await {
+        let output = async {
+            let child = super::spawn_with_retry(&mut command).await?;
+            child.wait_with_output().await
+        };
+        match tokio::time::timeout(timeout, output).await {
             Ok(Ok(output)) => Ok(output),
             Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
                 Err(ToolError::Failed(format!(

@@ -1,5 +1,109 @@
 # Changelog
 
+## 0.96.1 - 2026-11-11
+
+TUI, context-budgeting and prompt-library update on the R1 candidate. This is a
+patch release; it does not claim the 0.97 Reliable Loop scope.
+
+### Answer readability
+
+- Conclusions now render Markdown hierarchy inside the `结论 Conclusion` fence:
+  `##` subheadings, ordered and unordered lists, `- [x]` task boxes, bold key
+  labels, `---` dividers, link-colored URLs/local paths and column-aligned
+  tables.
+- The system prompt asks for one result sentence first, then short paragraphs,
+  bullets or a comparison table for multi-dimensional answers; simple answers
+  stay one short paragraph. A live `deepseek-flash` canary returned a capability
+  table, bullets and a defaulted question instead of one wall of text.
+- URLs glued to Chinese text (for example `参考：https://...`) are link-colored.
+
+### Prompt library
+
+- `/` still searches the 48 curated Chinese cards and shows three featured
+  prompts on an empty query.
+- `//` opens the complete source table: the 56 verbatim Feishu rows are grouped
+  into 32 author/topic entries and labeled by category. The snapshot and
+  importer are `docs/evidence/prompt-sources-2026-11-11.ndjson` and
+  `scripts/import-prompt-sources.py`.
+- Source insertion is body-only: the complete Chinese translation in Chinese
+  mode or the complete English original in English mode. No author/topic header
+  and no reference line are written into the composer; author, topic, category
+  and link stay in the drawer row. Inserting the same body twice is skipped.
+- On wide terminals a side pane previews the selected group's complete body,
+  author, category, fragment count and character count before insertion.
+- `提示词语言 中文 / English` setting (`/config set language zh|en`). The
+  curated English subset lists only the 14 cards with verbatim English source
+  text; the source library is available in both languages.
+- Completeness gate: `tests/prompt_sources.rs` reparses the 56-row snapshot and
+  compares every group's joined original/translation and row count, so import
+  truncation or rewriting fails the build.
+- Follow-up turns inject the previous request/answer and prompt-library facts as
+  a clean `CONVERSATION CONTEXT` message; a short reply such as `felix` is
+  resolved against the previous question instead of starting a new search.
+
+### Context and budgets
+
+- Token-based context budget: default 1,000,000 tokens, automatic compaction at
+  786,432 tokens; `--max-context-tokens` replaces `--max-context-chars`. Legacy
+  character budgets migrate on read (the old 100,000-character default maps to
+  1M tokens; custom values use `ceil(chars / 3)`); old session/task JSON remains
+  readable.
+- TUI, `/status` and `/context` report tokens; provider-reported
+  `usage.input_tokens` is authoritative after each response.
+- Interactive TUI runs no longer stop at six steps: steps, tool calls, provider
+  attempts and run duration default to unlimited (`0`), and `/config set`
+  accepts `0`; the status line and `/config` show `不限`. Headless `run`, the
+  daemon and subagents keep finite budgets; interactive TUI provider calls keep
+  a 300-second transport ceiling.
+- Hidden caps removed: the runtime provider-attempt clamp (was 16) and the TUI
+  step/tool validation caps (was 64).
+
+### TUI visual system and interaction
+
+- Dark-green backdrop `#06100A` for the whole TUI; session input panel
+  `#08140D`, border `#3F644B`, panel text `#487748`, white input text.
+- The input-panel top border carries state/step and token/cache/context metrics;
+  narrow terminals fold metrics inside the same fence. The bottom border carries
+  run status, model and mode. The context meter uses `─` cells (20 wide, 10
+  narrow) and keeps the same percentage.
+- Welcome wordmark: leading `1` bright green; `Agent` and caption deep green;
+  `SKYNET.CLUB` bright green.
+- All popups (`/details`, `/help`, the `/` drawer and `Ctrl+T`) share green
+  surfaces `#0A1F12`, selected rows `#143D24`, borders `#3F644B` and
+  bright-green titles.
+- Work log: action names, `•` bullets and links are bright green; details and
+  `⎿` results stay deep green `#487748` and unbolded. `第 N 步` counts actual
+  model requests; `Ctrl+O` opens run details and the process trace; Bash results
+  include a bounded output preview.
+- Running state is a two-line activity card driven by the run journal, with
+  bilingual stages, model step and a minimal fence. A persistent Master-Agent
+  status card covers mission understanding, planning, approval, assignment,
+  starting, worker running, collecting, verification and reporting, with a
+  next-command footer.
+- User messages render on the input-panel background with white text;
+  right-click paste is scoped to the composer.
+- Composer mouse selection works across the whole composer. Editing is hardened
+  against stale/mid-grapheme cursors, with a 64 KiB input cap, a deterministic
+  editing fuzz test and a PTY paste/backspace/space fuzz script. TUI panics
+  restore the terminal and append to `$HOME/.1a/tui-crash.log`; transient
+  input-read errors are retried.
+- The final answer is wrapped in a `╭─ 结论 Conclusion ... ╮` fence with dimmed
+  deep-green borders, a bright-green bold title, white body and one blank padding
+  line. Structured claim/evidence/assumption/constraint/unknown/conflict/flip
+  sections use deep green `#487748`; only the conclusion body stays white.
+- The status/work marker is the smaller `•`; normal activity uses one cyan
+  accent, while green/amber/red are reserved for completed, waiting/retrying and
+  blocked outcomes.
+
+### Verification
+
+- `release-check.sh`: fmt, clippy with `-D warnings`, full tests, HTTP e2e, ci
+  and TUI interaction, including 400 mixed edit events.
+- `verify-claims.sh`: claims table well-formed; see the current run output for
+  exact verified/partial/no-evidence counts.
+- Real PTY evidence lives in `docs/evidence/tui-2026-11-10/`; answer formatting
+  was also checked with a live provider canary.
+
 ## 0.96.0 - 2026-11-10
 
 - Added home layout v2 with key material under `keys/`, a v1-to-v2 migration,

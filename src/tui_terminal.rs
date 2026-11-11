@@ -1,6 +1,7 @@
 use std::io::{IsTerminal, Stdout, Write};
 use std::process::{Command, Stdio};
 
+use crossterm::cursor::Show;
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
@@ -34,9 +35,11 @@ pub enum TuiInput {
     CommandPalette,
     Escape,
     CtrlC,
+    CtrlO,
     CtrlQ,
     Paste(String),
     PasteClipboard,
+    RightClick { column: u16, row: u16 },
     MouseDown { column: u16, row: u16 },
     MouseDrag { column: u16, row: u16 },
     MouseUp { column: u16, row: u16 },
@@ -66,15 +69,73 @@ pub fn terminal_dimensions() -> (usize, usize) {
         .unwrap_or((100, 32))
 }
 
+fn install_panic_hook() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = disable_raw_mode();
+            let mut stdout = std::io::stdout();
+            let _ = execute!(
+                stdout,
+                DisableMouseCapture,
+                DisableBracketedPaste,
+                LeaveAlternateScreen,
+                Show
+            );
+            let message = info.to_string();
+            let path = crate::runtime_home::default_home().join("tui-crash.log");
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis())
+                    .unwrap_or_default();
+                let _ = writeln!(file, "{now} tui panic: {message}");
+            }
+            eprintln!("1Agent TUI panic; crash log: {}\n{message}", path.display());
+            previous(info);
+        }));
+    });
+}
+
 pub fn spawn_input_reader() -> tokio::sync::mpsc::UnboundedReceiver<TuiInput> {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     std::thread::spawn(move || {
-        while let Ok(event) = event::read() {
-            let Some(input) = map_event(event) else {
-                continue;
-            };
-            if sender.send(input).is_err() {
-                break;
+        let mut failures = 0u8;
+        loop {
+            match event::read() {
+                Ok(event) => {
+                    failures = 0;
+                    let Some(input) = map_event(event) else {
+                        continue;
+                    };
+                    if sender.send(input).is_err() {
+                        break;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    failures = failures.saturating_add(1);
+                    if failures >= 3 {
+                        let path = crate::runtime_home::default_home().join("tui-crash.log");
+                        if let Ok(mut file) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&path)
+                        {
+                            let _ = writeln!(file, "input reader stopped: {error}");
+                        }
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
             }
         }
     });
@@ -99,6 +160,7 @@ fn map_key(key: KeyEvent) -> Option<TuiInput> {
         match key.code {
             KeyCode::Tab => return Some(TuiInput::CtrlTab),
             KeyCode::Char('c') | KeyCode::Char('C') => return Some(TuiInput::CtrlC),
+            KeyCode::Char('o') | KeyCode::Char('O') => return Some(TuiInput::CtrlO),
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(TuiInput::CtrlQ),
             KeyCode::Char('t') | KeyCode::Char('T') => return Some(TuiInput::CtrlTab),
             KeyCode::Char('k') | KeyCode::Char('K') => return Some(TuiInput::CommandPalette),
@@ -155,7 +217,10 @@ fn map_mouse(mouse: MouseEvent) -> Option<TuiInput> {
             column: mouse.column,
             row: mouse.row,
         }),
-        MouseEventKind::Down(MouseButton::Right) => Some(TuiInput::PasteClipboard),
+        MouseEventKind::Down(MouseButton::Right) => Some(TuiInput::RightClick {
+            column: mouse.column,
+            row: mouse.row,
+        }),
         MouseEventKind::ScrollUp => Some(TuiInput::ScrollUp),
         MouseEventKind::ScrollDown => Some(TuiInput::ScrollDown),
         _ => None,
@@ -169,6 +234,7 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn enter() -> std::io::Result<Self> {
+        install_panic_hook();
         enable_raw_mode()?;
         let mut stdout = std::io::stdout();
         execute!(
@@ -257,7 +323,7 @@ pub fn write_session_banner(
     continue_command: &str,
     use_color: bool,
 ) -> std::io::Result<()> {
-    const BLUE: &str = "\x1b[1;38;5;75m";
+    const WORD: &str = "\x1b[38;2;72;119;72m";
     const GREEN: &str = "\x1b[1;38;5;10m";
     const RESET: &str = "\x1b[0m";
 
@@ -270,9 +336,9 @@ pub fn write_session_banner(
         let green = welcome_logo_green_range(index);
         let green_start = char_byte_index(line, green.start);
         let green_end = char_byte_index(line, green.end);
-        write!(writer, "{BLUE}{}", &line[..green_start])?;
+        write!(writer, "{WORD}{}", &line[..green_start])?;
         if green_start < green_end {
-            write!(writer, "{GREEN}{}{BLUE}", &line[green_start..green_end])?;
+            write!(writer, "{GREEN}{}{WORD}", &line[green_start..green_end])?;
         }
         writeln!(writer, "{}{RESET}", &line[green_end..])?;
     }
@@ -391,6 +457,10 @@ mod tests {
             Some(TuiInput::PasteClipboard)
         );
         assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+            Some(TuiInput::CtrlO)
+        );
+        assert_eq!(
             map_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
             Some(TuiInput::Tab)
         );
@@ -430,7 +500,10 @@ mod tests {
             Some(TuiInput::MouseDrag { column: 12, row: 8 })
         );
         mouse.kind = MouseEventKind::Down(MouseButton::Right);
-        assert_eq!(map_mouse(mouse), Some(TuiInput::PasteClipboard));
+        assert_eq!(
+            map_mouse(mouse),
+            Some(TuiInput::RightClick { column: 12, row: 8 })
+        );
         mouse.kind = MouseEventKind::Moved;
         assert_eq!(
             map_mouse(mouse),
@@ -458,8 +531,8 @@ mod tests {
         )
         .unwrap();
         let output = String::from_utf8(output).unwrap();
-        // The printed banner is single-colour now; only the accent remains.
-        assert!(output.contains("\x1b[1;38;5;75m"));
+        assert!(output.contains("\x1b[38;2;72;119;72m"));
+        assert!(output.contains("\x1b[1;38;5;10m"));
         // The banner writes the logo one styled span at a time, so the plain text
         // is not contiguous; assert on the glyph the art is drawn with.
         let glyph = crate::tui::WELCOME_LOGO[0]

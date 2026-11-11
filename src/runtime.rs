@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
-use crate::context::compact_messages_at;
+use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
     MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
@@ -276,7 +276,9 @@ impl AgentRuntime {
             failure,
             initial_elapsed,
         } = context;
-        if *provider_attempts_used >= request.budget.max_provider_attempts {
+        if request.budget.max_provider_attempts != 0
+            && *provider_attempts_used >= request.budget.max_provider_attempts
+        {
             return Err(RuntimeError::InvalidOutput {
                 path: journal_path,
                 message: format!("{failure}; provider-attempt budget exhausted before repair"),
@@ -324,20 +326,27 @@ impl AgentRuntime {
                 path: journal_path.clone(),
                 source,
             })?;
-        let Some(remaining) =
-            remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
-        else {
-            return Ok(RepairedAnswer {
-                answer: budget_answer("answer repair timeout exhausted"),
-                stop_reason: Some(StopReason::BudgetExhausted),
-            });
+        let repair_result = if request.budget.timeout_ms == 0 {
+            Ok(candidate
+                .provider
+                .complete(repair_request, cancellation)
+                .await)
+        } else {
+            let Some(remaining) =
+                remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+            else {
+                return Ok(RepairedAnswer {
+                    answer: budget_answer("answer repair timeout exhausted"),
+                    stop_reason: Some(StopReason::BudgetExhausted),
+                });
+            };
+            tokio::time::timeout(
+                remaining,
+                candidate.provider.complete(repair_request, cancellation),
+            )
+            .await
         };
-        let mut repair_response = match tokio::time::timeout(
-            remaining,
-            candidate.provider.complete(repair_request, cancellation),
-        )
-        .await
-        {
+        let mut repair_response = match repair_result {
             Err(_) => {
                 return Ok(RepairedAnswer {
                     answer: budget_answer("answer repair call timed out"),
@@ -689,21 +698,25 @@ impl AgentRuntime {
                 Duration::from_millis(prefix.checkpoint.elapsed_ms),
             )
         } else {
-            let mut initial_messages = vec![
-                ModelMessage::system(agent_system_prompt()),
-                ModelMessage::user(format!(
-                    "Task objective:\n{}\n\nStructured task:\n{}",
-                    request.objective,
-                    serde_json::to_string_pretty(&request)
-                        .unwrap_or_else(|_| request.objective.clone())
-                )),
-            ];
+            let mut initial_messages = vec![ModelMessage::system(agent_system_prompt())];
+            if !request.known_facts.is_empty() {
+                initial_messages.push(ModelMessage::system(format!(
+                    "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
+                    request.known_facts.join("\n")
+                )));
+            }
+            initial_messages.push(ModelMessage::user(format!(
+                "Task objective:\n{}\n\nStructured task:\n{}",
+                request.objective,
+                serde_json::to_string_pretty(&request)
+                    .unwrap_or_else(|_| request.objective.clone())
+            )));
             if let Some(scope) = &request.experience_scope {
                 let mut selected = if let Some(experience_dir) = &self.experience_dir {
                     let store = ExperienceStore::open(experience_dir)
                         .map_err(|error| RuntimeError::Experience(error.to_string()))?;
                     store
-                        .retrieve_active(mode, scope, request.budget.max_context_chars.min(4_000))
+                        .retrieve_active(mode, scope, request.budget.max_context_tokens.min(4_000))
                         .map_err(|error| RuntimeError::Experience(error.to_string()))?
                 } else {
                     Vec::new()
@@ -725,13 +738,14 @@ impl AgentRuntime {
                         .then_with(|| left.id.cmp(&right.id))
                 });
                 let mut bounded = Vec::new();
-                let mut used_chars = 0usize;
+                let mut used_tokens = 0usize;
                 for candidate in selected {
-                    let cost = candidate.title.chars().count() + candidate.content.chars().count();
-                    if used_chars + cost > request.budget.max_context_chars.min(4_000) {
+                    let cost = estimate_tokens(&candidate.title)
+                        .saturating_add(estimate_tokens(&candidate.content));
+                    if used_tokens + cost > request.budget.max_context_tokens.min(4_000) {
                         continue;
                     }
-                    used_chars += cost;
+                    used_tokens += cost;
                     bounded.push(candidate);
                 }
                 let selected = bounded;
@@ -782,7 +796,10 @@ impl AgentRuntime {
             }
             (initial_messages, 0, BTreeSet::new(), 0, 0, Duration::ZERO)
         };
-        let max_provider_attempts = request.budget.max_provider_attempts.clamp(1, 16);
+        let max_provider_attempts = match request.budget.max_provider_attempts {
+            0 => usize::MAX,
+            value => value.clamp(1, 4096),
+        };
         let mut routes = routes;
         if let Some(health) = &self.provider_health {
             let now_ms = initial_elapsed
@@ -809,7 +826,11 @@ impl AgentRuntime {
             }
         }
 
-        for step in start_step..request.budget.max_steps {
+        let max_steps = match request.budget.max_steps {
+            0 => usize::MAX,
+            value => value,
+        };
+        for step in start_step..max_steps {
             if cancellation.is_cancelled() {
                 journal
                     .append(JournalEventKind::RunStopped {
@@ -821,7 +842,10 @@ impl AgentRuntime {
                     })?;
                 return Err(RuntimeError::Cancelled { path: journal_path });
             }
-            if remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed).is_none() {
+            if request.budget.timeout_ms != 0
+                && remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+                    .is_none()
+            {
                 return finish_with_answer(
                     &mut journal,
                     run_id,
@@ -831,14 +855,17 @@ impl AgentRuntime {
                 );
             }
 
-            let trigger_chars = request.budget.max_context_chars.saturating_mul(usize::from(
-                request.budget.auto_compact_percent.clamp(1, 100),
-            )) / 100;
+            let trigger_tokens = request
+                .budget
+                .auto_compact_tokens
+                .min(request.budget.max_context_tokens);
             let (model_messages, context_compaction) =
-                compact_messages_at(&messages, trigger_chars, 4);
+                compact_messages_at_tokens(&messages, trigger_tokens, 4);
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
+                        before_tokens: compaction.before_tokens,
+                        after_tokens: compaction.after_tokens,
                         before_chars: compaction.before_chars,
                         after_chars: compaction.after_chars,
                         compacted_tool_results: compaction.compacted_tool_results,
@@ -904,24 +931,31 @@ impl AgentRuntime {
                         path: journal_path.clone(),
                         source,
                     })?;
-                let Some(remaining) =
-                    remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
-                else {
-                    return finish_with_answer(
-                        &mut journal,
-                        run_id,
-                        journal_path,
-                        budget_answer("provider fallback timeout exhausted"),
-                        StopReason::BudgetExhausted,
-                    );
-                };
-                let provider_result = tokio::time::timeout(
-                    remaining,
-                    candidate
+                let provider_result = if request.budget.timeout_ms == 0 {
+                    Ok(candidate
                         .provider
-                        .complete(model_request.clone(), &cancellation),
-                )
-                .await;
+                        .complete(model_request.clone(), &cancellation)
+                        .await)
+                } else {
+                    let Some(remaining) =
+                        remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+                    else {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            budget_answer("provider fallback timeout exhausted"),
+                            StopReason::BudgetExhausted,
+                        );
+                    };
+                    tokio::time::timeout(
+                        remaining,
+                        candidate
+                            .provider
+                            .complete(model_request.clone(), &cancellation),
+                    )
+                    .await
+                };
                 match provider_result {
                     Err(_) => {
                         return finish_with_answer(
@@ -1036,27 +1070,29 @@ impl AgentRuntime {
                                 attempt + 1,
                             );
                             let delay = Duration::from_millis(delay_ms);
-                            let Some(remaining) = remaining_budget(
-                                started_at,
-                                request.budget.timeout_ms,
-                                initial_elapsed,
-                            ) else {
-                                return finish_with_answer(
-                                    &mut journal,
-                                    run_id,
-                                    journal_path,
-                                    budget_answer("retry backoff exhausted run time"),
-                                    StopReason::BudgetExhausted,
-                                );
-                            };
-                            if remaining <= delay {
-                                return finish_with_answer(
-                                    &mut journal,
-                                    run_id,
-                                    journal_path,
-                                    budget_answer("retry backoff exceeds remaining run time"),
-                                    StopReason::BudgetExhausted,
-                                );
+                            if request.budget.timeout_ms != 0 {
+                                let Some(remaining) = remaining_budget(
+                                    started_at,
+                                    request.budget.timeout_ms,
+                                    initial_elapsed,
+                                ) else {
+                                    return finish_with_answer(
+                                        &mut journal,
+                                        run_id,
+                                        journal_path,
+                                        budget_answer("retry backoff exhausted run time"),
+                                        StopReason::BudgetExhausted,
+                                    );
+                                };
+                                if remaining <= delay {
+                                    return finish_with_answer(
+                                        &mut journal,
+                                        run_id,
+                                        journal_path,
+                                        budget_answer("retry backoff exceeds remaining run time"),
+                                        StopReason::BudgetExhausted,
+                                    );
+                                }
                             }
                             journal
                                 .append(JournalEventKind::ProviderRetryScheduled {
@@ -1262,7 +1298,9 @@ impl AgentRuntime {
                             message: "model returned an empty tool-call list".into(),
                         });
                     }
-                    if tool_calls + calls.len() > request.budget.max_tool_calls {
+                    if request.budget.max_tool_calls != 0
+                        && tool_calls.saturating_add(calls.len()) > request.budget.max_tool_calls
+                    {
                         let answer = budget_answer("tool-call budget exhausted");
                         journal
                             .append(JournalEventKind::AnswerProduced {
@@ -1287,11 +1325,16 @@ impl AgentRuntime {
                             stop_reason: StopReason::BudgetExhausted,
                         });
                     }
-                    tool_calls += calls.len();
+                    tool_calls = tool_calls.saturating_add(calls.len());
                     messages.push(ModelMessage::assistant("", calls.clone()));
 
                     for call in calls {
-                        if remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+                        if request.budget.timeout_ms != 0
+                            && remaining_budget(
+                                started_at,
+                                request.budget.timeout_ms,
+                                initial_elapsed,
+                            )
                             .is_none()
                         {
                             return finish_with_answer(
@@ -1692,14 +1735,16 @@ fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static st
 mod tests {
     use super::*;
     use crate::authority::{AuthorityProfile, AuthorityRegistry};
-    use crate::domain::{AgentAnswer, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage};
+    use crate::domain::{
+        AgentAnswer, AnswerStatus, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage,
+    };
     use crate::execution_gate::ExecutionGate;
     use crate::experience::{
         ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
     };
     use crate::journal::{audit_events, read_events, replay_events, summarize_route_trace};
     use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
-    use crate::tools::{EchoTool, default_registry};
+    use crate::tools::{EchoTool, ToolRegistry, default_registry};
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -2413,6 +2458,97 @@ mod tests {
             &event.event,
             JournalEventKind::ProviderRetryScheduled { delay_ms: 0, .. }
         )));
+    }
+
+    struct CountingToolProvider {
+        calls: AtomicUsize,
+        tool_steps: usize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for CountingToolProvider {
+        fn id(&self) -> &str {
+            "counting-tool"
+        }
+
+        fn model(&self) -> &str {
+            "counting-tool-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let turn = if call < self.tool_steps {
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: format!("call-{call}"),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "tick"}),
+                    }],
+                }
+            } else {
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "长任务完成".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn zero_budgets_do_not_stop_a_long_run() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "counting-tool".into();
+        manifest.model = "counting-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(CountingToolProvider {
+                    calls: AtomicUsize::new(0),
+                    tool_steps: 17,
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("keep working", workspace.path().into());
+        request.budget = RunBudget {
+            max_steps: 0,
+            max_tool_calls: 0,
+            max_provider_attempts: 0,
+            timeout_ms: 0,
+            ..RunBudget::default()
+        };
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.conclusion, "长任务完成");
     }
 
     #[tokio::test]

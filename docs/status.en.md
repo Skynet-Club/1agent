@@ -1,6 +1,6 @@
 # Status & Roadmap
 
-> Current version: **0.96.0 R1 release candidate**  
+> Current version: **0.96.1 R1 release candidate**  
 > Platform: **Linux x86_64**  
 > Conclusion: **usable and evaluable, but not production-stable.**
 
@@ -8,13 +8,13 @@
 
 ## 0. Still developing; welcome to build with us
 
-- **Under active development**: 0.96.0 is not finished; interfaces, configuration and boundaries may change.
+- **Under active development**: 0.96.1 is not finished; interfaces, configuration and boundaries may change.
 - **Testing and contributions welcome**: developers, testers, researchers, security specialists, product and design partners can try it, open issues/PRs, join red-team and real-workflow validation, and join [Skynet-Club](https://skynet.club).
 - **The future is open**: browser, subagents, always-on autonomy, Workshop and Bot have a public capability plan; each stage advances through testable milestones and evidence. Plans can be discussed and revised; the roadmap is not a one-time promise.
 
 ## 1. What this version is
 
-0.96.0 is an **R1 release candidate**:
+0.96.1 is an **R1 release candidate**:
 
 - not 1.0;
 - not production-stable;
@@ -132,7 +132,7 @@ It can already:
 
 The public GitHub pre-release contains:
 
-- `1agent-0.96.0-linux-x86_64.tar.gz`;
+- `1agent-0.96.1-linux-x86_64.tar.gz`;
 - `SHA256SUMS`;
 - `linux-x86_64.json` (Linux provenance).
 

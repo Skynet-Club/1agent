@@ -5,6 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub const DEFAULT_MAX_CONTEXT_TOKENS: usize = 1_000_000;
+pub const DEFAULT_AUTO_COMPACT_TOKENS: usize = 786_432;
+
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const LEGACY_ANSWER_SCHEMA_VERSION: u32 = 1;
 pub const ANSWER_SCHEMA_VERSION: u32 = 2;
@@ -94,23 +97,68 @@ pub struct PermissionSet {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "RunBudgetWire")]
 pub struct RunBudget {
+    /// Maximum model/tool steps. `0` means no step limit.
     pub max_steps: usize,
+    /// Maximum tool calls across the run. `0` means no tool-call limit.
     pub max_tool_calls: usize,
-    #[serde(default = "default_max_provider_attempts")]
+    /// Maximum provider attempts including fallbacks. `0` means no limit.
     pub max_provider_attempts: usize,
-    #[serde(default = "default_provider_retry_backoff_ms")]
     pub provider_retry_backoff_ms: u64,
+    /// Wall-clock limit for the whole run. `0` means no run timeout.
     pub timeout_ms: u64,
-    #[serde(default = "default_max_context_chars")]
-    pub max_context_chars: usize,
-    #[serde(default = "default_auto_compact_percent")]
-    pub auto_compact_percent: u8,
-    #[serde(default)]
+    pub max_context_tokens: usize,
+    pub auto_compact_tokens: usize,
     pub max_provider_p95_latency_ms: Option<u64>,
-    #[serde(default)]
     pub max_unit_cost_micros_per_k: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunBudgetWire {
+    max_steps: usize,
+    max_tool_calls: usize,
+    #[serde(default = "default_max_provider_attempts")]
+    max_provider_attempts: usize,
+    #[serde(default = "default_provider_retry_backoff_ms")]
+    provider_retry_backoff_ms: u64,
+    timeout_ms: u64,
+    #[serde(default)]
+    max_context_tokens: Option<usize>,
+    #[serde(default)]
+    auto_compact_tokens: Option<usize>,
+    #[serde(default)]
+    max_context_chars: Option<usize>,
+    #[serde(default)]
+    auto_compact_percent: Option<u8>,
+    #[serde(default)]
+    max_provider_p95_latency_ms: Option<u64>,
+    #[serde(default)]
+    max_unit_cost_micros_per_k: Option<u64>,
+}
+
+impl From<RunBudgetWire> for RunBudget {
+    fn from(wire: RunBudgetWire) -> Self {
+        let max_context_tokens =
+            migrate_max_context_tokens(wire.max_context_tokens, wire.max_context_chars);
+        let auto_compact_tokens = migrate_auto_compact_tokens(
+            wire.auto_compact_tokens,
+            wire.auto_compact_percent,
+            max_context_tokens,
+        );
+        Self {
+            max_steps: wire.max_steps,
+            max_tool_calls: wire.max_tool_calls,
+            max_provider_attempts: wire.max_provider_attempts,
+            provider_retry_backoff_ms: wire.provider_retry_backoff_ms,
+            timeout_ms: wire.timeout_ms,
+            max_context_tokens,
+            auto_compact_tokens,
+            max_provider_p95_latency_ms: wire.max_provider_p95_latency_ms,
+            max_unit_cost_micros_per_k: wire.max_unit_cost_micros_per_k,
+        }
+    }
 }
 
 impl Default for RunBudget {
@@ -121,20 +169,48 @@ impl Default for RunBudget {
             max_provider_attempts: 8,
             provider_retry_backoff_ms: 50,
             timeout_ms: 120_000,
-            max_context_chars: 100_000,
-            auto_compact_percent: default_auto_compact_percent(),
+            max_context_tokens: DEFAULT_MAX_CONTEXT_TOKENS,
+            auto_compact_tokens: DEFAULT_AUTO_COMPACT_TOKENS,
             max_provider_p95_latency_ms: None,
             max_unit_cost_micros_per_k: None,
         }
     }
 }
 
-fn default_max_context_chars() -> usize {
-    100_000
+pub(crate) fn migrate_max_context_tokens(new: Option<usize>, legacy_chars: Option<usize>) -> usize {
+    new.or_else(|| {
+        legacy_chars.map(|chars| {
+            // Preserve the old default as the new aligned default; custom
+            // character budgets are converted conservatively (~3 chars/token).
+            if chars == 100_000 {
+                DEFAULT_MAX_CONTEXT_TOKENS
+            } else {
+                chars.div_ceil(3).clamp(1_000, DEFAULT_MAX_CONTEXT_TOKENS)
+            }
+        })
+    })
+    .unwrap_or(DEFAULT_MAX_CONTEXT_TOKENS)
+    .clamp(1_000, DEFAULT_MAX_CONTEXT_TOKENS)
 }
 
-fn default_auto_compact_percent() -> u8 {
-    80
+pub(crate) fn migrate_auto_compact_tokens(
+    new: Option<usize>,
+    legacy_percent: Option<u8>,
+    max_context_tokens: usize,
+) -> usize {
+    let fallback =
+        max_context_tokens.saturating_mul(DEFAULT_AUTO_COMPACT_TOKENS) / DEFAULT_MAX_CONTEXT_TOKENS;
+    new.or_else(|| {
+        legacy_percent.map(|percent| {
+            if percent == 80 && max_context_tokens == DEFAULT_MAX_CONTEXT_TOKENS {
+                DEFAULT_AUTO_COMPACT_TOKENS
+            } else {
+                max_context_tokens.saturating_mul(usize::from(percent)) / 100
+            }
+        })
+    })
+    .unwrap_or(fallback)
+    .clamp(1, max_context_tokens)
 }
 
 fn default_max_provider_attempts() -> usize {
@@ -1049,6 +1125,36 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_character_context_budgets_migrate_to_tokens() {
+        let legacy: RunBudget = serde_json::from_value(serde_json::json!({
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "timeout_ms": 120_000,
+            "max_context_chars": 100_000,
+            "auto_compact_percent": 80
+        }))
+        .unwrap();
+        assert_eq!(legacy.max_context_tokens, 1_000_000);
+        assert_eq!(legacy.auto_compact_tokens, 786_432);
+
+        let custom: RunBudget = serde_json::from_value(serde_json::json!({
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "timeout_ms": 120_000,
+            "max_context_chars": 20_000,
+            "auto_compact_percent": 75
+        }))
+        .unwrap();
+        assert_eq!(custom.max_context_tokens, 6_667);
+        assert_eq!(custom.auto_compact_tokens, 5_000);
+
+        let serialized = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(serialized["max_context_tokens"], 1_000_000);
+        assert!(serialized.get("max_context_chars").is_none());
+        assert!(serialized.get("auto_compact_percent").is_none());
+    }
 
     #[test]
     fn mode_inference_is_deterministic_and_requirement_aware() {

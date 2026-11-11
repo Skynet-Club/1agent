@@ -236,11 +236,15 @@ impl AgentTool for SpawnAgentTool {
             .current_dir(&workspace)
             .env(DEPTH_ENV, (self.depth + 1).to_string())
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        let run = async {
+            let child = super::spawn_with_retry(&mut command).await?;
+            child.wait_with_output().await
+        };
         let output =
-            match tokio::time::timeout(Duration::from_secs(timeout_seconds + 20), command.output())
-                .await
-            {
+            match tokio::time::timeout(Duration::from_secs(timeout_seconds + 20), run).await {
                 Ok(Ok(output)) => output,
                 Ok(Err(error)) => {
                     return Err(ToolError::Failed(format!(

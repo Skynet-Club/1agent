@@ -130,21 +130,22 @@ journal replay and the current Artifact filesystem.
 
 Session version 2 retains version 1 compatibility and adds optional local metadata:
 
-- bounded step, tool-call, provider-attempt, context-character and timeout preferences;
-- an auto-compaction threshold from 50% to 95%, defaulting to 80%;
+- bounded step, tool-call, provider-attempt, context-token and timeout preferences;
+- a token budget of 1,000,000 with automatic compaction at 786,432;
 - preferred canonical workspace;
 - canonical mentioned paths;
 - archived state;
 - a deterministic context summary with covered-journal count and creation timestamp.
 
 Runtime context compaction clears old non-recent tool-result payloads when the
-context-character budget is exceeded. `/context compact` instead summarizes completed run
+context-token budget is exceeded. `/context compact` instead summarizes completed run
 objectives and final conclusions locally. The summary is injected only while the
 covered-journal count matches the current session journal count; a new run invalidates it
 automatically.
 
-Character counts are not provider token counts. `/context show` and `/status` therefore label
-the remaining room as character headroom.
+The request-time token count is provider-neutral and estimated from characters; after each
+response, provider-reported `usage.input_tokens` replaces the estimate. `/context show` and
+`/status` report token headroom, not character headroom.
 
 Every provider response records `Usage { input_tokens, output_tokens, cost_micros }`.
 `/cost` derives a read-only ledger from all `ModelResponded` events. A provider-reported

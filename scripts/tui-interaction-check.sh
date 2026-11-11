@@ -77,5 +77,6 @@ if [[ "$panel_focus" != *"命令"* || "$panel_focus" == *"abc"* ]]; then
 fi
 
 "$PYTE_PYTHON" scripts/pty_backspace.py
+python3 scripts/pty_edit_stability.py
 
-echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation, panel focus and Backspace/Ctrl+Q safety render)"
+echo "tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation, panel focus, Backspace/Ctrl+Q and mixed paste/space/backspace editing)"
