@@ -92,3 +92,86 @@ fn onboard_rejects_invalid_autonomy_and_voice() {
         .unwrap();
     assert!(!bad_voice.status.success());
 }
+
+#[test]
+fn onboard_can_seed_a_goal_and_commitment_for_inbox_sync() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("memory-journal.jsonl");
+    let payloads = dir.path().join("payloads");
+    let key = dir.path().join("memory.key");
+    let goals = dir.path().join("goals.jsonl");
+    let inbox = dir.path().join("inbox.jsonl");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let onboard = Command::new(bin)
+        .args(["onboard", "--memory-journal"])
+        .arg(&journal)
+        .arg("--memory-payloads")
+        .arg(&payloads)
+        .arg("--memory-key")
+        .arg(&key)
+        .args(["--bot-id", "bot-1", "--goal", "ship the report"])
+        .arg("--goal-journal")
+        .arg(&goals)
+        .args(["--commitment", "send the report", "--commitment-due-ms"])
+        .arg(now.saturating_sub(1_000).to_string())
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        onboard.status.success(),
+        "onboard stderr: {}",
+        String::from_utf8_lossy(&onboard.stderr)
+    );
+    let seeded: serde_json::Value = serde_json::from_slice(&onboard.stdout).unwrap();
+    assert!(seeded["goal_id"].as_str().is_some());
+    assert!(seeded["commitment_id"].as_str().is_some());
+
+    let sync = Command::new(bin)
+        .args(["inbox", "sync", "--store"])
+        .arg(&inbox)
+        .arg("--goal-journal")
+        .arg(&goals)
+        .args(["--apply", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        sync.status.success(),
+        "sync stderr: {}",
+        String::from_utf8_lossy(&sync.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&sync.stdout).unwrap();
+    assert_eq!(report["added"], 1);
+
+    let list = Command::new(bin)
+        .args(["inbox", "list", "--store"])
+        .arg(&inbox)
+        .arg("--json")
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["kind"], "review");
+    assert_eq!(items[0]["title"], "send the report");
+}
+
+#[test]
+fn onboard_commitment_without_goal_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["onboard", "--commitment", "send the report"])
+        .arg("--memory-journal")
+        .arg(dir.path().join("journal.jsonl"))
+        .arg("--memory-payloads")
+        .arg(dir.path().join("payloads"))
+        .arg("--memory-key")
+        .arg(dir.path().join("key"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}

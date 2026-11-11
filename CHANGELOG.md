@@ -77,6 +77,12 @@
   closed. This is scriptable profile setup, not the full interview/context
   import.
 - Tests: two `onboard_cli` e2e tests (`cargo test --test onboard_cli`).
+- Onboarding v0.1: optional `--goal/--goal-journal/--goal-due-ms` and
+  `--commitment/--commitment-due-ms` seed a first goal and commitment in
+  `GoalStore`; `inbox sync --goal-journal` can project an overdue commitment.
+  Memory and goal writes are not atomic.
+- Tests: two more `onboard_cli` e2e tests for goal seeding and
+  commitment-without-goal rejection (`cargo test --test onboard_cli`).
 
 ## 0.96.1 - 2026-11-11
 
