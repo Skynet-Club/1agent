@@ -276,3 +276,23 @@ fn otel_export_fails_closed_on_a_collector_error() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn otel_export_rejects_an_empty_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("empty.jsonl");
+    std::fs::write(&journal, b"").unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["otel-export", "--journal"])
+        .arg(&journal)
+        .args(["--endpoint", "http://127.0.0.1:9/v1/traces"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no events"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

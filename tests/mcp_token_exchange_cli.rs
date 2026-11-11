@@ -439,3 +439,30 @@ fn mcp_token_exchange_discovers_the_token_endpoint() {
         String::from_utf8_lossy(&insecure.stderr)
     );
 }
+
+#[test]
+fn issuer_discovery_does_not_follow_redirects() {
+    let workspace = tempfile::tempdir().unwrap();
+    let (issuer, followed) = start_redirect();
+    let output = Command::new(bin())
+        .args(["mcp-token-exchange", "--issuer", &issuer])
+        .args([
+            "--audience",
+            "mcp://server",
+            "--scope",
+            "tools.read",
+            "--subject-token-env",
+            "TEST_SUBJECT_TOKEN",
+            "--out",
+        ])
+        .arg(workspace.path().join("issuer-redirect.token"))
+        .env("TEST_SUBJECT_TOKEN", "subject-secret")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        !followed
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+    );
+}
