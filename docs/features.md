@@ -151,7 +151,7 @@
 |---|---|---|
 | 浏览器 / computer-use | **部分** | `browser_read` 可用无头 Chrome 渲染并抽取正文；点击、输入、截图和视觉理解未实现 |
 | 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；Master→Worker 仍是独立路径 |
-| MCP 客户端 | **部分** | stdio MCP：发现并调用工具；新增 OAuth claims 校验（audience/短 TTL/scope/时钟偏移），HTTP/SSE 传输和工具市场未实现 |
+| MCP 客户端 | **部分** | stdio + streamable HTTP（JSON/SSE 响应、`Mcp-Session-Id`、bearer token 仅从环境变量读）：发现并调用工具；OAuth claims 校验已提供；issuer discovery/token exchange/工具市场未实现 |
 | 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；`--heartbeat` + `1agent watchdog` 提供带外存活检查；升级阶梯未实现，跨重启去重仅有持久原语（未接入 daemon） |
 | 全量 Attention/Digest | **部分** | `digest` 汇总最近运行、计划任务、健康状态与告警计数；维护循环和升级阶梯未实现 |
 | 自动进化/技能市场 | **部分** | 人工审批/回滚 + SHA-256 技能包分发；签名和远程市场索引未实现 |
