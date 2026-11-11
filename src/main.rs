@@ -475,6 +475,10 @@ enum Command {
         #[command(subcommand)]
         command: IdempotencyCommand,
     },
+    ChatBridge {
+        #[command(subcommand)]
+        command: ChatBridgeCommand,
+    },
     InboxNotify {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -1499,6 +1503,32 @@ enum IdempotencyCommand {
         key: String,
         #[arg(long)]
         fingerprint: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ChatBridgeCommand {
+    Task {
+        #[arg(long)]
+        message: PathBuf,
+        #[arg(long)]
+        workspace: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Reply {
+        #[arg(long)]
+        result: PathBuf,
+        #[arg(long)]
+        thread_id: String,
+        #[arg(long, default_value_t = 0)]
+        inbox_open: u32,
+        #[arg(long)]
+        out: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -2932,6 +2962,39 @@ async fn main() -> Result<()> {
             )
             .await?;
         }
+        Command::ChatBridge { command } => match command {
+            ChatBridgeCommand::Task {
+                message,
+                workspace,
+                out,
+                json,
+            } => {
+                let request = first_principles_agent::chat_bridge::message_to_task(
+                    &message, &workspace, &out,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&request)?);
+                } else {
+                    println!("task written to {}: {}", out.display(), request.objective);
+                }
+            }
+            ChatBridgeCommand::Reply {
+                result,
+                thread_id,
+                inbox_open,
+                out,
+                json,
+            } => {
+                let reply = first_principles_agent::chat_bridge::result_to_reply(
+                    &result, &thread_id, inbox_open, &out,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&reply)?);
+                } else {
+                    println!("{}", reply.text);
+                }
+            }
+        },
         Command::Notify {
             webhook,
             message,
