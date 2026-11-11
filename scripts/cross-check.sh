@@ -9,7 +9,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 require_macos=0
-[[ "${1:-}" == "--require-macos" ]] && require_macos=1
+build_windows=0
+for arg in "$@"; do
+    case "$arg" in
+        --require-macos) require_macos=1 ;;
+        --build) build_windows=1 ;;
+        *) echo "cross-check: unknown argument $arg" >&2; exit 2 ;;
+    esac
+done
 
 installed="$(rustup target list --installed)"
 have_target() {
@@ -24,6 +31,13 @@ fi
 echo "== windows all-targets check"
 RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu
 echo "cross-check: Windows GNU passed"
+
+if [[ "$build_windows" -eq 1 ]]; then
+    echo "== windows link/build"
+    cargo build --offline --target x86_64-pc-windows-gnu
+    test -f target/x86_64-pc-windows-gnu/debug/first-principles-agent.exe
+    echo "cross-check: Windows GNU binary built"
+fi
 
 if have_target aarch64-apple-darwin; then
     echo "== macOS arm64 check"
