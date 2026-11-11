@@ -1335,6 +1335,11 @@ enum InboxCommand {
         #[arg(long)]
         alert_log: Option<PathBuf>,
         #[arg(long)]
+        handoff_store: Option<PathBuf>,
+        /// Required with --handoff-store; only open handoffs to this person are projected.
+        #[arg(long)]
+        recipient: Option<String>,
+        #[arg(long)]
         apply: bool,
         #[arg(long)]
         json: bool,
@@ -4613,11 +4618,18 @@ async fn main() -> Result<()> {
                 store,
                 goal_journal,
                 alert_log,
+                handoff_store,
+                recipient,
                 apply,
                 json,
             } => {
-                if goal_journal.is_none() && alert_log.is_none() {
-                    anyhow::bail!("inbox sync needs --goal-journal or --alert-log");
+                if goal_journal.is_none() && alert_log.is_none() && handoff_store.is_none() {
+                    anyhow::bail!(
+                        "inbox sync needs --goal-journal, --alert-log or --handoff-store"
+                    );
+                }
+                if recipient.is_some() && handoff_store.is_none() {
+                    anyhow::bail!("--recipient requires --handoff-store");
                 }
                 let now = current_time_ms();
                 let mut store = first_principles_agent::InboxStore::open(store)?;
@@ -4634,6 +4646,17 @@ async fn main() -> Result<()> {
                 if let Some(path) = alert_log {
                     let alerts = first_principles_agent::AlertLog::open(path)?.read()?;
                     projected.extend(first_principles_agent::project_alerts(&alerts, now));
+                }
+                if let Some(path) = handoff_store {
+                    let Some(recipient) = recipient.as_deref() else {
+                        anyhow::bail!("--recipient is required with --handoff-store");
+                    };
+                    let handoffs = first_principles_agent::handoff::HandoffStore::open(path)?;
+                    projected.extend(first_principles_agent::project_handoffs(
+                        &handoffs.list(),
+                        recipient,
+                        now,
+                    ));
                 }
                 let report = store.sync(projected, apply)?;
                 if json {

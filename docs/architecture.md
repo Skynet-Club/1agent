@@ -312,9 +312,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   empty fields and invalid snoozes fail closed. `1agent inbox
   add|list|resolve|snooze` is the local operator surface. `project_attention`
   maps overdue/missed commitments to `review` and due items to `notify`;
-  `project_alerts` maps failed/error alerts to `review`. `inbox sync` merges
-  projections with dedupe by `item_id`; it is dry-run by default and `--apply`
-  writes. Sync never updates an existing item's status. The TUI exposes a
+  `project_alerts` maps failed/error alerts to `review`; `project_handoffs`
+  maps open handoffs addressed to the recipient to `review` with
+  `handoff:<id>`. `inbox sync` merges projections with dedupe by `item_id`; it
+  is dry-run by default and `--apply` writes. Sync never updates an existing item's status. The TUI exposes a
   `/inbox` transcript command for the default store, with inline
   `resolve`/`snooze` actions parsed by the same `parse_action`/`apply_action`
   contract as the CLI.

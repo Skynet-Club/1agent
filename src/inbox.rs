@@ -13,6 +13,7 @@ use thiserror::Error;
 
 use crate::alerts::AlertRecord;
 use crate::attention::{AttentionCandidate, AttentionKind};
+use crate::handoff::{Handoff, HandoffStatus};
 
 #[derive(Debug, Error)]
 pub enum InboxError {
@@ -513,6 +514,41 @@ pub fn project_attention(candidates: &[AttentionCandidate], now_ms: u128) -> Vec
         .collect()
 }
 
+/// Project open handoffs addressed to one person. A handoff needs review
+/// because accepting it is a decision.
+pub fn project_handoffs(handoffs: &[&Handoff], recipient: &str, now_ms: u128) -> Vec<InboxItem> {
+    handoffs
+        .iter()
+        .filter(|handoff| handoff.status == HandoffStatus::Open && handoff.to == recipient)
+        .map(|handoff| {
+            let title: String = format!("Handoff from {}: {}", handoff.from, handoff.summary)
+                .chars()
+                .take(500)
+                .collect();
+            InboxItem {
+                item_id: format!("handoff:{}", handoff.id),
+                kind: InboxKind::Review,
+                title,
+                why_now: format!(
+                    "open handoff in {} awaits your acceptance",
+                    if handoff.scope.is_empty() {
+                        "no scope"
+                    } else {
+                        &handoff.scope
+                    }
+                ),
+                source: "handoffs".into(),
+                created_ms: handoff.created_ms.min(now_ms),
+                updated_ms: handoff.created_ms.min(now_ms),
+                due_ms: None,
+                status: InboxStatus::Open,
+                snoozed_until_ms: None,
+                resolution: None,
+            }
+        })
+        .collect()
+}
+
 /// Project alert records into inbox items. Failed/timeout alerts need a
 /// decision; health notices are informational.
 pub fn project_alerts(alerts: &[AlertRecord], now_ms: u128) -> Vec<InboxItem> {
@@ -683,6 +719,42 @@ mod tests {
         assert_eq!(items[0].item_id, "alert:a1");
         assert_eq!(items[1].kind, InboxKind::Notify);
         assert_eq!(items[1].item_id, "alert:a2");
+    }
+
+    #[test]
+    fn handoff_projection_filters_recipient_and_terminal_items() {
+        let open = Handoff {
+            id: "h1".into(),
+            from: "alice".into(),
+            to: "bob".into(),
+            scope: "release".into(),
+            summary: "prepared the release candidate".into(),
+            open_items: vec![],
+            evidence: vec!["journal:run-1".into()],
+            created_ms: 10,
+            status: HandoffStatus::Open,
+            accepted_ms: None,
+            accepted_by: None,
+        };
+        let mut accepted = open.clone();
+        accepted.id = "h2".into();
+        accepted.status = HandoffStatus::Accepted;
+        accepted.accepted_ms = Some(11);
+        accepted.accepted_by = Some("bob".into());
+        let mut other = open.clone();
+        other.id = "h3".into();
+        other.to = "carol".into();
+        let mut long = open.clone();
+        long.id = "h4".into();
+        long.summary = "x".repeat(600);
+
+        let items = project_handoffs(&[&open, &accepted, &other, &long], "bob", 20);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].item_id, "handoff:h1");
+        assert_eq!(items[0].kind, InboxKind::Review);
+        assert_eq!(items[0].source, "handoffs");
+        assert!(items[0].why_now.contains("release"));
+        assert_eq!(items[1].title.chars().count(), 500);
     }
 
     #[test]
