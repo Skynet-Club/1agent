@@ -271,6 +271,10 @@
   fail closed.
 - Tests: the MCP config test covers timeout 0 and 301
   (`cargo test tools::mcp --lib`).
+- MCP response cap: HTTP bodies are streamed with a 2 MiB cap and must be
+  UTF-8; stdio lines over the cap fail closed. A malicious or broken server
+  cannot force unbounded response allocation.
+- Tests: one MCP unit test covers the cap (`cargo test tools::mcp --lib`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

@@ -32,6 +32,7 @@ const MAX_CONFIG_BYTES: usize = 1024 * 1024;
 const MAX_SERVERS: usize = 16;
 const MAX_TOOLS_PER_SERVER: usize = 64;
 const MAX_TOOL_DESCRIPTION_CHARS: usize = 2000;
+const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -263,7 +264,9 @@ impl McpClient {
                     *session_id.lock().await = Some(value.to_string());
                 }
                 if !status.is_success() {
-                    let body = response.text().await.unwrap_or_default();
+                    let body = read_http_body(response, &self.server_name)
+                        .await
+                        .unwrap_or_default();
                     return Err(ToolError::Failed(format!(
                         "MCP server '{}' HTTP {status}: {}",
                         self.server_name,
@@ -318,6 +321,12 @@ impl McpClient {
                                 self.server_name
                             )));
                         }
+                        if line.len() > MAX_RESPONSE_BYTES {
+                            return Err(ToolError::Failed(format!(
+                                "MCP server '{}' response exceeds {MAX_RESPONSE_BYTES} bytes",
+                                self.server_name
+                            )));
+                        }
                         line
                     };
                     let value: Value = serde_json::from_str(&line).map_err(|error| {
@@ -353,12 +362,7 @@ impl McpClient {
                 {
                     *session_id.lock().await = Some(value.to_string());
                 }
-                let body = response.text().await.map_err(|error| {
-                    ToolError::Failed(format!(
-                        "cannot read HTTP response from MCP server '{}': {error}",
-                        self.server_name
-                    ))
-                })?;
+                let body = read_http_body(response, &self.server_name).await?;
                 if !status.is_success() {
                     return Err(ToolError::Failed(format!(
                         "MCP server '{}' HTTP {status}: {}",
@@ -433,6 +437,32 @@ impl McpClient {
         self.request("tools/call", json!({"name": name, "arguments": arguments}))
             .await
     }
+}
+
+async fn read_http_body(
+    mut response: reqwest::Response,
+    server: &str,
+) -> Result<String, ToolError> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| {
+        ToolError::Failed(format!(
+            "cannot read HTTP response from MCP server '{server}': {error}"
+        ))
+    })? {
+        push_capped(&mut body, &chunk, server)?;
+    }
+    String::from_utf8(body)
+        .map_err(|_| ToolError::Failed(format!("MCP server '{server}' returned non-UTF-8 body")))
+}
+
+fn push_capped(body: &mut Vec<u8>, chunk: &[u8], server: &str) -> Result<(), ToolError> {
+    if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+        return Err(ToolError::Failed(format!(
+            "MCP server '{server}' response exceeds {MAX_RESPONSE_BYTES} bytes"
+        )));
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
 }
 
 fn json_response(body: &str, id: u64, server: &str) -> Result<Value, ToolError> {
@@ -841,6 +871,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome.content, "echo:hello");
+    }
+
+    #[test]
+    fn response_body_cap_fails_closed() {
+        let mut body = vec![0u8; MAX_RESPONSE_BYTES - 1];
+        assert!(push_capped(&mut body, &[0, 0], "fake").is_err());
+        assert!(push_capped(&mut body, &[0], "fake").is_ok());
     }
 
     #[test]
