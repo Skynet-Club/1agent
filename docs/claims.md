@@ -94,7 +94,7 @@ file: <路径>              → 文件必须存在
 | Onboarding 文本导入：按行写入 memory，大小/行数/行长限制，非法 kind/文件拒绝 | cmd: cargo test --test onboard_cli | ✅ | 纯文本；不脱敏；非日历/邮件导入 |
 | Inbox 接受交接：handoff:<id> approved 需要 store+actor，先接受再关闭；错 actor/终态拒绝 | cmd: cargo test --test handoff_inbox_cli | ✅ | 本地；非原子（接受后 inbox 写入失败可能部分完成） |
 | 组织审计 seal：Ed25519 签 entries+head_hash；追加/改 head/错钥拒绝 | cmd: cargo test org_audit --lib && cargo test --test org_audit_seal_cli | ✅ | 依赖 seal 公钥的带外信任；非远程透明日志 |
-| 每日摘要：运行/计划/健康/告警/inbox open/升级级别计数/指定收件人 open handoffs/验证摘要；可单向上推 webhook | cmd: cargo test --test digest_cli && cargo test --test digest_notify_cli | ✅ | 汇总只读；webhook 只发不收；不含维护循环；升级计数需显式传 `--escalation-step` |
+| 每日摘要：运行/计划/健康/告警/inbox open/升级级别计数/指定收件人 open handoffs/验证摘要；可单向上推 webhook 并写回执 | cmd: cargo test --test digest_cli && cargo test --test digest_notify_cli | ✅ | 汇总只读；webhook 只发不收；回执不含 URL；不含维护循环；升级计数需显式传 `--escalation-step` |
 | Repair runbook：compensate/manual/errors/clean，require-clean 非零 | cmd: cargo test repair --lib && cargo test --test repair_plan_cli | ✅ | 只计划；不执行补偿/不调用 Authority |
 | Repair mark：人工执行补偿后记录 compensated；failed 副作用经人工确认无残留后可清除；actor+evidence 写入账本事件；重复/错 ticket/planned 失败关闭 | cmd: cargo test --test repair_mark_cli && cargo test task_graph --lib | ✅ | 记录人工声明，不验证补偿真实执行；不执行命令/不调用 Authority |
 | 单向 Inbox 通知：open items → webhook，HTTPS/loopback、拒绝凭证、不跟随重定向、空队列不发送、`--state` watermark 去重、`--log` 回执、`--dry-run`；`--target FORMAT=URL` 可多目标扇出（重复项拒绝） | cmd: cargo test notify --lib && cargo test --test inbox_notify_cli && cargo test --test inbox_notify_targets_cli | ✅ | 只发不收；不改 item 状态；多目标共享 watermark，部分失败不推进且重试可重复投递；非完整聊天传输 |
