@@ -30,6 +30,18 @@ scriptable contract that writes the same memory records the UserModel reads.
 6. This is not the full onboarding: no interactive questions, no document/
    calendar/email import, no first-task activation metric yet.
 
+## v0.1 extension — first goal and commitment
+
+7. Add optional `--goal TITLE`, `--goal-journal PATH`, `--goal-due-ms`,
+   `--commitment TEXT` and `--commitment-due-ms`. When a goal is given, the
+   command writes it to `GoalStore`; a commitment requires a goal.
+8. The JSON output includes `goal_id` and `commitment_id`; the human output
+   prints them. The next `inbox sync --goal-journal` can project an overdue
+   commitment into the inbox.
+9. Memory writes and goal writes are not atomic. A failure after the memory
+   writes leaves the profile in place; this is acceptable for v0.1 and documented
+   as a limitation.
+
 ## Consequences
 
 - A user can set up the partner's relationship settings in one command.

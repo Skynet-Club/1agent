@@ -14,11 +14,13 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 2 tests (tests/onboard_cli.rs)
+running 4 tests (tests/onboard_cli.rs)
 test onboard_writes_profile_and_user_model_reads_it ... ok
 test onboard_rejects_invalid_autonomy_and_voice ... ok
+test onboard_can_seed_a_goal_and_commitment_for_inbox_sync ... ok
+test onboard_commitment_without_goal_fails_closed ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 4 passed; 0 failed
 ```
 
 ## What this proves
@@ -31,6 +33,10 @@ test result: ok. 2 passed; 0 failed
 - A separate `1agent user-model` invocation reads the same values back from the
   memory journal/payloads.
 - An invalid autonomy level or voice fails closed.
+- `--goal/--commitment` seeds a real `GoalStore`; the returned ids are present,
+  and `inbox sync --apply` projects the overdue commitment as a `review` item
+  with the commitment title.
+- `--commitment` without `--goal` fails closed.
 
 ## What this does not prove
 
@@ -38,6 +44,8 @@ test result: ok. 2 passed; 0 failed
 - That the profile is complete; document/calendar/email import and an
   interactive interview are later slices.
 - Boundary dedupe: re-running onboarding can append the same boundary again.
+- Atomicity: memory records are written before the goal; a goal failure leaves
+  the profile in place.
 - Cross-platform behavior; the tests ran on Linux only.
 
 ## Files

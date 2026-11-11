@@ -398,6 +398,18 @@ enum Command {
         /// Repeatable boundary, e.g. "never touch production".
         #[arg(long)]
         boundary: Vec<String>,
+        /// Optional first goal title.
+        #[arg(long)]
+        goal: Option<String>,
+        #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
+        goal_journal: PathBuf,
+        #[arg(long)]
+        goal_due_ms: Option<u128>,
+        /// Optional first commitment, requires --goal.
+        #[arg(long)]
+        commitment: Option<String>,
+        #[arg(long)]
+        commitment_due_ms: Option<u128>,
         #[arg(long)]
         json: bool,
     },
@@ -4066,6 +4078,11 @@ async fn main() -> Result<()> {
             voice,
             autonomy,
             boundary,
+            goal,
+            goal_journal,
+            goal_due_ms,
+            commitment,
+            commitment_due_ms,
             json,
         } => {
             let mut service = first_principles_agent::MemoryService::open(
@@ -4124,13 +4141,57 @@ async fn main() -> Result<()> {
                 )?;
                 written += 1;
             }
+            let mut goal_id = None;
+            let mut commitment_id = None;
+            match goal.as_deref().map(str::trim) {
+                Some(title) if !title.is_empty() => {
+                    let goal_id_value = format!("onboard-goal-{}", Uuid::new_v4());
+                    let commitment_value = match commitment.as_deref().map(str::trim) {
+                        Some(text) if !text.is_empty() => {
+                            Some((format!("onboard-commitment-{}", Uuid::new_v4()), text))
+                        }
+                        Some(_) => anyhow::bail!("commitment must be non-empty"),
+                        None => None,
+                    };
+                    let mut store = first_principles_agent::GoalStore::open(&goal_journal)?;
+                    store.with_graph_mut(|graph| {
+                        graph.create_goal(&goal_id_value, &user_id, title, goal_due_ms, now)?;
+                        if let Some((id, text)) = &commitment_value {
+                            graph.add_commitment(
+                                id,
+                                &goal_id_value,
+                                *text,
+                                commitment_due_ms,
+                                now + 1,
+                            )?;
+                        }
+                        Ok(())
+                    })?;
+                    goal_id = Some(goal_id_value);
+                    commitment_id = commitment_value.map(|(id, _)| id);
+                }
+                Some(_) => anyhow::bail!("goal must be non-empty"),
+                None => {
+                    if commitment.is_some() {
+                        anyhow::bail!("--commitment requires --goal");
+                    }
+                    if goal_due_ms.is_some() {
+                        anyhow::bail!("--goal-due-ms requires --goal");
+                    }
+                    if commitment_due_ms.is_some() {
+                        anyhow::bail!("--commitment-due-ms requires --commitment");
+                    }
+                }
+            }
             let model = service.build_user_model(&user_id, &scope);
             if json {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
                         "written": written,
-                        "user_model": model
+                        "user_model": model,
+                        "goal_id": &goal_id,
+                        "commitment_id": &commitment_id
                     }))?
                 );
             } else {
@@ -4142,6 +4203,12 @@ async fn main() -> Result<()> {
                 }
                 for boundary in &model.boundaries {
                     println!("- boundary: {}", boundary.rule);
+                }
+                if let Some(goal_id) = &goal_id {
+                    println!("goal: {goal_id}");
+                }
+                if let Some(commitment_id) = &commitment_id {
+                    println!("commitment: {commitment_id}");
                 }
             }
         }

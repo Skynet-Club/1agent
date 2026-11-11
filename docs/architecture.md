@@ -245,8 +245,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 - `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
   TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
   `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.
-  Invalid values fail before writing. This is v0 profile setup, not the full
-  interview/context-import flow.
+  Invalid values fail before writing. Optional `--goal/--commitment` write a
+  first goal and commitment to `GoalStore`; `inbox sync --goal-journal` can
+  project an overdue commitment. This is v0 profile setup, not the full
+  interview/context-import flow, and memory/goal writes are not atomic.
 - `repair`: `plan_repair` classifies an applied side effect as `none`,
   `compensate` or `manual`; an applied reversible action without a recorded
   compensation fails closed, and an irreversible action always requires a
