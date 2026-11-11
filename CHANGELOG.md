@@ -253,6 +253,13 @@
   fails closed. Other terminal statuses only close the inbox item.
 - Tests: one `handoff_inbox_cli` acceptance test
   (`cargo test --test handoff_inbox_cli`).
+- Organization audit seals (ADR-0074): `org-audit generate-key` writes a
+  PKCS#8 Ed25519 private key file and a public key; `seal` signs the entry
+  count and head hash; `verify --seal ... --public-key ...` checks the chain
+  and seal together. A new entry after sealing, a changed head or a wrong key
+  fails. The seal is only as strong as the out-of-band trust in the public key.
+- Tests: one org-audit seal unit test plus one `org_audit_seal_cli` e2e test
+  (`cargo test org_audit --lib`, `cargo test --test org_audit_seal_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.

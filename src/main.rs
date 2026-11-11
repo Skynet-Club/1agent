@@ -1489,6 +1489,30 @@ enum OrgAuditCommand {
     Verify {
         #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
         store: PathBuf,
+        /// Optional signed head seal; requires --public-key.
+        #[arg(long)]
+        seal: Option<PathBuf>,
+        #[arg(long, value_name = "HEX")]
+        public_key: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    Seal {
+        #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
+        store: PathBuf,
+        /// PKCS#8 Ed25519 private key (hex) in a 0600 file.
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    GenerateKey {
+        #[arg(long)]
+        private_out: PathBuf,
+        #[arg(long)]
+        public_out: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -4864,19 +4888,94 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-            OrgAuditCommand::Verify { store, json } => {
+            OrgAuditCommand::Verify {
+                store,
+                seal,
+                public_key,
+                json,
+            } => {
                 let store = first_principles_agent::org_audit::OrgAuditStore::open(store)?;
-                let report = store.verify();
+                let mut report = store.verify();
+                if let Some(seal_path) = seal {
+                    let Some(public_key) = public_key else {
+                        anyhow::bail!("--public-key is required with --seal");
+                    };
+                    let raw = std::fs::read_to_string(&seal_path)
+                        .with_context(|| format!("cannot read {}", seal_path.display()))?;
+                    let seal: first_principles_agent::org_audit::OrgAuditSeal =
+                        serde_json::from_str(&raw).context("invalid organization audit seal")?;
+                    if let Err(error) = store.verify_seal(&seal, &public_key) {
+                        report.valid = false;
+                        report.reason = format!("seal: {error}");
+                        report.seal_verified = Some(false);
+                    } else {
+                        report.seal_verified = Some(true);
+                    }
+                } else if public_key.is_some() {
+                    anyhow::bail!("--public-key requires --seal");
+                }
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     println!(
-                        "valid={} entries={} first_invalid_seq={:?} reason={}",
-                        report.valid, report.entries, report.first_invalid_seq, report.reason
+                        "valid={} entries={} first_invalid_seq={:?} seal_verified={:?} reason={}",
+                        report.valid,
+                        report.entries,
+                        report.first_invalid_seq,
+                        report.seal_verified,
+                        report.reason
                     );
                 }
                 if !report.valid {
-                    anyhow::bail!("organization audit chain is invalid");
+                    anyhow::bail!("organization audit verification failed");
+                }
+            }
+            OrgAuditCommand::Seal {
+                store,
+                key,
+                out,
+                json,
+            } => {
+                let store = first_principles_agent::org_audit::OrgAuditStore::open(store)?;
+                let key = read_key_hex(&key, true)?;
+                let seal = store.seal(key.trim(), current_time_ms())?;
+                let encoded = serde_json::to_string_pretty(&seal)?;
+                if let Some(out) = out {
+                    std::fs::write(&out, format!("{encoded}\n"))
+                        .with_context(|| format!("cannot write {}", out.display()))?;
+                }
+                if json {
+                    println!("{encoded}");
+                } else {
+                    println!(
+                        "sealed {} entries head={} public_key={}",
+                        seal.entries, seal.head_hash, seal.public_key
+                    );
+                }
+            }
+            OrgAuditCommand::GenerateKey {
+                private_out,
+                public_out,
+                json,
+            } => {
+                let (private, public) = first_principles_agent::org_audit::generate_signing_key()?;
+                write_key_file(&private_out, &private)?;
+                if let Some(path) = &public_out {
+                    std::fs::write(path, format!("{public}\n"))
+                        .with_context(|| format!("cannot write {}", path.display()))?;
+                }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "private_key_path": private_out,
+                            "public_key": public,
+                            "public_key_path": public_out,
+                        }))?
+                    );
+                } else {
+                    println!("private key: {}", private_out.display());
+                    println!("public key: {public}");
                 }
             }
         },

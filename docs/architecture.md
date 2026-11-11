@@ -257,8 +257,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 - `org_audit`: append-only organization index. Each entry carries seq,
   actor/action/scope/decision, the previous hash and its own SHA-256 hash over
   a canonical field body. `append` writes and syncs one JSON line; `verify`
-  detects edited fields, reordering and broken links. It is a local index, not
-  a remote transparency log, and it does not authenticate the actor.
+  detects edited fields, reordering and broken links. `seal` signs the entry
+  count + head hash with Ed25519; verifying a seal requires a trusted public
+  key supplied out of band, so a wholesale rewrite is detectable only when the
+  seal is anchored elsewhere. It is a local index, not a remote transparency
+  log, and it does not authenticate the actor.
 - `mcp_auth`: policy over already-signature-verified MCP OAuth claims. It
   enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
   an exact required scope. Signature verification and token acquisition are
