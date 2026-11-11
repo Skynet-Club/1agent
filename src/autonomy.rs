@@ -6,9 +6,72 @@
 //! medium-risk reversible actions.
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::domain::RiskLevel;
 use crate::user_model::{AutonomyLevel, UserModel};
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum QuietHoursError {
+    #[error("quiet hours must be HH:MM-HH:MM")]
+    Format,
+    #[error("quiet hours contain an invalid time")]
+    Time,
+    #[error("quiet hours start and end must differ")]
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct QuietHours {
+    pub start_minute: u16,
+    pub end_minute: u16,
+}
+
+impl QuietHours {
+    pub fn parse(value: &str) -> Result<Self, QuietHoursError> {
+        let (start, end) = value.split_once('-').ok_or(QuietHoursError::Format)?;
+        let start_minute = parse_hhmm(start)?;
+        let end_minute = parse_hhmm(end)?;
+        if start_minute == end_minute {
+            return Err(QuietHoursError::Empty);
+        }
+        Ok(Self {
+            start_minute,
+            end_minute,
+        })
+    }
+
+    /// Start is inclusive, end is exclusive; windows may cross midnight.
+    pub fn contains(self, minute: u16) -> bool {
+        if self.start_minute < self.end_minute {
+            (self.start_minute..self.end_minute).contains(&minute)
+        } else {
+            minute >= self.start_minute || minute < self.end_minute
+        }
+    }
+
+    pub fn minutes_until_end(self, minute: u16) -> u16 {
+        if self.end_minute > minute {
+            self.end_minute - minute
+        } else {
+            1440 - minute + self.end_minute
+        }
+    }
+}
+
+pub fn parse_hhmm(value: &str) -> Result<u16, QuietHoursError> {
+    let (hour, minute) = value
+        .trim()
+        .split_once(':')
+        .ok_or(QuietHoursError::Format)?;
+    let hour: u16 = hour.parse().map_err(|_| QuietHoursError::Time)?;
+    let minute: u16 = minute.parse().map_err(|_| QuietHoursError::Time)?;
+    if hour > 23 || minute > 59 {
+        return Err(QuietHoursError::Time);
+    }
+    Ok(hour * 60 + minute)
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -21,6 +84,8 @@ pub enum AutonomyDecision {
     Act,
     /// The action is ready, but needs an explicit yes.
     RequireApproval,
+    /// The action would run, but quiet hours postpone proactive work.
+    Defer,
 }
 
 impl AutonomyDecision {
@@ -30,8 +95,18 @@ impl AutonomyDecision {
             Self::Suggest => "suggest",
             Self::Act => "act",
             Self::RequireApproval => "require_approval",
+            Self::Defer => "defer",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProactiveContext {
+    pub now_minute: u16,
+    pub user_initiated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiet_hours: Option<QuietHours>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -82,6 +157,39 @@ pub fn decide(
         (AutonomyLevel::Observe | AutonomyLevel::Suggest, _) => {
             plan(AutonomyDecision::Suggest, "non-acting level")
         }
+    }
+}
+
+/// Applies the same policy, then defers proactive execution during quiet hours.
+/// User-initiated work and explicit approval are never deferred.
+pub fn decide_proactive(
+    level: AutonomyLevel,
+    risk: RiskLevel,
+    reversible: bool,
+    explicit_approval: bool,
+    context: ProactiveContext,
+) -> AutonomyPlan {
+    let plan = decide(level, risk, reversible, explicit_approval);
+    let Some(quiet) = context.quiet_hours else {
+        return plan;
+    };
+    if context.user_initiated
+        || explicit_approval
+        || !quiet.contains(context.now_minute)
+        || !matches!(
+            plan.decision,
+            AutonomyDecision::Act | AutonomyDecision::RequireApproval
+        )
+    {
+        return plan;
+    }
+    let until = quiet.minutes_until_end(context.now_minute);
+    AutonomyPlan {
+        decision: AutonomyDecision::Defer,
+        reason: format!(
+            "quiet hours are active; proactive {} deferred for {until} minutes",
+            plan.decision.as_str()
+        ),
     }
 }
 
@@ -162,6 +270,68 @@ mod tests {
             decide(AutonomyLevel::Auto, RiskLevel::High, false, true).decision,
             AutonomyDecision::Act
         );
+    }
+
+    #[test]
+    fn quiet_hours_parse_and_wrap_midnight() {
+        let overnight = QuietHours::parse("22:00-07:00").unwrap();
+        assert!(overnight.contains(22 * 60));
+        assert!(overnight.contains(23 * 60 + 59));
+        assert!(overnight.contains(0));
+        assert!(!overnight.contains(7 * 60));
+        assert!(!overnight.contains(12 * 60));
+        assert_eq!(overnight.minutes_until_end(23 * 60), 8 * 60);
+
+        let daytime = QuietHours::parse("09:00-17:00").unwrap();
+        assert!(daytime.contains(9 * 60));
+        assert!(!daytime.contains(17 * 60));
+
+        assert!(QuietHours::parse("07:00-07:00").is_err());
+        assert!(QuietHours::parse("24:00-07:00").is_err());
+        assert!(QuietHours::parse("bedtime").is_err());
+    }
+
+    #[test]
+    fn quiet_hours_defer_proactive_work_only() {
+        let context = ProactiveContext {
+            now_minute: 23 * 60,
+            user_initiated: false,
+            quiet_hours: Some(QuietHours::parse("22:00-07:00").unwrap()),
+        };
+        let deferred = decide_proactive(AutonomyLevel::Auto, RiskLevel::Low, true, false, context);
+        assert_eq!(deferred.decision, AutonomyDecision::Defer);
+        assert!(deferred.reason.contains("480 minutes"));
+
+        let user_ask = decide_proactive(
+            AutonomyLevel::Auto,
+            RiskLevel::Low,
+            true,
+            false,
+            ProactiveContext {
+                user_initiated: true,
+                ..context
+            },
+        );
+        assert_eq!(user_ask.decision, AutonomyDecision::Act);
+
+        let approved = decide_proactive(AutonomyLevel::Auto, RiskLevel::High, false, true, context);
+        assert_eq!(approved.decision, AutonomyDecision::Act);
+
+        let observe =
+            decide_proactive(AutonomyLevel::Observe, RiskLevel::Low, true, false, context);
+        assert_eq!(observe.decision, AutonomyDecision::Observe);
+
+        let daytime = decide_proactive(
+            AutonomyLevel::Auto,
+            RiskLevel::Low,
+            true,
+            false,
+            ProactiveContext {
+                now_minute: 12 * 60,
+                ..context
+            },
+        );
+        assert_eq!(daytime.decision, AutonomyDecision::Act);
     }
 
     #[test]

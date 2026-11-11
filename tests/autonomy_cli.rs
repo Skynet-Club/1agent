@@ -48,6 +48,76 @@ fn autonomy_cli_applies_risk_and_reversibility() {
 }
 
 #[test]
+fn autonomy_cli_defers_proactive_work_in_quiet_hours() {
+    assert_eq!(
+        run(&[
+            "--level",
+            "auto",
+            "--risk",
+            "low",
+            "--reversible",
+            "--quiet",
+            "22:00-07:00",
+            "--now",
+            "23:30",
+        ])["decision"],
+        "defer"
+    );
+    assert_eq!(
+        run(&[
+            "--level",
+            "auto",
+            "--risk",
+            "low",
+            "--reversible",
+            "--quiet",
+            "22:00-07:00",
+            "--now",
+            "23:30",
+            "--user-initiated",
+        ])["decision"],
+        "act"
+    );
+    assert_eq!(
+        run(&[
+            "--level",
+            "auto",
+            "--risk",
+            "low",
+            "--reversible",
+            "--quiet",
+            "22:00-07:00",
+            "--now",
+            "12:00",
+        ])["decision"],
+        "act"
+    );
+    assert_eq!(
+        run(&[
+            "--level",
+            "auto",
+            "--risk",
+            "high",
+            "--quiet",
+            "22:00-07:00",
+            "--now",
+            "23:30",
+            "--explicit-approval",
+        ])["decision"],
+        "act"
+    );
+
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let bad = Command::new(bin)
+        .args([
+            "autonomy", "--level", "auto", "--quiet", "bedtime", "--now", "23:30",
+        ])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+}
+
+#[test]
 fn autonomy_cli_rejects_invalid_level_and_risk() {
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let bad_level = Command::new(bin)

@@ -240,8 +240,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   per-domain preference into `observe` / `suggest` / `act` /
   `require_approval`. `observe` and `suggest` never act; `act` allows only
   low-risk reversible actions; `auto` allows low/medium risk; high risk and
-  irreversible actions require approval unless explicitly approved. This is a
-  preference policy; Authority/Policy/ExecutionGate still enforce execution.
+  irreversible actions require approval unless explicitly approved.
+  `decide_proactive` adds quiet hours (`QuietHours`, cross-midnight windows) and
+  returns `Defer` for proactive act/require_approval inside the window, with
+  minutes until it ends; user-initiated work and explicit approval are never
+  deferred. This is a preference policy; Authority/Policy/ExecutionGate still
+  enforce execution.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;
