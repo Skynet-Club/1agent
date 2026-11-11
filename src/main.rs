@@ -586,6 +586,11 @@ enum Command {
         /// Ask voice, first goal, commitment and boundary on stdin.
         #[arg(long)]
         interactive: bool,
+        /// Import plain-text context, one memory per line; # starts a comment.
+        #[arg(long)]
+        import_file: Option<PathBuf>,
+        #[arg(long, default_value = "fact")]
+        import_kind: String,
         #[arg(long)]
         json: bool,
     },
@@ -2021,6 +2026,46 @@ fn read_interactive_line(prompt: &str) -> Result<String> {
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     Ok(line.trim().to_string())
+}
+
+fn read_import_lines(path: &Path) -> Result<Vec<String>> {
+    const MAX_BYTES: u64 = 256 * 1024;
+    const MAX_LINES: usize = 200;
+    const MAX_CHARS: usize = 2000;
+    let metadata = std::fs::symlink_metadata(path)
+        .with_context(|| format!("cannot read import file {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "import file must not be a symbolic link: {}",
+            path.display()
+        );
+    }
+    if !metadata.is_file() {
+        bail!("import file is not a regular file: {}", path.display());
+    }
+    if metadata.len() > MAX_BYTES {
+        bail!("import file is larger than {MAX_BYTES} bytes");
+    }
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("cannot read import file {}", path.display()))?;
+    let mut lines = Vec::new();
+    for (index, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.chars().count() > MAX_CHARS {
+            bail!("import line {} exceeds {MAX_CHARS} characters", index + 1);
+        }
+        lines.push(line.to_string());
+        if lines.len() > MAX_LINES {
+            bail!("import file has more than {MAX_LINES} usable lines");
+        }
+    }
+    if lines.is_empty() {
+        bail!("import file has no usable context lines");
+    }
+    Ok(lines)
 }
 
 fn write_onboard(
@@ -5237,6 +5282,8 @@ async fn main() -> Result<()> {
             mut commitment,
             commitment_due_ms,
             interactive,
+            import_file,
+            import_kind,
             json,
         } => {
             let mut service = first_principles_agent::MemoryService::open(
@@ -5268,6 +5315,23 @@ async fn main() -> Result<()> {
                 }
             }
             let mut written = 0usize;
+            let mut imported = 0usize;
+            if let Some(path) = import_file {
+                let kind = match import_kind.trim().to_ascii_lowercase().as_str() {
+                    "fact" => first_principles_agent::MemoryKind::Fact,
+                    "preference" => first_principles_agent::MemoryKind::Preference,
+                    "project" => first_principles_agent::MemoryKind::Project,
+                    "feedback" => first_principles_agent::MemoryKind::Feedback,
+                    _ => {
+                        anyhow::bail!("--import-kind must be fact, preference, project or feedback")
+                    }
+                };
+                for line in read_import_lines(&path)? {
+                    write_onboard(&mut service, &scope, kind, line, now)?;
+                    written += 1;
+                    imported += 1;
+                }
+            }
             for spec in autonomy {
                 let (domain, level) = spec
                     .split_once('=')
@@ -5364,6 +5428,7 @@ async fn main() -> Result<()> {
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
                         "written": written,
+                        "imported": imported,
                         "user_model": model,
                         "goal_id": &goal_id,
                         "commitment_id": &commitment_id
@@ -5372,6 +5437,9 @@ async fn main() -> Result<()> {
             } else {
                 println!("1Agent Onboard");
                 println!("wrote {written} memory record(s) for {}", scope.scope_id());
+                if imported > 0 {
+                    println!("imported {imported} context line(s)");
+                }
                 println!("voice: {}", model.voice_mode().as_str());
                 for (domain, entry) in &model.autonomy {
                     println!("- autonomy {domain}: {}", entry.level.as_str());
