@@ -7655,7 +7655,7 @@ async fn run_tui_line_mode(
                         continue;
                     }
                     TuiCommandId::Inbox => {
-                        display_inbox(state);
+                        display_inbox(state, args);
                         continue;
                     }
                     TuiCommandId::Preset => {
@@ -11967,34 +11967,50 @@ fn handle_copy_command(state: &mut TuiState) {
     }
 }
 
-fn display_inbox(state: &mut TuiState) {
+fn display_inbox(state: &mut TuiState, args: &str) {
     let path = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl");
-    match first_principles_agent::InboxStore::open(path) {
-        Ok(store) => {
-            let items = store.open_sorted(now_unix_ms());
-            if items.is_empty() {
-                state.info("Inbox · 没有待处理项。");
-            } else {
-                let rows = items
-                    .iter()
-                    .map(|item| {
-                        format!(
-                            "[{}] {} · {}\n  {}",
-                            item.kind.as_str(),
-                            item.status.as_str(),
-                            item.title,
-                            item.why_now
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                state.info(bound_tui_command_output(format!(
-                    "Inbox · {} 项\n{}",
-                    items.len(),
-                    rows.join("\n")
-                )));
-            }
+    let mut store = match first_principles_agent::InboxStore::open(path) {
+        Ok(store) => store,
+        Err(error) => {
+            state.info(format!("无法读取 inbox：{error}"));
+            return;
         }
-        Err(error) => state.info(format!("无法读取 inbox：{error}")),
+    };
+    if !args.trim().is_empty() {
+        let action = match first_principles_agent::parse_action(args) {
+            Ok(action) => action,
+            Err(error) => {
+                state.info(format!("inbox 用法：{error}"));
+                return;
+            }
+        };
+        match store.apply_action(&action, now_unix_ms()) {
+            Ok(item) => state.info(format!("{} -> {}", item.item_id, item.status.as_str())),
+            Err(error) => state.info(format!("inbox 操作失败：{error}")),
+        }
+        return;
+    }
+    let items = store.open_sorted(now_unix_ms());
+    if items.is_empty() {
+        state.info("Inbox · 没有待处理项。");
+    } else {
+        let rows = items
+            .iter()
+            .map(|item| {
+                format!(
+                    "[{}] {} · {}\n  {}",
+                    item.kind.as_str(),
+                    item.status.as_str(),
+                    item.title,
+                    item.why_now
+                )
+            })
+            .collect::<Vec<_>>();
+        state.info(bound_tui_command_output(format!(
+            "Inbox · {} 项\n{}",
+            items.len(),
+            rows.join("\n")
+        )));
     }
 }
 
@@ -12478,7 +12494,7 @@ async fn run_tui_interactive(
                                 handle_cost_command(&mut state, &session);
                             }
                             TuiCommandId::Inbox => {
-                                display_inbox(&mut state);
+                                display_inbox(&mut state, args);
                             }
                             TuiCommandId::Preset => {
                                 if let Some(request) =

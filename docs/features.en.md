@@ -64,7 +64,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - Agent Inbox: notify / question / review items; append-only JSONL snapshots; snooze and approve/reject/answer/dismiss state machine; terminal statuses cannot transition; duplicate ids, empty fields and invalid snoozes fail closed; `1agent inbox add|list|resolve|snooze|sync`; pure attention/alert projections; `sync` dedupes by `item_id`, is dry-run by default and applies with `--apply` without overwriting existing status;
 - Autonomy dial policy: `1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`; observe/suggest never act; act allows only low-risk reversible actions; auto allows low/medium risk; high risk or irreversible actions require approval unless explicitly approved. A preference is not an authorization grant;
 - Onboarding v0: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` writes ordinary memory records and prints the resulting `UserModel`; invalid values fail closed. `--goal/--commitment` can seed a first goal and commitment for `inbox sync`; it is not yet an interview or context import, and memory/goal writes are not atomic;
-- TUI `/inbox`: read-only list of open / due-snoozed items (kind/status/title/why_now); resolve/snooze remain CLI actions.
+- TUI `/inbox`: list open / due-snoozed items (kind/status/title/why_now); supports `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]` and `/inbox snooze <id> <until_ms>` with the same parser/applier as the CLI.
 
 ### 2.4 Local memory (available, RC)
 
