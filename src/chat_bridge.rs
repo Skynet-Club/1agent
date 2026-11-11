@@ -69,6 +69,7 @@ pub fn result_to_reply(
 pub struct ChatBridgeIngestReport {
     pub scanned: usize,
     pub converted: usize,
+    pub skipped: usize,
     pub failed: usize,
     pub task_files: Vec<String>,
     pub errors: Vec<String>,
@@ -102,6 +103,7 @@ pub fn ingest_dir(
     let mut report = ChatBridgeIngestReport {
         scanned: files.len(),
         converted: 0,
+        skipped: 0,
         failed: 0,
         task_files: Vec::new(),
         errors: Vec::new(),
@@ -113,8 +115,13 @@ pub fn ingest_dir(
             .unwrap_or("message");
         match read_message(&path) {
             Ok(message) => {
-                let request = chat::to_task_request(&message, workspace.to_path_buf());
                 let task_path = out_dir.join(format!("{stem}.task.json"));
+                if task_path.exists() {
+                    move_to(&path, &processed_dir.join(format!("{stem}.json")))?;
+                    report.skipped += 1;
+                    continue;
+                }
+                let request = chat::to_task_request(&message, workspace.to_path_buf());
                 write_json(&task_path, &request)?;
                 move_to(&path, &processed_dir.join(format!("{stem}.json")))?;
                 report.converted += 1;
@@ -244,14 +251,22 @@ mod tests {
         )
         .unwrap();
 
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("a.task.json"), b"already converted").unwrap();
+
         let report = ingest_dir(&inbox, dir.path(), &out, &processed, &failed).unwrap();
         assert_eq!(report.scanned, 3);
-        assert_eq!(report.converted, 2);
+        assert_eq!(report.converted, 1);
+        assert_eq!(report.skipped, 1);
         assert_eq!(report.failed, 1);
-        assert_eq!(report.task_files.len(), 2);
+        assert_eq!(report.task_files.len(), 1);
         assert_eq!(std::fs::read_dir(&processed).unwrap().count(), 2);
         assert_eq!(std::fs::read_dir(&failed).unwrap().count(), 2);
         assert!(!inbox.join("c.json").exists());
+        assert_eq!(
+            std::fs::read(out.join("a.task.json")).unwrap(),
+            b"already converted"
+        );
 
         let second = ingest_dir(&inbox, dir.path(), &out, &processed, &failed).unwrap();
         assert_eq!(second.scanned, 0);

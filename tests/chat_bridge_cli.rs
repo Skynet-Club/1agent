@@ -119,6 +119,7 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
     let report: serde_json::Value = serde_json::from_slice(&run.stdout).unwrap();
     assert_eq!(report["scanned"], 3);
     assert_eq!(report["converted"], 2);
+    assert_eq!(report["skipped"], 0);
     assert_eq!(report["failed"], 1);
     assert_eq!(report["task_files"].as_array().unwrap().len(), 2);
     assert_eq!(std::fs::read_dir(&inbox).unwrap().count(), 2);

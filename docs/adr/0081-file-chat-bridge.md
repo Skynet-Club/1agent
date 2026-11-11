@@ -22,8 +22,10 @@ executable step and can be used by a local worker or channel integration.
    create the parent directory, use a temporary file and rename.
 3. `ingest` scans up to 500 top-level `*.json` messages, writes
    `<stem>.task.json`, moves valid messages to `processed/` and invalid ones to
-   `failed/` with `<stem>.error.txt`. A failed message makes the command exit
-   non-zero after reporting all results.
+   `failed/` with `<stem>.error.txt`. If `<stem>.task.json` already exists, the
+   task is not overwritten; the message moves to `processed/` and counts as
+   skipped. A failed message makes the command exit non-zero after reporting
+   all results.
 4. `1agent chat-bridge task|reply|ingest` exposes the three operations.
 5. The bridge is not a daemon and does not connect to Slack/Telegram/WeChat.
    It does not execute tasks; `ingest` only moves files into processed/failed.
