@@ -1050,6 +1050,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Index reframe decision receipts across a journal directory.
+    ReceiptIndex {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Init {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -8443,6 +8450,23 @@ async fn main() -> Result<()> {
                 );
             } else {
                 print!("{receipt}");
+            }
+        }
+        Command::ReceiptIndex { journal_dir, json } => {
+            let entries = first_principles_agent::reframe::decision_receipts(&journal_dir);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+            } else {
+                println!("1Agent Reframe Receipts: {} 条", entries.len());
+                for entry in &entries {
+                    println!(
+                        "- {} | {} | {} | {}",
+                        entry.decided_at_unix_ms,
+                        entry.choice.label_zh(),
+                        entry.stated_request,
+                        entry.journal.display()
+                    );
+                }
             }
         }
         Command::Annotate { command } => {
