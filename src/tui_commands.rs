@@ -58,6 +58,7 @@ pub enum TuiCommandId {
     Copy,
     Cost,
     Inbox,
+    Receipt,
     Config,
     Mission,
     Reframe,
@@ -97,6 +98,7 @@ impl TuiCommandId {
                 | Self::Tools
                 | Self::Cost
                 | Self::Inbox
+                | Self::Receipt
                 | Self::Copy
         )
     }
@@ -348,6 +350,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         CommandStage::Any,
         true,
         false,
+    ),
+    command(
+        TuiCommandId::Receipt,
+        "/receipt",
+        "显示最近一次重构决策收据",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        true,
     ),
     command(
         TuiCommandId::Config,
@@ -668,6 +679,7 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
         | TuiCommandId::Copy
         | TuiCommandId::Cost
         | TuiCommandId::Inbox
+        | TuiCommandId::Receipt
         | TuiCommandId::Config => CommandGroup::Session,
         TuiCommandId::Frame
         | TuiCommandId::Challenge
@@ -1350,23 +1362,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 27);
+        assert_eq!(standalone.len(), 28);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            29
+            30
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            31
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             32
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            33
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            37
+            38
         );
     }
 
@@ -1409,6 +1421,7 @@ mod tests {
                 "/copy",
                 "/cost",
                 "/inbox",
+                "/receipt",
                 "/config",
                 "/reframe",
                 "/mission",
@@ -1437,6 +1450,19 @@ mod tests {
         assert_eq!(spec.name, "/inbox");
         assert!(!spec.id.uses_command_panel());
         assert!(spec.supports_inline_args);
+        assert_eq!(spec.scope, TuiCommandScope::Core);
+    }
+
+    #[test]
+    fn receipt_is_a_registered_transcript_command() {
+        let spec = COMMANDS
+            .iter()
+            .find(|command| command.id == TuiCommandId::Receipt)
+            .expect("receipt command");
+        assert_eq!(spec.name, "/receipt");
+        assert!(!spec.id.uses_command_panel());
+        assert!(!spec.supports_inline_args);
+        assert!(spec.available_during_run);
         assert_eq!(spec.scope, TuiCommandScope::Core);
     }
 }

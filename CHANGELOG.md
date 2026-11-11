@@ -394,6 +394,11 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- TUI `/receipt`: displays the most recent reframe decision receipt from the
+  current run journal or, failing that, the newest session journal. It uses
+  the same replay and `render_receipt` path as the CLI.
+- Tests: the TUI command registry test covers `/receipt` registration and the
+  command-count expectations (`cargo test tui_commands --lib`).
 - Receipt index: `receipt-index --journal-dir DIR [--json]` scans decision
   journals and lists run id, journal, stated request, choice, actor and
   decision time, newest first, capped at 200. Missing or unrelated journals

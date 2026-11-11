@@ -118,9 +118,12 @@ RunStopped(Completed)
 ```bash
 cargo test --test reframe_repeat_cli
 cargo test --test receipt_index_cli
+cargo test tui_commands --lib
 ```
 
 The repeat test rejects a proposal, verifies a repeat returns
 `repeated_rejection` without writing a journal, verifies `--force` bypasses the
 check, and verifies a different request still gets a proposal. The receipt
 index test lists rejected and deferred decisions newest first across journals.
+The TUI registry test covers the `/receipt` command; the renderer itself is
+covered by the reframe receipt tests.

@@ -37,7 +37,7 @@ file: <路径>              → 文件必须存在
 | 替代方案必须列出新增代价 | 无 | ❌ | 契约字段未实现 |
 | 决定权在用户，只读回答不得产生动作回执 | test: read_only_answer_rejects_action_receipts | ✅ | |
 | 被拒绝后不再重复提议 | cmd: cargo test --test reframe_repeat_cli | ✅ | 扫描最近 500 个 journal 的同一 stated_request rejected 决定；--force 覆盖；仅 CLI reframe 路径，非全局对话记忆 |
-| 可查询历史决策收据 | cmd: cargo test --test receipt_index_cli | ✅ | 跨 journal 索引最近 200 条决定；TUI `/receipt` 仍未实现；依赖本地 journal 可读 |
+| 可查询历史决策收据 | cmd: cargo test --test receipt_index_cli && cargo test tui_commands --lib | ✅ | CLI 跨 journal 索引最近 200 条；TUI `/receipt` 读当前会话最近决策；依赖本地 journal，不跨机器 |
 
 ## 工程不变量
 
