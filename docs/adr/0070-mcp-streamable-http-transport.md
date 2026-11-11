@@ -42,9 +42,9 @@ credential path that does not put tokens in a config file or argv.
 - SSE support parses `data:` events and ignores other fields; reconnection,
   resumability and server-initiated streams are not implemented.
 - OAuth discovery is not implemented; the caller supplies a token through the
-  environment, a private file or a spawn-time exchange. A 401 triggers one
-  re-exchange when `token_exchange` is configured; proactive expiry refresh is
-  not implemented. Claims can be validated with `mcp_auth`.
+  environment, a private file or a spawn-time exchange. With `token_exchange`,
+  the client refreshes within 30 seconds of expiry and also re-exchanges once
+  on a 401. Claims can be validated with `mcp_auth`.
 - Transport tests use a local fake HTTP server, not a third-party MCP server.
 
 ## Evidence

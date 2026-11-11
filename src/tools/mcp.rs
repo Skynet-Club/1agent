@@ -76,6 +76,7 @@ enum Transport {
         url: String,
         session_id: Mutex<Option<String>>,
         bearer_token: Mutex<Option<String>>,
+        token_expires_at_ms: Mutex<Option<u128>>,
         exchange: Option<crate::mcp_exchange::TokenExchangeConfig>,
     },
 }
@@ -253,45 +254,49 @@ impl McpClient {
                 server.name
             )));
         }
-        let bearer_token = if let Some(exchange) = &server.token_exchange {
-            Some(
-                crate::mcp_exchange::exchange(exchange)
-                    .await
-                    .map_err(|error| {
-                        ToolError::InvalidArguments(format!(
-                            "MCP server '{}' token exchange failed: {error}",
-                            server.name
-                        ))
-                    })?
-                    .access_token,
+        let (bearer_token, token_expires_at_ms) = if let Some(exchange) = &server.token_exchange {
+            let token = crate::mcp_exchange::exchange(exchange)
+                .await
+                .map_err(|error| {
+                    ToolError::InvalidArguments(format!(
+                        "MCP server '{}' token exchange failed: {error}",
+                        server.name
+                    ))
+                })?;
+            (
+                Some(token.access_token),
+                Some(crate::current_time_ms() + u128::from(token.expires_in_seconds) * 1_000),
             )
         } else {
-            match (&server.bearer_token_env, &server.bearer_token_file) {
-                (Some(variable), None) => {
-                    if variable.trim().is_empty() {
-                        return Err(ToolError::InvalidArguments(format!(
-                            "MCP server '{}' bearer token environment variable is empty",
-                            server.name
-                        )));
-                    }
-                    let token = std::env::var(variable).map_err(|_| {
+            (
+                match (&server.bearer_token_env, &server.bearer_token_file) {
+                    (Some(variable), None) => {
+                        if variable.trim().is_empty() {
+                            return Err(ToolError::InvalidArguments(format!(
+                                "MCP server '{}' bearer token environment variable is empty",
+                                server.name
+                            )));
+                        }
+                        let token = std::env::var(variable).map_err(|_| {
                     ToolError::InvalidArguments(format!(
                         "MCP server '{}' bearer token environment variable {variable} is not set",
                         server.name
                     ))
                 })?;
-                    if token.trim().is_empty() {
-                        return Err(ToolError::InvalidArguments(format!(
-                            "MCP server '{}' bearer token environment variable {variable} is empty",
-                            server.name
-                        )));
+                        if token.trim().is_empty() {
+                            return Err(ToolError::InvalidArguments(format!(
+                                "MCP server '{}' bearer token environment variable {variable} is empty",
+                                server.name
+                            )));
+                        }
+                        Some(token)
                     }
-                    Some(token)
-                }
-                (None, Some(path)) => Some(read_bearer_token_file(path, &server.name)?),
-                (None, None) => None,
-                (Some(_), Some(_)) => unreachable!("conflict checked above"),
-            }
+                    (None, Some(path)) => Some(read_bearer_token_file(path, &server.name)?),
+                    (None, None) => None,
+                    (Some(_), Some(_)) => unreachable!("conflict checked above"),
+                },
+                None,
+            )
         };
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -308,6 +313,7 @@ impl McpClient {
             url: parsed.to_string(),
             session_id: Mutex::new(None),
             bearer_token: Mutex::new(bearer_token),
+            token_expires_at_ms: Mutex::new(token_expires_at_ms),
             exchange: server.token_exchange.clone(),
         })
     }
@@ -338,6 +344,7 @@ impl McpClient {
                 url,
                 session_id,
                 bearer_token,
+                token_expires_at_ms,
                 exchange,
             } => {
                 let response = self
@@ -346,6 +353,7 @@ impl McpClient {
                         url,
                         session_id,
                         bearer_token,
+                        token_expires_at_ms,
                         exchange.as_ref(),
                         &message,
                     )
@@ -429,6 +437,7 @@ impl McpClient {
                 url,
                 session_id,
                 bearer_token,
+                token_expires_at_ms,
                 exchange,
             } => {
                 let response = self
@@ -437,6 +446,7 @@ impl McpClient {
                         url,
                         session_id,
                         bearer_token,
+                        token_expires_at_ms,
                         exchange.as_ref(),
                         &message,
                     )
@@ -499,30 +509,54 @@ impl McpClient {
         })
     }
 
+    async fn refresh_token(
+        &self,
+        config: &crate::mcp_exchange::TokenExchangeConfig,
+        bearer_token: &Mutex<Option<String>>,
+        token_expires_at_ms: &Mutex<Option<u128>>,
+    ) -> Result<(), ToolError> {
+        let refreshed = crate::mcp_exchange::exchange(config)
+            .await
+            .map_err(|error| {
+                ToolError::Failed(format!(
+                    "MCP server '{}' token refresh failed: {error}",
+                    self.server_name
+                ))
+            })?;
+        *token_expires_at_ms.lock().await =
+            Some(crate::current_time_ms() + u128::from(refreshed.expires_in_seconds) * 1_000);
+        *bearer_token.lock().await = Some(refreshed.access_token);
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn http_post_with_refresh(
         &self,
         client: &reqwest::Client,
         url: &str,
         session_id: &Mutex<Option<String>>,
         bearer_token: &Mutex<Option<String>>,
+        token_expires_at_ms: &Mutex<Option<u128>>,
         exchange: Option<&crate::mcp_exchange::TokenExchangeConfig>,
         message: &Value,
     ) -> Result<reqwest::Response, ToolError> {
+        if let Some(config) = exchange
+            && token_expires_at_ms
+                .lock()
+                .await
+                .is_some_and(|expires| expires <= crate::current_time_ms() + 30_000)
+        {
+            self.refresh_token(config, bearer_token, token_expires_at_ms)
+                .await?;
+        }
         let mut response = self
             .http_post(client, url, session_id, bearer_token, message)
             .await?;
         if response.status() == reqwest::StatusCode::UNAUTHORIZED
             && let Some(config) = exchange
         {
-            let refreshed = crate::mcp_exchange::exchange(config)
-                .await
-                .map_err(|error| {
-                    ToolError::Failed(format!(
-                        "MCP server '{}' token refresh failed: {error}",
-                        self.server_name
-                    ))
-                })?;
-            *bearer_token.lock().await = Some(refreshed.access_token);
+            self.refresh_token(config, bearer_token, token_expires_at_ms)
+                .await?;
             response = self
                 .http_post(client, url, session_id, bearer_token, message)
                 .await?;
@@ -1093,7 +1127,7 @@ mod tests {
         address
     }
 
-    async fn fake_rotating_token_endpoint() -> std::net::SocketAddr {
+    async fn fake_rotating_token_endpoint(expires_in: u64) -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -1104,7 +1138,7 @@ mod tests {
                 let mut buffer = [0u8; 4096];
                 let _ = socket.read(&mut buffer).await;
                 let body = format!(
-                    r#"{{"access_token":"{token}","token_type":"Bearer","expires_in":60}}"#
+                    r#"{{"access_token":"{token}","token_type":"Bearer","expires_in":{expires_in}}}"#
                 );
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -1120,7 +1154,7 @@ mod tests {
     #[tokio::test]
     async fn http_mcp_refreshes_an_exchanged_token_on_401() {
         let (address, authorization) = fake_http_server_with_token(Some("refreshed-token")).await;
-        let token_address = fake_rotating_token_endpoint().await;
+        let token_address = fake_rotating_token_endpoint(60).await;
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("mcp.json");
         std::fs::write(
@@ -1148,6 +1182,49 @@ mod tests {
         let auth = authorization.lock().unwrap().clone();
         assert!(auth.iter().any(|value| value == "Bearer stale-token"));
         assert!(auth.iter().any(|value| value == "Bearer refreshed-token"));
+    }
+
+    #[tokio::test]
+    async fn http_mcp_refreshes_before_expiry() {
+        let (address, authorization) = fake_http_server().await;
+        let token_address = fake_rotating_token_endpoint(31).await;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("mcp.json");
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec(&json!({
+                "servers": [{
+                    "name": "fake",
+                    "url": format!("http://{address}/mcp"),
+                    "token_exchange": {
+                        "token_endpoint": format!("http://{token_address}/token"),
+                        "audience": "mcp://fake",
+                        "scope": "tools.read",
+                        "subject_token_env": "MCP_PROACTIVE_SUBJECT_TEST",
+                        "max_ttl_seconds": 60
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        unsafe { std::env::set_var("MCP_PROACTIVE_SUBJECT_TEST", "subject-secret") };
+        let tools = load_mcp_tools(&config_path).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        tools[0]
+            .execute(
+                json!({"text": "after expiry"}),
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        unsafe { std::env::remove_var("MCP_PROACTIVE_SUBJECT_TEST") };
+        let auth = authorization.lock().unwrap();
+        assert_eq!(
+            auth.last().map(String::as_str),
+            Some("Bearer refreshed-token")
+        );
     }
 
     #[tokio::test]

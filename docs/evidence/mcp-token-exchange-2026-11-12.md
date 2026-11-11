@@ -42,12 +42,15 @@ test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
 - A rotating endpoint returns `stale-token`, the MCP server rejects it with
   401, the client re-exchanges for `refreshed-token`, retries the request and
   completes initialization and discovery.
+- With `expires_in: 31`, the token is used normally at spawn; after 1.5 s
+  (inside the 30-second refresh window), the next tool call re-exchanges and
+  sends `refreshed-token` without waiting for a 401.
 
 ## What this does not prove
 
 - Interoperability with a real OAuth/IdP token endpoint.
-- Proactive expiry refresh, a retry budget or issuer discovery; only one
-  401-triggered re-exchange is attempted.
+- A retry budget, concurrent-refresh deduplication or issuer discovery; the
+  proactive check is a fixed 30-second window.
 - That the IdP enforces audience restriction; this validates the response
   shape and TTL, not the remote policy.
 - Cross-platform behavior; tests ran on Linux only.
