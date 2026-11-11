@@ -458,6 +458,14 @@ enum Command {
         /// Per-item highest delivered rung; required with --escalate-webhook.
         #[arg(long)]
         escalate_state: Option<PathBuf>,
+        /// Reconcile handoff inbox items against this store every tick.
+        #[arg(long)]
+        reconcile_inbox_store: Option<PathBuf>,
+        #[arg(long)]
+        reconcile_handoff_store: Option<PathBuf>,
+        /// Required with the reconcile stores; applies terminal handoff states.
+        #[arg(long)]
+        reconcile_apply: bool,
     },
     Watchdog {
         #[arg(long)]
@@ -2769,6 +2777,9 @@ async fn run_daemon(
     escalate_webhook: Option<String>,
     escalate_format: String,
     escalate_state: Option<PathBuf>,
+    reconcile_inbox_store: Option<PathBuf>,
+    reconcile_handoff_store: Option<PathBuf>,
+    reconcile_apply: bool,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2789,6 +2800,20 @@ async fn run_daemon(
         ),
         _ => bail!(
             "inbox escalation requires --escalate-inbox-store, --escalate-webhook and --escalate-state together"
+        ),
+    };
+    let reconcile = match (
+        reconcile_inbox_store,
+        reconcile_handoff_store,
+        reconcile_apply,
+    ) {
+        (Some(inbox), Some(handoffs), true) => Some((inbox, handoffs)),
+        (None, None, false) => None,
+        (Some(_), Some(_), false) => {
+            bail!("--reconcile-apply is required with the reconcile stores")
+        }
+        _ => bail!(
+            "inbox reconciliation requires --reconcile-inbox-store, --reconcile-handoff-store and --reconcile-apply together"
         ),
     };
     let quiet_hours = quiet_hours
@@ -2901,6 +2926,39 @@ async fn run_daemon(
                 }
                 Err(error) => {
                     eprintln!("[daemon] cannot open inbox store: {error}");
+                }
+            }
+        }
+        if let Some((inbox_path, handoff_path)) = &reconcile {
+            match first_principles_agent::InboxStore::open(inbox_path) {
+                Ok(mut inbox) => {
+                    match first_principles_agent::handoff::HandoffStore::open(handoff_path) {
+                        Ok(handoffs) => {
+                            match first_principles_agent::reconcile_handoffs(
+                                &mut inbox,
+                                &handoffs,
+                                current_time_ms(),
+                                true,
+                            ) {
+                                Ok(report) if report.resolved > 0 => {
+                                    eprintln!(
+                                        "[daemon] inbox reconcile: scanned={} resolved={}",
+                                        report.scanned, report.resolved
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    eprintln!("[daemon] inbox reconcile failed: {error}");
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("[daemon] cannot open handoff store: {error}");
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("[daemon] cannot open reconcile inbox store: {error}");
                 }
             }
         }
@@ -4701,6 +4759,9 @@ async fn main() -> Result<()> {
             escalate_webhook,
             escalate_format,
             escalate_state,
+            reconcile_inbox_store,
+            reconcile_handoff_store,
+            reconcile_apply,
         } => {
             run_daemon(
                 store,
@@ -4717,6 +4778,9 @@ async fn main() -> Result<()> {
                 escalate_webhook,
                 escalate_format,
                 escalate_state,
+                reconcile_inbox_store,
+                reconcile_handoff_store,
+                reconcile_apply,
             )
             .await?;
         }

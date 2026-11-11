@@ -27,6 +27,9 @@ items. Open handoffs should use the same surface.
 5. `inbox reconcile --handoff-store PATH [--apply]` closes projected items:
    accepted handoffs become approved, cancelled handoffs become dismissed,
    open handoffs are untouched. Dry-run is the default.
+6. `daemon --reconcile-inbox-store PATH --reconcile-handoff-store PATH
+   --reconcile-apply` runs the same reconcile on every tick. The three flags
+   must appear together; quiet hours skip it with the rest of the tick.
 
 ## Consequences
 
@@ -37,13 +40,17 @@ items. Open handoffs should use the same surface.
 - The projection trusts the `to` field; the handoff store itself does not
   authenticate identities.
 - Notifications and presence remain separate.
+- The daemon loop closes stale projected items without a manual reconcile,
+  but only when the operator opts in with the three reconcile flags.
 
 ## Evidence
 
 ```bash
 cargo test inbox --lib
 cargo test --test handoff_inbox_cli
+cargo test --test daemon_reconcile_cli
 ```
 
 The tests cover recipient filtering, terminal exclusion, 500-character
-truncation, dry-run, apply, second-sync dedupe, and `--recipient` validation.
+truncation, dry-run, apply, second-sync dedupe, `--recipient` validation, and
+the daemon's opt-in periodic reconcile.

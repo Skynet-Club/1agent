@@ -355,6 +355,14 @@
 - Tests: `quiet_hours_ms_until_end_tracks_the_boundary` covers the overnight
   boundary, a 30-second remainder and a fixed offset (`cargo test autonomy
   --lib`).
+- Daemon inbox maintenance: `daemon --reconcile-inbox-store PATH
+  --reconcile-handoff-store PATH --reconcile-apply` runs the existing
+  terminal-handoff reconcile on every tick, closing accepted handoffs as
+  approved and cancelled ones as dismissed. Quiet hours skip it; the three
+  flags must appear together.
+- Tests: two `daemon_reconcile_cli` e2e tests cover automatic reconciliation
+  and incomplete-configuration rejection (`cargo test --test
+  daemon_reconcile_cli`).
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event
