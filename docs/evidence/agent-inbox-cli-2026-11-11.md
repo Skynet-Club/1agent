@@ -58,3 +58,9 @@ test result: ok. 2 passed; 0 failed
 - `docs/adr/0042-agent-inbox-cli-and-projections.md`
 - `docs/architecture.md`, `docs/features.md`, `docs/features.en.md`,
   `docs/claims.md`, `CHANGELOG.md`
+
+## 2026-11-12 update
+
+`inbox list --kind KIND --source SOURCE` filters the open queue; an invalid
+kind fails closed. Covered by `inbox_list_filters_by_kind_and_source`
+(`cargo test --test inbox_cli`).
