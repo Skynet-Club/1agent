@@ -389,6 +389,9 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Inbox reopen: `1agent inbox reopen --store PATH --item-id ID [--json]`
+  returns an open/snoozed item to open, cancelling a snooze; terminal items
+  still fail closed. Tests extend `inbox_cli` (`cargo test --test inbox_cli`).
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event

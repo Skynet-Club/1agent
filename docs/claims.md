@@ -63,6 +63,7 @@ file: <路径>              → 文件必须存在
 | 自治档位策略：observe/suggest 不行动；act 仅低风险可逆；auto 低/中风险可逆；高风险/不可逆需审批 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 偏好不是授权；Authority/Policy/ExecutionGate 仍决定执行 |
 | Onboarding 写入 memory 并可经 user-model 回读；非法值失败关闭；可 seed goal/commitment；`--interactive` 读 stdin | cmd: cargo test --test onboard_cli | ✅ | 脚本化访谈；自由追问/文档/日历导入未做；memory 与 goal 写入非原子 |
 | TUI `/inbox` 列出并可 resolve/snooze；解析与应用契约与 CLI 一致 | cmd: cargo test inbox --lib && cargo test tui_commands --lib | ✅ | 只操作 inbox store；不绕过 Authority/Policy/Approval |
+| Inbox reopen：open/snoozed → open（取消 snooze），终态项拒绝 | cmd: cargo test --test inbox_cli | ✅ | 不重开终态；不改其他字段 |
 | Agent Card 列出能力状态与限制（含 verification store/team handoff/inbox notify 多目标/inbox escalation/repair runbook+mark/org audit/MCP HTTP/chat bridge/daemon maintenance/trust center）；unsupported/untested 不标为 verified；HTTP 公开只读提供 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test http_surface --lib | ✅ | 签名可选；非 A2A registry-signed 卡 |
 | skill scan 预检 frontmatter/控制字符/密钥/指令覆盖；不注册不执行 | cmd: cargo test skill --lib && cargo test --test skill_scan_cli | ✅ | 启发式扫描，不是 malware sandbox；签名/权限另算 |
 | skill verify 与 import 共用 verify_bundle；校验 SHA/schema/签名/重复/manifest/扫描，不导入 | cmd: cargo test skill_bundle --lib && cargo test --test skill_verify_cli | ✅ | 证明完整性，不证明运行安全 |

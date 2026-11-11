@@ -135,6 +135,38 @@ fn inbox_add_list_snooze_resolve_round_trip() {
     let hidden: serde_json::Value = serde_json::from_slice(&hidden.stdout).unwrap();
     assert!(hidden.as_array().unwrap().is_empty());
 
+    let reopened = Command::new(bin())
+        .args([
+            "inbox",
+            "reopen",
+            "--store",
+            &store.display().to_string(),
+            "--item-id",
+            &item_id,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        reopened.status.success(),
+        "reopen stderr: {}",
+        String::from_utf8_lossy(&reopened.stderr)
+    );
+    let reopened: serde_json::Value = serde_json::from_slice(&reopened.stdout).unwrap();
+    assert_eq!(reopened["status"], "open");
+    let visible = Command::new(bin())
+        .args([
+            "inbox",
+            "list",
+            "--store",
+            &store.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let visible: serde_json::Value = serde_json::from_slice(&visible.stdout).unwrap();
+    assert_eq!(visible.as_array().unwrap().len(), 1);
+
     let resolve = Command::new(bin())
         .args([
             "inbox",
@@ -167,6 +199,22 @@ fn inbox_add_list_snooze_resolve_round_trip() {
         .unwrap();
     let empty: serde_json::Value = serde_json::from_slice(&empty.stdout).unwrap();
     assert!(empty.as_array().unwrap().is_empty());
+
+    let terminal = Command::new(bin())
+        .args([
+            "inbox",
+            "reopen",
+            "--store",
+            &store.display().to_string(),
+            "--item-id",
+            &item_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !terminal.status.success(),
+        "a terminal item must not reopen"
+    );
 }
 
 #[test]
