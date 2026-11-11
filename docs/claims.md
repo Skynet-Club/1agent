@@ -34,7 +34,7 @@ file: <路径>              → 文件必须存在
 |---|---|---|---|
 | 默认不重构：绝大多数请求按原样执行 | file: docs/evidence/reframing-heldout-v2/summary.json | ⚠️ | v3 在 held-out v2 上 20/21 保持沉默；但 v2 在 held-out v1 上仅 15/21，未达门槛 |
 | 只问一个最值钱的问题 | cmd: python3 scripts/reframing/analyze_hypothesis_space.py | ⚠️ | 设计层证据（8 个构造案例），不是模型行为证据 |
-| 替代方案必须列出新增代价 | 无 | ❌ | 契约字段未实现 |
+| 替代方案必须列出新增代价 | cmd: cargo test --test reframe_costs_cli | ⚠️ | `added_costs` 字段与 `--require-costs` 校验已实现；默认提示词/模型输出未强制列出；未知/空成本失败关闭 |
 | 决定权在用户，只读回答不得产生动作回执 | test: read_only_answer_rejects_action_receipts | ✅ | |
 | 被拒绝后不再重复提议 | cmd: cargo test --test reframe_repeat_cli | ✅ | 扫描最近 500 个 journal 的同一 stated_request rejected 决定；--force 覆盖；仅 CLI reframe 路径，非全局对话记忆 |
 | 可查询历史决策收据 | cmd: cargo test --test receipt_index_cli && cargo test tui_commands --lib | ✅ | CLI 跨 journal 索引最近 200 条；TUI `/receipt` 读当前会话最近决策；依赖本地 journal，不跨机器 |
