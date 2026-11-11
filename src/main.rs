@@ -1038,6 +1038,9 @@ enum Command {
         defer: bool,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
+        /// Re-propose even if this exact request was rejected before.
+        #[arg(long)]
+        force: bool,
         #[arg(long)]
         json: bool,
     },
@@ -8258,10 +8261,21 @@ async fn main() -> Result<()> {
             reject,
             defer,
             journal_dir,
+            force,
             json,
         } => {
             let (proposal, provider_id, model_label, prompt_sha) = match (task, input) {
                 (Some(task), None) => {
+                    if !force
+                        && let Some(previous) =
+                            first_principles_agent::reframe::rejected_request_journal(
+                                &journal_dir,
+                                &task,
+                            )
+                    {
+                        report_repeated_rejection(&previous, json);
+                        return Ok(());
+                    }
                     if !allow_network {
                         bail!("--allow-network is required to call a provider");
                     }
@@ -8296,6 +8310,16 @@ async fn main() -> Result<()> {
                     let proposal: ReframeProposal = serde_json::from_slice(&bytes)
                         .with_context(|| format!("invalid reframe proposal: {}", path.display()))?;
                     proposal.validate()?;
+                    if !force
+                        && let Some(previous) =
+                            first_principles_agent::reframe::rejected_request_journal(
+                                &journal_dir,
+                                &proposal.stated_request,
+                            )
+                    {
+                        report_repeated_rejection(&previous, json);
+                        return Ok(());
+                    }
                     (
                         proposal,
                         "file".to_string(),
@@ -10422,6 +10446,21 @@ fn render_choice_menu(proposal: &ReframeProposal, source: &str) -> String {
         proposal.options.len() + 1
     ));
     out
+}
+
+fn report_repeated_rejection(previous: &std::path::Path, json: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "repeated_rejection": true,
+                "journal": previous,
+            })
+        );
+    } else {
+        println!("该请求此前已被拒绝；不重复提议（--force 可覆盖）。");
+        println!("journal   {}", previous.display());
+    }
 }
 
 fn parse_rejected_reason(value: &str) -> Result<RejectedReason> {
