@@ -85,6 +85,64 @@ fn digest_counts_inbox_and_open_handoffs() {
 }
 
 #[test]
+fn digest_includes_the_verification_summary() {
+    let workspace = tempfile::tempdir().unwrap();
+    let journals = workspace.path().join("journals");
+    std::fs::create_dir_all(&journals).unwrap();
+    let schedules = workspace.path().join("schedules.json");
+    let inbox = workspace.path().join("inbox.jsonl");
+    let verification = workspace.path().join("verification.jsonl");
+    let input = workspace.path().join("input.json");
+    std::fs::write(
+        &input,
+        serde_json::to_vec(&serde_json::json!({
+            "executor_id": "executor",
+            "verifier_id": "verifier",
+            "acceptance_criteria": ["public"],
+            "hidden_criteria": ["hidden"],
+            "criteria_results": [
+                {"criterion": "public", "passed": true, "evidence": ["log"]},
+                {"criterion": "hidden", "passed": false, "evidence": ["log"]}
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let recorded = Command::new(bin)
+        .args(["verification", "record", "--store"])
+        .arg(&verification)
+        .args(["--verification-id", "v1", "--run-id", "run-1", "--input"])
+        .arg(&input)
+        .args(["--json"])
+        .output()
+        .unwrap();
+    assert!(recorded.status.success());
+
+    let digest = Command::new(bin)
+        .args(["digest", "--journal-dir"])
+        .arg(&journals)
+        .args(["--schedule-store"])
+        .arg(&schedules)
+        .args(["--inbox-store"])
+        .arg(&inbox)
+        .args(["--verification-store"])
+        .arg(&verification)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        digest.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&digest.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&digest.stdout).unwrap();
+    assert_eq!(report["verification"]["hacked"], 1);
+    assert_eq!(report["verification"]["resolved"], 1);
+    assert_eq!(report["verification"]["hacked_resolved_bps"], 10000);
+}
+
+#[test]
 fn digest_rejects_recipient_without_handoff_store() {
     let workspace = tempfile::tempdir().unwrap();
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
