@@ -476,6 +476,9 @@ enum Command {
         webhook: String,
         #[arg(long, default_value = "generic")]
         format: String,
+        /// Suppress repeats until an item is newer than this state's watermark.
+        #[arg(long)]
+        state: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -5215,6 +5218,7 @@ async fn main() -> Result<()> {
             store,
             webhook,
             format,
+            state,
             json,
         } => {
             let format: first_principles_agent::alerts::WebhookFormat =
@@ -5223,20 +5227,42 @@ async fn main() -> Result<()> {
                 first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
             let store = first_principles_agent::InboxStore::open(store)?;
             let items = store.open_sorted(current_time_ms());
-            let open = items.len();
-            let sent = first_principles_agent::notify::notify_inbox(&notifier, &items).await?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "sent": sent,
-                        "open": open,
-                    }))?
-                );
-            } else if sent {
-                println!("sent {open} open inbox item(s)");
+            let outcome = if let Some(path) = state {
+                let mut state = first_principles_agent::notify::NotifyState::open(&path)?;
+                let outcome = first_principles_agent::notify::notify_inbox_if_new(
+                    &notifier,
+                    &items,
+                    &mut state,
+                    current_time_ms(),
+                )
+                .await?;
+                if outcome.sent {
+                    state.save(&path)?;
+                }
+                outcome
             } else {
+                let sent = first_principles_agent::notify::notify_inbox(&notifier, &items).await?;
+                first_principles_agent::notify::NotifyOutcome {
+                    sent,
+                    open: items.len(),
+                    new_items: if sent { items.len() } else { 0 },
+                    last_sent_ms: None,
+                }
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else if outcome.sent {
+                println!(
+                    "sent {} open inbox item(s) ({} new)",
+                    outcome.open, outcome.new_items
+                );
+            } else if outcome.open == 0 {
                 println!("no open inbox items; nothing sent");
+            } else {
+                println!(
+                    "no new inbox items since {}; nothing sent",
+                    outcome.last_sent_ms.unwrap_or(0)
+                );
             }
         }
         Command::Idempotency { command } => match command {
