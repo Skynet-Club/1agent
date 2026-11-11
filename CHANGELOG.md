@@ -421,9 +421,10 @@
   stdout reports only type/TTL/SHA-256 (ADR-0083). The file can feed
   `McpServerConfig.bearer_token_file`; alternatively,
   `McpServerConfig.token_exchange` runs the exchange once at HTTP spawn and
-  keeps the token in memory (mutually exclusive with env/file auth). A 401
-  re-exchanges once and retries the request; proactive expiry refresh and a
-  retry budget are not implemented.
+  keeps the token in memory (mutually exclusive with env/file auth). It
+  refreshes proactively within 30 seconds of expiry and re-exchanges once on a
+  401; a retry budget and concurrent-refresh deduplication are not
+  implemented.
 - Tests: three `mcp_token_exchange_cli` e2e tests cover form fields, 0600
   output, non-disclosure, missing env, insecure endpoint, wrong type,
   excessive TTL, partial client credentials and no-overwrite

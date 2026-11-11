@@ -34,11 +34,12 @@ primitive to obtain a short-lived token.
    a new 0600 file (no overwrite); stdout reports type, TTL and a SHA-256 of
    the token, never the token itself.
 6. The resulting file can be used by `McpServerConfig.bearer_token_file`.
-   Alternatively, `McpServerConfig.token_exchange` performs the exchange once
-   at HTTP spawn, keeps the token in memory, and re-exchanges once when a
-   request returns 401. It is mutually exclusive with `bearer_token_env` and
-   `bearer_token_file`. Proactive expiry refresh, a retry budget and issuer
-   discovery remain future work.
+   Alternatively, `McpServerConfig.token_exchange` performs the exchange at
+   HTTP spawn, keeps the token in memory, refreshes proactively when it is
+   within 30 seconds of expiry, and re-exchanges once when a request returns
+   401. It is mutually exclusive with `bearer_token_env` and
+   `bearer_token_file`. A retry budget, concurrent-refresh deduplication and
+   issuer discovery remain future work.
 
 ## Consequences
 
