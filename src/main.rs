@@ -118,6 +118,10 @@ enum Command {
         #[arg(long)]
         max_unit_cost_micros_per_k: Option<u64>,
         #[arg(long)]
+        max_cost_micros: Option<u64>,
+        #[arg(long)]
+        max_tokens: Option<u64>,
+        #[arg(long)]
         evidence_max_age_ms: Option<u64>,
         #[arg(long)]
         route_objective: Option<String>,
@@ -2208,6 +2212,8 @@ async fn main() -> Result<()> {
             max_context_tokens,
             max_provider_p95_latency_ms,
             max_unit_cost_micros_per_k,
+            max_cost_micros,
+            max_tokens,
             evidence_max_age_ms,
             route_objective,
             voice_mode,
@@ -2256,6 +2262,8 @@ async fn main() -> Result<()> {
                     .min(max_context_tokens),
                 max_provider_p95_latency_ms: effective_latency_budget,
                 max_unit_cost_micros_per_k: effective_unit_cost_budget,
+                max_cost_micros,
+                max_tokens,
             };
             request.permissions.allow_network = allow_network;
             request.permissions.allow_write = !read_only;

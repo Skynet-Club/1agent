@@ -851,6 +851,8 @@ impl AgentRuntime {
             0 => usize::MAX,
             value => value,
         };
+        let mut spent_cost_micros = 0u64;
+        let mut spent_tokens = 0u64;
         for step in start_step..max_steps {
             if cancellation.is_cancelled() {
                 journal
@@ -1224,6 +1226,32 @@ impl AgentRuntime {
                     path: journal_path.clone(),
                     source,
                 })?;
+            spent_cost_micros = spent_cost_micros.saturating_add(response.usage.cost_micros);
+            spent_tokens = spent_tokens
+                .saturating_add(response.usage.input_tokens)
+                .saturating_add(response.usage.output_tokens);
+            if let Some(limit) = request.budget.max_cost_micros
+                && spent_cost_micros > limit
+            {
+                return finish_with_answer(
+                    &mut journal,
+                    run_id,
+                    journal_path,
+                    budget_answer("cost budget exhausted"),
+                    StopReason::BudgetExhausted,
+                );
+            }
+            if let Some(limit) = request.budget.max_tokens
+                && spent_tokens > limit
+            {
+                return finish_with_answer(
+                    &mut journal,
+                    run_id,
+                    journal_path,
+                    budget_answer("token budget exhausted"),
+                    StopReason::BudgetExhausted,
+                );
+            }
             let response_provider_id = response.provider_id.clone();
             let response_model = response.model.clone();
 
@@ -3013,5 +3041,95 @@ mod tests {
         assert_eq!(answer.status, AnswerStatus::NeedsAuthorization);
         assert!(answer.conclusion.contains("/permissions write on"));
         assert!(answer.conclusion.contains("--read-only"));
+    }
+
+    struct UsageProvider;
+
+    #[async_trait]
+    impl ModelProvider for UsageProvider {
+        fn id(&self) -> &str {
+            "usage-provider"
+        }
+
+        fn model(&self) -> &str {
+            "usage-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "usage answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage {
+                    input_tokens: 50,
+                    output_tokens: 50,
+                    cost_micros: 100,
+                    ..Usage::default()
+                },
+            })
+        }
+    }
+
+    async fn run_with_usage_budget(budget: RunBudget) -> RunResult {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let mut manifest = local_manifest();
+        manifest.provider_id = "usage-provider".into();
+        manifest.model = "usage-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(UsageProvider),
+                manifest,
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let mut request =
+            TaskRequest::from_objective("usage budget", workspace.path().to_path_buf());
+        request.budget = budget;
+        runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn cost_budget_stops_after_usage_exceeds_limit() {
+        let result = run_with_usage_budget(RunBudget {
+            max_cost_micros: Some(10),
+            ..RunBudget::default()
+        })
+        .await;
+        assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
+        assert!(result.answer.conclusion.contains("cost budget"));
+    }
+
+    #[tokio::test]
+    async fn token_budget_stops_after_usage_exceeds_limit() {
+        let result = run_with_usage_budget(RunBudget {
+            max_tokens: Some(10),
+            ..RunBudget::default()
+        })
+        .await;
+        assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
+        assert!(result.answer.conclusion.contains("token budget"));
     }
 }

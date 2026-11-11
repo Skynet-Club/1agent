@@ -1,15 +1,15 @@
 # Budget Policy — Evidence (2026-11-12)
 
 Status: **passed on this machine**  
-Scope: `budget::evaluate`, `budget::cost_per_verified_outcome` and
-`1agent budget-check`. This is a policy/CI helper; runtime enforcement is not
-wired yet.
+Scope: `budget::evaluate`, `budget::cost_per_verified_outcome`,
+`1agent budget-check`, and runtime enforcement through `RunBudget`.
 
 ## Commands
 
 ```bash
 cargo test budget --lib
 cargo test --test budget_check_cli
+cargo test cost_budget_stops token_budget_stops --lib
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -38,10 +38,15 @@ test result: ok. 2 passed; 0 failed
 - Exceeding any limit is `exceeded`, not allowed, with an explicit failure.
 - `cost_per_verified_outcome` is `None` for zero verified outcomes.
 - `budget-check` exits non-zero on an exceeded budget.
+- A run whose provider response exceeds `max_cost_micros` stops with
+  `StopReason::BudgetExhausted` and a cost-budget answer.
+- A run whose provider response exceeds `max_tokens` stops with
+  `StopReason::BudgetExhausted` and a token-budget answer.
 
 ## What this does not prove
 
-- That a live run stops when the budget is exceeded; runtime wiring is pending.
+- That every provider reports cost/tokens accurately; enforcement uses
+  provider-reported usage.
 - That the configured limits are appropriate; that is a product decision.
 - That cost reporting is complete; zero-cost calls may be unpriced.
 - Cross-platform behavior; the tests ran on Linux only.

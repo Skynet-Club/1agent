@@ -355,7 +355,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   failure, 80% is a warning, unset limits are unbounded.
   `cost_per_verified_outcome` returns `None` when nothing verified.
   `1agent budget-check` exposes it and exits non-zero on an exceeded budget.
-  This is a policy/CI helper; runtime enforcement is a later slice.
+  `RunBudget` also carries `max_cost_micros`/`max_tokens`; the runtime
+  accumulates provider-reported usage and stops with
+  `StopReason::BudgetExhausted` after a response exceeds either limit.
+  `1agent run --max-cost-micros/--max-tokens` sets them.
 - `cascade`: `simulate(root, edges, contained)` walks a directed failure graph;
   a contained node is affected but stops propagation. The report exposes
   `containment_rate_bps = contained / affected`, `cascade_depth` and
