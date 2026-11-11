@@ -295,6 +295,12 @@
   so the journal identifies the server that produced the result.
 - Tests: the MCP stdio test asserts both metadata fields
   (`cargo test tools::mcp --lib`).
+- Quiet-hours persistence: `onboard --quiet-hours HH:MM-HH:MM` writes a
+  `quiet_hours=` preference; `UserModel` exposes it as `quiet_hours`.
+  `1agent user-model` and the onboard JSON report include the window.
+- Tests: the user-model parsing test and one `onboard_cli` test cover the
+  window, text/JSON output and invalid input
+  (`cargo test user_model --lib`, `cargo test --test onboard_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.

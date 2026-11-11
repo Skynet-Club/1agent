@@ -231,7 +231,8 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
 - `UserModel` is a derived view over scoped memory records (ADR-0035). Besides
   preferences and boundaries it exposes `autonomy.<domain>` (`observe` /
   `suggest` / `act` / `auto`, default `suggest`), `voice` / `voice_mode`
-  (`operator` / `advisor` / `companion`, default `operator`) and
+  (`operator` / `advisor` / `companion`, default `operator`),
+  `quiet_hours=HH:MM-HH:MM` (optional, crosses midnight) and
   `consent:<kind>=allow|deny[@<retention_ms>]` (default allow). Each entry keeps
   its source memory id; forgotten or superseded records are ignored. Autonomy
   and consent are preferences, not grants: Authority/Policy/Approval still
@@ -298,8 +299,9 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `agent_card::verify_card`. The store is a trust anchor and must be protected
   like a keyring; it does not discover or fetch keys remotely.
 - `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
-  TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
-  `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.
+  TEXT --quiet-hours HH:MM-HH:MM` writes ordinary memory records
+  (`autonomy.<domain>=...`, `voice_mode=...`, `quiet_hours=...`,
+  `boundary: ...`) and prints the resulting `UserModel`.
   Invalid values fail before writing. Optional `--goal/--commitment` write a
   first goal and commitment to `GoalStore`; `inbox sync --goal-journal` can
   project an overdue commitment. `--import-file` reads plain text one memory

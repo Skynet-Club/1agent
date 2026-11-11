@@ -38,11 +38,13 @@ test result: ok. 3 passed; 0 failed
 - User-initiated work and explicit approval are not deferred.
 - Observe stays observe, and daytime act stays act.
 - Invalid windows (`07:00-07:00`, `24:00-07:00`, `bedtime`) exit non-zero.
+- Later: `onboard --quiet-hours 22:00-07:00` writes a preference and
+  `UserModel` exposes start=1320 and end=420.
 
 ## What this does not prove
 
 - That a scheduler wakes at the end of the window and runs deferred work.
-- That quiet hours are persisted in the user model or onboarding.
+- That the runtime automatically reads `UserModel.quiet_hours`.
 - Time-zone/DST correctness; the caller supplies minutes since local midnight.
 - That a channel honors `defer` by suppressing notifications.
 - Cross-platform behavior; tests ran on Linux only.
