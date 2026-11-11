@@ -313,6 +313,15 @@
   for compatibility but exposes the key in argv. Tests use the file path.
 - Tests: one `agent_card_cli` key-file test; `card_trust_cli` now signs from a
   file (`cargo test --test agent_card_cli`, `cargo test --test card_trust_cli`).
+- Verification store (ADR-0079): `VerificationStore` appends one report per
+  verification id, rejects duplicate ids/self-verification, reuses
+  `verification::summarize`, and counts clean Verified outcomes in a window.
+  `1agent verification record|summary` exposes it; `value-report
+  --verification-store` derives the verified count automatically and conflicts
+  with `--verified-outcomes`.
+- Tests: three verification-store unit tests plus one
+  `verification_store_cli` e2e test (`cargo test verification_store --lib`,
+  `cargo test --test verification_store_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
