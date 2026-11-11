@@ -43,11 +43,16 @@ test result: ok. 2 passed; 0 failed
   `needs_user`, and filters by the requested window.
 - `1agent away-digest` reads a real task-graph store created by `task-graph
   demo` and prints the digest as JSON or text.
+- `1agent repair-mark` records a human compensation on the demo's applied
+  effect; the evidence string carries the actor, `repair-plan
+  --require-clean` then succeeds, and repeated marks, wrong tickets, unknown
+  ids and empty evidence fail closed.
 
 ## What this does not prove
 
-- That the compensation was executed correctly; execution is out of scope for
-  this slice and still requires Authority/Policy/Approval.
+- That the compensation was executed correctly; `repair-mark` records a human
+  claim, and execution is out of scope for this slice and still requires
+  Authority/Policy/Approval.
 - That a real user finds the receipt sufficient; no user study was run.
 - That every side effect has a valid compensation string; this checks presence,
   not semantic correctness.
@@ -56,8 +61,9 @@ test result: ok. 2 passed; 0 failed
 ## Files
 
 - `src/repair.rs`
-- `src/main.rs` (`away-digest`)
-- `tests/away_digest_cli.rs`
+- `src/main.rs` (`away-digest`, `repair-plan`, `repair-mark`)
+- `tests/away_digest_cli.rs`, `tests/repair_plan_cli.rs`,
+  `tests/repair_mark_cli.rs`
 - `docs/adr/0038-trust-and-repair.md`
 - `docs/architecture.md`, `docs/features.md`, `docs/features.en.md`,
   `docs/claims.md`, `CHANGELOG.md`
