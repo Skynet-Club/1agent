@@ -38,6 +38,8 @@ test result: ok. 2 passed; 0 failed
 - Unknown actors and ungranted scopes are denied.
 - `intersect_scopes` returns a sorted, deduplicated intersection.
 - `team-check` exits non-zero on a denied decision and rejects invalid roles.
+- With `--audit-store`, both deny and allow verdicts are appended; the chain
+  verifies and records actor/action/scope/decision.
 
 ## What this does not prove
 

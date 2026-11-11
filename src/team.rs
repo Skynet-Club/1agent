@@ -44,6 +44,17 @@ impl TeamRole {
     }
 }
 
+impl TeamAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Approve => "approve",
+            Self::Manage => "manage",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TeamMember {

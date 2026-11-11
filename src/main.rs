@@ -647,6 +647,11 @@ enum Command {
         scope: String,
         #[arg(long)]
         granted_scope: Vec<String>,
+        /// Append the allow/deny verdict to an organization audit chain.
+        #[arg(long)]
+        audit_store: Option<PathBuf>,
+        #[arg(long, default_value = "actor")]
+        actor_id: String,
         #[arg(long)]
         json: bool,
     },
@@ -5919,6 +5924,8 @@ async fn main() -> Result<()> {
             action,
             scope,
             granted_scope,
+            audit_store,
+            actor_id,
             json,
         } => {
             let role = match role.trim().to_ascii_lowercase().as_str() {
@@ -5944,17 +5951,24 @@ async fn main() -> Result<()> {
                 }],
             };
             let verdict = first_principles_agent::team::authorize(&policy, "actor", action, &scope);
+            let decision = match verdict.decision {
+                first_principles_agent::team::TeamDecision::Allow => "allow",
+                first_principles_agent::team::TeamDecision::Deny => "deny",
+            };
+            if let Some(path) = audit_store {
+                let mut audit = first_principles_agent::org_audit::OrgAuditStore::open(path)?;
+                audit.append(
+                    current_time_ms(),
+                    &actor_id,
+                    action.as_str(),
+                    &scope,
+                    decision,
+                )?;
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&verdict)?);
             } else {
-                println!(
-                    "{} ({})",
-                    match verdict.decision {
-                        first_principles_agent::team::TeamDecision::Allow => "allow",
-                        first_principles_agent::team::TeamDecision::Deny => "deny",
-                    },
-                    verdict.reason
-                );
+                println!("{decision} ({})", verdict.reason);
             }
             if verdict.decision == first_principles_agent::team::TeamDecision::Deny {
                 anyhow::bail!("team check denied");
