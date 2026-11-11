@@ -5,7 +5,7 @@
 
 > **先问一句，再动手。**
 
-**本地优先、可审计、可解释的 Super-Agent 运行时。**
+**本地优先、可审计、可修复的 Agent 运行时；1.0.0 目标是 Super-Partner。**
 
 [![Status: R1 release candidate](https://img.shields.io/badge/status-R1%20release%20candidate-orange)](#current-status)
 [![Platform: Linux x86_64](https://img.shields.io/badge/platform-Linux%20x86__64-blue)](docs/ecosystem.md)
@@ -47,7 +47,7 @@
 - **交互式 TUI**：对话模式、`/` 命令抽屉、分类与最近命令、上下文滚动、复制、运行状态。
 - **Headless 运行**：`1agent run`，适合脚本、CI 和批处理。
 - **证据化任务**：任务图、Ticket、Mandate、审批、SideEffect、Report、Receipt。
-- **本地记忆**：四层记忆、scope/taint/TTL、加密 payload、软/硬遗忘。
+- **本地记忆与用户模型**：四层记忆、scope/taint/TTL、加密 payload、软/硬遗忘；`UserModel` 2.0 记录偏好、边界、自治档位、声音模式和记忆同意（`1agent user-model` 可查看）。
 - **技能生命周期**：SKILL.md、版本、扫描、静态评测、运行时 canary、回滚。
 - **长期目标**：Goal/Commitment、确定性 Attention 基础、个人上下文视图、DelegationProfile。
 - **自我总结与进化**：Reflection/Lesson、EvolutionProposal、Ledger、人工审批与回滚。
@@ -71,10 +71,10 @@
 
 | 版本 | 主题 | 目标窗口 | 核心结果 |
 |---|---|---|---|
-| **0.97.0** | Reliable Loop | 2026-12-22 | 长时程可靠闭环：流式输出、并行只读工具、增量 journal、崩溃恢复/断点续跑、验证门、memory MVP、沙箱、结果先行的回答契约 |
-| **0.98.0** | Real World | 2027-02-02 | 真实世界操作：浏览器写操作 / computer-use、MCP 扩展、技能学习、常驻 MVP |
-| **0.99.0** | Multi-Agent Organization | 2027-03-16 | 多 Agent 组织：Master/Worker 可靠性、成本治理、市场信任、外部审计准备 |
-| **1.0.0** | Trusted Super-Agent | 2027-05-11 | 可信 Super-Agent：外部审计、SDK/API、团队协作、跨平台、生态 |
+| **0.97.0** | Reliable Loop | 2026-12-22 | 长时程可靠闭环：流式输出、并行只读工具、增量 journal、崩溃恢复/断点续跑、验证门、memory MVP、沙箱、结果先行的回答契约；User Model 2.0、Trust & Repair、Value Report v0、跨平台适配层 |
+| **0.98.0** | Real World | 2027-02-02 | 真实世界操作：浏览器写操作 / computer-use、MCP 扩展、技能学习、常驻 MVP；Agent Inbox、桌面/聊天入口、自治档位、伙伴声音、跨平台 Alpha |
+| **0.99.0** | Multi-Agent Organization | 2027-03-16 | 多 Agent 组织：Master/Worker 可靠性、成本治理、级联遏制、团队共享伙伴、外部审计准备、跨平台 Beta |
+| **1.0.0** | Trusted Super-Partner | 2027-05-11 | 可信 Super-Partner：用户模型、Agent Inbox、外部审计、SDK/API、团队协作、跨平台 GA、生态 |
 
 日期是目标窗口，不是无条件承诺；**指标门未过，不发布，不宣称 Super-Agent**。
 

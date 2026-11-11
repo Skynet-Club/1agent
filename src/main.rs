@@ -244,6 +244,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    UserModel {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        key: PathBuf,
+        #[arg(long, default_value = "default")]
+        bot_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Platform {
+        #[arg(long)]
+        json: bool,
+    },
     Dashboard {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -2312,6 +2328,71 @@ async fn main() -> Result<()> {
                 println!("告警：{} 条", alert_records.len());
                 for (kind, count) in &alert_kinds {
                     println!("- {kind}: {count}");
+                }
+            }
+        }
+        Command::UserModel {
+            journal,
+            payloads,
+            key,
+            bot_id,
+            json,
+        } => {
+            let service = first_principles_agent::MemoryService::open(journal, payloads, &key)?;
+            let scope = first_principles_agent::MemoryScope::bot(bot_id);
+            let model = service.build_user_model("local-user", &scope);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&model)?);
+            } else {
+                println!("1Agent User Model");
+                println!("scope: {}", scope.scope_id());
+                println!("voice: {}", model.voice_mode().as_str());
+                println!("preferences: {}", model.preferences.len());
+                for (key, preference) in &model.preferences {
+                    println!("- {key} = {}", preference.value);
+                }
+                println!("boundaries: {}", model.boundaries.len());
+                for boundary in &model.boundaries {
+                    println!("- {}", boundary.rule);
+                }
+                println!("autonomy: {}", model.autonomy.len());
+                for (domain, entry) in &model.autonomy {
+                    println!("- {domain}: {}", entry.level.as_str());
+                }
+                println!("consent:");
+                for kind in [
+                    first_principles_agent::MemoryKind::Fact,
+                    first_principles_agent::MemoryKind::Preference,
+                    first_principles_agent::MemoryKind::Decision,
+                    first_principles_agent::MemoryKind::Project,
+                    first_principles_agent::MemoryKind::Feedback,
+                    first_principles_agent::MemoryKind::Relationship,
+                    first_principles_agent::MemoryKind::SkillHint,
+                ] {
+                    if let Some(rule) = model.consent_for(kind) {
+                        println!(
+                            "- {:?}: allow={} retention_ms={:?}",
+                            kind, rule.allow, rule.retention_ms
+                        );
+                    }
+                }
+            }
+        }
+        Command::Platform { json } => {
+            let report = first_principles_agent::platform::report();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("1Agent Platform");
+                println!("platform: {}", report.platform.as_str());
+                println!("os: {} arch: {}", report.os, report.arch);
+                for capability in &report.capabilities {
+                    println!(
+                        "- {}: {} ({})",
+                        capability.name,
+                        capability.status.as_str(),
+                        capability.note
+                    );
                 }
             }
         }

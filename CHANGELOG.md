@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — 0.97 Super-Partner groundwork
+
+- `UserModel` 2.0 (ADR-0035): derived view now carries per-domain autonomy
+  (`observe`/`suggest`/`act`/`auto`), voice mode
+  (`operator`/`advisor`/`companion`) and memory consent
+  (`consent:<kind>=allow|deny[@<retention_ms>]`). Defaults are safe: `suggest`,
+  `operator`, allow; forgotten/superseded records never grant more.
+- New `1agent user-model --journal ... --payloads ... --key ... --bot-id ...`
+  command prints the relationship view as JSON or human-readable text.
+- Tests: seven domain tests plus two CLI e2e tests
+  (`cargo test user_model --lib`, `cargo test --test user_model_cli`).
+- Platform capability registry (ADR-0036): `1agent platform [--json]` reports
+  `verified` / `degraded` / `unsupported` / `untested` per capability. Linux
+  core paths are verified; macOS/Windows/other are all `untested` and are not
+  claimed as supported.
+- Tests: three platform tests plus two CLI e2e tests
+  (`cargo test platform --lib`, `cargo test --test platform_cli`).
+
 ## 0.96.1 - 2026-11-11
 
 TUI, context-budgeting and prompt-library update on the R1 candidate. This is a

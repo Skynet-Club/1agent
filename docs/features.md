@@ -65,7 +65,7 @@
 - scope、source、taint、TTL、valid_until；
 - recall、soft forget、hard forget；
 - 加密 payload（per-record DEK + per-scope KEK）；
-- UserModel；
+- UserModel（偏好/边界/自治档位/声音/记忆同意；`1agent user-model` 可查看）；
 - 记忆内容不写入 journal 正文，只记录必要元数据/摘要。
 
 ### 2.5 技能（可用，RC）
@@ -116,6 +116,7 @@
 - `init` / `doctor` / `export` / `restore` / `upgrade` / `uninstall`；
 - key escrow / restore；
 - Linux 可复现包、SHA256SUMS、provenance、安装脚本；Windows 仅内部构建，不发布；
+- 平台能力注册表：`1agent platform [--json]` 输出 `verified` / `degraded` / `unsupported` / `untested`；macOS/Windows 当前均为 `untested`，不宣称支持；
 - MIT 许可证和第三方 notices。
 
 ## 3. 明确未实现
