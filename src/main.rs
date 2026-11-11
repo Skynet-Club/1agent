@@ -1168,6 +1168,12 @@ enum InboxCommand {
 
 #[derive(Subcommand)]
 enum SkillCommand {
+    Scan {
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Export {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2928,6 +2934,44 @@ async fn main() -> Result<()> {
             }
         },
         Command::Skill { command } => match command {
+            SkillCommand::Scan { path, json } => {
+                let source = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                match first_principles_agent::scan_markdown(&source) {
+                    Ok(manifest) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "ok": true,
+                                    "name": manifest.name,
+                                    "version": manifest.version,
+                                    "content_sha256": manifest.content_sha256
+                                }))?
+                            );
+                        } else {
+                            println!(
+                                "ok: {}@{} sha256={}",
+                                manifest.name, manifest.version, manifest.content_sha256
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "ok": false,
+                                    "error": error.to_string()
+                                }))?
+                            );
+                        } else {
+                            eprintln!("rejected: {error}");
+                        }
+                        anyhow::bail!("skill scan rejected");
+                    }
+                }
+            }
             SkillCommand::Export {
                 store,
                 out,

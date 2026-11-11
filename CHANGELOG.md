@@ -96,6 +96,12 @@
   A2A HTTP service.
 - Tests: three agent-card unit tests plus two `agent_card_cli` e2e tests
   (`cargo test agent_card --lib`, `cargo test --test agent_card_cli`).
+- Skill scan (ADR-0048): `1agent skill scan --path SKILL.md [--json]` validates
+  frontmatter and runs the registry scan without registering or executing the
+  skill. Adds instruction-override markers (`disregard previous instructions`,
+  `reveal your system prompt`, `print your instructions`, `jailbreak`).
+- Tests: two `skill_scan_cli` e2e tests for a safe skill, prompt injection and
+  malformed frontmatter (`cargo test --test skill_scan_cli`).
 
 ## 0.96.1 - 2026-11-11
 
