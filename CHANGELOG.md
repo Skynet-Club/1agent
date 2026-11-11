@@ -355,6 +355,15 @@
 - Tests: `quiet_hours_ms_until_end_tracks_the_boundary` covers the overnight
   boundary, a 30-second remainder and a fixed offset (`cargo test autonomy
   --lib`).
+- Multi-target inbox notifications: `inbox-notify --target FORMAT=URL` may
+  repeat (mutually exclusive with `--webhook`), letting one run fan out to
+  several webhooks with per-target generic/Slack/Discord formats. Targets share
+  one watermark; a later failure stops the fan-out without advancing it, and
+  the caller's retry can duplicate one message to earlier targets. One receipt
+  per target is appended on success.
+- Tests: two `inbox_notify_targets_cli` e2e tests cover per-target payload
+  formats, shared-watermark suppression and partial-failure state retention
+  (`cargo test --test inbox_notify_targets_cli`).
 - Webhook redirect hardening: the inbox notifier, alert webhook and MCP HTTP
   client no longer follow redirects, so a loopback/HTTPS endpoint cannot bounce
   a request to a private/metadata host.
