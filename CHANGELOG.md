@@ -252,6 +252,12 @@
   all-time local verified/hacked/rejected/bps summary.
 - Tests: one `digest_cli` e2e test covers a hacked report
   (`cargo test --test digest_cli`).
+- Repair runbook: `repair::build_runbook` maps side effects to plans, errors
+  and compensate/manual counts; `1agent repair-plan --store ...
+  [--require-clean]` exposes it and exits non-zero while repairs remain.
+  Execution still requires Authority/Policy/Approval.
+- Tests: one repair unit test plus two `repair_plan_cli` e2e tests
+  (`cargo test repair --lib`, `cargo test --test repair_plan_cli`).
 - Onboarding context import (ADR-0072): `onboard --import-file PATH
   --import-kind fact|preference|project|feedback` writes one memory per
   non-empty, non-comment line. Files must be regular, not symlinks, ≤256 KiB,

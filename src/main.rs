@@ -315,6 +315,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    RepairPlan {
+        #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
+        store: PathBuf,
+        /// Exit non-zero when any compensation, manual action or error remains.
+        #[arg(long)]
+        require_clean: bool,
+        #[arg(long)]
+        json: bool,
+    },
     AwayDigest {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -3322,6 +3331,41 @@ async fn main() -> Result<()> {
                     report.alerts,
                     report.pending_decisions
                 );
+            }
+        }
+        Command::RepairPlan {
+            store,
+            require_clean,
+            json,
+        } => {
+            let service = first_principles_agent::TaskGraphService::open_read_only(&store)
+                .with_context(|| format!("cannot open {}", store.display()))?;
+            let snapshot = service.snapshot();
+            let runbook = first_principles_agent::repair::build_runbook(&snapshot.side_effects);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&runbook)?);
+            } else {
+                println!("1Agent Repair Runbook");
+                println!(
+                    "compensate={} manual={} errors={} clean={}",
+                    runbook.compensate,
+                    runbook.manual,
+                    runbook.errors.len(),
+                    runbook.clean
+                );
+                for plan in &runbook.plans {
+                    println!(
+                        "- {} {:?}: {}",
+                        plan.side_effect_id, plan.action, plan.reason
+                    );
+                    println!("  {}", plan.user_receipt);
+                }
+                for error in &runbook.errors {
+                    println!("- error: {error}");
+                }
+            }
+            if require_clean && !runbook.clean {
+                anyhow::bail!("repair runbook is not clean");
             }
         }
         Command::AwayDigest {

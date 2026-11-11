@@ -60,7 +60,7 @@
 - 未授权动作在工具执行前拒绝；
 - 独立验证器与 hack-verifiable 验收：执行者≠验证者；public 通过但 hidden 失败记为 `hacked`，不计 clean；输出 `hacked_resolved_bps`；
 - 验证记录库：`1agent verification record --store PATH --verification-id ID --run-id RUN --input INPUT.json [--inbox-store PATH]` 运行 verify 并 append+sync；Hacked/Rejected 可投影为 `verification:<id>` review 项；`verification summary` 输出 verified/hacked/rejected/resolved 与 `hacked_resolved_bps`；重复 id/自验证拒绝；`value-report --verification-store` 自动统计窗口内 clean Verified；
-- Trust & Repair：副作用账本投影为 applied / compensated / failed / pending / needs_user；可逆副作用必须有补偿，否则失败关闭；`1agent away-digest` 查看“我不在时发生了什么”；
+- Trust & Repair：副作用账本投影为 applied / compensated / failed / pending / needs_user；可逆副作用必须有补偿，否则失败关闭；`1agent away-digest` 查看“我不在时发生了什么”；`1agent repair-plan [--require-clean]` 输出补偿/人工/错误清单，存在未完成修复时非零退出；
 - 价值周报 v0：`1agent value-report` 汇总 completed / blocked / failed / cancelled、tokens/cost、工具调用/失败、alerts、open inbox 与 pending_decisions；`--verified-outcomes N` 或 `--verification-store PATH` 输出 cost per verified outcome（后者自动统计窗口内 clean Verified 并附 verification summary：verified/hacked/rejected/resolved/bps，两者互斥）；只报可复现结果，不编造“省时”；
 - 伙伴声音：operator / advisor / companion；`--voice-mode` 选择；只改变说话方式，不改变证据/授权/动作规则；companion 不谄媚、不角色扮演；
 - Agent Inbox：notify / question / review 三类；append-only JSONL 快照；snooze、approve/reject/answer/dismiss 状态机；终端状态不可再迁移；重复 ID、空字段、无效 snooze 失败关闭；`1agent inbox add|list|resolve|snooze|sync`；attention/alerts/handoff 纯投影；`sync` 按 `item_id` 去重，默认 dry-run，`--apply` 写入，不覆盖已有状态；`resolve handoff:<id> approved --handoff-store PATH --actor NAME` 会先接受交接再关闭 inbox 项（错 actor/终态失败关闭）；

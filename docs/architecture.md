@@ -325,8 +325,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   compensation fails closed, and an irreversible action always requires a
   human. `build_away_digest` projects the side-effect ledger into applied,
   compensated, failed, pending, `needs_user` and receipts; `1agent
-  away-digest` exposes the view. This slice plans compensation; executing it
-  still requires Authority/Policy/Approval.
+  away-digest` exposes the view. `build_runbook` maps the side-effect ledger
+  into plans, errors and compensate/manual counts; `1agent repair-plan
+  --require-clean` exits non-zero while any compensation or manual action
+  remains. This slice plans compensation; executing it still requires
+  Authority/Policy/Approval.
 - `value_report`: `ValueReport` counts runs by stop reason, tokens/cost, tool
   calls/failures, alerts and pending decisions over a bounded window, plus
   cost per completed outcome and the open inbox queue size. When the caller
