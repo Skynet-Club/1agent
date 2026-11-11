@@ -195,6 +195,13 @@
   `1agent autonomy --quiet ... --now ... [--user-initiated]` exposes it.
 - Tests: two autonomy unit tests plus one `autonomy_cli` e2e test
   (`cargo test autonomy --lib`, `cargo test --test autonomy_cli`).
+- False-alarm budget (ADR-0063): `alarm_budget::evaluate` delivers ordinary
+  alerts while the delivery budget and false-alarm ceiling hold; otherwise it
+  moves them to a digest. Critical alerts bypass both. `1agent alarm-budget`
+  exposes it. Policy only; delivery, persistence and acknowledgement are
+  separate.
+- Tests: five alarm-budget unit tests plus two `alarm_budget_cli` e2e tests
+  (`cargo test alarm_budget --lib`, `cargo test --test alarm_budget_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

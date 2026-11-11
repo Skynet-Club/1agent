@@ -246,6 +246,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   minutes until it ends; user-initiated work and explicit approval are never
   deferred. This is a preference policy; Authority/Policy/ExecutionGate still
   enforce execution.
+- `alarm_budget`: given the delivery window counts, an ordinary alert is
+  delivered while the budget and false-alarm ceiling hold, otherwise moved to
+  a digest. Alerts at or above `critical_urgency` bypass both. This module
+  does not send, persist or acknowledge alerts.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;
