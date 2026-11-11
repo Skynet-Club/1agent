@@ -331,6 +331,10 @@
   also includes the window's `verified/hacked/rejected/resolved/
   hacked_resolved_bps` summary. `summary_between` filters by record time.
 - Tests: the `verification_store_cli` test asserts the summary fields.
+- Cross-target gate script: `scripts/cross-check.sh` requires the Windows GNU
+  `-D warnings` all-targets check and attempts macOS arm64, reporting a host
+  C-toolchain block unless `--require-macos` is passed.
+- Evidence: `docs/evidence/cross-check-windows-2026-11-12.md`.
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
