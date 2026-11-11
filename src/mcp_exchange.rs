@@ -119,8 +119,8 @@ pub async fn exchange(config: &TokenExchangeConfig) -> Result<ExchangedToken, To
     let access_token = value
         .get("access_token")
         .and_then(serde_json::Value::as_str)
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| TokenExchangeError::Response("access_token is missing".into()))?;
+        .filter(|token| !token.trim().is_empty() && !token.chars().any(char::is_whitespace))
+        .ok_or_else(|| TokenExchangeError::Response("access_token is missing or invalid".into()))?;
     let token_type = value
         .get("token_type")
         .and_then(serde_json::Value::as_str)

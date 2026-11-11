@@ -459,9 +459,10 @@
   refreshes proactively within 30 seconds of expiry and re-exchanges once on a
   401; a retry budget and concurrent-refresh deduplication are not
   implemented.
-- Tests: four `mcp_token_exchange_cli` e2e tests cover form fields, 0600
+- Tests: six `mcp_token_exchange_cli` e2e tests cover form fields, 0600
   output, non-disclosure, missing env, insecure endpoint, wrong type,
-  excessive TTL, partial client credentials, redirect refusal and no-overwrite
+  whitespace-containing token, excessive TTL, partial client credentials,
+  redirect refusal, issuer discovery and no-overwrite
   (`cargo test --test mcp_token_exchange_cli`).
 - MCP bearer-token files: `McpServerConfig` accepts `bearer_token_file` as an
   alternative to `bearer_token_env` (never both). The file must be a regular
