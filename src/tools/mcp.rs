@@ -305,29 +305,19 @@ impl McpClient {
                 loop {
                     let line = {
                         let mut stdout = stdout.lock().await;
-                        let mut line = String::new();
-                        let read = tokio::time::timeout(self.timeout, stdout.read_line(&mut line))
-                            .await
-                            .map_err(|_| ToolError::TimedOut)?
-                            .map_err(|error| {
-                                ToolError::Failed(format!(
-                                    "cannot read from MCP server '{}': {error}",
-                                    self.server_name
-                                ))
-                            })?;
-                        if read == 0 {
-                            return Err(ToolError::Failed(format!(
+                        read_line_capped(
+                            &mut *stdout,
+                            MAX_RESPONSE_BYTES,
+                            self.timeout,
+                            &self.server_name,
+                        )
+                        .await?
+                        .ok_or_else(|| {
+                            ToolError::Failed(format!(
                                 "MCP server '{}' closed stdout",
                                 self.server_name
-                            )));
-                        }
-                        if line.len() > MAX_RESPONSE_BYTES {
-                            return Err(ToolError::Failed(format!(
-                                "MCP server '{}' response exceeds {MAX_RESPONSE_BYTES} bytes",
-                                self.server_name
-                            )));
-                        }
-                        line
+                            ))
+                        })?
                     };
                     let value: Value = serde_json::from_str(&line).map_err(|error| {
                         ToolError::Failed(format!(
@@ -437,6 +427,47 @@ impl McpClient {
         self.request("tools/call", json!({"name": name, "arguments": arguments}))
             .await
     }
+}
+
+async fn read_line_capped<R>(
+    reader: &mut R,
+    max_bytes: usize,
+    timeout: Duration,
+    server: &str,
+) -> Result<Option<String>, ToolError>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let mut bytes = Vec::new();
+    loop {
+        let available = tokio::time::timeout(timeout, reader.fill_buf())
+            .await
+            .map_err(|_| ToolError::TimedOut)?
+            .map_err(|error| {
+                ToolError::Failed(format!("cannot read from MCP server '{server}': {error}"))
+            })?;
+        if available.is_empty() {
+            if bytes.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(available.len(), |position| position + 1);
+        if bytes.len().saturating_add(take) > max_bytes {
+            return Err(ToolError::Failed(format!(
+                "MCP server '{server}' response exceeds {max_bytes} bytes"
+            )));
+        }
+        bytes.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if newline.is_some() {
+            break;
+        }
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| ToolError::Failed(format!("MCP server '{server}' returned non-UTF-8 output")))
 }
 
 async fn read_http_body(
@@ -871,6 +902,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome.content, "echo:hello");
+    }
+
+    #[tokio::test]
+    async fn capped_line_reader_bounds_memory() {
+        let data = b"{\"a\":1}\nrest";
+        let mut reader = tokio::io::BufReader::new(&data[..]);
+        let line = read_line_capped(&mut reader, 64, Duration::from_secs(1), "fake")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(line, "{\"a\":1}\n");
+
+        let data = b"123456\n";
+        let mut small = tokio::io::BufReader::new(&data[..]);
+        assert!(
+            read_line_capped(&mut small, 3, Duration::from_secs(1), "fake")
+                .await
+                .is_err()
+        );
     }
 
     #[test]
