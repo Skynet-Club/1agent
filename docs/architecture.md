@@ -256,8 +256,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   items. Each mutation writes a full snapshot; replay keeps the latest state.
   `open_sorted` returns open or due-snoozed items ordered review → question →
   notify, then due time. Terminal statuses cannot transition; duplicate ids,
-  empty fields and invalid snoozes fail closed. This is the domain/store slice;
-  CLI/TUI actions and projections follow.
+  empty fields and invalid snoozes fail closed. `1agent inbox
+  add|list|resolve|snooze` is the local operator surface. `project_attention`
+  maps overdue/missed commitments to `review` and due items to `notify`;
+  `project_alerts` maps failed/error alerts to `review`. Projections are pure;
+  `inbox sync` is the next slice.
 
 ## Security behavior
 
