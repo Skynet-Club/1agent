@@ -311,6 +311,12 @@
 - Agent Card now discloses the trust-center capability as verified.
 - Tests: the agent-card unit test asserts it
   (`cargo test agent_card --lib`).
+- Handoff cancellation (ADR-0068): `handoff cancel --id ... --actor ...
+  [--reason ...]` lets the sender or addressee cancel an open handoff. A
+  cancelled handoff is terminal and cannot be accepted; the list shows it and
+  `--open` excludes it.
+- Tests: two handoff unit tests plus one `handoff_cli` cancel test
+  (`cargo test handoff --lib`, `cargo test --test handoff_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

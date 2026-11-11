@@ -1644,6 +1644,18 @@ enum HandoffCommand {
         #[arg(long)]
         json: bool,
     },
+    Cancel {
+        #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long, default_value = "")]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
     List {
         #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
         store: PathBuf,
@@ -5913,6 +5925,9 @@ async fn main() -> Result<()> {
                     status: first_principles_agent::handoff::HandoffStatus::Open,
                     accepted_ms: None,
                     accepted_by: None,
+                    cancelled_ms: None,
+                    cancelled_by: None,
+                    cancelled_reason: None,
                 };
                 let handoff = store.create(handoff)?;
                 if json {
@@ -5936,6 +5951,21 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(handoff)?);
                 } else {
                     println!("accepted {} by {}", handoff.id, actor);
+                }
+            }
+            HandoffCommand::Cancel {
+                store,
+                id,
+                actor,
+                reason,
+                json,
+            } => {
+                let mut store = first_principles_agent::handoff::HandoffStore::open(store)?;
+                let handoff = store.cancel(&id, &actor, &reason, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(handoff)?);
+                } else {
+                    println!("cancelled {} by {}", handoff.id, actor);
                 }
             }
             HandoffCommand::List {

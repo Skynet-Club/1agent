@@ -35,6 +35,7 @@ pub enum HandoffError {
 pub enum HandoffStatus {
     Open,
     Accepted,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -54,6 +55,12 @@ pub struct Handoff {
     pub accepted_ms: Option<u128>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepted_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancelled_ms: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancelled_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancelled_reason: Option<String>,
 }
 
 #[derive(Debug)]
@@ -95,6 +102,8 @@ impl HandoffStore {
         if handoff.status != HandoffStatus::Open
             || handoff.accepted_ms.is_some()
             || handoff.accepted_by.is_some()
+            || handoff.cancelled_ms.is_some()
+            || handoff.cancelled_by.is_some()
         {
             return Err(HandoffError::Invalid(
                 "a new handoff must be open and unaccepted".into(),
@@ -130,6 +139,36 @@ impl HandoffStore {
         accepted.accepted_by = Some(actor.into());
         self.append(&accepted)?;
         self.entries.insert(id.into(), accepted);
+        Ok(self.entries.get(id).expect("handoff is present"))
+    }
+
+    pub fn cancel(
+        &mut self,
+        id: &str,
+        actor: &str,
+        reason: &str,
+        now_ms: u128,
+    ) -> Result<&Handoff, HandoffError> {
+        let Some(existing) = self.entries.get(id).cloned() else {
+            return Err(HandoffError::NotFound);
+        };
+        if existing.from != actor && existing.to != actor {
+            return Err(HandoffError::Forbidden);
+        }
+        if existing.status != HandoffStatus::Open {
+            return Err(HandoffError::Terminal);
+        }
+        let mut cancelled = existing;
+        cancelled.status = HandoffStatus::Cancelled;
+        cancelled.cancelled_ms = Some(now_ms);
+        cancelled.cancelled_by = Some(actor.into());
+        cancelled.cancelled_reason = if reason.trim().is_empty() {
+            None
+        } else {
+            Some(reason.trim().into())
+        };
+        self.append(&cancelled)?;
+        self.entries.insert(id.into(), cancelled);
         Ok(self.entries.get(id).expect("handoff is present"))
     }
 
@@ -214,6 +253,9 @@ mod tests {
             status: HandoffStatus::Open,
             accepted_ms: None,
             accepted_by: None,
+            cancelled_ms: None,
+            cancelled_by: None,
+            cancelled_reason: None,
         }
     }
 
@@ -245,6 +287,44 @@ mod tests {
         store.accept("h1", "bob", 3).unwrap();
         assert!(matches!(
             store.accept("h1", "bob", 4),
+            Err(HandoffError::Terminal)
+        ));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn either_party_can_cancel_an_open_handoff_once() {
+        let path = temp_store("cancel");
+        let mut store = HandoffStore::open(&path).unwrap();
+        store.create(handoff("h1")).unwrap();
+        let cancelled = store.cancel("h1", "bob", "not needed", 5).unwrap();
+        assert_eq!(cancelled.status, HandoffStatus::Cancelled);
+        assert_eq!(cancelled.cancelled_by.as_deref(), Some("bob"));
+        assert_eq!(cancelled.cancelled_reason.as_deref(), Some("not needed"));
+        assert!(cancelled.accepted_by.is_none());
+        assert!(matches!(
+            store.accept("h1", "bob", 6),
+            Err(HandoffError::Terminal)
+        ));
+        assert!(matches!(
+            store.cancel("h1", "alice", "", 7),
+            Err(HandoffError::Terminal)
+        ));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn strangers_cannot_cancel_and_accepted_handoffs_are_terminal() {
+        let path = temp_store("cancel-forbidden");
+        let mut store = HandoffStore::open(&path).unwrap();
+        store.create(handoff("h1")).unwrap();
+        assert!(matches!(
+            store.cancel("h1", "mallory", "", 5),
+            Err(HandoffError::Forbidden)
+        ));
+        store.accept("h1", "bob", 6).unwrap();
+        assert!(matches!(
+            store.cancel("h1", "alice", "", 7),
             Err(HandoffError::Terminal)
         ));
         std::fs::remove_file(&path).ok();

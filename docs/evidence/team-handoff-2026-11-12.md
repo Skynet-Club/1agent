@@ -37,6 +37,9 @@ test result: ok. 2 passed; 0 failed
   are rejected.
 - Listing is ordered by creation time and can filter with `--open` or
   `--to NAME`.
+- The sender or addressee can cancel an open handoff with a reason; a
+  cancelled handoff is terminal, cannot be accepted, and is excluded by
+  `--open`.
 - The CLI create/accept/list flow matches the store semantics.
 
 ## What this does not prove
