@@ -21,7 +21,7 @@ use crate::journal::{
     Journal, JournalEventKind, ProviderFailure, ResumablePrefix, RetryOutcome, RetryTiming,
     find_resumable_prefix, read_events,
 };
-use crate::provider::{ModelProvider, ProviderError, agent_system_prompt};
+use crate::provider::{ModelProvider, ProviderError, agent_system_prompt_for};
 use crate::provider_health::ProviderHealth;
 use crate::router::{
     PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
@@ -60,6 +60,7 @@ pub struct AgentRuntime {
     provider_health: Option<Arc<Mutex<ProviderHealth>>>,
     alerts: Option<Arc<Mutex<AlertLog>>>,
     alert_webhook: Option<Arc<AlertWebhook>>,
+    voice_mode: crate::user_model::VoiceMode,
 }
 
 struct AnswerRepairContext<'a> {
@@ -109,7 +110,13 @@ impl AgentRuntime {
             provider_health: None,
             alerts: None,
             alert_webhook: None,
+            voice_mode: crate::user_model::VoiceMode::Operator,
         }
+    }
+
+    pub fn with_voice_mode(mut self, mode: crate::user_model::VoiceMode) -> Self {
+        self.voice_mode = mode;
+        self
     }
 
     pub fn with_provider_health(mut self, health: Arc<Mutex<ProviderHealth>>) -> Self {
@@ -698,7 +705,9 @@ impl AgentRuntime {
                 Duration::from_millis(prefix.checkpoint.elapsed_ms),
             )
         } else {
-            let mut initial_messages = vec![ModelMessage::system(agent_system_prompt())];
+            let mut initial_messages = vec![ModelMessage::system(agent_system_prompt_for(
+                self.voice_mode,
+            ))];
             if !request.known_facts.is_empty() {
                 initial_messages.push(ModelMessage::system(format!(
                     "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",

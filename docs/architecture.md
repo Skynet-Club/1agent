@@ -247,6 +247,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   calls/failures, alerts and pending decisions over a bounded window, plus
   cost per completed outcome. `1agent value-report` exposes it. v0 does not
   invent a time-saved estimate.
+- Voice modes: `voice::with_voice` appends an `operator` / `advisor` /
+  `companion` block to the base system prompt. `AgentRuntime` defaults to
+  `operator`; `with_voice_mode` selects another mode and `1agent run
+  --voice-mode` exposes it. The block changes how the answer speaks, not the
+  evidence, authority or action rules.
 
 ## Security behavior
 
