@@ -100,6 +100,45 @@ pub fn plan_repair(effect: &SideEffect) -> Result<RepairPlan, RepairError> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct RepairRunbook {
+    pub plans: Vec<RepairPlan>,
+    pub errors: Vec<String>,
+    pub compensate: usize,
+    pub manual: usize,
+    pub clean: bool,
+}
+
+pub fn build_runbook(effects: &[SideEffect]) -> RepairRunbook {
+    let mut plans = Vec::new();
+    let mut errors = Vec::new();
+    for effect in effects {
+        match plan_repair(effect) {
+            Ok(plan) => plans.push(plan),
+            Err(error) => {
+                errors.push(format!("{}: {error}", effect.side_effect_id));
+            }
+        }
+    }
+    let compensate = plans
+        .iter()
+        .filter(|plan| plan.action == RepairAction::Compensate)
+        .count();
+    let manual = plans
+        .iter()
+        .filter(|plan| plan.action == RepairAction::Manual)
+        .count();
+    let clean = plans.iter().all(|plan| plan.action == RepairAction::None) && errors.is_empty();
+    RepairRunbook {
+        plans,
+        errors,
+        compensate,
+        manual,
+        clean,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct TrustReceipt {
     pub side_effect_id: String,
     pub action: String,
@@ -288,6 +327,29 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(failed.action, RepairAction::Manual);
+    }
+
+    #[test]
+    fn runbook_counts_actions_and_fails_closed_on_missing_compensation() {
+        let effects = vec![
+            effect("planned", SideEffectStatus::Planned, true, None, 10),
+            effect(
+                "compensate",
+                SideEffectStatus::Applied,
+                true,
+                Some("rm a"),
+                10,
+            ),
+            effect("manual", SideEffectStatus::Applied, false, None, 10),
+            effect("broken", SideEffectStatus::Applied, true, None, 10),
+        ];
+        let runbook = build_runbook(&effects);
+        assert_eq!(runbook.plans.len(), 3);
+        assert_eq!(runbook.errors.len(), 1);
+        assert_eq!(runbook.compensate, 1);
+        assert_eq!(runbook.manual, 1);
+        assert!(!runbook.clean);
+        assert!(build_runbook(&[]).clean);
     }
 
     #[test]

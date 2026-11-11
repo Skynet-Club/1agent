@@ -31,9 +31,13 @@ states, not just execution states.
    into applied, compensated, failed, pending, `needs_user` and receipts.
 5. `1agent away-digest --store ... [--since-ms ...] [--until-ms ...] [--json]`
    exposes the view. Default window is the last 24 hours.
-6. This slice **plans** compensation; it does not execute it. Execution must
+6. `build_runbook(effects)` returns plans, errors and compensate/manual counts;
+   `clean` is true only when every plan is `none` and there are no errors.
+7. `1agent repair-plan --store ... [--require-clean] [--json]` exposes the
+   runbook; `--require-clean` exits non-zero while any repair remains.
+8. This slice **plans** compensation; it does not execute it. Execution must
    still pass Authority/Policy/Approval and is a later increment.
-7. Repair is not a new source of truth: it is a projection over the side-effect
+9. Repair is not a new source of truth: it is a projection over the side-effect
    ledger, so it can be rebuilt from replay.
 
 ## Consequences
@@ -49,9 +53,11 @@ states, not just execution states.
 ```bash
 cargo test repair --lib
 cargo test --test away_digest_cli
+cargo test --test repair_plan_cli
 ```
 
 The unit tests cover planned/compensated, reversible compensation,
 missing compensation, irreversible manual review, failed cleanup, window
-filtering and receipt fields. The CLI test is added when a task-graph fixture
-with side effects is available.
+filtering, receipt fields and the runbook counts. The repair-plan CLI test
+covers an empty clean store and a corrupt store; a task-graph fixture with
+side effects is still needed for a non-clean CLI case.
