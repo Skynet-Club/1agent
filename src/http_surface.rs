@@ -34,6 +34,8 @@ pub enum HttpSurfaceError {
     Unauthorized,
     #[error("http surface json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("http surface trust center: {0}")]
+    Trust(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,6 +237,18 @@ pub fn read_http_request(
     parse_http_request(&bytes, max_body)
 }
 
+fn trust_disclosure() -> Result<crate::trust_center::TrustDisclosure, HttpSurfaceError> {
+    crate::trust_center::build_disclosure(
+        env!("CARGO_PKG_VERSION"),
+        now_ms(),
+        None,
+        None,
+        None,
+        Vec::new(),
+    )
+    .map_err(|error| HttpSurfaceError::Trust(error.to_string()))
+}
+
 pub fn handle_http(
     request: &HttpRequest,
     service: &mut SurfaceService,
@@ -254,6 +268,18 @@ pub fn handle_http(
             200,
             &serde_json::to_value(crate::agent_card::build_card(env!("CARGO_PKG_VERSION")))?,
         )?),
+        ("GET", "/v0/trust-center") => {
+            let disclosure = trust_disclosure()?;
+            Ok(HttpResponse::json(200, &serde_json::to_value(disclosure)?)?)
+        }
+        ("GET", "/v0/trust-center.html") => {
+            let disclosure = trust_disclosure()?;
+            Ok(HttpResponse {
+                status: 200,
+                content_type: "text/html; charset=utf-8".into(),
+                body: crate::trust_center::render_html(&disclosure).into_bytes(),
+            })
+        }
         ("GET", "/v0/events") => Ok(HttpResponse::error(
             501,
             SurfaceError::new(
@@ -481,6 +507,11 @@ fn error_response(error: HttpSurfaceError) -> HttpResponse {
             SurfaceErrorCode::Internal,
             format!("json error: {error}"),
         ),
+        HttpSurfaceError::Trust(error) => (
+            500,
+            SurfaceErrorCode::Internal,
+            format!("trust center error: {error}"),
+        ),
     };
     HttpResponse::error(status, SurfaceError::new(code, message, false)).unwrap_or_else(|_| {
         HttpResponse {
@@ -584,6 +615,38 @@ mod tests {
             assert_eq!(card["name"], "1Agent");
             assert!(!card["capabilities"].as_array().unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn handler_serves_the_trust_center_without_bearer() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut service = SurfaceService::open(dir.path().join("graph.jsonl")).unwrap();
+        let request = HttpRequest {
+            method: "GET".into(),
+            path: "/v0/trust-center".into(),
+            headers: BTreeMap::new(),
+            body: Vec::new(),
+        };
+        let response = handle_http(&request, &mut service, "token", &server_auth()).unwrap();
+        assert_eq!(response.status, 200);
+        let disclosure: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
+        assert_eq!(disclosure["audit"]["status"], "not_audited");
+        assert_eq!(disclosure["audit"]["external_audit"], false);
+        assert!(disclosure["capabilities"]["verified"].as_u64().unwrap() > 0);
+
+        let request = HttpRequest {
+            method: "GET".into(),
+            path: "/v0/trust-center.html".into(),
+            headers: BTreeMap::new(),
+            body: Vec::new(),
+        };
+        let response = handle_http(&request, &mut service, "token", &server_auth()).unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.content_type, "text/html; charset=utf-8");
+        let html = String::from_utf8(response.body).unwrap();
+        assert!(html.contains("1Agent Trust Disclosure"), "{html}");
+        assert!(html.contains("not_audited"), "{html}");
+        assert!(!html.contains("<script"), "{html}");
     }
 
     #[test]
