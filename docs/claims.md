@@ -75,6 +75,7 @@ file: <路径>              → 文件必须存在
 | Agent Card Ed25519 签名与信任公钥验签；私钥可写 0600 文件并从文件签名；篡改/错钥/未签名拒绝 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test --test card_trust_cli | ✅ | 本地签名，非 A2A registry 发现/签名条目；`--sign-key` 仍会进 argv |
 | 持久幂等记录：key+fingerprint→response append-only JSONL，sync 后确认，跨重启重放；冲突/半条记录处理 | cmd: cargo test idempotency --lib && cargo test --test idempotency_cli | ✅ | 去重原语；未接入所有外部写 |
 | 带外 watchdog：daemon 每轮写心跳；缺失/过期/损坏非零退出 | cmd: cargo test watchdog --lib && cargo test --test watchdog_cli | ✅ | 只观察存活；不重启/不清理锁 |
+| daemon 安静时段：窗口内跳过 due 任务、保持 due、窗口后运行 | cmd: cargo test --test daemon_quiet_cli | ✅ | 固定 UTC offset；DST 由调用方处理 |
 | 自治安静时段：跨午夜窗口内主动 act/approval → defer 并报告剩余分钟；用户发起/显式批准不延后 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 策略级；运行时调度/安静时段持久化未接线 |
 | 误报预算：预算耗尽或误报率超限时非关键告警转 digest，critical 绕过 | cmd: cargo test alarm_budget --lib && cargo test --test alarm_budget_cli | ✅ | 策略函数；不发送/不持久化告警 |
 | 升级阶梯：严格递增阈值取最高已到达台阶；resolved 不升级；宽限期不打扰 | cmd: cargo test escalation --lib && cargo test --test escalate_cli | ✅ | 只计算级别；不发送/不改状态 |

@@ -406,6 +406,12 @@ enum Command {
         /// Write a liveness heartbeat for an out-of-band watchdog.
         #[arg(long)]
         heartbeat: Option<PathBuf>,
+        /// Skip due jobs during this window (HH:MM-HH:MM).
+        #[arg(long)]
+        quiet_hours: Option<String>,
+        /// Fixed local offset from UTC for --quiet-hours.
+        #[arg(long, default_value_t = 0)]
+        utc_offset_minutes: i32,
     },
     Watchdog {
         #[arg(long)]
@@ -2576,6 +2582,7 @@ async fn run_scheduled_job(
     (status, journal)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_daemon(
     store: PathBuf,
     journal_dir: PathBuf,
@@ -2584,10 +2591,17 @@ async fn run_daemon(
     alert_webhook: Option<String>,
     alert_log: Option<PathBuf>,
     heartbeat: Option<PathBuf>,
+    quiet_hours: Option<String>,
+    utc_offset_minutes: i32,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
     }
+    let quiet_hours = quiet_hours
+        .as_deref()
+        .map(first_principles_agent::autonomy::QuietHours::parse)
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     std::fs::create_dir_all(&journal_dir)
         .with_context(|| format!("cannot create {}", journal_dir.display()))?;
     let webhook = alert_webhook
@@ -2601,6 +2615,22 @@ async fn run_daemon(
         let now = current_time_ms();
         if let Some(path) = &heartbeat {
             first_principles_agent::watchdog::touch(path, std::process::id(), now)?;
+        }
+        if quiet_hours.is_some_and(|quiet| {
+            quiet.contains(first_principles_agent::autonomy::local_minute(
+                now,
+                utc_offset_minutes,
+            ))
+        }) {
+            if once {
+                break;
+            }
+            eprintln!("[daemon] quiet hours; deferring due jobs");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => break,
+                _ = tokio::time::sleep(Duration::from_secs(poll_seconds)) => {}
+            }
+            continue;
         }
         for job in first_principles_agent::scheduler::due(&store, now)? {
             let trigger_mtime = first_principles_agent::scheduler::trigger_mtime(&job);
@@ -4117,6 +4147,8 @@ async fn main() -> Result<()> {
             alert_webhook,
             alert_log,
             heartbeat,
+            quiet_hours,
+            utc_offset_minutes,
         } => {
             run_daemon(
                 store,
@@ -4126,6 +4158,8 @@ async fn main() -> Result<()> {
                 alert_webhook,
                 alert_log,
                 heartbeat,
+                quiet_hours,
+                utc_offset_minutes,
             )
             .await?;
         }

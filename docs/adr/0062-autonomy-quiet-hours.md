@@ -27,8 +27,13 @@ technically allowed yet socially wrong. SA98-52 requires quiet hours.
 6. This is policy, not a scheduler. `onboard --quiet-hours` persists the window
    as a `quiet_hours=` preference and `UserModel` exposes it.
    `decide_for_proactive` and `1agent autonomy-for` read the domain level and
-   window from that model. Waking at the end of the window and re-running
-   deferred work remain separate slices.
+   window from that model.
+7. `daemon --quiet-hours HH:MM-HH:MM --utc-offset-minutes N` skips due jobs
+   inside the window. Skipped jobs stay due and run after it; the watchdog
+   heartbeat still advances. A fixed offset is used because the runtime has no
+   timezone database.
+8. Waking at the end of the window for non-scheduler deferred work and full
+   DST handling remain separate slices.
 
 ## Consequences
 
