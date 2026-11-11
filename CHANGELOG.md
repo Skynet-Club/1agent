@@ -112,6 +112,13 @@
   the registry scan without importing. Unsigned + supplied key is rejected.
 - Tests: two `skill_verify_cli` e2e tests for unsigned/signed bundles and a
   tampered bundle (`cargo test --test skill_verify_cli`).
+- CUA provenance policy (ADR-0053): `cua::evaluate` tags action arguments as
+  plan/trusted/untrusted, denies high-risk actions with untrusted arguments,
+  requires approval for other untrusted or irreversible actions, and denies a
+  planner that sees untrusted content. `cua::check_branch` blocks branch
+  steering to targets outside the approved plan. `1agent cua-check` exposes it.
+- Tests: five policy unit tests plus two `cua_check_cli` e2e tests
+  (`cargo test cua --lib`, `cargo test --test cua_check_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
