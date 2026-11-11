@@ -3971,19 +3971,23 @@ async fn main() -> Result<()> {
                     effect.ticket_id
                 );
             }
-            match effect.status {
-                first_principles_agent::SideEffectStatus::Applied => {}
+            let previous = effect.status;
+            let note = match previous {
+                first_principles_agent::SideEffectStatus::Applied => {
+                    format!("manual compensation by {actor}: {evidence}")
+                }
+                first_principles_agent::SideEffectStatus::Failed => {
+                    format!("failed-effect clearance by {actor}: {evidence}")
+                }
                 first_principles_agent::SideEffectStatus::Compensated => {
                     anyhow::bail!("side effect {side_effect_id} is already compensated");
                 }
-                status => {
+                first_principles_agent::SideEffectStatus::Planned => {
                     anyhow::bail!(
-                        "side effect {side_effect_id} is {:?}; only applied side effects can be marked compensated",
-                        status
+                        "side effect {side_effect_id} is planned; only applied or failed side effects can be marked compensated"
                     );
                 }
-            }
-            let note = format!("manual compensation by {actor}: {evidence}");
+            };
             service.with_graph_mut(|graph| {
                 graph.compensate_side_effect(
                     &ticket_id,
@@ -4001,6 +4005,11 @@ async fn main() -> Result<()> {
                         "ticket_id": ticket_id,
                         "side_effect_id": side_effect_id,
                         "status": "compensated",
+                        "previous_status": match previous {
+                            first_principles_agent::SideEffectStatus::Applied => "applied",
+                            first_principles_agent::SideEffectStatus::Failed => "failed",
+                            _ => "unknown",
+                        },
                         "evidence": note,
                         "runbook": {
                             "compensate": runbook.compensate,
@@ -4011,7 +4020,11 @@ async fn main() -> Result<()> {
                     }))?
                 );
             } else {
-                println!("compensated {side_effect_id} ({ticket_id})");
+                if previous == first_principles_agent::SideEffectStatus::Failed {
+                    println!("cleared failed {side_effect_id} ({ticket_id})");
+                } else {
+                    println!("compensated {side_effect_id} ({ticket_id})");
+                }
                 println!(
                     "runbook: compensate={} manual={} errors={} clean={}",
                     runbook.compensate,

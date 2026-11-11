@@ -1199,7 +1199,10 @@ impl TaskGraph {
                 status,
                 SideEffectStatus::Compensated | SideEffectStatus::Failed
             ),
-            SideEffectStatus::Failed => matches!(status, SideEffectStatus::Applied),
+            SideEffectStatus::Failed => matches!(
+                status,
+                SideEffectStatus::Applied | SideEffectStatus::Compensated
+            ),
             SideEffectStatus::Compensated => false,
         };
         if !allowed {
@@ -2698,6 +2701,57 @@ mod tests {
                 .unwrap_err(),
             TaskGraphError::InvalidSideEffectTransition(_, _, _)
         ));
+    }
+
+    #[test]
+    fn a_failed_effect_can_be_cleared_after_human_verification() {
+        let mut graph = TaskGraph::default();
+        let ticket_id = accepted_ticket(&mut graph, false);
+        graph
+            .assign_ticket(&ticket_id, "worker-1", None, 15)
+            .unwrap();
+        graph.start_ticket(&ticket_id, "worker-1", 16).unwrap();
+        let effect_id = graph
+            .record_side_effect(
+                &ticket_id,
+                SideEffectDraft {
+                    action: "write".into(),
+                    target: "/workspace/out".into(),
+                    idempotency_key: "effect-1".into(),
+                    reversible: true,
+                    compensation: Some("delete".into()),
+                    status: SideEffectStatus::Applied,
+                },
+                17,
+            )
+            .unwrap();
+        graph
+            .set_side_effect_status(
+                &ticket_id,
+                &effect_id,
+                SideEffectStatus::Failed,
+                "connection dropped mid-write",
+                18,
+            )
+            .unwrap();
+        graph
+            .set_side_effect_status(
+                &ticket_id,
+                &effect_id,
+                SideEffectStatus::Compensated,
+                "failed-effect clearance by alice: verified no partial file",
+                19,
+            )
+            .unwrap();
+        assert_eq!(
+            TaskGraph::replay(graph.events())
+                .unwrap()
+                .side_effect(&effect_id)
+                .unwrap()
+                .status,
+            SideEffectStatus::Compensated
+        );
+        assert_eq!(graph.reconcile_side_effects(&ticket_id).compensated, 1);
     }
 
     #[test]
