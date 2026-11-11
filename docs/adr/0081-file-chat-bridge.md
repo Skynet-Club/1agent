@@ -29,6 +29,8 @@ executable step and can be used by a local worker or channel integration.
    moved to `processed/` as a duplicate. A failed message makes the command
    exit non-zero after reporting all results.
 4. `1agent chat-bridge task|reply|ingest` exposes the three operations.
+   `ingest --lock PATH` uses `create_new` and removes the lock on normal drop;
+   a crash leaves a stale lock for manual cleanup.
 5. The bridge is not a daemon and does not connect to Slack/Telegram/WeChat.
    It does not execute tasks; `ingest` only moves files into processed/failed.
 

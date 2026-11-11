@@ -1569,6 +1569,9 @@ enum ChatBridgeCommand {
         /// Content-addressed dedupe state across renames.
         #[arg(long)]
         state: Option<PathBuf>,
+        /// Fail if this lock file already exists; removed on normal exit.
+        #[arg(long)]
+        lock: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -3057,8 +3060,12 @@ async fn main() -> Result<()> {
                 processed,
                 failed,
                 state,
+                lock,
                 json,
             } => {
+                let _lock = lock
+                    .map(first_principles_agent::chat_bridge::IngestLock::acquire)
+                    .transpose()?;
                 let processed = processed.unwrap_or_else(|| inbox.join("processed"));
                 let failed = failed.unwrap_or_else(|| inbox.join("failed"));
                 let report = first_principles_agent::chat_bridge::ingest_dir_with_state(

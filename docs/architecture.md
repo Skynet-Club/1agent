@@ -285,8 +285,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `processed/` and invalid ones to `failed/` with an error file. An existing
   `<stem>.task.json` is skipped (not overwritten) and its message is still
   moved to `processed/`. `--state PATH` stores seen message SHA-256 values (up
-  to 10,000) so renamed duplicates are skipped too. Inputs are bounded to
-  1 MiB and must be regular non-symlink files. It is not a live transport.
+  to 10,000) so renamed duplicates are skipped too. `--lock PATH` uses
+  `create_new` and removes the lock on normal drop; a crash leaves a stale
+  lock for manual cleanup. Inputs are bounded to 1 MiB and must be regular
+  non-symlink files. It is not a live transport.
 - `notify`: `InboxNotifier` posts the open inbox queue to a
   generic/Slack/Discord webhook. It requires HTTPS except for loopback, rejects
   embedded credentials, bounds the payload, and returns `sent=false` for an
