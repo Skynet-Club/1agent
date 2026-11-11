@@ -33,10 +33,10 @@ RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-w
 echo "cross-check: Windows GNU passed"
 
 if [[ "$build_windows" -eq 1 ]]; then
-    echo "== windows link/build"
-    cargo build --offline --target x86_64-pc-windows-gnu
-    test -f target/x86_64-pc-windows-gnu/debug/first-principles-agent.exe
-    echo "cross-check: Windows GNU binary built"
+    echo "== windows release link/build"
+    cargo build --offline --release --target x86_64-pc-windows-gnu
+    test -f target/x86_64-pc-windows-gnu/release/first-principles-agent.exe
+    echo "cross-check: Windows GNU release binary built"
 fi
 
 if have_target aarch64-apple-darwin; then
