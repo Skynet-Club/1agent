@@ -260,6 +260,10 @@
   fails. The seal is only as strong as the out-of-band trust in the public key.
 - Tests: one org-audit seal unit test plus one `org_audit_seal_cli` e2e test
   (`cargo test org_audit --lib`, `cargo test --test org_audit_seal_cli`).
+- Digest additions (ADR-0075): `digest` now reports open inbox items and, with
+  `--handoff-store PATH --recipient NAME`, open handoffs addressed to that
+  person. `--recipient` without a handoff store fails closed.
+- Tests: two `digest_cli` e2e tests (`cargo test --test digest_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
