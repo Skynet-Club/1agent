@@ -74,6 +74,7 @@ file: <路径>              → 文件必须存在
 | 团队角色策略：owner/approver/member/viewer × read/write/approve/manage + scope；未知 actor/越权/未授权拒绝 | cmd: cargo test team --lib && cargo test --test team_check_cli | ✅ | 策略模块，非 IdP |
 | Agent Card Ed25519 签名与信任公钥验签；篡改/错钥/未签名拒绝 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli | ✅ | 本地签名，非 A2A registry 发现/签名条目 |
 | 持久幂等记录：key+fingerprint→response append-only JSONL，sync 后确认，跨重启重放；冲突/半条记录处理 | cmd: cargo test idempotency --lib && cargo test --test idempotency_cli | ✅ | 去重原语；未接入所有外部写 |
+| 带外 watchdog：daemon 每轮写心跳；缺失/过期/损坏非零退出 | cmd: cargo test watchdog --lib && cargo test --test watchdog_cli | ✅ | 只观察存活；不重启/不清理锁 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |

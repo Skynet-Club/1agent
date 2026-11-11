@@ -181,6 +181,13 @@
   the cross-restart dedupe primitive, not yet wired into every external write.
 - Tests: six idempotency unit tests plus one `idempotency_cli` e2e test
   (`cargo test idempotency --lib`, `cargo test --test idempotency_cli`).
+- Out-of-band daemon watchdog (ADR-0061): `daemon --heartbeat PATH` writes an
+  atomic `{pid, updated_at_ms}` heartbeat each loop. `1agent watchdog
+  --heartbeat PATH --max-age-ms N` exits non-zero when the heartbeat is
+  missing, stale or invalid. It observes liveness only; it does not restart the
+  daemon or clear its lock.
+- Tests: four watchdog unit tests plus three `watchdog_cli` e2e tests
+  (`cargo test watchdog --lib`, `cargo test --test watchdog_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
