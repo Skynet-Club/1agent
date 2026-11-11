@@ -260,6 +260,11 @@
   notifier. URL policy and empty-text rejection are shared.
 - Tests: two `digest_notify_cli` e2e tests with a loopback webhook
   (`cargo test --test digest_notify_cli`).
+- MCP per-server timeout: `timeout_seconds` (1..=300, default 20) bounds stdio
+  reads, HTTP requests and the tool execution timeout. Out-of-range values
+  fail closed.
+- Tests: the MCP config test covers timeout 0 and 301
+  (`cargo test tools::mcp --lib`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

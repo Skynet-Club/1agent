@@ -410,7 +410,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
   requires HTTPS except for loopback, rejects credentials in the URL, carries
   `Mcp-Session-Id`, accepts JSON or `text/event-stream` responses, and reads a
   bearer token only from the environment variable named by
-  `bearer_token_env`. A tool is write-gated unless the server declares
+  `bearer_token_env`. `timeout_seconds` (1..=300, default 20) bounds each
+  request and the tool execution timeout. A tool is write-gated unless the server declares
   `readOnlyHint: true`; `destructiveHint: true` raises its risk. The MCP server
   validates its own input schema; 1Agent owns process, permission, timeout and
   journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`

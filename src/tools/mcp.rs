@@ -52,6 +52,9 @@ pub struct McpServerConfig {
     /// Read the HTTP bearer token from this environment variable.
     #[serde(default)]
     pub bearer_token_env: Option<String>,
+    /// Per-request timeout in seconds (1..=300, default 20).
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -74,6 +77,7 @@ struct McpClient {
     next_id: AtomicU64,
     request_lock: Mutex<()>,
     server_name: String,
+    timeout: Duration,
 }
 
 impl McpClient {
@@ -83,9 +87,17 @@ impl McpClient {
                 "MCP server name must not be empty".into(),
             ));
         }
+        let timeout_seconds = server.timeout_seconds.unwrap_or(REQUEST_TIMEOUT.as_secs());
+        if !(1..=300).contains(&timeout_seconds) {
+            return Err(ToolError::InvalidArguments(format!(
+                "MCP server '{}' timeout_seconds must be 1..=300",
+                server.name
+            )));
+        }
+        let timeout = Duration::from_secs(timeout_seconds);
         let transport = match (&server.command, &server.url) {
             (Some(command), None) => Self::stdio_transport(server, command).await?,
-            (None, Some(url)) => Self::http_transport(server, url)?,
+            (None, Some(url)) => Self::http_transport(server, url, timeout)?,
             _ => {
                 return Err(ToolError::InvalidArguments(format!(
                     "MCP server '{}' must set exactly one of command or url",
@@ -98,6 +110,7 @@ impl McpClient {
             next_id: AtomicU64::new(1),
             request_lock: Mutex::new(()),
             server_name: server.name.clone(),
+            timeout,
         });
         client.initialize().await?;
         Ok(client)
@@ -142,7 +155,11 @@ impl McpClient {
         })
     }
 
-    fn http_transport(server: &McpServerConfig, url: &str) -> Result<Transport, ToolError> {
+    fn http_transport(
+        server: &McpServerConfig,
+        url: &str,
+        timeout: Duration,
+    ) -> Result<Transport, ToolError> {
         let parsed = reqwest::Url::parse(url).map_err(|error| {
             ToolError::InvalidArguments(format!(
                 "MCP server '{}' has an invalid URL: {error}",
@@ -193,7 +210,7 @@ impl McpClient {
             None => None,
         };
         let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(timeout)
             .build()
             .map_err(|error| {
                 ToolError::Failed(format!(
@@ -286,16 +303,15 @@ impl McpClient {
                     let line = {
                         let mut stdout = stdout.lock().await;
                         let mut line = String::new();
-                        let read =
-                            tokio::time::timeout(REQUEST_TIMEOUT, stdout.read_line(&mut line))
-                                .await
-                                .map_err(|_| ToolError::TimedOut)?
-                                .map_err(|error| {
-                                    ToolError::Failed(format!(
-                                        "cannot read from MCP server '{}': {error}",
-                                        self.server_name
-                                    ))
-                                })?;
+                        let read = tokio::time::timeout(self.timeout, stdout.read_line(&mut line))
+                            .await
+                            .map_err(|_| ToolError::TimedOut)?
+                            .map_err(|error| {
+                                ToolError::Failed(format!(
+                                    "cannot read from MCP server '{}': {error}",
+                                    self.server_name
+                                ))
+                            })?;
                         if read == 0 {
                             return Err(ToolError::Failed(format!(
                                 "MCP server '{}' closed stdout",
@@ -538,7 +554,7 @@ impl AgentTool for McpTool {
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(60)
+        self.client.timeout + Duration::from_secs(5)
     }
 
     async fn execute(
@@ -844,6 +860,8 @@ mod tests {
             json!({"name": "neither"}),
             json!({"name": "remote", "url": "http://example.com/mcp"}),
             json!({"name": "credentials", "url": "https://user:pass@example.com/mcp"}),
+            json!({"name": "timeout-zero", "url": "https://example.com/mcp", "timeout_seconds": 0}),
+            json!({"name": "timeout-large", "url": "https://example.com/mcp", "timeout_seconds": 301}),
         ];
         for server in cases {
             let path = dir
