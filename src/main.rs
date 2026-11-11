@@ -445,6 +445,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    TeamCheck {
+        #[arg(long, default_value = "member")]
+        role: String,
+        #[arg(long, default_value = "read")]
+        action: String,
+        #[arg(long, default_value = "workspace")]
+        scope: String,
+        #[arg(long)]
+        granted_scope: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
     Onboard {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         memory_journal: PathBuf,
@@ -4448,6 +4460,52 @@ async fn main() -> Result<()> {
             }
             if !verdict.allowed {
                 anyhow::bail!("budget exceeded");
+            }
+        }
+        Command::TeamCheck {
+            role,
+            action,
+            scope,
+            granted_scope,
+            json,
+        } => {
+            let role = match role.trim().to_ascii_lowercase().as_str() {
+                "owner" => first_principles_agent::team::TeamRole::Owner,
+                "approver" => first_principles_agent::team::TeamRole::Approver,
+                "member" => first_principles_agent::team::TeamRole::Member,
+                "viewer" => first_principles_agent::team::TeamRole::Viewer,
+                _ => anyhow::bail!("role must be owner, approver, member or viewer"),
+            };
+            let action = match action.trim().to_ascii_lowercase().as_str() {
+                "read" => first_principles_agent::team::TeamAction::Read,
+                "write" => first_principles_agent::team::TeamAction::Write,
+                "approve" => first_principles_agent::team::TeamAction::Approve,
+                "manage" => first_principles_agent::team::TeamAction::Manage,
+                _ => anyhow::bail!("action must be read, write, approve or manage"),
+            };
+            let policy = first_principles_agent::team::TeamPolicy {
+                team_id: "local".into(),
+                members: vec![first_principles_agent::team::TeamMember {
+                    member_id: "actor".into(),
+                    role,
+                    scopes: granted_scope,
+                }],
+            };
+            let verdict = first_principles_agent::team::authorize(&policy, "actor", action, &scope);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&verdict)?);
+            } else {
+                println!(
+                    "{} ({})",
+                    match verdict.decision {
+                        first_principles_agent::team::TeamDecision::Allow => "allow",
+                        first_principles_agent::team::TeamDecision::Deny => "deny",
+                    },
+                    verdict.reason
+                );
+            }
+            if verdict.decision == first_principles_agent::team::TeamDecision::Deny {
+                anyhow::bail!("team check denied");
             }
         }
         Command::Onboard {

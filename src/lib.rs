@@ -80,6 +80,7 @@ pub mod surface_events;
 pub mod surface_service;
 pub mod task_graph;
 pub mod task_graph_store;
+pub mod team;
 pub mod tool_search;
 pub mod tools;
 pub mod tui;

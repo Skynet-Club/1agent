@@ -72,7 +72,8 @@
 - Cascade 遏制：`1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` 计算 affected/contained/propagated、containment_rate_bps、cascade_depth、blast_radius，并按策略门禁；确定性模拟，不是真实多 Agent 运行；
 - 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。`1agent run --max-cost-micros/--max-tokens` 在运行时累计 provider usage，超限以 `BudgetExhausted` 停止；
 - OTel GenAI 投影：`1agent otel --journal PATH [--json]` 从 journal 生成确定性 spans（invoke_agent / chat / execute_tool），带 provider/model/token/cost 属性；是 JSON 投影，不是完整 OTel SDK/exporter；
-- Chat 适配契约：`ChatMessage → TaskRequest`；`ChatReply` 先结论、一行信任摘要（证据/未知）、`needs_approval` 与 `inbox_open`，不泄露 schema 字段；具体 Slack/Telegram/微信传输是下一层。
+- Chat 适配契约：`ChatMessage → TaskRequest`；`ChatReply` 先结论、一行信任摘要（证据/未知）、`needs_approval` 与 `inbox_open`，不泄露 schema 字段；具体 Slack/Telegram/微信传输是下一层；
+- 团队角色策略：`1agent team-check` 按 owner/approver/member/viewer、read/write/approve/manage 与 scope 判定；空 scopes 表示全部，未知 actor/越权/未授权 scope 拒绝；策略模块，非 IdP。
 
 ### 2.4 本地记忆（可用，RC）
 
