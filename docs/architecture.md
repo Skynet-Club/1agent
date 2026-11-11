@@ -181,6 +181,13 @@ is required. Verification fails closed unless execution exited zero, every accep
 criterion has independent passing evidence and every expected Artifact exists under the
 workspace with optional SHA-256 matching.
 
+The standalone `verification::verify` contract (ADR-0037) makes the same
+distinction reusable outside Master: a distinct verifier, exactly one result
+per acceptance/hidden criterion, non-empty evidence for a pass, and one
+artifact check per expectation. Outcomes are `verified`, `rejected` or
+`hacked` (public pass, hidden fail); `summarize` exposes
+`hacked_resolved_bps` so a high public pass rate cannot hide reward hacking.
+
 ## Implemented contracts
 
 - `TaskRequest`: objective, deliverable, known facts, constraints, unknowns, decision and
