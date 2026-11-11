@@ -62,7 +62,8 @@
 - Trust & Repair：副作用账本投影为 applied / compensated / failed / pending / needs_user；可逆副作用必须有补偿，否则失败关闭；`1agent away-digest` 查看“我不在时发生了什么”；
 - 价值周报 v0：`1agent value-report` 汇总 completed / blocked / failed / cancelled、tokens/cost、工具调用/失败、alerts 与 pending_decisions；只报可复现结果与每完成结果成本，不编造“省时”；
 - 伙伴声音：operator / advisor / companion；`--voice-mode` 选择；只改变说话方式，不改变证据/授权/动作规则；companion 不谄媚、不角色扮演；
-- Agent Inbox：notify / question / review 三类；append-only JSONL 快照；snooze、approve/reject/answer/dismiss 状态机；终端状态不可再迁移；重复 ID、空字段、无效 snooze 失败关闭；`1agent inbox add|list|resolve|snooze|sync`；attention/alerts 纯投影；`sync` 按 `item_id` 去重，默认 dry-run，`--apply` 写入，不覆盖已有状态。
+- Agent Inbox：notify / question / review 三类；append-only JSONL 快照；snooze、approve/reject/answer/dismiss 状态机；终端状态不可再迁移；重复 ID、空字段、无效 snooze 失败关闭；`1agent inbox add|list|resolve|snooze|sync`；attention/alerts 纯投影；`sync` 按 `item_id` 去重，默认 dry-run，`--apply` 写入，不覆盖已有状态；
+- 自治档位策略：`1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval]`；observe/suggest 不行动；act 仅低风险可逆；auto 允许低/中风险可逆；高风险/不可逆需审批（显式批准除外）。偏好不是授权。
 
 ### 2.4 本地记忆（可用，RC）
 

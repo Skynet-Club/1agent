@@ -236,6 +236,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   its source memory id; forgotten or superseded records are ignored. Autonomy
   and consent are preferences, not grants: Authority/Policy/Approval still
   decide execution. `1agent user-model` prints the view as JSON or text.
+- `autonomy`: `decide(level, risk, reversible, explicit_approval)` maps a
+  per-domain preference into `observe` / `suggest` / `act` /
+  `require_approval`. `observe` and `suggest` never act; `act` allows only
+  low-risk reversible actions; `auto` allows low/medium risk; high risk and
+  irreversible actions require approval unless explicitly approved. This is a
+  preference policy; Authority/Policy/ExecutionGate still enforce execution.
 - `repair`: `plan_repair` classifies an applied side effect as `none`,
   `compensate` or `manual`; an applied reversible action without a recorded
   compensation fails closed, and an irreversible action always requires a
