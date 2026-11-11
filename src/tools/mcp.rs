@@ -75,7 +75,8 @@ enum Transport {
         client: reqwest::Client,
         url: String,
         session_id: Mutex<Option<String>>,
-        bearer_token: Option<String>,
+        bearer_token: Mutex<Option<String>>,
+        exchange: Option<crate::mcp_exchange::TokenExchangeConfig>,
     },
 }
 
@@ -306,7 +307,8 @@ impl McpClient {
             client,
             url: parsed.to_string(),
             session_id: Mutex::new(None),
-            bearer_token,
+            bearer_token: Mutex::new(bearer_token),
+            exchange: server.token_exchange.clone(),
         })
     }
 
@@ -336,9 +338,17 @@ impl McpClient {
                 url,
                 session_id,
                 bearer_token,
+                exchange,
             } => {
                 let response = self
-                    .http_post(client, url, session_id, bearer_token, &message)
+                    .http_post_with_refresh(
+                        client,
+                        url,
+                        session_id,
+                        bearer_token,
+                        exchange.as_ref(),
+                        &message,
+                    )
                     .await?;
                 let status = response.status();
                 if let Some(value) = response.headers().get("Mcp-Session-Id")
@@ -419,9 +429,17 @@ impl McpClient {
                 url,
                 session_id,
                 bearer_token,
+                exchange,
             } => {
                 let response = self
-                    .http_post(client, url, session_id, bearer_token, &message)
+                    .http_post_with_refresh(
+                        client,
+                        url,
+                        session_id,
+                        bearer_token,
+                        exchange.as_ref(),
+                        &message,
+                    )
                     .await?;
                 let status = response.status();
                 let content_type = response
@@ -457,7 +475,7 @@ impl McpClient {
         client: &reqwest::Client,
         url: &str,
         session_id: &Mutex<Option<String>>,
-        bearer_token: &Option<String>,
+        bearer_token: &Mutex<Option<String>>,
         message: &Value,
     ) -> Result<reqwest::Response, ToolError> {
         let mut request = client
@@ -467,7 +485,7 @@ impl McpClient {
                 "application/json, text/event-stream",
             )
             .json(message);
-        if let Some(token) = bearer_token {
+        if let Some(token) = bearer_token.lock().await.clone() {
             request = request.bearer_auth(token);
         }
         if let Some(session) = session_id.lock().await.clone() {
@@ -479,6 +497,37 @@ impl McpClient {
                 self.server_name
             ))
         })
+    }
+
+    async fn http_post_with_refresh(
+        &self,
+        client: &reqwest::Client,
+        url: &str,
+        session_id: &Mutex<Option<String>>,
+        bearer_token: &Mutex<Option<String>>,
+        exchange: Option<&crate::mcp_exchange::TokenExchangeConfig>,
+        message: &Value,
+    ) -> Result<reqwest::Response, ToolError> {
+        let mut response = self
+            .http_post(client, url, session_id, bearer_token, message)
+            .await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED
+            && let Some(config) = exchange
+        {
+            let refreshed = crate::mcp_exchange::exchange(config)
+                .await
+                .map_err(|error| {
+                    ToolError::Failed(format!(
+                        "MCP server '{}' token refresh failed: {error}",
+                        self.server_name
+                    ))
+                })?;
+            *bearer_token.lock().await = Some(refreshed.access_token);
+            response = self
+                .http_post(client, url, session_id, bearer_token, message)
+                .await?;
+        }
+        Ok(response)
     }
 
     async fn initialize(&self) -> Result<(), ToolError> {
@@ -842,6 +891,12 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn fake_http_server() -> (std::net::SocketAddr, Arc<std::sync::Mutex<Vec<String>>>) {
+        fake_http_server_with_token(None).await
+    }
+
+    async fn fake_http_server_with_token(
+        required: Option<&'static str>,
+    ) -> (std::net::SocketAddr, Arc<std::sync::Mutex<Vec<String>>>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -866,12 +921,25 @@ mod tests {
                             continue;
                         };
                         let headers = String::from_utf8_lossy(&buffer[..end]).to_string();
-                        if let Some(authorization) = headers.lines().find_map(|line| {
+                        let authorization = headers.lines().find_map(|line| {
                             let (key, value) = line.split_once(':')?;
                             key.eq_ignore_ascii_case("authorization")
                                 .then(|| value.trim().to_string())
-                        }) {
-                            captured.lock().unwrap().push(authorization);
+                        });
+                        if let Some(authorization) = &authorization {
+                            captured.lock().unwrap().push(authorization.clone());
+                        }
+                        if let Some(required) = required {
+                            let expected = format!("Bearer {required}");
+                            if authorization.as_deref() != Some(expected.as_str()) {
+                                socket
+                                    .write_all(
+                                        b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                    )
+                                    .await
+                                    .ok();
+                                return;
+                            }
                         }
                         let length = headers
                             .lines()
@@ -1023,6 +1091,63 @@ mod tests {
             socket.write_all(body).await.ok();
         });
         address
+    }
+
+    async fn fake_rotating_token_endpoint() -> std::net::SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for token in ["stale-token", "refreshed-token"] {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buffer = [0u8; 4096];
+                let _ = socket.read(&mut buffer).await;
+                let body = format!(
+                    r#"{{"access_token":"{token}","token_type":"Bearer","expires_in":60}}"#
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.ok();
+                socket.write_all(body.as_bytes()).await.ok();
+            }
+        });
+        address
+    }
+
+    #[tokio::test]
+    async fn http_mcp_refreshes_an_exchanged_token_on_401() {
+        let (address, authorization) = fake_http_server_with_token(Some("refreshed-token")).await;
+        let token_address = fake_rotating_token_endpoint().await;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("mcp.json");
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec(&json!({
+                "servers": [{
+                    "name": "fake",
+                    "url": format!("http://{address}/mcp"),
+                    "token_exchange": {
+                        "token_endpoint": format!("http://{token_address}/token"),
+                        "audience": "mcp://fake",
+                        "scope": "tools.read",
+                        "subject_token_env": "MCP_REFRESH_SUBJECT_TEST",
+                        "max_ttl_seconds": 60
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        unsafe { std::env::set_var("MCP_REFRESH_SUBJECT_TEST", "subject-secret") };
+        let tools = load_mcp_tools(&config_path).await.unwrap();
+        unsafe { std::env::remove_var("MCP_REFRESH_SUBJECT_TEST") };
+        assert_eq!(tools.len(), 1);
+        let auth = authorization.lock().unwrap().clone();
+        assert!(auth.iter().any(|value| value == "Bearer stale-token"));
+        assert!(auth.iter().any(|value| value == "Bearer refreshed-token"));
     }
 
     #[tokio::test]

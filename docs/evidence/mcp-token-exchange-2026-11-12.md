@@ -39,12 +39,15 @@ test mcp_token_exchange_fails_closed_on_invalid_inputs ... ok
   before any secret is read or request is sent.
 - An MCP HTTP config with `token_exchange` exchanges once at spawn; the fake
   MCP server receives `Authorization: Bearer exchanged-token`.
+- A rotating endpoint returns `stale-token`, the MCP server rejects it with
+  401, the client re-exchanges for `refreshed-token`, retries the request and
+  completes initialization and discovery.
 
 ## What this does not prove
 
 - Interoperability with a real OAuth/IdP token endpoint.
-- Refresh, retry on expiry or issuer discovery; the spawn-time exchange is
-  one-shot.
+- Proactive expiry refresh, a retry budget or issuer discovery; only one
+  401-triggered re-exchange is attempted.
 - That the IdP enforces audience restriction; this validates the response
   shape and TTL, not the remote policy.
 - Cross-platform behavior; tests ran on Linux only.
