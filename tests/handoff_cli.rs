@@ -120,6 +120,75 @@ fn handoff_create_accept_and_list() {
 }
 
 #[test]
+fn handoff_cli_cancels_an_open_handoff() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("handoffs.jsonl");
+    let store = store.to_str().unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let created = Command::new(bin)
+        .args([
+            "handoff",
+            "create",
+            "--store",
+            store,
+            "--id",
+            "h1",
+            "--from",
+            "alice",
+            "--to",
+            "bob",
+            "--summary",
+            "to be cancelled",
+            "--evidence",
+            "journal:run-1",
+        ])
+        .output()
+        .unwrap();
+    assert!(created.status.success());
+
+    let cancelled = Command::new(bin)
+        .args([
+            "handoff",
+            "cancel",
+            "--store",
+            store,
+            "--id",
+            "h1",
+            "--actor",
+            "bob",
+            "--reason",
+            "not needed",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        cancelled.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&cancelled.stderr)
+    );
+    let handoff: serde_json::Value = serde_json::from_slice(&cancelled.stdout).unwrap();
+    assert_eq!(handoff["status"], "cancelled");
+    assert_eq!(handoff["cancelled_by"], "bob");
+    assert_eq!(handoff["cancelled_reason"], "not needed");
+
+    let accept = Command::new(bin)
+        .args([
+            "handoff", "accept", "--store", store, "--id", "h1", "--actor", "bob",
+        ])
+        .output()
+        .unwrap();
+    assert!(!accept.status.success());
+
+    let open = Command::new(bin)
+        .args(["handoff", "list", "--store", store, "--open", "--json"])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&open.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn handoff_rejects_ungrounded_and_self_handoffs() {
     let workspace = tempfile::tempdir().unwrap();
     let store = workspace.path().join("handoffs.jsonl");

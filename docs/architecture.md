@@ -314,8 +314,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   of the pretty-printed evaluation report.
 - `handoff`: grounded team handoff notes. `create` requires distinct from/to,
   a non-empty summary and at least one evidence reference; only the addressee
-  may `accept`, and a terminal handoff cannot transition again. Snapshots are
-  appended and synced to JSONL; the latest per id wins.
+  may `accept`, and from/to may `cancel` while open. Accepted/cancelled states
+  are terminal. Snapshots are appended and synced to JSONL; the latest per id
+  wins.
 - `agent_card`: `AgentCard` states schema version, name, version, platform,
   capability statuses and limits. Platform-constrained capabilities come from
   the platform registry; core capabilities reflect contract tests;

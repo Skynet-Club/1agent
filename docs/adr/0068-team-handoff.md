@@ -21,8 +21,9 @@ work to another.
      receipt id);
    - an open, unaccepted initial state;
    - a unique id.
-3. Only the addressee may `accept`; an unknown handoff is not found, and a
-   terminal handoff cannot transition again.
+3. Only the addressee may `accept`; the sender or addressee may `cancel` while
+   the handoff is open. An unknown handoff is not found, and a terminal
+   handoff cannot transition again.
 4. Snapshots are appended and synced to JSONL; reopening takes the latest
    snapshot per id. `list` is ordered by creation time then id.
 5. `1agent handoff create|accept|list` exposes the store.

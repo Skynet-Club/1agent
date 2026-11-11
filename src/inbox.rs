@@ -735,6 +735,9 @@ mod tests {
             status: HandoffStatus::Open,
             accepted_ms: None,
             accepted_by: None,
+            cancelled_ms: None,
+            cancelled_by: None,
+            cancelled_reason: None,
         };
         let mut accepted = open.clone();
         accepted.id = "h2".into();
