@@ -286,8 +286,9 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   the platform registry; core capabilities reflect contract tests;
   `cross_platform` is untested, team collaboration is degraded (policy, handoff
   notes and local audit only) and marketplace is unsupported.
-  `1agent agent-card` prints it and `GET /v0/agent-card` serves the same
-  payload on the public read-only HTTP Surface. `--generate-key` creates an
+  `1agent agent-card` prints it and `GET /v0/agent-card` plus the A2A-style
+  `GET /.well-known/agent-card.json` serve the same payload on the public
+  read-only HTTP Surface. `--generate-key` creates an
   Ed25519 key pair, `--sign-key` signs the canonical payload (the card without
   the signature field), and `--verify PATH --trusted-key HEX` rejects tampered,
   wrong-key and unsigned cards. This is a local trust statement, not A2A

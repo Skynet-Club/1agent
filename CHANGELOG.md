@@ -285,6 +285,12 @@
 - Tests: three unit-economics unit tests plus two `unit_economics_cli` e2e
   tests (`cargo test unit_economics --lib`,
   `cargo test --test unit_economics_cli`).
+- Agent Card discovery route (ADR-0078): `GET
+  /.well-known/agent-card.json` serves the same unsigned payload as
+  `/v0/agent-card` without a bearer token. This is a discovery path, not A2A
+  registry discovery or a signed registry entry.
+- Tests: the HTTP surface unit test covers both public card routes
+  (`cargo test http_surface --lib`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
