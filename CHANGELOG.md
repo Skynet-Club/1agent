@@ -287,6 +287,11 @@
   and recipient while preserving creation-time order.
 - Tests: the `handoff_cli` test covers open and recipient filters
   (`cargo test --test handoff_cli`).
+- Verification summary window: `verification summary --since-ms/--until-ms`
+  applies the existing `summary_between` filter; without flags it remains
+  all-time.
+- Tests: the `verification_store_cli` test covers a windowed summary
+  (`cargo test --test verification_store_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
