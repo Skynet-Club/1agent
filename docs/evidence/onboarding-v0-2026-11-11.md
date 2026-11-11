@@ -14,13 +14,14 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 4 tests (tests/onboard_cli.rs)
+running 5 tests (tests/onboard_cli.rs)
 test onboard_writes_profile_and_user_model_reads_it ... ok
 test onboard_rejects_invalid_autonomy_and_voice ... ok
 test onboard_can_seed_a_goal_and_commitment_for_inbox_sync ... ok
+test onboard_interactive_reads_stdin_answers ... ok
 test onboard_commitment_without_goal_fails_closed ... ok
 
-test result: ok. 4 passed; 0 failed
+test result: ok. 5 passed; 0 failed
 ```
 
 ## What this proves
@@ -37,12 +38,16 @@ test result: ok. 4 passed; 0 failed
   and `inbox sync --apply` projects the overdue commitment as a `review` item
   with the commitment title.
 - `--commitment` without `--goal` fails closed.
+- `--interactive` with piped stdin `advisor / ship the report / send the report
+  / never touch production` writes the voice, goal, commitment and boundary;
+  prompts go to stderr and stdout stays JSON.
 
 ## What this does not prove
 
 - That a real user finds the onboarding useful; no user study was run.
-- That the profile is complete; document/calendar/email import and an
-  interactive interview are later slices.
+- That the profile is complete; document/calendar/email import and a
+  free-form interview are later slices. `--interactive` is a fixed prompt
+  script, not a conversational agent.
 - Boundary dedupe: re-running onboarding can append the same boundary again.
 - Atomicity: memory records are written before the goal; a goal failure leaves
   the profile in place.
