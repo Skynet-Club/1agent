@@ -7,17 +7,24 @@ fn card_trust_adds_verifies_and_revokes_a_key() {
     let card_path = workspace.path().join("card.json");
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
 
+    let private_key_path = workspace.path().join("agent-card.key");
+    let public_key_path = workspace.path().join("agent-card.pub");
     let keys = Command::new(bin)
-        .args(["agent-card", "--generate-key"])
+        .args(["agent-card", "--generate-key", "--private-out"])
+        .arg(&private_key_path)
+        .arg("--public-out")
+        .arg(&public_key_path)
+        .arg("--json")
         .output()
         .unwrap();
     assert!(keys.status.success());
     let keys: serde_json::Value = serde_json::from_slice(&keys.stdout).unwrap();
-    let private_key = keys["private_key_pkcs8_hex"].as_str().unwrap();
     let public_key = keys["public_key_hex"].as_str().unwrap();
 
     let signed = Command::new(bin)
-        .args(["agent-card", "--sign-key", private_key, "--json"])
+        .args(["agent-card", "--sign-key-file"])
+        .arg(&private_key_path)
+        .arg("--json")
         .output()
         .unwrap();
     assert!(signed.status.success());

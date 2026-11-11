@@ -307,6 +307,12 @@
   quiet deferral.
 - Tests: one `autonomy_cli` e2e test covers defer, daytime act and
   user-initiated act (`cargo test --test autonomy_cli`).
+- Agent Card key files: `agent-card --generate-key --private-out PATH
+  --public-out PATH` writes the private key as a new 0600 file and stops
+  printing it; `--sign-key-file PATH` signs from that file. `--sign-key` remains
+  for compatibility but exposes the key in argv. Tests use the file path.
+- Tests: one `agent_card_cli` key-file test; `card_trust_cli` now signs from a
+  file (`cargo test --test agent_card_cli`, `cargo test --test card_trust_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
