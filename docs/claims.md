@@ -63,6 +63,7 @@ file: <路径>              → 文件必须存在
 | 自治档位策略：observe/suggest 不行动；act 仅低风险可逆；auto 低/中风险可逆；高风险/不可逆需审批 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 偏好不是授权；Authority/Policy/ExecutionGate 仍决定执行 |
 | Onboarding 写入 memory 并可经 user-model 回读；非法值失败关闭；可 seed goal/commitment | cmd: cargo test --test onboard_cli | ✅ | 非交互 v0；访谈/文档/日历导入未做；memory 与 goal 写入非原子 |
 | TUI `/inbox` 列出并可 resolve/snooze；解析与应用契约与 CLI 一致 | cmd: cargo test inbox --lib && cargo test tui_commands --lib | ✅ | 只操作 inbox store；不绕过 Authority/Policy/Approval |
+| Agent Card 列出能力状态与限制；unsupported/untested 不标为 verified | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli | ✅ | 本地未签名；非 A2A HTTP/served 卡 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
 | 1A 在写权限下用终端工具启动 copilot 并读取 GitHub 登录状态 | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机验收；gh 已登录，未做交互式 device-code 登录 |

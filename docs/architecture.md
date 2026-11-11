@@ -242,6 +242,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   low-risk reversible actions; `auto` allows low/medium risk; high risk and
   irreversible actions require approval unless explicitly approved. This is a
   preference policy; Authority/Policy/ExecutionGate still enforce execution.
+- `agent_card`: `AgentCard` states schema version, name, version, platform,
+  capability statuses and limits. Platform-constrained capabilities come from
+  the platform registry; core capabilities reflect contract tests;
+  `cross_platform` is untested and team/marketplace are unsupported.
+  `1agent agent-card` prints it. This is a local unsigned card, not an A2A
+  HTTP/served card.
 - `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
   TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
   `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.

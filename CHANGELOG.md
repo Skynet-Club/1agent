@@ -89,6 +89,13 @@
   <until_ms>` with the same parser/applier as the CLI.
 - Tests: inline action parsing plus `/inbox` registration and non-panel
   behavior (`cargo test inbox --lib`, `cargo test tui_commands --lib`).
+- Agent Card v0 (ADR-0047): `1agent agent-card [--json]` emits a machine-readable
+  card with schema/version/platform, capability statuses and limits. Platform
+  constraints come from the platform registry; `cross_platform` is untested and
+  team/marketplace are unsupported. The card is local and unsigned, not yet an
+  A2A HTTP service.
+- Tests: three agent-card unit tests plus two `agent_card_cli` e2e tests
+  (`cargo test agent_card --lib`, `cargo test --test agent_card_cli`).
 
 ## 0.96.1 - 2026-11-11
 
