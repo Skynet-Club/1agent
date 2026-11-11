@@ -414,8 +414,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   then dismisses open `attention:` items absent from the current candidate set
   (their condition cleared). `--digest-webhook` with `--digest-every-seconds`
   (and optional journal/inbox stores) sends a lightweight text summary on that
-  interval; the timer is in-memory, so a restart sends once immediately. The
-  full `digest` command remains separate and richer. Sync never updates an
+  interval; `--digest-state` persists the last send time, while without it a
+  restart sends once immediately. The full `digest` command remains separate
+  and richer. Sync never updates an
   existing item's status; because attention item ids are stable, a dismissed
   item is not re-added if the condition returns. The TUI exposes a `/inbox`
   transcript command for the default store, with inline `resolve`/`snooze`

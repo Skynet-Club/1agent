@@ -67,6 +67,8 @@ fn daemon_posts_a_lightweight_digest() {
         .arg(workspace.path().join("runs"))
         .arg("--digest-inbox-store")
         .arg(&inbox)
+        .arg("--digest-state")
+        .arg(workspace.path().join("digest-state.json"))
         .output()
         .unwrap();
     assert!(
@@ -121,5 +123,64 @@ fn daemon_rejects_incomplete_digest_configuration() {
         String::from_utf8_lossy(&missing_webhook.stderr).contains("--digest-webhook"),
         "stderr: {}",
         String::from_utf8_lossy(&missing_webhook.stderr)
+    );
+}
+
+#[test]
+fn daemon_digest_state_suppresses_a_restart_resend() {
+    let workspace = tempfile::tempdir().unwrap();
+    let state = workspace.path().join("digest-state.json");
+    std::fs::write(&state, br#"{"last_sent_ms":9999999999999}"#).unwrap();
+    let suppressed = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args([
+            "--once",
+            "--digest-webhook",
+            "http://127.0.0.1:9/hook",
+            "--digest-every-seconds",
+            "60",
+        ])
+        .arg("--digest-state")
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(
+        suppressed.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&suppressed.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&suppressed.stderr).contains("cannot send digest"),
+        "stderr: {}",
+        String::from_utf8_lossy(&suppressed.stderr)
+    );
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
+    assert_eq!(saved["last_sent_ms"], 9999999999999u64);
+
+    std::fs::write(&state, br#"{"last_sent_ms":0}"#).unwrap();
+    let attempted = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args([
+            "--once",
+            "--digest-webhook",
+            "http://127.0.0.1:9/hook",
+            "--digest-every-seconds",
+            "60",
+        ])
+        .arg("--digest-state")
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(attempted.status.success());
+    assert!(
+        String::from_utf8_lossy(&attempted.stderr).contains("cannot send digest"),
+        "stderr: {}",
+        String::from_utf8_lossy(&attempted.stderr)
     );
 }
