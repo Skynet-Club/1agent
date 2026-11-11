@@ -247,8 +247,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   the platform registry; core capabilities reflect contract tests;
   `cross_platform` is untested and team/marketplace are unsupported.
   `1agent agent-card` prints it and `GET /v0/agent-card` serves the same
-  payload on the public read-only HTTP Surface. This is a local unsigned card,
-  not an A2A registry-signed card.
+  payload on the public read-only HTTP Surface. `--generate-key` creates an
+  Ed25519 key pair, `--sign-key` signs the canonical payload (the card without
+  the signature field), and `--verify PATH --trusted-key HEX` rejects tampered,
+  wrong-key and unsigned cards. This is a local trust statement, not A2A
+  registry discovery or a signed registry entry.
 - `onboard`: `1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary
   TEXT` writes ordinary memory records (`autonomy.<domain>=...`,
   `voice_mode=...`, `boundary: ...`) and prints the resulting `UserModel`.

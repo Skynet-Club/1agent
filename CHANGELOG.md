@@ -165,6 +165,14 @@
   This is policy, not an identity provider.
 - Tests: four team unit tests plus two `team_check_cli` e2e tests
   (`cargo test team --lib`, `cargo test --test team_check_cli`).
+- Agent Card signing (ADR-0059): `--generate-key` creates an Ed25519 PKCS#8
+  key pair; `--sign-key` signs the canonical unsigned payload; `--verify PATH
+  --trusted-key HEX` requires a matching embedded key and a valid signature.
+  Tampered, wrong-key and unsigned cards are rejected. The card advertises
+  `signed_agent_card` as verified. This is a local trust statement, not A2A
+  registry discovery.
+- Tests: three agent-card unit tests plus one `agent_card_cli` signing e2e
+  test (`cargo test agent_card --lib`, `cargo test --test agent_card_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
