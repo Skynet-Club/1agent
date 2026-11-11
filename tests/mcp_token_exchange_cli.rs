@@ -383,8 +383,9 @@ fn mcp_token_exchange_discovers_the_token_endpoint() {
         r#"{"access_token":"discovered-token","token_type":"Bearer","expires_in":60}"#,
     );
     let (issuer, paths) = start_discovery_server(token_endpoint);
+    let tenant_issuer = format!("{issuer}/tenant");
     let output = Command::new(bin())
-        .args(["mcp-token-exchange", "--issuer", &issuer])
+        .args(["mcp-token-exchange", "--issuer", &tenant_issuer])
         .args([
             "--audience",
             "mcp://server",
@@ -413,6 +414,8 @@ fn mcp_token_exchange_discovers_the_token_endpoint() {
     assert_eq!(paths.len(), 2);
     assert!(paths[0].contains("oauth-authorization-server"), "{paths:?}");
     assert!(paths[1].contains("openid-configuration"), "{paths:?}");
+    assert!(paths[0].ends_with("/tenant"), "{paths:?}");
+    assert!(paths[1].ends_with("/tenant"), "{paths:?}");
 
     let insecure = Command::new(bin())
         .args(["mcp-token-exchange", "--issuer", "http://example.com"])

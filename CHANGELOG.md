@@ -451,7 +451,8 @@
   loopback, redirects are refused, the response is capped at 1 MiB, and
   stdout reports only type/TTL/SHA-256 (ADR-0083). `--issuer` discovers the
   token endpoint from RFC 8414/OpenID well-known metadata, trying
-  `oauth-authorization-server` before `openid-configuration`. The file can feed
+  `oauth-authorization-server` before `openid-configuration` and preserving
+  the issuer path after the well-known segment. The file can feed
   `McpServerConfig.bearer_token_file`; alternatively,
   `McpServerConfig.token_exchange` runs the exchange once at HTTP spawn and
   keeps the token in memory (mutually exclusive with env/file auth). It
