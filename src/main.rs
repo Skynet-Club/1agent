@@ -291,6 +291,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    AgentCard {
+        #[arg(long)]
+        json: bool,
+    },
     Dashboard {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -2673,6 +2677,27 @@ async fn main() -> Result<()> {
                         capability.status.as_str(),
                         capability.note
                     );
+                }
+            }
+        }
+        Command::AgentCard { json } => {
+            let card = first_principles_agent::build_card(env!("CARGO_PKG_VERSION"));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&card)?);
+            } else {
+                println!("1Agent Agent Card");
+                println!("version: {} platform: {}", card.version, card.platform);
+                for capability in &card.capabilities {
+                    println!(
+                        "- {}: {} ({})",
+                        capability.id,
+                        capability.status.as_str(),
+                        capability.note
+                    );
+                }
+                println!("limits:");
+                for limit in &card.limits {
+                    println!("- {limit}");
                 }
             }
         }
