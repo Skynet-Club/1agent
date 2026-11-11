@@ -7,6 +7,15 @@ Status: **R1 public pre-release (patch), not production-stable**
 
 GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1>
 
+## What it is
+
+1Agent is a local-first, evidence-accountable and explainable Super-Agent
+runtime. It turns task, evidence, authority, execution, verification and audit
+into one replayable chain: it explains why it is doing something before deciding
+what to do, can analyze, can execute once connected to a controlled execution
+substrate, and leaves a verifiable record at every step. This is an R1 release
+candidate, not a production-stable product.
+
 ## Scope
 
 0.96.1 is a patch release on 0.96.0 focused on TUI readability, context
@@ -103,6 +112,22 @@ journal or crash recovery.
 - The status/work marker is the smaller `•`; normal activity uses one cyan
   accent, while green/amber/red are reserved for completed, waiting/retrying and
   blocked outcomes.
+
+## Next: Super-Agent 0.97–1.0
+
+- **0.97.0 Reliable Loop** (target window 2026-12-22): long-horizon reliable
+  closure — streaming, parallel read-only tools, incremental journal, crash
+  recovery/checkpoint resume, verification gate, memory MVP, sandbox and a
+  result-first answer contract.
+- **0.98.0 Real World** (2027-02-02): browser writes / computer-use, MCP
+  expansion, skill learning and a resident MVP.
+- **0.99.0 Multi-Agent Organization** (2027-03-16): Master/Worker reliability,
+  cost governance, market trust and external-audit preparation.
+- **1.0.0 Trusted Super-Agent** (2027-05-11): external audit, SDK/API, team
+  collaboration, cross-platform and ecosystem.
+
+Dates are target windows, not unconditional promises. If a metric gate does not
+pass, we do not release and do not claim Super-Agent.
 
 ## Verification
 
