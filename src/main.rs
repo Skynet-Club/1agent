@@ -244,6 +244,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    AwayDigest {
+        #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        since_ms: Option<u128>,
+        #[arg(long)]
+        until_ms: Option<u128>,
+        #[arg(long, default_value_t = 86_400_000)]
+        window_ms: u128,
+        #[arg(long)]
+        json: bool,
+    },
     UserModel {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -2328,6 +2340,38 @@ async fn main() -> Result<()> {
                 println!("告警：{} 条", alert_records.len());
                 for (kind, count) in &alert_kinds {
                     println!("- {kind}: {count}");
+                }
+            }
+        }
+        Command::AwayDigest {
+            store,
+            since_ms,
+            until_ms,
+            window_ms,
+            json,
+        } => {
+            let service = first_principles_agent::TaskGraphService::open_read_only(&store)
+                .with_context(|| format!("cannot open {}", store.display()))?;
+            let snapshot = service.snapshot();
+            let until = until_ms.unwrap_or_else(current_time_ms);
+            let since = since_ms.unwrap_or_else(|| until.saturating_sub(window_ms));
+            let digest =
+                first_principles_agent::build_away_digest(&snapshot.side_effects, since, until)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&digest)?);
+            } else {
+                println!("1Agent Away Digest");
+                println!("window: {since}..{until}");
+                println!(
+                    "applied={} compensated={} failed={} pending={} needs_user={}",
+                    digest.applied.len(),
+                    digest.compensated.len(),
+                    digest.failed.len(),
+                    digest.pending.len(),
+                    digest.needs_user.len()
+                );
+                for receipt in &digest.receipts {
+                    println!("- {}", receipt.summary());
                 }
             }
         }
