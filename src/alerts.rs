@@ -80,6 +80,7 @@ impl AlertWebhook {
         }
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| AlertError::Webhook(error.without_url().to_string()))?;
         Ok(Self {
