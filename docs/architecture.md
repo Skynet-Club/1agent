@@ -397,7 +397,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   accepted first, then the inbox item is closed. Other terminal statuses do not
   accept the handoff. `inbox reconcile` closes projected items for accepted
   handoffs as approved and cancelled ones as dismissed; open handoffs are
-  untouched and the default is dry-run. Sync never updates an existing item's status. The TUI exposes a
+  untouched and the default is dry-run. With
+  `--reconcile-inbox-store`, `--reconcile-handoff-store` and
+  `--reconcile-apply`, the daemon runs that reconcile on every tick and logs
+  only when it resolves something. Sync never updates an existing item's status. The TUI exposes a
   `/inbox` transcript command for the default store, with inline
   `resolve`/`snooze` actions parsed by the same `parse_action`/`apply_action`
   contract as the CLI.
