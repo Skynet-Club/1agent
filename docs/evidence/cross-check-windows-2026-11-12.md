@@ -6,11 +6,14 @@ Scope: cross-target compilation of the current tree, not runtime behavior.
 ## Commands
 
 ```bash
-RUSTFLAGS="-D warnings" cargo check --offline --target x86_64-pc-windows-gnu
+./scripts/cross-check.sh
 RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu
 cargo check --offline --target aarch64-apple-darwin
 cargo test --offline
 ```
+
+`./scripts/cross-check.sh` requires the Windows check and attempts macOS,
+reporting a host C-toolchain block unless `--require-macos` is passed.
 
 ## Results
 
