@@ -597,6 +597,9 @@ enum Command {
         user_id: String,
         #[arg(long)]
         voice: Option<String>,
+        /// Quiet window as HH:MM-HH:MM; may cross midnight.
+        #[arg(long)]
+        quiet_hours: Option<String>,
         /// Repeatable domain=level, e.g. workspace=suggest.
         #[arg(long, value_name = "DOMAIN=LEVEL")]
         autonomy: Vec<String>,
@@ -5588,6 +5591,7 @@ async fn main() -> Result<()> {
             bot_id,
             user_id,
             mut voice,
+            quiet_hours,
             autonomy,
             mut boundary,
             mut goal,
@@ -5628,6 +5632,12 @@ async fn main() -> Result<()> {
                     boundary.push(answer);
                 }
             }
+            let quiet_hours = quiet_hours
+                .map(|value| {
+                    first_principles_agent::autonomy::QuietHours::parse(&value)
+                        .map_err(|error| anyhow::anyhow!("{error}"))
+                })
+                .transpose()?;
             let mut written = 0usize;
             let mut imported = 0usize;
             if let Some(path) = import_file {
@@ -5676,6 +5686,22 @@ async fn main() -> Result<()> {
                     &scope,
                     first_principles_agent::MemoryKind::Preference,
                     format!("voice_mode={}", voice.as_str()),
+                    now,
+                )?;
+                written += 1;
+            }
+            if let Some(hours) = quiet_hours {
+                write_onboard(
+                    &mut service,
+                    &scope,
+                    first_principles_agent::MemoryKind::Preference,
+                    format!(
+                        "quiet_hours={:02}:{:02}-{:02}:{:02}",
+                        hours.start_minute / 60,
+                        hours.start_minute % 60,
+                        hours.end_minute / 60,
+                        hours.end_minute % 60
+                    ),
                     now,
                 )?;
                 written += 1;
@@ -5757,6 +5783,15 @@ async fn main() -> Result<()> {
                 println!("voice: {}", model.voice_mode().as_str());
                 for (domain, entry) in &model.autonomy {
                     println!("- autonomy {domain}: {}", entry.level.as_str());
+                }
+                if let Some(hours) = model.quiet_hours() {
+                    println!(
+                        "- quiet hours: {:02}:{:02}-{:02}:{:02}",
+                        hours.start_minute / 60,
+                        hours.start_minute % 60,
+                        hours.end_minute / 60,
+                        hours.end_minute % 60
+                    );
                 }
                 for boundary in &model.boundaries {
                     println!("- boundary: {}", boundary.rule);

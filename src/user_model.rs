@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::autonomy::QuietHours;
 use crate::memory::{MemoryKind, MemoryRecord, MemoryScope};
 
 /// How much the partner may do without asking, per domain.
@@ -103,6 +104,14 @@ pub struct VoiceEntry {
 /// machine. `retention_ms = None` means the memory's own TTL decides.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct QuietHoursEntry {
+    pub hours: QuietHours,
+    pub source_memory_id: String,
+    pub updated_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ConsentRule {
     pub memory_kind: MemoryKind,
     pub allow: bool,
@@ -143,6 +152,9 @@ pub struct UserModel {
     /// Unset voice defaults to `operator`.
     #[serde(default)]
     pub voice: Option<VoiceEntry>,
+    /// Quiet hours are a preference; they do not grant or deny authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiet_hours: Option<QuietHoursEntry>,
     /// Latest consent rule per memory kind.
     #[serde(default)]
     pub consents: Vec<ConsentRule>,
@@ -158,6 +170,7 @@ impl UserModel {
             boundaries: Vec::new(),
             autonomy: BTreeMap::new(),
             voice: None,
+            quiet_hours: None,
             consents: Vec::new(),
             updated_ms: 0,
         }
@@ -210,6 +223,11 @@ impl UserModel {
                 {
                     self.set_voice(mode, &record.memory_id, record.valid_from_ms);
                 }
+                if key == "quiet_hours"
+                    && let Ok(hours) = QuietHours::parse(value)
+                {
+                    self.set_quiet_hours(hours, &record.memory_id, record.valid_from_ms);
+                }
             }
             MemoryKind::Feedback => {
                 if let Some(rule) = record.content.strip_prefix("boundary:") {
@@ -260,6 +278,10 @@ impl UserModel {
             .unwrap_or_default()
     }
 
+    pub fn quiet_hours(&self) -> Option<QuietHours> {
+        self.quiet_hours.as_ref().map(|entry| entry.hours)
+    }
+
     pub fn consent_for(&self, kind: MemoryKind) -> Option<&ConsentRule> {
         self.consents
             .iter()
@@ -308,6 +330,21 @@ impl UserModel {
         if replace {
             self.voice = Some(VoiceEntry {
                 mode,
+                source_memory_id: source_memory_id.to_string(),
+                updated_ms,
+            });
+            self.updated_ms = self.updated_ms.max(updated_ms);
+        }
+    }
+
+    fn set_quiet_hours(&mut self, hours: QuietHours, source_memory_id: &str, updated_ms: u128) {
+        let replace = self
+            .quiet_hours
+            .as_ref()
+            .is_none_or(|existing| existing.updated_ms <= updated_ms);
+        if replace {
+            self.quiet_hours = Some(QuietHoursEntry {
+                hours,
                 source_memory_id: source_memory_id.to_string(),
                 updated_ms,
             });
@@ -442,10 +479,25 @@ mod tests {
             "consent:preference=deny@2592000000",
             12,
         ));
+        model.apply(&record(
+            "m4",
+            MemoryKind::Preference,
+            "quiet_hours=22:00-07:00",
+            13,
+        ));
+        model.apply(&record(
+            "m5",
+            MemoryKind::Preference,
+            "quiet_hours=not-a-window",
+            14,
+        ));
 
         assert_eq!(model.autonomy_for("workspace"), AutonomyLevel::Act);
         assert_eq!(model.autonomy_for("email"), AutonomyLevel::Suggest);
         assert_eq!(model.voice_mode(), VoiceMode::Advisor);
+        let quiet = model.quiet_hours().unwrap();
+        assert_eq!(quiet.start_minute, 22 * 60);
+        assert_eq!(quiet.end_minute, 7 * 60);
         assert!(!model.can_remember(MemoryKind::Preference));
         assert_eq!(
             model.retention_ms(MemoryKind::Preference),
