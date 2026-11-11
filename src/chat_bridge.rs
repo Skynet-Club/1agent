@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::chat::{self, ChatMessage, ChatReply};
@@ -24,8 +25,44 @@ pub enum ChatBridgeError {
     Invalid(String),
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatBridgeState {
+    #[serde(default)]
+    pub seen_hashes: Vec<String>,
+}
+
+pub fn open_state(path: &Path) -> Result<ChatBridgeState, ChatBridgeError> {
+    let state: ChatBridgeState = match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => ChatBridgeState::default(),
+        Err(error) => return Err(error.into()),
+    };
+    if state.seen_hashes.len() > 10_000 {
+        return Err(ChatBridgeError::Invalid(
+            "chat bridge state has more than 10000 hashes".into(),
+        ));
+    }
+    if state
+        .seen_hashes
+        .iter()
+        .any(|hash| hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return Err(ChatBridgeError::Invalid(
+            "chat bridge state contains a non-SHA-256 hash".into(),
+        ));
+    }
+    Ok(state)
+}
+
 pub fn read_message(path: &Path) -> Result<ChatMessage, ChatBridgeError> {
-    let message: ChatMessage = read_json(path)?;
+    Ok(read_message_with_hash(path)?.0)
+}
+
+fn read_message_with_hash(path: &Path) -> Result<(ChatMessage, String), ChatBridgeError> {
+    let bytes = read_bounded(path)?;
+    let hash = hex::encode(Sha256::digest(&bytes));
+    let message: ChatMessage = serde_json::from_slice(&bytes)?;
     if message.sender_id.trim().is_empty() {
         return Err(ChatBridgeError::Invalid("sender_id is empty".into()));
     }
@@ -35,7 +72,7 @@ pub fn read_message(path: &Path) -> Result<ChatMessage, ChatBridgeError> {
     if message.text.trim().is_empty() {
         return Err(ChatBridgeError::Invalid("text is empty".into()));
     }
-    Ok(message)
+    Ok((message, hash))
 }
 
 pub fn message_to_task(
@@ -70,6 +107,7 @@ pub struct ChatBridgeIngestReport {
     pub scanned: usize,
     pub converted: usize,
     pub skipped: usize,
+    pub duplicates: usize,
     pub failed: usize,
     pub task_files: Vec<String>,
     pub errors: Vec<String>,
@@ -82,10 +120,23 @@ pub fn ingest_dir(
     processed_dir: &Path,
     failed_dir: &Path,
 ) -> Result<ChatBridgeIngestReport, ChatBridgeError> {
+    ingest_dir_with_state(inbox, workspace, out_dir, processed_dir, failed_dir, None)
+}
+
+pub fn ingest_dir_with_state(
+    inbox: &Path,
+    workspace: &Path,
+    out_dir: &Path,
+    processed_dir: &Path,
+    failed_dir: &Path,
+    state_path: Option<&Path>,
+) -> Result<ChatBridgeIngestReport, ChatBridgeError> {
     const MAX_FILES: usize = 500;
     std::fs::create_dir_all(out_dir)?;
     std::fs::create_dir_all(processed_dir)?;
     std::fs::create_dir_all(failed_dir)?;
+    let mut state = state_path.map(open_state).transpose()?;
+    let mut state_changed = false;
     let mut files = Vec::new();
     for entry in std::fs::read_dir(inbox)? {
         let entry = entry?;
@@ -104,6 +155,7 @@ pub fn ingest_dir(
         scanned: files.len(),
         converted: 0,
         skipped: 0,
+        duplicates: 0,
         failed: 0,
         task_files: Vec::new(),
         errors: Vec::new(),
@@ -113,12 +165,26 @@ pub fn ingest_dir(
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or("message");
-        match read_message(&path) {
-            Ok(message) => {
+        match read_message_with_hash(&path) {
+            Ok((message, hash)) => {
+                if state
+                    .as_ref()
+                    .is_some_and(|state| state.seen_hashes.iter().any(|seen| seen == &hash))
+                {
+                    move_to(&path, &processed_dir.join(format!("{stem}.json")))?;
+                    report.duplicates += 1;
+                    continue;
+                }
                 let task_path = out_dir.join(format!("{stem}.task.json"));
                 if task_path.exists() {
                     move_to(&path, &processed_dir.join(format!("{stem}.json")))?;
                     report.skipped += 1;
+                    if let Some(state) = &mut state
+                        && !state.seen_hashes.iter().any(|seen| seen == &hash)
+                    {
+                        state.seen_hashes.push(hash);
+                        state_changed = true;
+                    }
                     continue;
                 }
                 let request = chat::to_task_request(&message, workspace.to_path_buf());
@@ -126,6 +192,12 @@ pub fn ingest_dir(
                 move_to(&path, &processed_dir.join(format!("{stem}.json")))?;
                 report.converted += 1;
                 report.task_files.push(task_path.display().to_string());
+                if let Some(state) = &mut state
+                    && !state.seen_hashes.iter().any(|seen| seen == &hash)
+                {
+                    state.seen_hashes.push(hash);
+                    state_changed = true;
+                }
             }
             Err(error) => {
                 let reason = error.to_string();
@@ -145,6 +217,12 @@ pub fn ingest_dir(
             }
         }
     }
+    if state_changed
+        && let Some(path) = state_path
+        && let Some(state) = state
+    {
+        write_json(path, &state)?;
+    }
     Ok(report)
 }
 
@@ -160,6 +238,10 @@ fn move_to(source: &Path, destination: &Path) -> Result<(), ChatBridgeError> {
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ChatBridgeError> {
+    Ok(serde_json::from_slice(&read_bounded(path)?)?)
+}
+
+fn read_bounded(path: &Path) -> Result<Vec<u8>, ChatBridgeError> {
     let metadata = std::fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() {
         return Err(ChatBridgeError::Invalid(
@@ -176,8 +258,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ChatBridg
             "input exceeds {MAX_INPUT_BYTES} bytes"
         )));
     }
-    let bytes = std::fs::read(path)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    Ok(std::fs::read(path)?)
 }
 
 fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), ChatBridgeError> {
@@ -270,6 +351,38 @@ mod tests {
 
         let second = ingest_dir(&inbox, dir.path(), &out, &processed, &failed).unwrap();
         assert_eq!(second.scanned, 0);
+    }
+
+    #[test]
+    fn state_deduplicates_the_same_content_under_a_new_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let inbox = dir.path().join("inbox");
+        let out = dir.path().join("tasks");
+        let processed = dir.path().join("processed");
+        let failed = dir.path().join("failed");
+        let state = dir.path().join("state.json");
+        std::fs::create_dir_all(&inbox).unwrap();
+        let message = serde_json::to_vec(&serde_json::json!({
+            "channel": "web",
+            "sender_id": "owner",
+            "thread_id": "thread-1",
+            "text": "same task"
+        }))
+        .unwrap();
+        std::fs::write(inbox.join("a.json"), &message).unwrap();
+
+        let first =
+            ingest_dir_with_state(&inbox, dir.path(), &out, &processed, &failed, Some(&state))
+                .unwrap();
+        assert_eq!(first.converted, 1);
+        assert!(state.exists());
+
+        std::fs::write(inbox.join("d.json"), &message).unwrap();
+        let second =
+            ingest_dir_with_state(&inbox, dir.path(), &out, &processed, &failed, Some(&state))
+                .unwrap();
+        assert_eq!(second.duplicates, 1);
+        assert_eq!(second.converted, 0);
     }
 
     #[test]

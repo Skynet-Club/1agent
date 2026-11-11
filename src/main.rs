@@ -1546,6 +1546,9 @@ enum ChatBridgeCommand {
         processed: Option<PathBuf>,
         #[arg(long)]
         failed: Option<PathBuf>,
+        /// Content-addressed dedupe state across renames.
+        #[arg(long)]
+        state: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -3017,19 +3020,29 @@ async fn main() -> Result<()> {
                 out,
                 processed,
                 failed,
+                state,
                 json,
             } => {
                 let processed = processed.unwrap_or_else(|| inbox.join("processed"));
                 let failed = failed.unwrap_or_else(|| inbox.join("failed"));
-                let report = first_principles_agent::chat_bridge::ingest_dir(
-                    &inbox, &workspace, &out, &processed, &failed,
+                let report = first_principles_agent::chat_bridge::ingest_dir_with_state(
+                    &inbox,
+                    &workspace,
+                    &out,
+                    &processed,
+                    &failed,
+                    state.as_deref(),
                 )?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     println!(
-                        "scanned={} converted={} failed={}",
-                        report.scanned, report.converted, report.failed
+                        "scanned={} converted={} skipped={} duplicates={} failed={}",
+                        report.scanned,
+                        report.converted,
+                        report.skipped,
+                        report.duplicates,
+                        report.failed
                     );
                     for error in &report.errors {
                         println!("- {error}");

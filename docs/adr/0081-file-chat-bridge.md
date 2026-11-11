@@ -24,8 +24,10 @@ executable step and can be used by a local worker or channel integration.
    `<stem>.task.json`, moves valid messages to `processed/` and invalid ones to
    `failed/` with `<stem>.error.txt`. If `<stem>.task.json` already exists, the
    task is not overwritten; the message moves to `processed/` and counts as
-   skipped. A failed message makes the command exit non-zero after reporting
-   all results.
+   skipped. With `--state PATH`, the SHA-256 of each converted/skipped message
+   is stored (max 10,000) and the same content under another file name is
+   moved to `processed/` as a duplicate. A failed message makes the command
+   exit non-zero after reporting all results.
 4. `1agent chat-bridge task|reply|ingest` exposes the three operations.
 5. The bridge is not a daemon and does not connect to Slack/Telegram/WeChat.
    It does not execute tasks; `ingest` only moves files into processed/failed.
@@ -37,10 +39,12 @@ executable step and can be used by a local worker or channel integration.
 - The files are plaintext and may contain sensitive chat text; filesystem
   permissions and retention are the operator's responsibility.
 - `ingest` is a single-process spool, not a durable queue. It has no retry,
-  deduplication by content, locking or acknowledgement; a caller must decide
-  when to delete or archive `processed/` and `failed/`.
+  locking or acknowledgement; `--state` provides content dedupe up to 10,000
+  hashes, then fails closed rather than growing without bound.
 - A task file can be written before the source move fails; the next run would
-  see the message again and may overwrite the task file.
+  see the same stem and skip it, so the task is not overwritten.
+- State is saved after processing; if saving fails, already-moved messages
+  are not rolled back.
 - The output `ChatReply` includes the conclusion, one trust line and the
   approval/inbox flags; it does not leak schema field names.
 

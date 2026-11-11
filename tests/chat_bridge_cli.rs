@@ -104,6 +104,7 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
     )
     .unwrap();
 
+    let state = workspace.path().join("state.json");
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let run = Command::new(bin)
         .args(["chat-bridge", "ingest", "--inbox"])
@@ -112,6 +113,8 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
         .arg(workspace.path())
         .arg("--out")
         .arg(&out)
+        .arg("--state")
+        .arg(&state)
         .arg("--json")
         .output()
         .unwrap();
@@ -120,9 +123,11 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
     assert_eq!(report["scanned"], 3);
     assert_eq!(report["converted"], 2);
     assert_eq!(report["skipped"], 0);
+    assert_eq!(report["duplicates"], 0);
     assert_eq!(report["failed"], 1);
     assert_eq!(report["task_files"].as_array().unwrap().len(), 2);
     assert_eq!(std::fs::read_dir(&inbox).unwrap().count(), 2);
+    assert!(state.exists());
 
     let second = Command::new(bin)
         .args(["chat-bridge", "ingest", "--inbox"])
@@ -131,12 +136,32 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
         .arg(workspace.path())
         .arg("--out")
         .arg(&out)
+        .arg("--state")
+        .arg(&state)
         .arg("--json")
         .output()
         .unwrap();
     assert!(second.status.success());
     let report: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
     assert_eq!(report["scanned"], 0);
+
+    std::fs::copy(inbox.join("processed").join("a.json"), inbox.join("d.json")).unwrap();
+    let duplicate = Command::new(bin)
+        .args(["chat-bridge", "ingest", "--inbox"])
+        .arg(&inbox)
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("--out")
+        .arg(&out)
+        .arg("--state")
+        .arg(&state)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(duplicate.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&duplicate.stdout).unwrap();
+    assert_eq!(report["duplicates"], 1);
+    assert_eq!(report["converted"], 0);
 }
 
 #[test]
