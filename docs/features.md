@@ -62,7 +62,7 @@
 - Trust & Repair：副作用账本投影为 applied / compensated / failed / pending / needs_user；可逆副作用必须有补偿，否则失败关闭；`1agent away-digest` 查看“我不在时发生了什么”；
 - 价值周报 v0：`1agent value-report` 汇总 completed / blocked / failed / cancelled、tokens/cost、工具调用/失败、alerts、open inbox 与 pending_decisions；`--verified-outcomes N` 输出 cost per verified outcome（由调用方/验证器提供计数）；只报可复现结果，不编造“省时”；
 - 伙伴声音：operator / advisor / companion；`--voice-mode` 选择；只改变说话方式，不改变证据/授权/动作规则；companion 不谄媚、不角色扮演；
-- Agent Inbox：notify / question / review 三类；append-only JSONL 快照；snooze、approve/reject/answer/dismiss 状态机；终端状态不可再迁移；重复 ID、空字段、无效 snooze 失败关闭；`1agent inbox add|list|resolve|snooze|sync`；attention/alerts 纯投影；`sync` 按 `item_id` 去重，默认 dry-run，`--apply` 写入，不覆盖已有状态；
+- Agent Inbox：notify / question / review 三类；append-only JSONL 快照；snooze、approve/reject/answer/dismiss 状态机；终端状态不可再迁移；重复 ID、空字段、无效 snooze 失败关闭；`1agent inbox add|list|resolve|snooze|sync`；attention/alerts/handoff 纯投影；`sync` 按 `item_id` 去重，默认 dry-run，`--apply` 写入，不覆盖已有状态；`resolve handoff:<id> approved --handoff-store PATH --actor NAME` 会先接受交接再关闭 inbox 项（错 actor/终态失败关闭）；
 - 自治档位策略：`1agent autonomy --level observe|suggest|act|auto --risk low|medium|high [--reversible] [--explicit-approval] [--quiet HH:MM-HH:MM --now HH:MM] [--user-initiated]`；observe/suggest 不行动；act 仅低风险可逆；auto 允许低/中风险可逆；高风险/不可逆需审批（显式批准除外）。安静时段内主动的 act/require_approval 变为 `defer` 并给出延后分钟数；用户发起或显式批准不延后。偏好不是授权；
 - Onboarding v0：`1agent onboard --voice ... --autonomy DOMAIN=LEVEL --boundary TEXT` 写入普通 memory 记录并回显 `UserModel`；非法值失败关闭；`--goal/--commitment` 可写入首个目标/承诺，随后 `inbox sync` 可投影；`--interactive` 从 stdin 读取 voice/goal/commitment/boundary（提示走 stderr，空行保留 flag）；`--import-file PATH --import-kind fact|preference|project|feedback` 按行导入纯文本（# 注释、空行跳过；≤256 KiB/200 行/每行 2000 字符；不做脱敏）；还不是完整访谈/日历邮件导入，memory 与 goal 写入非原子；
 - TUI `/inbox`：列出 open / due-snoozed 项（kind/status/title/why_now）；支持 `/inbox resolve <id> <approved|rejected|answered|dismissed> [note]` 与 `/inbox snooze <id> <until_ms>`，与 CLI 共用解析/应用契约；
@@ -75,7 +75,7 @@
 - Chat 适配契约：`ChatMessage → TaskRequest`；`ChatReply` 先结论、一行信任摘要（证据/未知）、`needs_approval` 与 `inbox_open`，不泄露 schema 字段；具体 Slack/Telegram/微信传输是下一层；
 - 团队角色策略：`1agent team-check` 按 owner/approver/member/viewer、read/write/approve/manage 与 scope 判定；空 scopes 表示全部，未知 actor/越权/未授权 scope 拒绝；策略模块，非 IdP；
 - 团队交接：`1agent handoff create --from ... --to ... --summary ... --evidence ... [--open-item ...]` 写入 append-only JSONL；必须有至少一个 evidence、from≠to；只有 addressee 可 `handoff accept`，终态不可再转换；`handoff list` 按创建时间排序；本地交接，不共享实时上下文；
-- 交接投影：`inbox sync --handoff-store PATH --recipient NAME` 只把 `to=recipient` 且 open 的 handoff 投影为 review 项（`handoff:<id>`），按 item_id 去重；只提醒，不自动接受；
+- 交接投影：`inbox sync --handoff-store PATH --recipient NAME` 只把 `to=recipient` 且 open 的 handoff 投影为 review 项（`handoff:<id>`），按 item_id 去重；默认只提醒，不自动接受；可在 inbox 显式 `resolve ... approved --handoff-store ... --actor ...` 接受；
 - 持久幂等记录：`1agent idempotency record|replay --store PATH --key K --fingerprint F`；每条记录 append-only JSONL 并 `sync_data` 后才确认；重启后按 key+fingerprint 重放原响应，同 key 不同 fingerprint 冲突并非零退出；末尾未换行的半条记录视为中断写入并忽略；这是外部写去重原语，尚未接入所有外部工具；
 - 带外 watchdog：`daemon --heartbeat PATH` 每轮原子写 `{pid, updated_at_ms}`；`1agent watchdog --heartbeat PATH --max-age-ms N [--json]` 在缺失/过期/损坏时非零退出；它只观察心跳，不重启 daemon、不清理锁；
 - 误报预算：`1agent alarm-budget --urgency N --delivered D --false-alarms F [--max-delivered N] [--max-false-alarm-bps N] [--critical-urgency N] [--json]`；预算耗尽或误报率超限时非关键告警转 digest，critical 始终投递；策略函数，不发送/持久化告警；

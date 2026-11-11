@@ -1322,6 +1322,11 @@ enum InboxCommand {
         status: String,
         #[arg(long)]
         note: Option<String>,
+        /// Accept the linked handoff when resolving a handoff:<id> item.
+        #[arg(long)]
+        handoff_store: Option<PathBuf>,
+        #[arg(long)]
+        actor: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -4645,15 +4650,63 @@ async fn main() -> Result<()> {
                 item_id,
                 status,
                 note,
+                handoff_store,
+                actor,
                 json,
             } => {
                 let mut store = first_principles_agent::InboxStore::open(store)?;
                 let status: first_principles_agent::InboxStatus = status.parse()?;
-                let item = store.resolve(&item_id, status, current_time_ms(), note)?;
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&item)?);
+                let now = current_time_ms();
+                let is_handoff = item_id.starts_with("handoff:");
+                if handoff_store.is_some() || actor.is_some() {
+                    if !is_handoff {
+                        anyhow::bail!(
+                            "--handoff-store/--actor are only valid for handoff:<id> items"
+                        );
+                    }
+                    let (Some(path), Some(actor)) = (handoff_store, actor) else {
+                        anyhow::bail!("--handoff-store and --actor are required together");
+                    };
+                    if status != first_principles_agent::InboxStatus::Approved {
+                        anyhow::bail!("handoff items can only be resolved as approved");
+                    }
+                    if store.get(&item_id).is_none() {
+                        anyhow::bail!("inbox item {item_id} not found");
+                    }
+                    let handoff_id = item_id
+                        .strip_prefix("handoff:")
+                        .expect("handoff prefix was checked");
+                    let mut handoffs = first_principles_agent::handoff::HandoffStore::open(path)?;
+                    let handoff = handoffs.accept(handoff_id, &actor, now)?;
+                    let note = Some(note.unwrap_or_else(|| format!("accepted by {actor}")));
+                    let item = store.resolve(&item_id, status, now, note)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "item": item,
+                                "handoff": handoff,
+                            }))?
+                        );
+                    } else {
+                        println!(
+                            "{} -> {} (handoff {} accepted by {})",
+                            item.item_id,
+                            item.status.as_str(),
+                            handoff.id,
+                            actor
+                        );
+                    }
                 } else {
-                    println!("{} -> {}", item.item_id, item.status.as_str());
+                    if is_handoff && status == first_principles_agent::InboxStatus::Approved {
+                        anyhow::bail!("accepting a handoff requires --handoff-store and --actor");
+                    }
+                    let item = store.resolve(&item_id, status, now, note)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&item)?);
+                    } else {
+                        println!("{} -> {}", item.item_id, item.status.as_str());
+                    }
                 }
             }
             InboxCommand::Snooze {

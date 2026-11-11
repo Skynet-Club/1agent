@@ -320,7 +320,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `project_alerts` maps failed/error alerts to `review`; `project_handoffs`
   maps open handoffs addressed to the recipient to `review` with
   `handoff:<id>`. `inbox sync` merges projections with dedupe by `item_id`; it
-  is dry-run by default and `--apply` writes. Sync never updates an existing item's status. The TUI exposes a
+  is dry-run by default and `--apply` writes. Resolving a `handoff:<id>` item
+  as `approved` requires `--handoff-store` and `--actor`; the handoff is
+  accepted first, then the inbox item is closed. Other terminal statuses do not
+  accept the handoff. Sync never updates an existing item's status. The TUI exposes a
   `/inbox` transcript command for the default store, with inline
   `resolve`/`snooze` actions parsed by the same `parse_action`/`apply_action`
   contract as the CLI.
