@@ -10962,6 +10962,10 @@ async fn run_tui_line_mode(
                         display_inbox(state, args);
                         continue;
                     }
+                    TuiCommandId::Receipt => {
+                        display_receipt(state, session);
+                        continue;
+                    }
                     TuiCommandId::Preset => {
                         if let Some(request) = handle_preset_command(state, session, settings, args)
                         {
@@ -11257,6 +11261,7 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
             command_menu_action("导出报告", "导出最近运行报告", "/export report", false),
         ],
         TuiCommandId::Inbox => Vec::new(),
+        TuiCommandId::Receipt => Vec::new(),
         TuiCommandId::Config => vec![
             command_menu_action("当前配置", "查看下次运行配置", "/config show", false),
             command_menu_action(
@@ -15318,6 +15323,32 @@ fn display_inbox(state: &mut TuiState, args: &str) {
     }
 }
 
+fn display_receipt(state: &mut TuiState, session: &TuiSession) {
+    let current = state.last_journal().cloned();
+    let journals = current
+        .into_iter()
+        .chain(session.journals().iter().rev().cloned());
+    for journal in journals {
+        let Ok(events) = read_events(&journal) else {
+            continue;
+        };
+        let Ok(replay) = replay_events(&events) else {
+            continue;
+        };
+        let (Some(proposal), Some(choice)) = (replay.reframe_proposal, replay.reframe_choice)
+        else {
+            continue;
+        };
+        let actor = replay.reframe_actor.unwrap_or_default();
+        let decided_at = replay.reframe_decided_at_unix_ms.unwrap_or(0);
+        state.info(bound_tui_command_output(render_receipt(
+            &proposal, &choice, &actor, decided_at,
+        )));
+        return;
+    }
+    state.info("当前会话还没有重构决策收据。");
+}
+
 fn handle_cost_command(state: &mut TuiState, session: &TuiSession) {
     match build_usage_ledger(session.journals().iter().cloned()) {
         Ok(ledger) => state.info(bound_tui_command_output(render_usage_ledger(&ledger))),
@@ -15799,6 +15830,9 @@ async fn run_tui_interactive(
                             }
                             TuiCommandId::Inbox => {
                                 display_inbox(&mut state, args);
+                            }
+                            TuiCommandId::Receipt => {
+                                display_receipt(&mut state, &session);
                             }
                             TuiCommandId::Preset => {
                                 if let Some(request) =
