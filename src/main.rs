@@ -262,6 +262,9 @@ enum Command {
         /// Include the all-time local verification summary.
         #[arg(long)]
         verification_store: Option<PathBuf>,
+        /// AFTER_MS=inbox|digest|notify|urgent; adds escalation levels to the digest.
+        #[arg(long, value_name = "AFTER_MS=ACTION")]
+        escalation_step: Vec<String>,
         /// Post the text digest to this webhook after building it.
         #[arg(long)]
         notify_webhook: Option<String>,
@@ -3359,6 +3362,7 @@ async fn main() -> Result<()> {
             handoff_store,
             recipient,
             verification_store,
+            escalation_step,
             notify_webhook,
             notify_format,
             json,
@@ -3390,9 +3394,31 @@ async fn main() -> Result<()> {
                     .or_default() += 1;
             }
             let next_run_ms = schedules.jobs.iter().map(|job| job.next_run_ms).min();
-            let inbox_open = first_principles_agent::InboxStore::open(&inbox_store)
-                .map(|store| store.open_sorted(current_time_ms()).len())
-                .unwrap_or(0);
+            let inbox_items = first_principles_agent::InboxStore::open(&inbox_store)
+                .map(|store| store.open_sorted(current_time_ms()))
+                .unwrap_or_default();
+            let inbox_open = inbox_items.len();
+            let escalation = if escalation_step.is_empty() {
+                None
+            } else {
+                let ladder = parse_escalation_ladder(&escalation_step)?;
+                let report = first_principles_agent::inbox_escalation::run(
+                    &inbox_items,
+                    &ladder,
+                    current_time_ms(),
+                    None,
+                    None,
+                    false,
+                )
+                .await?;
+                let mut levels = std::collections::BTreeMap::<String, usize>::new();
+                for item in &report.items {
+                    *levels
+                        .entry(item.level.clone().unwrap_or_else(|| "none".into()))
+                        .or_default() += 1;
+                }
+                Some((report, levels))
+            };
             if recipient.is_some() && handoff_store.is_none() {
                 anyhow::bail!("--recipient requires --handoff-store");
             }
@@ -3442,6 +3468,23 @@ async fn main() -> Result<()> {
                 writeln!(text, "- {kind}: {count}").ok();
             }
             writeln!(text, "Inbox 待办：{inbox_open} 条").ok();
+            if let Some((_, levels)) = &escalation {
+                let summary = levels
+                    .iter()
+                    .map(|(level, count)| format!("{level}={count}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                writeln!(
+                    text,
+                    "升级：{}",
+                    if summary.is_empty() {
+                        "无待办".into()
+                    } else {
+                        summary
+                    }
+                )
+                .ok();
+            }
             if let Some(recipient) = &recipient {
                 writeln!(text, "待 {recipient} 接受的交接：{handoff_open} 条").ok();
             }
@@ -3471,6 +3514,10 @@ async fn main() -> Result<()> {
                             "by_kind": alert_kinds
                         },
                         "inbox": {"open": inbox_open},
+                        "escalation": escalation.as_ref().map(|(report, levels)| serde_json::json!({
+                            "levels": levels,
+                            "items": &report.items,
+                        })),
                         "handoffs": {"open": handoff_open, "recipient": recipient},
                         "verification": verification
                     }))?
