@@ -71,6 +71,7 @@ file: <路径>              → 文件必须存在
 | Cascade 模拟计算 affected/contained/propagated、containment_bps/depth/blast radius 并按策略门禁 | cmd: cargo test cascade --lib && cargo test --test cascade_check_cli | ✅ | 确定性模拟，不是真实多 Agent 运行 |
 | Budget 硬上限：超限失败、80% 警告；每验证结果成本；超限非零退出；run 运行时累计并停止 | cmd: cargo test budget --lib && cargo test --test budget_check_cli && cargo test cost_budget_stops --lib | ✅ | 运行时按 provider-reported usage 累计；未覆盖所有 provider 计费差异 |
 | OTel 投影生成 invoke_agent/chat/execute_tool spans，带 gen_ai 属性且确定性 | cmd: cargo test otel --lib && cargo test --test otel_cli | ✅ | JSON 投影，非完整 OTel SDK/exporter |
+| OTel OTLP/HTTP JSON 导出：resourceSpans/scopeSpans、hex trace/span id、kind/status/attributes；HTTPS/loopback、不跟随重定向、token 仅环境变量 | cmd: cargo test --test otel_export_cli | ✅ | loopback collector；非 gRPC/SDK/批量重试；属性统一 stringValue；跨平台未测 |
 | Chat 适配契约：消息→TaskRequest；回复先结论+信任摘要+needs_approval+inbox_open，不泄露 schema；文件桥 task/reply/ingest spool（同 stem/同内容 SHA-256 跳过、可选 lock） | cmd: cargo test chat --lib && cargo test chat_bridge --lib && cargo test --test chat_bridge_cli | ✅ | 文件式适配器，非 Slack/Telegram/微信连接；状态上限 10k；崩溃残留锁需人工清理 |
 | 团队角色策略：owner/approver/member/viewer × read/write/approve/manage + scope；未知 actor/越权/未授权拒绝；可选写入组织审计链 | cmd: cargo test team --lib && cargo test --test team_check_cli | ✅ | 策略模块，非 IdP；审计 append 与判定非原子 |
 | Agent Card Ed25519 签名与信任公钥验签；私钥可写 0600 文件并从文件签名；篡改/错钥/未签名拒绝 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test --test card_trust_cli | ✅ | 本地签名，非 A2A registry 发现/签名条目；`--sign-key` 仍会进 argv |

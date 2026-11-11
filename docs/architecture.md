@@ -518,8 +518,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `otel`: `spans_from_events` projects the journal into deterministic
   OTel GenAI-style spans: one `invoke_agent` root, one `chat` span per model
   response with provider/model/token/cost attributes, and one `execute_tool`
-  span per tool observation. `1agent otel` prints the JSON spans. This is a
-  projection, not an OTel SDK/wire exporter.
+  span per tool observation. `1agent otel` prints the JSON spans. `1agent
+  otel-export` wraps them in an OTLP/HTTP JSON `resourceSpans` envelope and
+  posts to a collector (HTTPS or loopback, no redirects, env-only bearer
+  token). This remains a wire adapter, not an OTel SDK/gRPC/batch-retry layer.
 - `budget`: optional cost/token/tool-call limits; exceeding any limit is a
   failure, 80% is a warning, unset limits are unbounded.
   `cost_per_verified_outcome` returns `None` when nothing verified.

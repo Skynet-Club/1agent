@@ -802,6 +802,21 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Post journal-derived spans to an OTLP/HTTP JSON collector.
+    OtelExport {
+        #[arg(long)]
+        journal: PathBuf,
+        /// Full OTLP traces URL, e.g. https://collector/v1/traces.
+        #[arg(long)]
+        endpoint: String,
+        #[arg(long, default_value = "1agent")]
+        service_name: String,
+        /// Read the bearer token only from this environment variable.
+        #[arg(long)]
+        token_env: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     Eval {
         #[arg(long, default_value = "evals/core.json")]
         suite: PathBuf,
@@ -7369,6 +7384,38 @@ async fn main() -> Result<()> {
                         span.name, span.kind, span.status, span.parent_span_id
                     );
                 }
+            }
+        }
+        Command::OtelExport {
+            journal,
+            endpoint,
+            service_name,
+            token_env,
+            json,
+        } => {
+            let events = read_events(&journal)
+                .with_context(|| format!("cannot read {}", journal.display()))?;
+            let spans = first_principles_agent::otel::spans_from_events(&events);
+            if spans.is_empty() {
+                anyhow::bail!("journal has no events to export");
+            }
+            let payload = first_principles_agent::otel_export::otlp_json(&spans, &service_name);
+            let status = first_principles_agent::otel_export::export_otlp(
+                &endpoint,
+                token_env.as_deref(),
+                &payload,
+            )
+            .await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "spans": spans.len(),
+                        "status": status,
+                    }))?
+                );
+            } else {
+                println!("exported {} span(s) (HTTP {status})", spans.len());
             }
         }
         Command::Eval {

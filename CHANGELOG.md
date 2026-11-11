@@ -394,6 +394,16 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- OTLP/HTTP JSON export: `1agent otel-export --journal PATH --endpoint URL
+  [--service-name NAME] [--token-env VAR] [--json]` wraps the journal-derived
+  GenAI spans in a `resourceSpans`/`scopeSpans` envelope and posts to a
+  collector. HTTPS or loopback HTTP only, no redirects, 5s timeout,
+  environment-only bearer token, no token/endpoint echo. Status/OK/ERROR map to
+  OTLP codes 1/2; attributes are string values. This is a wire adapter, not an
+  OTel SDK/gRPC exporter (ADR-0082).
+- Tests: two `otel_export_cli` e2e tests cover the envelope shape and
+  environment-only auth, missing token and insecure endpoint
+  (`cargo test --test otel_export_cli`).
 - Inbox reopen: `1agent inbox reopen --store PATH --item-id ID [--json]`
   returns an open/snoozed item to open, cancelling a snooze; terminal items
   still fail closed. The TUI `/inbox reopen <id>` uses the same action parser
