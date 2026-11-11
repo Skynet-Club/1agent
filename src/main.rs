@@ -413,6 +413,15 @@ enum Command {
         reversible: bool,
         #[arg(long)]
         explicit_approval: bool,
+        /// Quiet window as HH:MM-HH:MM; may cross midnight.
+        #[arg(long)]
+        quiet: Option<String>,
+        /// Local time used with --quiet.
+        #[arg(long, default_value = "12:00")]
+        now: String,
+        /// The user asked for this action, so quiet hours do not defer it.
+        #[arg(long)]
+        user_initiated: bool,
         #[arg(long)]
         json: bool,
     },
@@ -4463,6 +4472,9 @@ async fn main() -> Result<()> {
             risk,
             reversible,
             explicit_approval,
+            quiet,
+            now,
+            user_initiated,
             json,
         } => {
             let level = first_principles_agent::AutonomyLevel::parse(&level)
@@ -4473,7 +4485,28 @@ async fn main() -> Result<()> {
                 "high" => first_principles_agent::RiskLevel::High,
                 _ => anyhow::bail!("risk must be low, medium or high"),
             };
-            let plan = first_principles_agent::decide(level, risk, reversible, explicit_approval);
+            let quiet_hours = quiet
+                .as_deref()
+                .map(first_principles_agent::autonomy::QuietHours::parse)
+                .transpose()
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let now_minute = if quiet_hours.is_some() {
+                first_principles_agent::autonomy::parse_hhmm(&now)
+                    .map_err(|error| anyhow::anyhow!("{error}"))?
+            } else {
+                0
+            };
+            let plan = first_principles_agent::autonomy::decide_proactive(
+                level,
+                risk,
+                reversible,
+                explicit_approval,
+                first_principles_agent::autonomy::ProactiveContext {
+                    now_minute,
+                    user_initiated,
+                    quiet_hours,
+                },
+            );
             if json {
                 println!("{}", serde_json::to_string_pretty(&plan)?);
             } else {
