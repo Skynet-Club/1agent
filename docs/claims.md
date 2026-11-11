@@ -57,6 +57,7 @@ file: <路径>              → 文件必须存在
 | 平台能力状态显式；`untested` 不宣称支持 | cmd: cargo test platform --lib && cargo test --test platform_cli | ✅ | Linux 状态图；macOS/Windows/other 全部 `untested`；不是 P-Gate 通过 |
 | 独立验证器拒绝自验证、重复/缺失结果和无证据通过；public pass + hidden fail 记为 hacked | cmd: cargo test verification --lib && cargo test --test hack_verifiable | ✅ | 确定性契约夹具；不代表真实模型质量；隐藏测试需与公开测试分开维护 |
 | 可逆副作用无补偿时失败关闭；不可逆/失败需人工；away digest 分区可见 | cmd: cargo test repair --lib && cargo test --test away_digest_cli | ✅ | 只规划补偿，不执行；执行仍需 Authority/Policy/Approval |
+| 价值周报只报可复现结果与每完成结果成本，不编造“省时” | cmd: cargo test value_report --lib && cargo test --test value_report_cli | ✅ | mock journal；真实用户价值需后续测量基线 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
 | 1A 在写权限下用终端工具启动 copilot 并读取 GitHub 登录状态 | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机验收；gh 已登录，未做交互式 device-code 登录 |
