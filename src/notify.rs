@@ -75,6 +75,16 @@ pub struct NotifyReceipt {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct DigestNotifyReceipt {
+    pub sent_at_ms: u128,
+    pub runs: usize,
+    pub alerts: usize,
+    pub inbox_open: usize,
+    pub format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct NotifyOutcome {
     pub sent: bool,
     pub open: usize,
@@ -265,9 +275,9 @@ pub async fn notify_inbox_if_new(
     notify_inbox_if_new_to(std::slice::from_ref(notifier), items, state, now_ms).await
 }
 
-pub fn append_receipt(path: &Path, receipt: &NotifyReceipt) -> Result<(), NotifyError> {
+fn append_json_line<T: Serialize>(path: &Path, value: &T) -> Result<(), NotifyError> {
     use std::io::Write;
-    let line = serde_json::to_vec(receipt).map_err(|error| NotifyError::Json(error.to_string()))?;
+    let line = serde_json::to_vec(value).map_err(|error| NotifyError::Json(error.to_string()))?;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -276,6 +286,17 @@ pub fn append_receipt(path: &Path, receipt: &NotifyReceipt) -> Result<(), Notify
     file.write_all(b"\n")?;
     file.sync_data()?;
     Ok(())
+}
+
+pub fn append_receipt(path: &Path, receipt: &NotifyReceipt) -> Result<(), NotifyError> {
+    append_json_line(path, receipt)
+}
+
+pub fn append_digest_receipt(
+    path: &Path,
+    receipt: &DigestNotifyReceipt,
+) -> Result<(), NotifyError> {
+    append_json_line(path, receipt)
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {

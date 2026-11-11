@@ -270,6 +270,9 @@ enum Command {
         notify_webhook: Option<String>,
         #[arg(long, default_value = "generic")]
         notify_format: String,
+        /// Append one JSONL receipt after a successful digest webhook send.
+        #[arg(long)]
+        notify_log: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -3618,9 +3621,13 @@ async fn main() -> Result<()> {
             escalation_step,
             notify_webhook,
             notify_format,
+            notify_log,
             json,
         } => {
             use std::fmt::Write as _;
+            if notify_log.is_some() && notify_webhook.is_none() {
+                anyhow::bail!("--notify-log requires --notify-webhook");
+            }
             let runs = if journal_dir.is_dir() {
                 scan_history(&journal_dir, 20)?
             } else {
@@ -3698,9 +3705,10 @@ async fn main() -> Result<()> {
                 }
                 None => None,
             };
+            let run_count = runs.len();
             let mut text = String::new();
             writeln!(text, "1Agent Digest").ok();
-            writeln!(text, "最近运行：{} 条", runs.len()).ok();
+            writeln!(text, "最近运行：{run_count} 条").ok();
             for (reason, count) in &stop_reasons {
                 writeln!(text, "- {reason}: {count}").ok();
             }
@@ -3786,6 +3794,18 @@ async fn main() -> Result<()> {
                 let notifier = first_principles_agent::notify::InboxNotifier::new(webhook)?
                     .with_format(format);
                 notifier.send_text(text.trim_end()).await?;
+                if let Some(path) = notify_log {
+                    first_principles_agent::notify::append_digest_receipt(
+                        &path,
+                        &first_principles_agent::notify::DigestNotifyReceipt {
+                            sent_at_ms: current_time_ms(),
+                            runs: run_count,
+                            alerts: alert_records.len(),
+                            inbox_open,
+                            format: notifier.format_name().into(),
+                        },
+                    )?;
+                }
             }
         }
         Command::UnitEconomics {

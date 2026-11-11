@@ -44,6 +44,7 @@ fn start_webhook() -> (String, mpsc::Receiver<String>) {
 #[test]
 fn digest_posts_its_text_summary() {
     let workspace = tempfile::tempdir().unwrap();
+    let receipt_log = workspace.path().join("digest-notify.jsonl");
     let (webhook, received) = start_webhook();
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let output = Command::new(bin)
@@ -53,13 +54,10 @@ fn digest_posts_its_text_summary() {
         .arg(workspace.path().join("schedules.json"))
         .args(["--inbox-store"])
         .arg(workspace.path().join("inbox.jsonl"))
-        .args([
-            "--notify-webhook",
-            &webhook,
-            "--notify-format",
-            "slack",
-            "--json",
-        ])
+        .args(["--notify-webhook", &webhook, "--notify-format", "slack"])
+        .arg("--notify-log")
+        .arg(&receipt_log)
+        .arg("--json")
         .output()
         .unwrap();
     assert!(
@@ -77,6 +75,36 @@ fn digest_posts_its_text_summary() {
     let text = payload["text"].as_str().unwrap();
     assert!(text.contains("1Agent Digest"));
     assert!(text.contains("Inbox 待办：0 条"));
+
+    let receipt: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&receipt_log).unwrap().trim()).unwrap();
+    assert_eq!(receipt["format"], "slack");
+    assert_eq!(receipt["inbox_open"], 0);
+    assert_eq!(receipt["runs"], 0);
+    assert_eq!(receipt["alerts"], 0);
+}
+
+#[test]
+fn digest_rejects_a_receipt_log_without_a_webhook() {
+    let workspace = tempfile::tempdir().unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["digest", "--journal-dir"])
+        .arg(workspace.path().join("journals"))
+        .args(["--schedule-store"])
+        .arg(workspace.path().join("schedules.json"))
+        .args(["--inbox-store"])
+        .arg(workspace.path().join("inbox.jsonl"))
+        .arg("--notify-log")
+        .arg(workspace.path().join("receipts.jsonl"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--notify-log requires --notify-webhook"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

@@ -394,6 +394,11 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- Digest receipts: `digest --notify-log PATH` appends one JSONL receipt after
+  a successful `--notify-webhook` send (sent_at_ms/runs/alerts/inbox_open/
+  format, no URL). The flag requires the webhook.
+- Tests: one `digest_notify_cli` e2e test covers the receipt and the
+  missing-webhook rejection (`cargo test --test digest_notify_cli`).
 - OTLP/HTTP JSON export: `1agent otel-export --journal PATH --endpoint URL
   [--service-name NAME] [--token-env VAR] [--json]` wraps the journal-derived
   GenAI spans in a `resourceSpans`/`scopeSpans` envelope and posts to a
