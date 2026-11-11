@@ -230,6 +230,13 @@
   trust anchor, not remote key discovery.
 - Tests: four card-trust unit tests plus two `card_trust_cli` e2e tests
   (`cargo test card_trust --lib`, `cargo test --test card_trust_cli`).
+- Team handoff (ADR-0068): `HandoffStore` appends grounded handoff snapshots
+  to JSONL. `create` requires distinct from/to, a non-empty summary and at
+  least one evidence reference; only the addressee may accept, and a terminal
+  handoff cannot transition again. `1agent handoff create|accept|list` exposes
+  it. The Agent Card moves team collaboration from unsupported to degraded.
+- Tests: four handoff unit tests plus two `handoff_cli` e2e tests
+  (`cargo test handoff --lib`, `cargo test --test handoff_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

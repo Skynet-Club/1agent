@@ -81,6 +81,7 @@ file: <路径>              → 文件必须存在
 | 组织审计索引：actor/action/scope/decision 哈希链；改字段/换序/断链检测 | cmd: cargo test org_audit --lib && cargo test --test org_audit_cli | ✅ | 本地索引，非远程透明日志/IdP |
 | MCP OAuth claims：audience/过期/未生效/最大 TTL/精确 scope；拒绝时不泄露 subject | cmd: cargo test mcp_auth --lib && cargo test --test mcp_token_cli | ✅ | 调用方必须先验签；不实现 HTTP/SSE 传输 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |
+| 团队交接：必须有 evidence、from≠to；仅 addressee 可接受；终态不可再转换 | cmd: cargo test handoff --lib && cargo test --test handoff_cli | ✅ | 本地交接；无实时共享上下文/IdP |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
 | 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
