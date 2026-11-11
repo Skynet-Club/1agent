@@ -1060,6 +1060,9 @@ enum Command {
         /// Re-propose even if this exact request was rejected before.
         #[arg(long)]
         force: bool,
+        /// Require an added-cost statement for every option.
+        #[arg(long)]
+        require_costs: bool,
         #[arg(long)]
         json: bool,
     },
@@ -8447,6 +8450,7 @@ async fn main() -> Result<()> {
             defer,
             journal_dir,
             force,
+            require_costs,
             json,
         } => {
             let (proposal, provider_id, model_label, prompt_sha) = match (task, input) {
@@ -8514,6 +8518,15 @@ async fn main() -> Result<()> {
                 }
                 _ => bail!("exactly one of --task or --input is required"),
             };
+            if require_costs {
+                let missing = proposal.missing_option_costs();
+                if !missing.is_empty() {
+                    anyhow::bail!(
+                        "every option needs an added cost; missing: {}",
+                        missing.join(", ")
+                    );
+                }
+            }
 
             let decided =
                 usize::from(accept.is_some()) + usize::from(reject.is_some()) + usize::from(defer);
@@ -19274,6 +19287,7 @@ mod reframe_failure_tests {
             } else {
                 Vec::new()
             },
+            added_costs: Default::default(),
             hypotheses: Vec::new(),
             substitutes: if role == RequestRole::Means {
                 vec!["借用".into()]

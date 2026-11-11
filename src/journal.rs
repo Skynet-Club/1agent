@@ -1985,6 +1985,7 @@ mod reframe_journal_tests {
             confidence_bps: Some(8_200),
             question: Some("打孔是为了穿线、挂东西，还是施工改造？".into()),
             options: vec!["穿线".into(), "挂东西".into(), "施工改造".into()],
+            added_costs: Default::default(),
             hypotheses: vec!["联网".into()],
             substitutes: vec!["无线路由器".into()],
             stop_rule: StopRule {

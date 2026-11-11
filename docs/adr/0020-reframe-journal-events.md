@@ -58,6 +58,12 @@ other
   `reframe_duplicate_decision`、`reframe_option_out_of_range`。
 - 未决定的提议是合法状态（用户还没答），不得视为错误。
 
+### 新增代价
+
+`ReframeProposal.added_costs` 按选项原文记录新增代价；`validate` 拒绝未知
+选项和空成本。`reframe --require-costs` 在任何选项缺少成本时失败。默认提示词
+仍保持原字节（哈希锁定），因此这是可选强制，而非模型行为已改变。
+
 ### 不重复提议
 
 `reframe` 在生成新提议前扫描最近 500 个 journal，若同一 `stated_request`
@@ -118,6 +124,7 @@ RunStopped(Completed)
 ```bash
 cargo test --test reframe_repeat_cli
 cargo test --test receipt_index_cli
+cargo test --test reframe_costs_cli
 cargo test tui_commands --lib
 ```
 
@@ -126,4 +133,5 @@ The repeat test rejects a proposal, verifies a repeat returns
 check, and verifies a different request still gets a proposal. The receipt
 index test lists rejected and deferred decisions newest first across journals.
 The TUI registry test covers the `/receipt` command; the renderer itself is
-covered by the reframe receipt tests.
+covered by the reframe receipt tests. The added-cost tests cover complete,
+missing, unknown and empty cost maps and the opt-in flag.

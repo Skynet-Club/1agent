@@ -429,6 +429,12 @@
   work.
 - Tests: two `receipt_index_cli` e2e tests cover newest-first ordering and a
   missing directory (`cargo test --test receipt_index_cli`).
+- Reframe added costs: `ReframeProposal.added_costs` maps option text to its
+  added cost. `validate` rejects unknown options and empty cost values, and
+  `reframe --require-costs` fails when any option lacks a cost. The locked
+  prompt and default model path are unchanged, so this is opt-in enforcement.
+- Tests: three `reframe_costs_cli` e2e tests cover complete, missing, unknown
+  and empty costs plus the no-flag path (`cargo test --test reframe_costs_cli`).
 - Reframe repeat guard: `reframe` scans the newest 500 decision journals; if
   the same `stated_request` was rejected before, it reports
   `repeated_rejection` and does not call the model. `--force` overrides. The

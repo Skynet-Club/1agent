@@ -6,6 +6,8 @@
 //! [`ReframeProposal::validate`] before it can appear in a journal, a receipt or
 //! a transcript.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -97,6 +99,9 @@ pub struct ReframeProposal {
     pub question: Option<String>,
     #[serde(default)]
     pub options: Vec<String>,
+    /// Added-cost statement per option, keyed by the exact option text.
+    #[serde(default)]
+    pub added_costs: BTreeMap<String, String>,
     #[serde(default)]
     pub hypotheses: Vec<String>,
     #[serde(default)]
@@ -127,6 +132,10 @@ pub enum ReframeError {
     InvalidQuestion,
     #[error("a means request needs {MIN_OPTIONS} to {MAX_OPTIONS} options, got {0}")]
     InvalidOptionCount(usize),
+    #[error("added cost references unknown option: {0}")]
+    UnknownCostOption(String),
+    #[error("added cost is empty for option: {0}")]
+    EmptyAddedCost(String),
     #[error("option {0} is empty, duplicated, unsafe or too large")]
     InvalidOption(usize),
     #[error("a two-option question must not be a yes/no question")]
@@ -197,6 +206,7 @@ impl ModelProposal {
             confidence_bps,
             question: self.question,
             options: self.options,
+            added_costs: BTreeMap::new(),
             hypotheses: self.hypotheses,
             substitutes: self.substitutes,
             stop_rule: StopRule {
@@ -311,6 +321,15 @@ impl ReframeProposal {
             }
         }
 
+        for (option, cost) in &self.added_costs {
+            if !self.options.iter().any(|candidate| candidate == option) {
+                return Err(ReframeError::UnknownCostOption(option.clone()));
+            }
+            if cost.trim().is_empty() {
+                return Err(ReframeError::EmptyAddedCost(option.clone()));
+            }
+        }
+
         if self.hypotheses.len() > MAX_HYPOTHESES {
             return Err(ReframeError::TooManyHypotheses);
         }
@@ -322,6 +341,19 @@ impl ReframeProposal {
         validate_list(&self.substitutes, ReframeError::InvalidSubstitute)?;
 
         Ok(())
+    }
+
+    /// Options that lack a non-empty added-cost statement.
+    pub fn missing_option_costs(&self) -> Vec<&str> {
+        self.options
+            .iter()
+            .filter(|option| {
+                self.added_costs
+                    .get(*option)
+                    .is_none_or(|cost| cost.trim().is_empty())
+            })
+            .map(String::as_str)
+            .collect()
     }
 
     /// Whether this proposal actually asks the user anything.
@@ -607,6 +639,7 @@ mod tests {
             confidence_bps: Some(8_200),
             question: Some("打孔是为了穿线、挂东西，还是施工改造？".into()),
             options: vec!["穿线".into(), "挂东西".into(), "施工改造".into()],
+            added_costs: Default::default(),
             hypotheses: vec!["联网".into(), "装书架".into()],
             substitutes: vec!["无线路由器".into()],
             stop_rule: StopRule {
@@ -640,6 +673,7 @@ mod tests {
             confidence_bps: None,
             question: None,
             options: vec![],
+            added_costs: Default::default(),
             hypotheses: vec![],
             substitutes: vec!["重写整个文件".into()],
             stop_rule: StopRule::default(),
@@ -720,6 +754,7 @@ mod tests {
             confidence_bps: None,
             question: None,
             options: vec![],
+            added_costs: Default::default(),
             hypotheses: vec![],
             substitutes: vec![],
             stop_rule: StopRule::default(),
