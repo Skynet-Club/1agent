@@ -24,6 +24,13 @@
   `hacked_resolved_bps`.
 - Tests: seven verification unit tests plus the `hack_verifiable` contract
   suite (`cargo test verification --lib`, `cargo test --test hack_verifiable`).
+- Trust & Repair (ADR-0038): `repair::plan_repair` classifies applied side
+  effects as `none`, `compensate` or `manual`; an applied reversible action
+  without a recorded compensation fails closed. `build_away_digest` and
+  `1agent away-digest` show applied/compensated/failed/pending/needs_user plus
+  per-action receipts. This slice plans compensation, not executes it.
+- Tests: six repair unit tests plus two `away_digest_cli` e2e tests
+  (`cargo test repair --lib`, `cargo test --test away_digest_cli`).
 
 ## 0.96.1 - 2026-11-11
 

@@ -236,6 +236,13 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   its source memory id; forgotten or superseded records are ignored. Autonomy
   and consent are preferences, not grants: Authority/Policy/Approval still
   decide execution. `1agent user-model` prints the view as JSON or text.
+- `repair`: `plan_repair` classifies an applied side effect as `none`,
+  `compensate` or `manual`; an applied reversible action without a recorded
+  compensation fails closed, and an irreversible action always requires a
+  human. `build_away_digest` projects the side-effect ledger into applied,
+  compensated, failed, pending, `needs_user` and receipts; `1agent
+  away-digest` exposes the view. This slice plans compensation; executing it
+  still requires Authority/Policy/Approval.
 
 ## Security behavior
 
