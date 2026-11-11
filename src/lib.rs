@@ -11,6 +11,7 @@ pub mod audit;
 pub mod authority;
 pub mod autonomy;
 pub mod capability_probe;
+pub mod cascade;
 pub mod config;
 pub mod context;
 pub mod context_graph;

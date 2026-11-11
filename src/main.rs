@@ -405,6 +405,24 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    CascadeCheck {
+        #[arg(long)]
+        root: String,
+        /// Repeatable parent>child edge.
+        #[arg(long, value_name = "PARENT>CHILD")]
+        edge: Vec<String>,
+        /// Repeatable node where propagation is stopped.
+        #[arg(long)]
+        contain: Vec<String>,
+        #[arg(long, default_value_t = 5_000)]
+        min_containment_bps: u16,
+        #[arg(long, default_value_t = 3)]
+        max_depth: usize,
+        #[arg(long, default_value_t = 8)]
+        max_blast_radius: usize,
+        #[arg(long)]
+        json: bool,
+    },
     Onboard {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         memory_journal: PathBuf,
@@ -4283,6 +4301,58 @@ async fn main() -> Result<()> {
                 );
                 if let Some(branch) = branch_verdict {
                     println!("branch: {} ({})", branch.decision.as_str(), branch.reason);
+                }
+            }
+        }
+        Command::CascadeCheck {
+            root,
+            edge,
+            contain,
+            min_containment_bps,
+            max_depth,
+            max_blast_radius,
+            json,
+        } => {
+            let mut edges = Vec::with_capacity(edge.len());
+            for spec in edge {
+                let (parent, child) = spec
+                    .split_once('>')
+                    .ok_or_else(|| anyhow::anyhow!("--edge must be PARENT>CHILD"))?;
+                if parent.trim().is_empty() || child.trim().is_empty() {
+                    anyhow::bail!("--edge must have non-empty parent and child");
+                }
+                edges.push((parent.trim().to_string(), child.trim().to_string()));
+            }
+            let report = first_principles_agent::cascade::simulate(&root, &edges, &contain);
+            let verdict = first_principles_agent::cascade::evaluate(
+                &report,
+                &first_principles_agent::cascade::CascadePolicy {
+                    min_containment_bps,
+                    max_depth,
+                    max_blast_radius,
+                },
+            );
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "report": report,
+                        "verdict": verdict
+                    }))?
+                );
+            } else {
+                println!(
+                    "affected={} contained={} propagated={} containment_bps={} depth={} blast_radius={}",
+                    report.affected.len(),
+                    report.contained.len(),
+                    report.propagated.len(),
+                    report.containment_rate_bps,
+                    report.cascade_depth,
+                    report.blast_radius
+                );
+                println!("verdict: {}", if verdict.passed { "pass" } else { "fail" });
+                for failure in &verdict.failures {
+                    println!("- {failure}");
                 }
             }
         }

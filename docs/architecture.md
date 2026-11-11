@@ -351,6 +351,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   The planner must not see untrusted content, and a branch target must be in
   the pre-approved plan (branch-steering guard). This is policy only; no
   browser execution.
+- `cascade`: `simulate(root, edges, contained)` walks a directed failure graph;
+  a contained node is affected but stops propagation. The report exposes
+  `containment_rate_bps = contained / affected`, `cascade_depth` and
+  `blast_radius`; `evaluate` gates them. `1agent cascade-check` exposes it.
+  This is a deterministic simulation, not a live multi-agent run.
 - `tool_search`: `search(query, specs, limit)` ranks tools by exact/prefix/name
   token, description token and parameter-name token, deterministically.
   `select` adds the always-on tools (`read_file`, `write_file`, `edit_file`,
