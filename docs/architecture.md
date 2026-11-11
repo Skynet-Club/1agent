@@ -448,8 +448,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   with `--mcp-config`. Exactly one of `command` or `url` is required. HTTP
   requires HTTPS except for loopback, rejects credentials in the URL, carries
   `Mcp-Session-Id`, accepts JSON or `text/event-stream` responses, and reads a
-  bearer token only from the environment variable named by
-  `bearer_token_env`, and does not follow HTTP redirects. `timeout_seconds` (1..=300, default 20) bounds each
+  bearer token from the environment variable named by `bearer_token_env` or
+  from a 0600 regular non-symlink file named by `bearer_token_file` (never
+  both), and does not follow HTTP redirects. `timeout_seconds` (1..=300, default 20) bounds each
   request and the tool execution timeout; responses are capped at 2 MiB
   before further allocation (stdio lines are read in bounded chunks) and
   non-UTF-8 bodies fail closed. A tool is write-gated unless the server declares

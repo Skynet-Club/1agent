@@ -394,6 +394,14 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
+- MCP bearer-token files: `McpServerConfig` accepts `bearer_token_file` as an
+  alternative to `bearer_token_env` (never both). The file must be a regular
+  non-symlink file of 1..=4096 bytes, 0600 on Unix, containing one non-empty
+  token; the token is never logged. This lets an operator rotate a short-lived
+  token file without changing the process environment.
+- Tests: MCP unit tests assert the file token reaches the HTTP `Authorization`
+  header and reject loose permissions, symlinks, empty/whitespace tokens and
+  both sources (`cargo test tools::mcp --lib`).
 - Trust Center HTML output: `trust-center --html-out PATH` writes a static,
   script-free disclosure page. Capability counts, limits, audit, data policy,
   verification, evaluations and contacts are HTML-escaped; contact URLs are

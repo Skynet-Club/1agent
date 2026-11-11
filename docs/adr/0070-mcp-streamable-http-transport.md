@@ -18,8 +18,11 @@ credential path that does not put tokens in a config file or argv.
    - HTTPS is required except for loopback (`localhost` or a loopback IP);
    - URLs with embedded credentials are rejected;
    - a bearer token is read from the environment variable named by
-     `bearer_token_env`; the token is never stored in the config;
-   - a missing or empty token variable fails closed.
+     `bearer_token_env` or from a 0600 regular non-symlink file named by
+     `bearer_token_file`; setting both is an error;
+   - the token is never stored in the config, logged or included in errors;
+   - a missing, empty, loose-permission or symlinked token source fails
+     closed.
 3. Requests are JSON-RPC POSTs with `Accept: application/json,
    text/event-stream`. The client records `Mcp-Session-Id`, sends it on later
    requests and accepts either a JSON response or SSE `data:` events. Batched
@@ -37,9 +40,9 @@ credential path that does not put tokens in a config file or argv.
   rejected.
 - SSE support parses `data:` events and ignores other fields; reconnection,
   resumability and server-initiated streams are not implemented.
-- OAuth discovery, token exchange and refresh are not implemented; the caller
-  supplies a token through the environment and can validate claims with
-  `mcp_auth`.
+- OAuth discovery, automatic token exchange and refresh are not implemented;
+  the caller supplies a token through the environment or a private file and
+  can validate claims with `mcp_auth`.
 - Transport tests use a local fake HTTP server, not a third-party MCP server.
 
 ## Evidence
@@ -49,5 +52,5 @@ cargo test tools::mcp --lib
 ```
 
 The tests cover stdio compatibility, HTTP initialize/list/call, SSE parsing,
-and rejection of both/neither transports, remote plain HTTP and embedded
-credentials.
+rejection of both/neither transports, remote plain HTTP and embedded
+credentials, and env-vs-file bearer token handling including unsafe files.

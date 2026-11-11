@@ -159,7 +159,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "mcp_http_transport",
                 CapabilityStatus::Verified,
-                "streamable HTTP JSON/SSE transport with environment-only bearer tokens",
+                "streamable HTTP JSON/SSE transport with environment or 0600-file bearer tokens",
             ),
             capability(
                 "chat_bridge",

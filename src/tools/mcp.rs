@@ -53,6 +53,9 @@ pub struct McpServerConfig {
     /// Read the HTTP bearer token from this environment variable.
     #[serde(default)]
     pub bearer_token_env: Option<String>,
+    /// Read the HTTP bearer token from this 0600 regular file instead.
+    #[serde(default)]
+    pub bearer_token_file: Option<std::path::PathBuf>,
     /// Per-request timeout in seconds (1..=300, default 20).
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
@@ -79,6 +82,46 @@ struct McpClient {
     request_lock: Mutex<()>,
     server_name: String,
     timeout: Duration,
+}
+
+fn read_bearer_token_file(path: &std::path::Path, server: &str) -> Result<String, ToolError> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        ToolError::InvalidArguments(format!(
+            "MCP server '{server}' cannot stat bearer token file {}: {error}",
+            path.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(ToolError::InvalidArguments(format!(
+            "MCP server '{server}' bearer token file must be a regular non-symlink file"
+        )));
+    }
+    if metadata.len() == 0 || metadata.len() > 4096 {
+        return Err(ToolError::InvalidArguments(format!(
+            "MCP server '{server}' bearer token file must be 1..=4096 bytes"
+        )));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(ToolError::InvalidArguments(format!(
+                "MCP server '{server}' bearer token file must not be group/world accessible (chmod 600)"
+            )));
+        }
+    }
+    let raw = std::fs::read_to_string(path).map_err(|error| {
+        ToolError::InvalidArguments(format!(
+            "MCP server '{server}' cannot read bearer token file: {error}"
+        ))
+    })?;
+    let token = raw.trim();
+    if token.is_empty() || token.chars().any(char::is_whitespace) {
+        return Err(ToolError::InvalidArguments(format!(
+            "MCP server '{server}' bearer token file must contain one non-empty token"
+        )));
+    }
+    Ok(token.to_string())
 }
 
 impl McpClient {
@@ -186,8 +229,14 @@ impl McpClient {
                 server.name
             )));
         }
-        let bearer_token = match &server.bearer_token_env {
-            Some(variable) => {
+        if server.bearer_token_env.is_some() && server.bearer_token_file.is_some() {
+            return Err(ToolError::InvalidArguments(format!(
+                "MCP server '{}' must set only one of bearer_token_env or bearer_token_file",
+                server.name
+            )));
+        }
+        let bearer_token = match (&server.bearer_token_env, &server.bearer_token_file) {
+            (Some(variable), None) => {
                 if variable.trim().is_empty() {
                     return Err(ToolError::InvalidArguments(format!(
                         "MCP server '{}' bearer token environment variable is empty",
@@ -208,7 +257,9 @@ impl McpClient {
                 }
                 Some(token)
             }
-            None => None,
+            (None, Some(path)) => Some(read_bearer_token_file(path, &server.name)?),
+            (None, None) => None,
+            (Some(_), Some(_)) => unreachable!("conflict checked above"),
         };
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -759,14 +810,17 @@ mod tests {
     use crate::tools::ToolRegistry;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    async fn fake_http_server() -> std::net::SocketAddr {
+    async fn fake_http_server() -> (std::net::SocketAddr, Arc<std::sync::Mutex<Vec<String>>>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_for_server = captured.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((mut socket, _)) = listener.accept().await else {
                     break;
                 };
+                let captured = captured_for_server.clone();
                 tokio::spawn(async move {
                     let mut buffer = Vec::new();
                     let mut chunk = [0u8; 4096];
@@ -781,6 +835,13 @@ mod tests {
                             continue;
                         };
                         let headers = String::from_utf8_lossy(&buffer[..end]).to_string();
+                        if let Some(authorization) = headers.lines().find_map(|line| {
+                            let (key, value) = line.split_once(':')?;
+                            key.eq_ignore_ascii_case("authorization")
+                                .then(|| value.trim().to_string())
+                        }) {
+                            captured.lock().unwrap().push(authorization);
+                        }
                         let length = headers
                             .lines()
                             .find_map(|line| {
@@ -870,12 +931,12 @@ mod tests {
                 });
             }
         });
-        address
+        (address, captured)
     }
 
     #[tokio::test]
     async fn http_mcp_discovers_and_calls_tools() {
-        let address = fake_http_server().await;
+        let (address, _authorization) = fake_http_server().await;
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("mcp.json");
         std::fs::write(
@@ -903,6 +964,107 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome.content, "echo:hello");
+    }
+
+    #[cfg(unix)]
+    fn write_token_file(path: &std::path::Path, token: &str, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, token).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(mode);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn http_mcp_reads_a_bearer_token_from_a_private_file() {
+        let (address, authorization) = fake_http_server().await;
+        let dir = tempfile::tempdir().unwrap();
+        let token_file = dir.path().join("mcp.token");
+        write_token_file(&token_file, "file-token\n", 0o600);
+        let config_path = dir.path().join("mcp.json");
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec(&json!({
+                "servers": [{
+                    "name": "fake",
+                    "url": format!("http://{address}/mcp"),
+                    "bearer_token_file": token_file
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let tools = load_mcp_tools(&config_path).await.unwrap();
+        assert_eq!(tools.len(), 1);
+        assert!(
+            authorization
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|value| value == "Bearer file-token")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn http_mcp_rejects_unsafe_bearer_token_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("mcp.json");
+        let token_file = dir.path().join("mcp.token");
+        for (name, token, mode) in [
+            ("loose", "token", 0o644),
+            ("empty", "", 0o600),
+            ("whitespace", "two tokens", 0o600),
+        ] {
+            write_token_file(&token_file, token, mode);
+            std::fs::write(
+                &config_path,
+                serde_json::to_vec(&json!({
+                    "servers": [{
+                        "name": name,
+                        "url": "http://127.0.0.1:1/mcp",
+                        "bearer_token_file": &token_file
+                    }]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(load_mcp_tools(&config_path).await.is_err(), "{name}");
+        }
+
+        let target = dir.path().join("target.token");
+        write_token_file(&target, "token", 0o600);
+        let link = dir.path().join("link.token");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec(&json!({
+                "servers": [{
+                    "name": "symlink",
+                    "url": "http://127.0.0.1:1/mcp",
+                    "bearer_token_file": &link
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(load_mcp_tools(&config_path).await.is_err());
+
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec(&json!({
+                "servers": [{
+                    "name": "both",
+                    "url": "http://127.0.0.1:1/mcp",
+                    "bearer_token_env": "TOKEN",
+                    "bearer_token_file": &target
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(load_mcp_tools(&config_path).await.is_err());
     }
 
     #[tokio::test]
