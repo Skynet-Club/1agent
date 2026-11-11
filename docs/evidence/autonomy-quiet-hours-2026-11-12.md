@@ -43,9 +43,28 @@ test result: ok. 3 passed; 0 failed
 - `autonomy-for --domain workspace --now 23:30` returns `defer` from the
   persisted model; `--now 12:00` and `--user-initiated` return `act`.
 
+## Boundary wake (added 04:12)
+
+`QuietHours::ms_until_end` returns the milliseconds until the exclusive end in
+the caller's fixed offset. The daemon's quiet-period sleep is
+`min(poll interval, ms_until_end)`, so due jobs stay deferred until the
+boundary and are re-checked as soon as it passes, without stretching the
+watchdog heartbeat beyond one poll interval.
+
+```bash
+cargo test autonomy --lib
+cargo test --test daemon_quiet_cli
+```
+
+`quiet_hours_ms_until_end_tracks_the_boundary` covers the overnight window at
+06:00 and at 06:59:30, a +60-minute offset, and the next boundary when called
+outside the window. `daemon_quiet_cli` still passes (2 tests).
+
 ## What this does not prove
 
-- That a scheduler wakes at the end of the window and runs deferred work.
+- That a long-running scheduler wake is clock-accurate under load; the
+  boundary calculation is unit-tested, the daemon integration is not.
+- That non-scheduler deferred work wakes at the end of the window.
 - That the runtime automatically reads `UserModel.quiet_hours`.
 - Time-zone/DST correctness; the caller supplies minutes since local midnight.
 - That a channel honors `defer` by suppressing notifications.

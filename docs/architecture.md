@@ -439,8 +439,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `1agent watchdog --heartbeat PATH --max-age-ms N` process exits non-zero when
   the heartbeat is missing, stale or invalid. With `--quiet-hours` and a fixed
   `--utc-offset-minutes`, the daemon skips due jobs inside the window, keeps
-  them due, and the heartbeat still advances. Escalation and cross-restart
-  deduplication are not yet wired into the daemon.
+  them due, and the heartbeat still advances. The quiet-period sleep is
+  `min(poll interval, milliseconds until the window ends)`, so the loop
+  re-checks due jobs at the boundary instead of only after a full poll.
+  Escalation and cross-restart deduplication are not yet wired into the
+  daemon.
 - A job may bind an active skill with `--routine-skill NAME@VERSION`; the child
   run composes that version's body into its task. This reuses the approved
   skill without granting permissions, and rejects inactive or mismatched

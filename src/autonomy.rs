@@ -58,6 +58,21 @@ impl QuietHours {
             1440 - minute + self.end_minute
         }
     }
+
+    /// Milliseconds until the window's exclusive end, in the caller's fixed
+    /// UTC offset. Called while the window is active it is at most one minute;
+    /// called outside it, it is the next end boundary.
+    pub fn ms_until_end(self, now_ms: u128, utc_offset_minutes: i32) -> u128 {
+        const DAY_MS: u128 = 86_400_000;
+        let offset_ms = (i64::from(utc_offset_minutes) * 60_000).rem_euclid(DAY_MS as i64) as u128;
+        let local_ms = (now_ms % DAY_MS + offset_ms) % DAY_MS;
+        let end_ms = u128::from(self.end_minute) * 60_000;
+        if end_ms > local_ms {
+            end_ms - local_ms
+        } else {
+            DAY_MS - local_ms + end_ms
+        }
+    }
 }
 
 /// Minute of day in the caller's fixed UTC offset. DST is the caller's concern.
@@ -321,6 +336,26 @@ mod tests {
         assert!(QuietHours::parse("07:00-07:00").is_err());
         assert!(QuietHours::parse("24:00-07:00").is_err());
         assert!(QuietHours::parse("bedtime").is_err());
+    }
+
+    #[test]
+    fn quiet_hours_ms_until_end_tracks_the_boundary() {
+        let overnight = QuietHours::parse("22:00-07:00").unwrap();
+        let six_am = 6 * 3_600_000;
+        assert_eq!(overnight.ms_until_end(six_am, 0), 3_600_000);
+        assert_eq!(
+            overnight.ms_until_end(six_am + 59 * 60_000 + 30_000, 0),
+            30_000
+        );
+
+        // 22:30 UTC at +60 is 23:30 local; the window ends at 07:00 local.
+        assert_eq!(
+            overnight.ms_until_end(22 * 3_600_000 + 30 * 60_000, 60),
+            (7 * 60 + 30) * 60_000
+        );
+
+        // Outside the window the method returns the next end boundary.
+        assert_eq!(overnight.ms_until_end(7 * 3_600_000, 0), 86_400_000);
     }
 
     #[test]

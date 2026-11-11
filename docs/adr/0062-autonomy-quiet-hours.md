@@ -32,8 +32,12 @@ technically allowed yet socially wrong. SA98-52 requires quiet hours.
    inside the window. Skipped jobs stay due and run after it; the watchdog
    heartbeat still advances. A fixed offset is used because the runtime has no
    timezone database.
-8. Waking at the end of the window for non-scheduler deferred work and full
-   DST handling remain separate slices.
+8. `QuietHours::ms_until_end` measures milliseconds to the exclusive end in a
+   fixed UTC offset. The daemon sleeps for `min(poll interval, ms_until_end)`
+   during quiet hours, keeping heartbeat cadence while re-checking due jobs at
+   the window boundary.
+9. Waking for non-scheduler deferred work and full DST handling remain
+   separate slices.
 
 ## Consequences
 
