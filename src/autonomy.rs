@@ -60,6 +60,12 @@ impl QuietHours {
     }
 }
 
+/// Minute of day in the caller's fixed UTC offset. DST is the caller's concern.
+pub fn local_minute(now_ms: u128, utc_offset_minutes: i32) -> u16 {
+    let utc = (now_ms / 60_000 % 1_440) as i64;
+    (utc + i64::from(utc_offset_minutes)).rem_euclid(1_440) as u16
+}
+
 pub fn parse_hhmm(value: &str) -> Result<u16, QuietHoursError> {
     let (hour, minute) = value
         .trim()

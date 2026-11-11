@@ -269,6 +269,11 @@
 - Inbox notification watermark: `--state PATH` stores `last_sent_ms` and
   suppresses repeats until an item is newer. The watermark advances only after
   a successful send; a failed send leaves it unchanged.
+- Daemon quiet hours: `daemon --quiet-hours HH:MM-HH:MM
+  --utc-offset-minutes N` skips due jobs inside the window. Jobs remain due and
+  run after the window; the watchdog heartbeat still advances.
+- Tests: two `daemon_quiet_cli` e2e tests
+  (`cargo test --test daemon_quiet_cli`).
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.

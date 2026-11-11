@@ -411,7 +411,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `schedule_run_failed` alert and deliver it to a webhook. With `--heartbeat`,
   each daemon loop writes an atomic `{pid, updated_at_ms}` file; a separate
   `1agent watchdog --heartbeat PATH --max-age-ms N` process exits non-zero when
-  the heartbeat is missing, stale or invalid. Escalation and cross-restart
+  the heartbeat is missing, stale or invalid. With `--quiet-hours` and a fixed
+  `--utc-offset-minutes`, the daemon skips due jobs inside the window, keeps
+  them due, and the heartbeat still advances. Escalation and cross-restart
   deduplication are not yet wired into the daemon.
 - A job may bind an active skill with `--routine-skill NAME@VERSION`; the child
   run composes that version's body into its task. This reuses the approved
