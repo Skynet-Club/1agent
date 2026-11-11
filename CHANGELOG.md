@@ -410,7 +410,8 @@
   several webhooks with per-target generic/Slack/Discord formats. Targets share
   one watermark; a later failure stops the fan-out without advancing it, and
   the caller's retry can duplicate one message to earlier targets. One receipt
-  per target is appended on success.
+  per target is appended on success. Exact duplicate `--target` entries are
+  rejected.
 - Tests: two `inbox_notify_targets_cli` e2e tests cover per-target payload
   formats, shared-watermark suppression and partial-failure state retention
   (`cargo test --test inbox_notify_targets_cli`).

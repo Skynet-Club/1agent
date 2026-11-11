@@ -238,4 +238,22 @@ fn inbox_notify_partial_target_failure_keeps_the_watermark() {
         .output()
         .unwrap();
     assert!(!both.status.success());
+
+    let duplicate = Command::new(bin())
+        .args(["inbox-notify", "--store"])
+        .arg(&store)
+        .args([
+            "--target",
+            "slack=http://127.0.0.1:9/hook",
+            "--target",
+            "slack=http://127.0.0.1:9/hook",
+        ])
+        .output()
+        .unwrap();
+    assert!(!duplicate.status.success());
+    assert!(
+        String::from_utf8_lossy(&duplicate.stderr).contains("duplicate --target"),
+        "stderr: {}",
+        String::from_utf8_lossy(&duplicate.stderr)
+    );
 }

@@ -27,7 +27,7 @@ open inbox queue to a chat webhook.
 6. `1agent inbox-notify --store PATH (--webhook URL [--format ...] |
    --target FORMAT=URL ...) [--state PATH] [--log PATH] [--dry-run]` exposes
    it. `--target` is repeatable and mutually exclusive with `--webhook`; each
-   target parses its own format. Targets share one watermark. Sends run in
+   target parses its own format and exact duplicates are rejected. Targets share one watermark. Sends run in
    argument order; a later failure stops the fan-out without advancing the
    watermark, so a retry may duplicate one message to earlier targets.
    `--log` appends one JSONL receipt per target per successful send

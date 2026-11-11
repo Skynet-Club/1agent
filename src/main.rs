@@ -3103,7 +3103,11 @@ fn parse_notify_notifiers(
         anyhow::bail!("--webhook or at least one --target FORMAT=URL is required");
     }
     let mut notifiers = Vec::with_capacity(targets.len());
+    let mut seen = std::collections::BTreeSet::new();
     for raw in targets {
+        if !seen.insert(raw.clone()) {
+            anyhow::bail!("duplicate --target {raw}");
+        }
         let (target_format, url) = raw
             .split_once('=')
             .ok_or_else(|| anyhow::anyhow!("--target must be FORMAT=URL"))?;
