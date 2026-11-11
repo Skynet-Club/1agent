@@ -77,7 +77,7 @@
 - 团队交接：`1agent handoff create --from ... --to ... --summary ... --evidence ... [--open-item ...]` 写入 append-only JSONL；必须有至少一个 evidence、from≠to；只有 addressee 可 `handoff accept`，终态不可再转换；`handoff list` 按创建时间排序；本地交接，不共享实时上下文；
 - 交接投影：`inbox sync --handoff-store PATH --recipient NAME` 只把 `to=recipient` 且 open 的 handoff 投影为 review 项（`handoff:<id>`），按 item_id 去重；默认只提醒，不自动接受；可在 inbox 显式 `resolve ... approved --handoff-store ... --actor ...` 接受；
 - 每日摘要：`1agent digest [--inbox-store PATH] [--handoff-store PATH --recipient NAME] [--json]` 汇总最近运行、计划任务/健康、告警、inbox open 与指定收件人的 open handoffs；缺 recipient/store 组合失败关闭；
-- 信任披露清单 v0：`1agent trust-center [--evaluation PATH ...] [--security-contact ...] [--incident-url ...] [--out PATH] [--json]` 从 Agent Card 生成能力计数、限制、数据政策与调用方提供的评测披露；audit 固定为 `not_audited`/无外部审计，不虚构 SOC2/ISO/EU 认证；
+- 信任披露清单 v0：`1agent trust-center [--evaluation PATH ...] [--security-contact ...] [--incident-url ...] [--out PATH] [--json]` 从 Agent Card 生成能力计数、限制、数据政策与调用方提供的评测披露；audit 固定为 `not_audited`/无外部审计，不虚构 SOC2/ISO/EU 认证；`1agent eval --suite ... --disclosure-out PATH` 可直接生成兼容的评测披露（名称/版本/passed/total/报告 SHA-256）；
 - 持久幂等记录：`1agent idempotency record|replay --store PATH --key K --fingerprint F`；每条记录 append-only JSONL 并 `sync_data` 后才确认；重启后按 key+fingerprint 重放原响应，同 key 不同 fingerprint 冲突并非零退出；末尾未换行的半条记录视为中断写入并忽略；这是外部写去重原语，尚未接入所有外部工具；
 - 带外 watchdog：`daemon --heartbeat PATH` 每轮原子写 `{pid, updated_at_ms}`；`1agent watchdog --heartbeat PATH --max-age-ms N [--json]` 在缺失/过期/损坏时非零退出；它只观察心跳，不重启 daemon、不清理锁；
 - 误报预算：`1agent alarm-budget --urgency N --delivered D --false-alarms F [--max-delivered N] [--max-false-alarm-bps N] [--critical-urgency N] [--json]`；预算耗尽或误报率超限时非关键告警转 digest，critical 始终投递；策略函数，不发送/持久化告警；

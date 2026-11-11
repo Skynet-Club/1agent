@@ -26,7 +26,11 @@ invented those would be worse than no manifest.
    [--incident-url ...] [--out PATH] [--json]`.
 3. Evaluations must be supplied by the caller from real runs. The command does
    not run an evaluation or read a hidden benchmark.
-4. This is a JSON manifest. It is not a hosted Trust Center page, not an
+4. `1agent eval --disclosure-out PATH` writes a compatible disclosure for the
+   run: suite name, package version, passed/total and the SHA-256 of the
+   pretty-printed report. `trust-center --evaluation` accepts that file
+   directly.
+5. This is a JSON manifest. It is not a hosted Trust Center page, not an
    external audit and not a compliance certification.
 
 ## Consequences
