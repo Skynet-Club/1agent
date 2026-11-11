@@ -15,11 +15,13 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 2 tests (tests/otel_export_cli.rs)
+running 4 tests (tests/otel_export_cli.rs)
 test otel_export_posts_an_otlp_json_envelope ... ok
 test otel_export_reads_the_bearer_token_only_from_the_environment ... ok
+test otel_export_does_not_follow_redirects ... ok
+test otel_export_fails_closed_on_a_collector_error ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 4 passed; 0 failed
 ```
 
 ## What this proves
@@ -34,6 +36,8 @@ test result: ok. 2 passed; 0 failed
   the named variable's value becomes a bearer token and is not printed.
 - A missing token variable and an insecure remote HTTP endpoint fail closed
   before any request.
+- A 302 response is an error and the Location target receives no second
+  connection; a 503 collector response is an error that names the status.
 
 ## What this does not prove
 
