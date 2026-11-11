@@ -333,6 +333,12 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   import` requires a matching SHA-256, rechecks every manifest's body hash and
   skips versions that already exist. It is a distribution primitive, not a
   marketplace: there is no remote index or signature yet.
+- `skill scan --path SKILL.md` parses and validates a skill without registering
+  it. It runs the registry scan: control characters, private-key markers,
+  secret-like tokens and instruction-override markers (`ignore previous`,
+  `disregard previous instructions`, `reveal your system prompt`,
+  `print your instructions`, `jailbreak`). This is a preflight heuristic, not
+  a malware sandbox.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept
