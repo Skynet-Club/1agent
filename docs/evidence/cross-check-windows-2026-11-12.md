@@ -7,21 +7,35 @@ Scope: cross-target compilation of the current tree, not runtime behavior.
 
 ```bash
 RUSTFLAGS="-D warnings" cargo check --offline --target x86_64-pc-windows-gnu
+RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu
 cargo check --offline --target aarch64-apple-darwin
 cargo test --offline
 ```
 
 ## Results
 
-Windows GNU target:
+Windows GNU target, library and binary:
 
 ```text
 Checking first-principles-agent v0.96.1
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.17s
 ```
 
-No warnings under `-D warnings`. One cfg-only unused-variable warning was
-fixed: `read_key_hex(path, secret)` now consumes `secret` on non-Unix targets.
+Windows GNU target, all targets including tests:
+
+```text
+RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu
+Finished
+```
+
+No warnings under `-D warnings`. Fixes required for the all-targets check:
+
+- `read_key_hex(path, secret)` consumes `secret` on non-Unix targets.
+- Unix-only test modules are `#[cfg(all(test, unix))]` (documents, workshop
+  worker).
+- Unix-only test cases and imports are `#[cfg(unix)]` (task-graph store,
+  terminal tools, MCP).
+- Unix-only permission/symlink helpers are no longer compiled on Windows.
 
 macOS arm64 target:
 
@@ -37,10 +51,11 @@ Linux full tests after the change: 954 passed, 0 failed, 5 ignored.
 
 ## What this proves
 
-- The Rust tree compiles for `x86_64-pc-windows-gnu` with warnings denied.
+- The Rust tree and all test targets compile for `x86_64-pc-windows-gnu` with
+  warnings denied.
 - Non-Unix cfg branches do not reference Unix-only APIs in a way that breaks
   compilation.
-- The Linux suite still passes.
+- The Linux suite still passes (961 passed, 0 failed, 5 ignored).
 
 ## What this does not prove
 

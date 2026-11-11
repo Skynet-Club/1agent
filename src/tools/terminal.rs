@@ -887,10 +887,13 @@ impl AgentTool for TerminalDestroyTool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::sync::Arc;
 
     use super::*;
+    #[cfg(unix)]
     use crate::domain::{ToolCall, ToolStatus};
+    #[cfg(unix)]
     use crate::tools::ToolRegistry;
 
     fn write_permissions(root: &Path) -> PermissionSet {

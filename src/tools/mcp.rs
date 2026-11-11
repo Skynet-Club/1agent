@@ -674,7 +674,9 @@ pub async fn load_mcp_tools(path: &Path) -> Result<Vec<Arc<dyn AgentTool>>, Tool
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::domain::{ToolCall, ToolStatus};
+    #[cfg(unix)]
     use crate::tools::ToolRegistry;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
