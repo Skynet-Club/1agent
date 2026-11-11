@@ -173,6 +173,14 @@
   registry discovery.
 - Tests: three agent-card unit tests plus one `agent_card_cli` signing e2e
   test (`cargo test agent_card --lib`, `cargo test --test agent_card_cli`).
+- Durable idempotency records (ADR-0060): `IdempotencyStore` persists
+  key/fingerprint/response as append-only JSON lines, `sync_data`s before
+  acknowledging, and replays across restarts. The same key with a different
+  fingerprint conflicts. A final line without a newline is ignored as an
+  interrupted append. `1agent idempotency record|replay` exposes it. This is
+  the cross-restart dedupe primitive, not yet wired into every external write.
+- Tests: six idempotency unit tests plus one `idempotency_cli` e2e test
+  (`cargo test idempotency --lib`, `cargo test --test idempotency_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

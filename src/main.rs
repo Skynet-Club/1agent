@@ -389,6 +389,10 @@ enum Command {
         #[command(subcommand)]
         command: InboxCommand,
     },
+    Idempotency {
+        #[command(subcommand)]
+        command: IdempotencyCommand,
+    },
     Autonomy {
         #[arg(long, default_value = "suggest")]
         level: String,
@@ -1252,6 +1256,33 @@ enum InboxCommand {
         alert_log: Option<PathBuf>,
         #[arg(long)]
         apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum IdempotencyCommand {
+    Record {
+        #[arg(long, default_value_os_t = home_or_legacy("idempotency.jsonl", ".1a/idempotency.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        fingerprint: String,
+        /// JSON value to replay for this key.
+        #[arg(long)]
+        response: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Replay {
+        #[arg(long, default_value_os_t = home_or_legacy("idempotency.jsonl", ".1a/idempotency.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        fingerprint: String,
         #[arg(long)]
         json: bool,
     },
@@ -4331,6 +4362,51 @@ async fn main() -> Result<()> {
                             item.item_id,
                             item.title
                         );
+                    }
+                }
+            }
+        },
+        Command::Idempotency { command } => match command {
+            IdempotencyCommand::Record {
+                store,
+                key,
+                fingerprint,
+                response,
+                json,
+            } => {
+                let response: serde_json::Value = serde_json::from_str(&response)
+                    .map_err(|error| anyhow::anyhow!("--response must be JSON: {error}"))?;
+                let mut store = first_principles_agent::idempotency::IdempotencyStore::open(store)?;
+                let record = store.record(&key, &fingerprint, response)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(record)?);
+                } else {
+                    println!("recorded {} ({})", record.key, record.fingerprint);
+                }
+            }
+            IdempotencyCommand::Replay {
+                store,
+                key,
+                fingerprint,
+                json,
+            } => {
+                let store = first_principles_agent::idempotency::IdempotencyStore::open(store)?;
+                let hit = store.replay(&key, &fingerprint)?;
+                if json {
+                    println!(
+                        "{}",
+                        match hit {
+                            Some(response) => serde_json::json!({
+                                "hit": true,
+                                "response": response,
+                            }),
+                            None => serde_json::json!({"hit": false}),
+                        }
+                    );
+                } else {
+                    match hit {
+                        Some(response) => println!("hit: {response}"),
+                        None => println!("miss"),
                     }
                 }
             }
