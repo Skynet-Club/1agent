@@ -354,7 +354,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
   Authority/Policy/Approval.
 - `value_report`: `ValueReport` counts runs by stop reason, tokens/cost, tool
   calls/failures, alerts and pending decisions over a bounded window, plus
-  cost per completed outcome and the open inbox queue size. When the caller
+  cost per completed outcome, the open inbox queue size and open handoffs for
+  a named recipient. When the caller
   supplies an independently verified outcome count, it also reports cost per
   verified outcome. `1agent value-report` exposes it. v0 does not invent a
   time-saved estimate.

@@ -295,6 +295,10 @@
 - Inbox filters: `inbox list --kind KIND --source SOURCE` filters the open
   queue; an invalid kind fails closed.
 - Tests: one `inbox_cli` filter test (`cargo test --test inbox_cli`).
+- Value report open handoffs: `value-report --handoff-store PATH --recipient
+  NAME` adds `handoffs_open`; the recipient requires the store.
+- Tests: one `value_report_cli` handoff test
+  (`cargo test --test value_report_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
