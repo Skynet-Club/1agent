@@ -637,6 +637,9 @@ enum Command {
         allow_network: bool,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
+        /// Write a trust-center evaluation disclosure for this run.
+        #[arg(long)]
+        disclosure_out: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -5865,6 +5868,7 @@ async fn main() -> Result<()> {
             config,
             allow_network,
             timeout_seconds,
+            disclosure_out,
             json,
         } => {
             let suite = load_suite(&suite)?;
@@ -5878,6 +5882,25 @@ async fn main() -> Result<()> {
                 }]
             };
             let report = run_suite_with_providers(suite, providers, allow_network).await?;
+            if let Some(path) = disclosure_out {
+                let encoded = serde_json::to_vec_pretty(&report)?;
+                let disclosure = first_principles_agent::trust_center::EvaluationDisclosure {
+                    name: report.suite.clone(),
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    passed: u32::try_from(report.passed).unwrap_or(u32::MAX),
+                    total: u32::try_from(report.total).unwrap_or(u32::MAX),
+                    evidence_sha256: Some(hex::encode(Sha256::digest(&encoded))),
+                    note: format!(
+                        "kind={:?} hard_gate_failures={}",
+                        report.kind, report.hard_gate_failures
+                    ),
+                };
+                std::fs::write(
+                    &path,
+                    format!("{}\n", serde_json::to_string_pretty(&disclosure)?),
+                )
+                .with_context(|| format!("cannot write {}", path.display()))?;
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {

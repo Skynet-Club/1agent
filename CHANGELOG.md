@@ -272,6 +272,12 @@
   manifest; it is not a hosted Trust Center page or a third-party audit.
 - Tests: three trust-center unit tests plus two `trust_center_cli` e2e tests
   (`cargo test trust_center --lib`, `cargo test --test trust_center_cli`).
+- Eval disclosure bridge: `1agent eval --disclosure-out PATH` writes an
+  `EvaluationDisclosure` with the suite name, package version, passed/total and
+  the SHA-256 of the pretty-printed report. `trust-center --evaluation` accepts
+  the file directly.
+- Tests: one `eval_disclosure_cli` e2e test
+  (`cargo test --test eval_disclosure_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
