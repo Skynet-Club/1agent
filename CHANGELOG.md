@@ -379,6 +379,15 @@
   required together; quiet hours skip it.
 - Tests: two `daemon_goal_inbox_cli` e2e tests cover projection/dedupe and
   flag pairing (`cargo test --test daemon_goal_inbox_cli`).
+- Stale attention cleanup: `inbox::reconcile_attention` dismisses open
+  `attention:` items absent from the current candidate set. The daemon runs it
+  after the goal sync; the dry-run mode is library-only. A dismissed item is
+  not re-added by sync if the condition returns; `InboxStore::reopen` is the
+  manual path.
+- Tests: one inbox unit test covers dry-run/apply and non-attention isolation;
+  the daemon goal e2e test now closes the commitment and asserts the item is
+  dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
+  daemon_goal_inbox_cli`).
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event

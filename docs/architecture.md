@@ -405,8 +405,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   only when it resolves something. With `--alert-log` and
   `--alert-inbox-store`, it also projects new alert records into the inbox
   every tick, using sync's item-id dedupe. With `--goal-journal` and
-  `--goal-inbox-store`, it projects overdue goals/commitments the same way.
-  Sync never updates an existing item's status. The TUI exposes a
+  `--goal-inbox-store`, it projects overdue goals/commitments the same way and
+  then dismisses open `attention:` items absent from the current candidate set
+  (their condition cleared). Sync never updates an existing item's status;
+  a dismissed item is not re-added if the condition returns, but
+  `InboxStore::reopen` can reopen it. The TUI exposes a
   `/inbox` transcript command for the default store, with inline
   `resolve`/`snooze` actions parsed by the same `parse_action`/`apply_action`
   contract as the CLI.
