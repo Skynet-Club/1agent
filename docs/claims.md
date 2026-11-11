@@ -91,7 +91,7 @@ file: <路径>              → 文件必须存在
 | MCP token exchange：RFC 8693 风格表单、subject/client 秘密仅环境变量、HTTPS/loopback、不跟随重定向、1 MiB 响应上限、Bearer+TTL 校验；token 只写新 0600 文件；MCP HTTP 可在 spawn 时自动交换、到期前 30s 主动刷新、401 时再交换一次 | cmd: cargo test mcp_exchange --lib && cargo test --test mcp_token_exchange_cli && cargo test tools::mcp --lib | ✅ | 单次 401 refresh，无重试预算/并发去重；stdout 只出 hash；真实 IdP 未验证；跨平台未测 |
 | 每验证结果成本：value-report 接收验证器计数或 verification store，输出 cost_per_verified_outcome 与窗口 verification summary；含 open handoffs | cmd: cargo test value_report --lib && cargo test --test value_report_cli && cargo test --test verification_store_cli | ✅ | store 只计 clean Verified；不从 completed 推断 |
 | 验证记录库：append+sync、重复 id/自验证拒绝、summary/hacked bps/时间窗口、窗口计数、Hacked/Rejected 投影 inbox review | cmd: cargo test verification_store --lib && cargo test --test verification_store_cli | ✅ | 本地 JSONL；无跨机聚合 |
-| Windows GNU 交叉编译：`-D warnings` 下 lib/bin 与 all-targets（含测试）cargo check 通过；`scripts/cross-check.sh` 强制该门 | cmd: ./scripts/cross-check.sh | ✅ | 仅编译；链接/运行/ConPTY/安装包未验证；macOS/MSVC 被 Host C 工具链阻断 |
+| Windows GNU 交叉编译/链接：`-D warnings` 下 all-targets（含测试）check 通过；`cross-check.sh --build` 用 MinGW 链接产出 `.exe` | cmd: ./scripts/cross-check.sh --build | ✅ | 本机链接成功；未在 Windows 运行/ConPTY/安装包；macOS/MSVC 被 Host C 工具链阻断 |
 | Onboarding 文本导入：按行写入 memory，大小/行数/行长限制，非法 kind/文件拒绝 | cmd: cargo test --test onboard_cli | ✅ | 纯文本；不脱敏；非日历/邮件导入 |
 | Inbox 接受交接：handoff:<id> approved 需要 store+actor，先接受再关闭；错 actor/终态拒绝 | cmd: cargo test --test handoff_inbox_cli | ✅ | 本地；非原子（接受后 inbox 写入失败可能部分完成） |
 | 组织审计 seal：Ed25519 签 entries+head_hash；追加/改 head/错钥拒绝 | cmd: cargo test org_audit --lib && cargo test --test org_audit_seal_cli | ✅ | 依赖 seal 公钥的带外信任；非远程透明日志 |
