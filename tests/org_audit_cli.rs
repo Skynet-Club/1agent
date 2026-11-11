@@ -59,6 +59,52 @@ fn org_audit_appends_and_verifies_across_processes() {
 }
 
 #[test]
+fn org_audit_lists_the_tail() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("org-audit.jsonl");
+    let store = store.to_str().unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    for actor in ["alice", "bob", "carol"] {
+        let appended = Command::new(bin)
+            .args([
+                "org-audit",
+                "append",
+                "--store",
+                store,
+                "--actor",
+                actor,
+                "--action",
+                "read",
+                "--scope",
+                "workspace",
+                "--decision",
+                "allow",
+            ])
+            .output()
+            .unwrap();
+        assert!(appended.status.success());
+    }
+    let listed = Command::new(bin)
+        .args([
+            "org-audit",
+            "list",
+            "--store",
+            store,
+            "--limit",
+            "2",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(listed.status.success());
+    let entries: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let entries = entries.as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["seq"], 1);
+    assert_eq!(entries[1]["seq"], 2);
+}
+
+#[test]
 fn org_audit_rejects_invalid_decisions_and_empty_logs_verify() {
     let workspace = tempfile::tempdir().unwrap();
     let store = workspace.path().join("org-audit.jsonl");

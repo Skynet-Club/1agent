@@ -80,7 +80,7 @@ file: <路径>              → 文件必须存在
 | 自治安静时段：跨午夜窗口内主动 act/approval → defer 并报告剩余分钟；用户发起/显式批准不延后 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 策略级；运行时调度/安静时段持久化未接线 |
 | 误报预算：预算耗尽或误报率超限时非关键告警转 digest，critical 绕过 | cmd: cargo test alarm_budget --lib && cargo test --test alarm_budget_cli | ✅ | 策略函数；不发送/不持久化告警 |
 | 升级阶梯：严格递增阈值取最高已到达台阶；resolved 不升级；宽限期不打扰 | cmd: cargo test escalation --lib && cargo test --test escalate_cli | ✅ | 只计算级别；不发送/不改状态 |
-| 组织审计索引：actor/action/scope/decision 哈希链；改字段/换序/断链检测 | cmd: cargo test org_audit --lib && cargo test --test org_audit_cli | ✅ | 本地索引，非远程透明日志/IdP |
+| 组织审计索引：actor/action/scope/decision 哈希链；改字段/换序/断链检测；list 尾部查看 | cmd: cargo test org_audit --lib && cargo test --test org_audit_cli | ✅ | 本地索引，非远程透明日志/IdP |
 | MCP OAuth claims：audience/过期/未生效/最大 TTL/精确 scope；拒绝时不泄露 subject | cmd: cargo test mcp_auth --lib && cargo test --test mcp_token_cli | ✅ | 调用方必须先验签；不实现 issuer discovery/token exchange |
 | MCP streamable HTTP：JSON/SSE 响应、Mcp-Session-Id、仅 loopback HTTP、token 只读环境变量、per-server timeout、2 MiB 响应上限；结果带 server/tool 审计元数据 | cmd: cargo test tools::mcp --lib | ✅ | 覆盖初始化/发现/调用；真实服务端互操作未验证 |
 | 每验证结果成本：value-report 接收验证器计数或 verification store，输出 cost_per_verified_outcome 与窗口 verification summary | cmd: cargo test value_report --lib && cargo test --test value_report_cli && cargo test --test verification_store_cli | ✅ | store 只计 clean Verified；不从 completed 推断 |

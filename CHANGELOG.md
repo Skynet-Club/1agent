@@ -276,6 +276,10 @@
   cannot force unbounded response allocation.
 - Tests: two MCP unit tests cover the HTTP cap and the bounded stdio line
   reader (`cargo test tools::mcp --lib`).
+- Organization audit listing: `org-audit list --limit N [--json]` shows the
+  tail entries for operator review.
+- Tests: one `org_audit_cli` tail-listing test
+  (`cargo test --test org_audit_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.
