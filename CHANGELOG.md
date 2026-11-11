@@ -404,8 +404,10 @@
 - Daemon periodic digest: `--digest-webhook URL --digest-every-seconds N
   (60..=86400) [--digest-format ...] [--digest-journal-dir PATH]
   [--digest-inbox-store PATH]` sends a lightweight text summary with recent
-  run/stop-reason counts, schedule health, alert count and open inbox count.
-  The timer is in-memory (restart sends once immediately); it does not replace
+  run/stop-reason counts, schedule health, alert count, open inbox count and
+  optional escalation levels (`--digest-escalation-step` with
+  `--digest-inbox-store`). The timer is in-memory (restart sends once
+  immediately); it does not replace
   the full `digest` command. `--digest-state PATH` persists the last send time
   so a restart respects the interval; without it a restart sends immediately.
   Send failures are logged and retried at the next interval.
