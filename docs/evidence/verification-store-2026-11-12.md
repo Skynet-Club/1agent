@@ -37,6 +37,8 @@ test result: ok. 1 passed; 0 failed
 - The store survives reopen and ignores a partial tail.
 - `value-report --verification-store` reports 1 verified outcome; combining it
   with `--verified-outcomes` exits non-zero.
+- Recording with `--inbox-store` creates exactly one review item for the
+  Hacked report and none for the Verified report.
 
 ## What this does not prove
 

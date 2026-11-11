@@ -1479,6 +1479,9 @@ enum VerificationCommand {
         /// Defaults to the current clock.
         #[arg(long)]
         at_ms: Option<u128>,
+        /// Add a review item for Hacked/Rejected outcomes.
+        #[arg(long)]
+        inbox_store: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -5264,6 +5267,7 @@ async fn main() -> Result<()> {
                 run_id,
                 input,
                 at_ms,
+                inbox_store,
                 json,
             } => {
                 let raw = std::fs::read_to_string(&input)
@@ -5271,16 +5275,35 @@ async fn main() -> Result<()> {
                 let input: first_principles_agent::verification::VerificationInput =
                     serde_json::from_str(&raw).context("invalid verification input")?;
                 let report = first_principles_agent::verification::verify(&input)?;
+                let now = at_ms.unwrap_or_else(current_time_ms);
                 let mut store =
                     first_principles_agent::verification_store::VerificationStore::open(store)?;
                 let record = store.append(
                     first_principles_agent::verification_store::VerificationRecord {
                         verification_id,
                         run_id,
-                        at_ms: at_ms.unwrap_or_else(current_time_ms),
+                        at_ms: now,
                         report,
                     },
                 )?;
+                if let Some(path) = inbox_store
+                    && record.report.outcome
+                        != first_principles_agent::verification::VerificationOutcome::Verified
+                {
+                    let mut inbox = first_principles_agent::InboxStore::open(path)?;
+                    let item = first_principles_agent::InboxItem::new(
+                        format!("verification:{}", record.verification_id),
+                        first_principles_agent::InboxKind::Review,
+                        format!(
+                            "Verification {:?} for run {}",
+                            record.report.outcome, record.run_id
+                        ),
+                        "independent verification reported failures",
+                        "verification",
+                        now,
+                    );
+                    inbox.sync([item], true)?;
+                }
                 if json {
                     println!("{}", serde_json::to_string_pretty(record)?);
                 } else {

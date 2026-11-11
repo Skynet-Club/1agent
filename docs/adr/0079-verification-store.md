@@ -22,7 +22,9 @@ invites an ungrounded metric and makes historical verification invisible.
    --run-id ... --input INPUT.json` and `verification summary --store ...`.
 5. Add `value-report --verification-store PATH`; it conflicts with
    `--verified-outcomes` rather than silently choosing one.
-6. A final line without a newline is treated as an interrupted append and
+6. `verification record --inbox-store PATH` adds a `verification:<id>` review
+   item for Hacked/Rejected outcomes. Verified outcomes do not create an item.
+7. A final line without a newline is treated as an interrupted append and
    ignored.
 
 ## Consequences
