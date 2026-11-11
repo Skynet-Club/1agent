@@ -382,8 +382,9 @@
 - Stale attention cleanup: `inbox::reconcile_attention` dismisses open
   `attention:` items absent from the current candidate set. The daemon runs it
   after the goal sync; the dry-run mode is library-only. A dismissed item is
-  not re-added by sync if the condition returns; `InboxStore::reopen` is the
-  manual path.
+  not re-added by sync if the condition returns because its item id is stable;
+  a recurrence needs a fresh item id. (`InboxStore::reopen` only transitions
+  open/snoozed items, not terminal ones.)
 - Tests: one inbox unit test covers dry-run/apply and non-attention isolation;
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
