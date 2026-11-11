@@ -20,9 +20,13 @@ executable step and can be used by a local worker or channel integration.
      `chat::format_reply` and writes a `ChatReply` JSON.
 2. Inputs are bounded to 1 MiB and must be regular non-symlink files. Writes
    create the parent directory, use a temporary file and rename.
-3. `1agent chat-bridge task|reply` exposes both directions.
-4. The bridge is not a daemon and does not connect to Slack/Telegram/WeChat.
-   It does not execute tasks or move/archive input files.
+3. `ingest` scans up to 500 top-level `*.json` messages, writes
+   `<stem>.task.json`, moves valid messages to `processed/` and invalid ones to
+   `failed/` with `<stem>.error.txt`. A failed message makes the command exit
+   non-zero after reporting all results.
+4. `1agent chat-bridge task|reply|ingest` exposes the three operations.
+5. The bridge is not a daemon and does not connect to Slack/Telegram/WeChat.
+   It does not execute tasks; `ingest` only moves files into processed/failed.
 
 ## Consequences
 
@@ -30,8 +34,11 @@ executable step and can be used by a local worker or channel integration.
   turn a run result into a channel reply without parsing schemas itself.
 - The files are plaintext and may contain sensitive chat text; filesystem
   permissions and retention are the operator's responsibility.
-- There is no queue, retry, deduplication or acknowledgement; a caller must
-  decide when to delete or archive files.
+- `ingest` is a single-process spool, not a durable queue. It has no retry,
+  deduplication by content, locking or acknowledgement; a caller must decide
+  when to delete or archive `processed/` and `failed/`.
+- A task file can be written before the source move fails; the next run would
+  see the message again and may overwrite the task file.
 - The output `ChatReply` includes the conclusion, one trust line and the
   approval/inbox flags; it does not leak schema field names.
 

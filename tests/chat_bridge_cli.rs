@@ -74,6 +74,71 @@ fn chat_bridge_converts_messages_and_results() {
 }
 
 #[test]
+fn chat_bridge_ingest_processes_a_spool_directory() {
+    let workspace = tempfile::tempdir().unwrap();
+    let inbox = workspace.path().join("inbox");
+    let out = workspace.path().join("tasks");
+    std::fs::create_dir_all(&inbox).unwrap();
+    for (name, text) in [("a.json", "first task"), ("b.json", "second task")] {
+        std::fs::write(
+            inbox.join(name),
+            serde_json::to_vec(&serde_json::json!({
+                "channel": "web",
+                "sender_id": "owner",
+                "thread_id": "thread-1",
+                "text": text
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        inbox.join("c.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "channel": "web",
+            "sender_id": "owner",
+            "thread_id": "thread-1",
+            "text": " "
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let run = Command::new(bin)
+        .args(["chat-bridge", "ingest", "--inbox"])
+        .arg(&inbox)
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("--out")
+        .arg(&out)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(!run.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&run.stdout).unwrap();
+    assert_eq!(report["scanned"], 3);
+    assert_eq!(report["converted"], 2);
+    assert_eq!(report["failed"], 1);
+    assert_eq!(report["task_files"].as_array().unwrap().len(), 2);
+    assert_eq!(std::fs::read_dir(&inbox).unwrap().count(), 2);
+
+    let second = Command::new(bin)
+        .args(["chat-bridge", "ingest", "--inbox"])
+        .arg(&inbox)
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("--out")
+        .arg(&out)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(second.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(report["scanned"], 0);
+}
+
+#[test]
 fn chat_bridge_rejects_an_invalid_message() {
     let workspace = tempfile::tempdir().unwrap();
     let message = workspace.path().join("message.json");

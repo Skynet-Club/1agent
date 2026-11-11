@@ -15,17 +15,19 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 2 tests (chat_bridge module)
+running 3 tests (chat_bridge module)
+test chat_bridge::tests::ingest_dir_moves_valid_and_failed_messages ... ok
 test chat_bridge::tests::invalid_messages_are_rejected ... ok
 test chat_bridge::tests::message_files_become_task_requests ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 3 passed; 0 failed
 
-running 2 tests (tests/chat_bridge_cli.rs)
+running 3 tests (tests/chat_bridge_cli.rs)
 test chat_bridge_converts_messages_and_results ... ok
+test chat_bridge_ingest_processes_a_spool_directory ... ok
 test chat_bridge_rejects_an_invalid_message ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 3 passed; 0 failed
 ```
 
 ## What this proves
@@ -36,6 +38,9 @@ test result: ok. 2 passed; 0 failed
 - A real deterministic run result becomes a `ChatReply` with `thread_id`,
   `inbox_open` and a trust line.
 - Writes create the output path and are atomic.
+- `ingest` processes 3 messages (2 valid, 1 invalid): converted=2, failed=1,
+  valid messages move to processed/, invalid ones to failed/ with an error
+  file, and a second run scans 0.
 
 ## What this does not prove
 

@@ -284,8 +284,12 @@
   `RunResult` JSON to a `ChatReply` file. Inputs are bounded to 1 MiB and
   regular non-symlink files; writes are atomic. This is an adapter building
   block, not a Slack/Telegram/WeChat connection.
-- Tests: two chat-bridge unit tests plus two `chat_bridge_cli` e2e tests
+- Tests: three chat-bridge unit tests plus three `chat_bridge_cli` e2e tests
   (`cargo test chat_bridge --lib`, `cargo test --test chat_bridge_cli`).
+- Chat bridge spool: `chat-bridge ingest --inbox DIR --workspace DIR --out DIR`
+  processes up to 500 top-level JSON messages, writes task files, moves valid
+  messages to `processed/` and invalid ones to `failed/` with an error file.
+  Any failed message makes the command exit non-zero.
 - Team audit linkage: `team-check --audit-store PATH --actor-id NAME` appends
   the allow/deny verdict (including denials) to the organization audit chain
   with action/scope.
