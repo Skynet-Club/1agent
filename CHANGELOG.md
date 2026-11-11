@@ -303,6 +303,11 @@
   without calling the webhook, writing receipts or advancing the watermark.
 - Tests: one `inbox_notify_cli` dry-run test
   (`cargo test --test inbox_notify_cli`).
+- Chat bridge lock: `chat-bridge ingest --lock PATH` fails if the lock exists
+  and removes it on normal exit. A crash leaves a stale lock for manual
+  cleanup.
+- Tests: one `chat_bridge_cli` lock test
+  (`cargo test --test chat_bridge_cli`).
 - Repair runbook: `repair::build_runbook` maps side effects to plans, errors
   and compensate/manual counts; `1agent repair-plan --store ...
   [--require-clean]` exposes it and exits non-zero while repairs remain.

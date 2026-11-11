@@ -113,6 +113,35 @@ pub struct ChatBridgeIngestReport {
     pub errors: Vec<String>,
 }
 
+pub struct IngestLock {
+    path: std::path::PathBuf,
+}
+
+impl IngestLock {
+    pub fn acquire(path: impl Into<std::path::PathBuf>) -> Result<Self, ChatBridgeError> {
+        use std::io::Write;
+        let path = path.into();
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|error| {
+                ChatBridgeError::Invalid(format!(
+                    "cannot acquire ingest lock {}: {error}",
+                    path.display()
+                ))
+            })?;
+        writeln!(file, "{}", std::process::id())?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for IngestLock {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.path).ok();
+    }
+}
+
 pub fn ingest_dir(
     inbox: &Path,
     workspace: &Path,

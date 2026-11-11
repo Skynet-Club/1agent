@@ -105,6 +105,7 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
     .unwrap();
 
     let state = workspace.path().join("state.json");
+    let lock = workspace.path().join("ingest.lock");
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let run = Command::new(bin)
         .args(["chat-bridge", "ingest", "--inbox"])
@@ -115,6 +116,8 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
         .arg(&out)
         .arg("--state")
         .arg(&state)
+        .arg("--lock")
+        .arg(&lock)
         .arg("--json")
         .output()
         .unwrap();
@@ -128,6 +131,7 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
     assert_eq!(report["task_files"].as_array().unwrap().len(), 2);
     assert_eq!(std::fs::read_dir(&inbox).unwrap().count(), 2);
     assert!(state.exists());
+    assert!(!lock.exists());
 
     let second = Command::new(bin)
         .args(["chat-bridge", "ingest", "--inbox"])
@@ -162,6 +166,29 @@ fn chat_bridge_ingest_processes_a_spool_directory() {
     let report: serde_json::Value = serde_json::from_slice(&duplicate.stdout).unwrap();
     assert_eq!(report["duplicates"], 1);
     assert_eq!(report["converted"], 0);
+}
+
+#[test]
+fn chat_bridge_ingest_rejects_an_existing_lock() {
+    let workspace = tempfile::tempdir().unwrap();
+    let inbox = workspace.path().join("inbox");
+    std::fs::create_dir_all(&inbox).unwrap();
+    let lock = workspace.path().join("ingest.lock");
+    std::fs::write(&lock, b"other-process").unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["chat-bridge", "ingest", "--inbox"])
+        .arg(&inbox)
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("--out")
+        .arg(workspace.path().join("tasks"))
+        .arg("--lock")
+        .arg(&lock)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(lock.exists());
 }
 
 #[test]
