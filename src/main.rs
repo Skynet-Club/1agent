@@ -490,6 +490,12 @@ enum Command {
         #[arg(long)]
         journal: PathBuf,
     },
+    Otel {
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Eval {
         #[arg(long, default_value = "evals/core.json")]
         suite: PathBuf,
@@ -4730,6 +4736,21 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("cannot read {}", journal.display()))?;
             let state = replay_events(&events).map_err(anyhow::Error::msg)?;
             println!("{}", serde_json::to_string_pretty(&state)?);
+        }
+        Command::Otel { journal, json } => {
+            let events = read_events(&journal)
+                .with_context(|| format!("cannot read {}", journal.display()))?;
+            let spans = first_principles_agent::otel::spans_from_events(&events);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&spans)?);
+            } else {
+                for span in &spans {
+                    println!(
+                        "{} | {:?} | status={:?} | parent={:?}",
+                        span.name, span.kind, span.status, span.parent_span_id
+                    );
+                }
+            }
         }
         Command::Eval {
             suite,

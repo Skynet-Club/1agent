@@ -145,7 +145,14 @@
   with `StopReason::BudgetExhausted` when either limit is exceeded.
   `1agent run --max-cost-micros/--max-tokens` sets them.
 - Tests: cost and token budget enforcement in the runtime
-  (`cargo test cost_budget_stops token_budget_stops --lib`).
+  (`cargo test budget_stops --lib`).
+- OTel GenAI-style span projection (ADR-0056): `otel::spans_from_events`
+  emits a deterministic `invoke_agent` root, `chat` spans with
+  provider/model/token/cost attributes and `execute_tool` spans from the
+  journal. `1agent otel --journal PATH [--json]` prints them. This is a JSON
+  projection, not an OTel SDK/exporter.
+- Tests: two OTel unit tests plus one `otel_cli` e2e test
+  (`cargo test otel --lib`, `cargo test --test otel_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
