@@ -340,6 +340,10 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   `disregard previous instructions`, `reveal your system prompt`,
   `print your instructions`, `jailbreak`). This is a preflight heuristic, not
   a malware sandbox.
+- `skill verify --bundle PATH --sha256 HEX [--public-key PATH]` calls the same
+  `verify_bundle` used by import: size, SHA-256, schema, signature (signed
+  bundles require a trusted key; unsigned with a key is rejected), duplicate
+  names and manifest hashes, and the registry scan. It does not import.
 - `tool_search`: `search(query, specs, limit)` ranks tools by exact/prefix/name
   token, description token and parameter-name token, deterministically.
   `select` adds the always-on tools (`read_file`, `write_file`, `edit_file`,

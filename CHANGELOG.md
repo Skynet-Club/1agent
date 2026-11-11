@@ -106,6 +106,12 @@
   `reveal your system prompt`, `print your instructions`, `jailbreak`).
 - Tests: two `skill_scan_cli` e2e tests for a safe skill, prompt injection and
   malformed frontmatter (`cargo test --test skill_scan_cli`).
+- Skill bundle verify (ADR-0052): `verify_bundle` is shared by import and the
+  new `1agent skill verify --bundle PATH --sha256 HEX [--public-key PATH]`.
+  It checks size, SHA-256, schema, signature, duplicates, manifest hashes and
+  the registry scan without importing. Unsigned + supplied key is rejected.
+- Tests: two `skill_verify_cli` e2e tests for unsigned/signed bundles and a
+  tampered bundle (`cargo test --test skill_verify_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is

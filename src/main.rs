@@ -1180,6 +1180,16 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    Verify {
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long)]
+        sha256: String,
+        #[arg(long)]
+        public_key: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     Export {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2979,6 +2989,56 @@ async fn main() -> Result<()> {
                             eprintln!("rejected: {error}");
                         }
                         anyhow::bail!("skill scan rejected");
+                    }
+                }
+            }
+            SkillCommand::Verify {
+                bundle,
+                sha256,
+                public_key,
+                json,
+            } => {
+                let bytes =
+                    std::fs::read(&bundle).with_context(|| format!("read {}", bundle.display()))?;
+                let key = match public_key {
+                    Some(path) => Some(first_principles_agent::skill_bundle::public_key_from_hex(
+                        &read_key_hex(&path, false)?,
+                    )?),
+                    None => None,
+                };
+                match first_principles_agent::skill_bundle::verify_bundle(
+                    &bytes,
+                    &sha256,
+                    key.as_deref(),
+                ) {
+                    Ok(verified) => {
+                        let signed = verified.signature.is_some();
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "ok": true,
+                                    "skills": verified.skills.len(),
+                                    "signed": signed
+                                }))?
+                            );
+                        } else {
+                            println!("ok: skills={} signed={}", verified.skills.len(), signed);
+                        }
+                    }
+                    Err(error) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "ok": false,
+                                    "error": error.to_string()
+                                }))?
+                            );
+                        } else {
+                            eprintln!("rejected: {error}");
+                        }
+                        anyhow::bail!("skill verify rejected");
                     }
                 }
             }
