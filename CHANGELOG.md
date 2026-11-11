@@ -334,6 +334,14 @@
 - Tests: four `inbox_escalate_cli` e2e tests cover open-vs-resolved items, the
   below-first-threshold case, invalid ladders, and one delivery per reached
   rung including a raised level (`cargo test --test inbox_escalate_cli`).
+- Daemon escalation delivery: `daemon --escalate-inbox-store PATH
+  --escalate-step ... --escalate-webhook URL --escalate-state PATH
+  [--escalate-format ...]` runs the same projection and delivery on every
+  tick. Delivery failures are logged and retried next tick; quiet hours
+  suppress delivery. Shared as `inbox_escalation::run` for the CLI and daemon.
+- Tests: three `daemon_escalation_cli` e2e tests cover per-rung delivery,
+  quiet-hours suppression and partial configuration rejection (`cargo test
+  --test daemon_escalation_cli`).
 - Quiet-hours boundary wake: `QuietHours::ms_until_end` measures milliseconds
   to the exclusive window end in a fixed UTC offset. The daemon's quiet-period
   sleep is `min(poll interval, ms_until_end)`, so deferred due jobs re-check at

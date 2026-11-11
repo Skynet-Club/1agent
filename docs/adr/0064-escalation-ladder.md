@@ -30,7 +30,12 @@ escalation ladder so a forgotten approval does not stay silent forever.
    existing no-redirect notifier. The state advances only after a successful
    send, so a crash in between can duplicate one batch. Resolved items are
    pruned from the state. `--dry-run` reports without sending.
-7. Delivery does not change item status or stop after acknowledgement, and
+7. `daemon --escalate-inbox-store PATH --escalate-step ... --escalate-webhook
+   URL --escalate-state PATH [--escalate-format ...]` runs the same projection
+   and delivery on every tick using one shared implementation. Delivery
+   failures are logged and retried on the next tick; quiet hours suppress
+   delivery because the daemon takes the quiet branch before it.
+8. Delivery does not change item status or stop after acknowledgement, and
    `digest`-rung delivery plus per-channel ladders remain separate.
 
 ## Consequences
@@ -50,8 +55,10 @@ escalation ladder so a forgotten approval does not stay silent forever.
 cargo test escalation --lib
 cargo test --test escalate_cli
 cargo test --test inbox_escalate_cli
+cargo test --test daemon_escalation_cli
 ```
 
 The tests cover each rung, resolution, a grace period, invalid/empty ladders,
 CLI parsing of repeated steps, the inbox projection over open versus resolved
-items, and one delivery per reached rung including a raised level.
+items, one delivery per reached rung including a raised level, and the daemon
+path including quiet-hours suppression.
