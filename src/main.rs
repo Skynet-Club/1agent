@@ -262,6 +262,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    TrustCenter {
+        /// Repeatable evaluation disclosure JSON file.
+        #[arg(long)]
+        evaluation: Vec<PathBuf>,
+        #[arg(long)]
+        security_contact: Option<String>,
+        #[arg(long)]
+        incident_url: Option<String>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     ValueReport {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -2972,6 +2985,72 @@ async fn main() -> Result<()> {
                 println!("Inbox 待办：{inbox_open} 条");
                 if let Some(recipient) = &recipient {
                     println!("待 {recipient} 接受的交接：{handoff_open} 条");
+                }
+            }
+        }
+        Command::TrustCenter {
+            evaluation,
+            security_contact,
+            incident_url,
+            out,
+            json,
+        } => {
+            let mut evaluations = Vec::with_capacity(evaluation.len());
+            for path in evaluation {
+                let raw = std::fs::read_to_string(&path)
+                    .with_context(|| format!("cannot read {}", path.display()))?;
+                evaluations.push(
+                    serde_json::from_str::<
+                        first_principles_agent::trust_center::EvaluationDisclosure,
+                    >(&raw)
+                    .with_context(|| format!("invalid evaluation disclosure {}", path.display()))?,
+                );
+            }
+            let disclosure = first_principles_agent::trust_center::build_disclosure(
+                env!("CARGO_PKG_VERSION"),
+                current_time_ms(),
+                security_contact,
+                incident_url,
+                evaluations,
+            )?;
+            if let Some(out) = &out {
+                std::fs::write(
+                    out,
+                    format!("{}\n", serde_json::to_string_pretty(&disclosure)?),
+                )
+                .with_context(|| format!("cannot write {}", out.display()))?;
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&disclosure)?);
+            } else {
+                println!("1Agent Trust Disclosure");
+                println!(
+                    "version: {} platform: {}",
+                    disclosure.version, disclosure.platform
+                );
+                println!(
+                    "capabilities: verified={} degraded={} unsupported={} untested={}",
+                    disclosure.capabilities.verified,
+                    disclosure.capabilities.degraded,
+                    disclosure.capabilities.unsupported,
+                    disclosure.capabilities.untested
+                );
+                println!(
+                    "audit: {} (external={})",
+                    disclosure.audit.status, disclosure.audit.external_audit
+                );
+                println!(
+                    "data: storage={} telemetry={}",
+                    disclosure.data_policy.storage, disclosure.data_policy.telemetry
+                );
+                for evaluation in &disclosure.evaluations {
+                    println!(
+                        "- evaluation {} {}: {}/{}",
+                        evaluation.name, evaluation.version, evaluation.passed, evaluation.total
+                    );
+                }
+                if let Some(out) = &out {
+                    println!("written: {}", out.display());
                 }
             }
         }

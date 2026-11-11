@@ -266,6 +266,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
   an exact required scope. Signature verification and token acquisition are
   the caller's; this module never stores or prints the token.
+- `trust_center`: `build_disclosure` derives capability counts and limits from
+  the Agent Card, states the data policy, and includes caller-supplied
+  evaluation disclosures. The audit section is always `not_audited` with
+  `external_audit: false`; the module does not invent certifications. It emits
+  a JSON manifest, not a hosted Trust Center page.
 - `handoff`: grounded team handoff notes. `create` requires distinct from/to,
   a non-empty summary and at least one evidence reference; only the addressee
   may `accept`, and a terminal handoff cannot transition again. Snapshots are

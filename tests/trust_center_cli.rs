@@ -1,0 +1,90 @@
+use std::process::Command;
+
+#[test]
+fn trust_center_writes_a_disclosure_with_evaluations() {
+    let workspace = tempfile::tempdir().unwrap();
+    let evaluation = workspace.path().join("eval.json");
+    let output_path = workspace.path().join("trust.json");
+    std::fs::write(
+        &evaluation,
+        serde_json::to_vec(&serde_json::json!({
+            "name": "core-v2",
+            "version": "1",
+            "passed": 6,
+            "total": 6,
+            "evidence_sha256": "ab".repeat(32),
+            "note": "contract fixture"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let output = Command::new(bin)
+        .args([
+            "trust-center",
+            "--evaluation",
+            evaluation.to_str().unwrap(),
+            "--security-contact",
+            "security@example.com",
+            "--incident-url",
+            "https://example.com/incidents",
+            "--out",
+            output_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&output_path).unwrap()).unwrap();
+    assert_eq!(printed, written);
+    assert_eq!(printed["product"], "1Agent");
+    assert_eq!(printed["audit"]["status"], "not_audited");
+    assert_eq!(printed["audit"]["external_audit"], false);
+    assert_eq!(printed["data_policy"]["telemetry"], "none");
+    assert_eq!(printed["evaluations"][0]["passed"], 6);
+    assert_eq!(printed["security_contact"], "security@example.com");
+    assert_eq!(printed["incident_url"], "https://example.com/incidents");
+    let capabilities = &printed["capabilities"];
+    assert_eq!(
+        capabilities["total"],
+        capabilities["verified"].as_u64().unwrap()
+            + capabilities["degraded"].as_u64().unwrap()
+            + capabilities["unsupported"].as_u64().unwrap()
+            + capabilities["untested"].as_u64().unwrap()
+    );
+}
+
+#[test]
+fn trust_center_rejects_invalid_evaluations() {
+    let workspace = tempfile::tempdir().unwrap();
+    let evaluation = workspace.path().join("eval.json");
+    std::fs::write(
+        &evaluation,
+        serde_json::to_vec(&serde_json::json!({
+            "name": "bad",
+            "version": "1",
+            "passed": 7,
+            "total": 6
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args([
+            "trust-center",
+            "--evaluation",
+            evaluation.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}

@@ -265,6 +265,13 @@
   `--handoff-store PATH --recipient NAME`, open handoffs addressed to that
   person. `--recipient` without a handoff store fails closed.
 - Tests: two `digest_cli` e2e tests (`cargo test --test digest_cli`).
+- Trust disclosure manifest v0 (ADR-0076): `1agent trust-center` derives
+  capability counts, limits and the data policy from the Agent Card, accepts
+  caller-supplied evaluation disclosures, and always states
+  `audit.status = not_audited` with `external_audit = false`. It writes a JSON
+  manifest; it is not a hosted Trust Center page or a third-party audit.
+- Tests: three trust-center unit tests plus two `trust_center_cli` e2e tests
+  (`cargo test trust_center --lib`, `cargo test --test trust_center_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
