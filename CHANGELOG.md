@@ -55,6 +55,12 @@
   failed/error alerts to review. Projections are pure; `inbox sync` is next.
 - Tests: two more inbox unit tests and two `inbox_cli` e2e tests
   (`cargo test inbox --lib`, `cargo test --test inbox_cli`).
+- Inbox sync (ADR-0043): `InboxStore::sync` merges projected items with dedupe
+  by `item_id`; `1agent inbox sync --goal-journal/--alert-log` is dry-run by
+  default and writes only with `--apply`. Sync never overwrites an existing
+  item's status.
+- Tests: one sync unit test and one `inbox_sync_cli` e2e test
+  (`cargo test inbox --lib`, `cargo test --test inbox_sync_cli`).
 
 ## 0.96.1 - 2026-11-11
 

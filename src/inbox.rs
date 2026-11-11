@@ -226,6 +226,16 @@ impl InboxItem {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InboxSyncReport {
+    pub scanned: usize,
+    pub added: usize,
+    pub skipped: usize,
+    pub dry_run: bool,
+    pub added_items: Vec<InboxItem>,
+}
+
 pub struct InboxStore {
     path: PathBuf,
     items: BTreeMap<String, InboxItem>,
@@ -277,6 +287,37 @@ impl InboxStore {
         self.append(&item)?;
         self.items.insert(item.item_id.clone(), item);
         Ok(())
+    }
+
+    /// Merge projected items into the store, skipping ids that already exist.
+    /// `apply = false` reports what would be added without writing.
+    pub fn sync(
+        &mut self,
+        items: impl IntoIterator<Item = InboxItem>,
+        apply: bool,
+    ) -> Result<InboxSyncReport, InboxError> {
+        let mut report = InboxSyncReport {
+            scanned: 0,
+            added: 0,
+            skipped: 0,
+            dry_run: !apply,
+            added_items: Vec::new(),
+        };
+        for item in items {
+            item.validate()?;
+            report.scanned = report.scanned.saturating_add(1);
+            if self.items.contains_key(&item.item_id) {
+                report.skipped = report.skipped.saturating_add(1);
+                continue;
+            }
+            if apply {
+                self.append(&item)?;
+                self.items.insert(item.item_id.clone(), item.clone());
+            }
+            report.added = report.added.saturating_add(1);
+            report.added_items.push(item);
+        }
+        Ok(report)
     }
 
     pub fn resolve(
@@ -568,6 +609,42 @@ mod tests {
         assert_eq!(items[0].item_id, "alert:a1");
         assert_eq!(items[1].kind, InboxKind::Notify);
         assert_eq!(items[1].item_id, "alert:a2");
+    }
+
+    #[test]
+    fn sync_dedupes_and_reports_dry_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("inbox.jsonl");
+        let mut store = InboxStore::open(&path).unwrap();
+        store.add(item("i1", InboxKind::Notify, None)).unwrap();
+        let report = store
+            .sync(
+                vec![
+                    item("i1", InboxKind::Notify, None),
+                    item("i2", InboxKind::Review, None),
+                ],
+                false,
+            )
+            .unwrap();
+        assert_eq!(report.scanned, 2);
+        assert_eq!(report.added, 1);
+        assert_eq!(report.skipped, 1);
+        assert!(report.dry_run);
+        assert!(store.get("i2").is_none());
+
+        let applied = store
+            .sync(
+                vec![
+                    item("i1", InboxKind::Notify, None),
+                    item("i2", InboxKind::Review, None),
+                ],
+                true,
+            )
+            .unwrap();
+        assert_eq!(applied.added, 1);
+        assert_eq!(applied.skipped, 1);
+        assert!(!applied.dry_run);
+        assert!(store.get("i2").is_some());
     }
 
     #[test]

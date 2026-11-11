@@ -259,8 +259,9 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   empty fields and invalid snoozes fail closed. `1agent inbox
   add|list|resolve|snooze` is the local operator surface. `project_attention`
   maps overdue/missed commitments to `review` and due items to `notify`;
-  `project_alerts` maps failed/error alerts to `review`. Projections are pure;
-  `inbox sync` is the next slice.
+  `project_alerts` maps failed/error alerts to `review`. `inbox sync` merges
+  projections with dedupe by `item_id`; it is dry-run by default and `--apply`
+  writes. Sync never updates an existing item's status.
 
 ## Security behavior
 
