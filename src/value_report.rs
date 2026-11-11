@@ -38,6 +38,7 @@ pub struct ValueReport {
     /// Open or due-snoozed inbox items. This is a separate queue size; it is
     /// not deduplicated against alerts.
     pub inbox_open: u32,
+    pub handoffs_open: u32,
     /// Authorization requests plus alerts: things the user may need to decide.
     pub pending_decisions: u32,
 }
@@ -50,6 +51,7 @@ pub fn build_value_report(
     usage: &UsageLedger,
     alerts: u32,
     inbox_open: u32,
+    handoffs_open: u32,
     verified_outcomes: Option<u32>,
     verification: Option<HackSuiteSummary>,
     since_ms: u128,
@@ -78,6 +80,7 @@ pub fn build_value_report(
         }),
         verification,
         inbox_open,
+        handoffs_open,
         pending_decisions: 0,
     };
     for run in runs
@@ -171,7 +174,7 @@ mod tests {
             run(60, Some(StopReason::Cancelled)),
             run(70, None),
         ];
-        let report = build_value_report(&runs, &usage(), 1, 2, Some(2), None, 0, 100);
+        let report = build_value_report(&runs, &usage(), 1, 2, 3, Some(2), None, 0, 100);
         assert_eq!(report.runs, 7);
         assert_eq!(report.completed, 2);
         assert_eq!(report.needs_authorization, 1);
@@ -188,6 +191,7 @@ mod tests {
         assert_eq!(report.tool_calls, 6);
         assert_eq!(report.tool_failures, 1);
         assert_eq!(report.inbox_open, 2);
+        assert_eq!(report.handoffs_open, 3);
         assert_eq!(report.pending_decisions, 2);
     }
 
@@ -197,12 +201,12 @@ mod tests {
             run(10, Some(StopReason::Completed)),
             run(200, Some(StopReason::Completed)),
         ];
-        let report = build_value_report(&runs, &usage(), 0, 0, None, None, 100, 300);
+        let report = build_value_report(&runs, &usage(), 0, 0, 0, None, None, 100, 300);
         assert_eq!(report.runs, 1);
         assert_eq!(report.completed, 1);
         assert_eq!(report.cost_per_completed_micros, 900);
 
-        let empty = build_value_report(&runs, &usage(), 0, 0, None, None, 1000, 2000);
+        let empty = build_value_report(&runs, &usage(), 0, 0, 0, None, None, 1000, 2000);
         assert_eq!(empty.runs, 0);
         assert_eq!(empty.cost_per_completed_micros, 0);
     }

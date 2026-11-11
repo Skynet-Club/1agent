@@ -34,6 +34,8 @@ test result: ok. 3 passed; 0 failed
 - With cost 900 micros and 2 verified outcomes, the unit cost is 450 micros.
 - With no verified count, both new fields are `None`/`null`.
 - The CLI accepts `--verified-outcomes` and emits both fields.
+- `--handoff-store --recipient` adds `handoffs_open`; the recipient requires
+  the store.
 - Zero-cost runs still produce a numeric per-verified cost (0) rather than a
   null when the count is positive.
 

@@ -312,6 +312,11 @@ enum Command {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         inbox_store: PathBuf,
         #[arg(long)]
+        handoff_store: Option<PathBuf>,
+        /// Required with --handoff-store; counts open handoffs to this person.
+        #[arg(long)]
+        recipient: Option<String>,
+        #[arg(long)]
         since_ms: Option<u128>,
         #[arg(long)]
         until_ms: Option<u128>,
@@ -3455,6 +3460,8 @@ async fn main() -> Result<()> {
             verification_store,
             alert_log,
             inbox_store,
+            handoff_store,
+            recipient,
             since_ms,
             until_ms,
             window_ms,
@@ -3503,11 +3510,30 @@ async fn main() -> Result<()> {
             let inbox_open = first_principles_agent::InboxStore::open(&inbox_store)
                 .map(|store| store.open_sorted(current_time_ms()).len() as u32)
                 .unwrap_or(0);
+            if recipient.is_some() && handoff_store.is_none() {
+                anyhow::bail!("--recipient requires --handoff-store");
+            }
+            let handoffs_open = match (&handoff_store, &recipient) {
+                (Some(path), Some(recipient)) => {
+                    let handoffs = first_principles_agent::handoff::HandoffStore::open(path)?;
+                    handoffs
+                        .list()
+                        .iter()
+                        .filter(|handoff| {
+                            handoff.status == first_principles_agent::handoff::HandoffStatus::Open
+                                && handoff.to == *recipient
+                        })
+                        .count() as u32
+                }
+                (Some(_), None) => anyhow::bail!("--recipient is required with --handoff-store"),
+                (None, _) => 0,
+            };
             let report = first_principles_agent::build_value_report(
                 &runs,
                 &usage,
                 alert_count,
                 inbox_open,
+                handoffs_open,
                 verified_outcomes,
                 verification,
                 since,
@@ -3545,7 +3571,10 @@ async fn main() -> Result<()> {
                         verification.hacked_resolved_bps
                     );
                 }
-                println!("inbox: open={}", report.inbox_open);
+                println!(
+                    "inbox: open={}; handoffs: open={}",
+                    report.inbox_open, report.handoffs_open
+                );
                 println!(
                     "tools: calls={} failures={} journals={} alerts={} pending_decisions={}",
                     report.tool_calls,

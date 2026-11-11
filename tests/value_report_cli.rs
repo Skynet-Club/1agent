@@ -80,6 +80,57 @@ fn value_report_cli_human_output_is_readable() {
 }
 
 #[test]
+fn value_report_includes_open_handoffs() {
+    let dir = tempfile::tempdir().unwrap();
+    let handoffs = dir.path().join("handoffs.jsonl");
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let created = Command::new(bin)
+        .args(["handoff", "create", "--store"])
+        .arg(&handoffs)
+        .args([
+            "--id",
+            "h1",
+            "--from",
+            "alice",
+            "--to",
+            "bob",
+            "--summary",
+            "handoff",
+            "--evidence",
+            "journal:run-1",
+        ])
+        .output()
+        .unwrap();
+    assert!(created.status.success());
+
+    let output = Command::new(bin)
+        .args(["value-report", "--journal-dir"])
+        .arg(dir.path().join("journals"))
+        .arg("--handoff-store")
+        .arg(&handoffs)
+        .args(["--recipient", "bob", "--inbox-store"])
+        .arg(dir.path().join("inbox.jsonl"))
+        .args(["--since-ms", "0", "--until-ms", "99999999999999", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["handoffs_open"], 1);
+
+    let missing = Command::new(bin)
+        .args(["value-report", "--journal-dir"])
+        .arg(dir.path().join("journals"))
+        .args(["--recipient", "bob"])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+}
+
+#[test]
 fn value_report_includes_open_inbox_items() {
     let dir = tempfile::tempdir().unwrap();
     let journal_dir = run_one_journal(&dir);
