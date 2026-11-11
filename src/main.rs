@@ -262,6 +262,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    UnitEconomics {
+        #[arg(long, default_value_t = 0)]
+        revenue_micros: u64,
+        #[arg(long, default_value_t = 0)]
+        variable_cost_micros: u64,
+        #[arg(long, default_value_t = 0)]
+        fixed_cost_micros: u64,
+        #[arg(long)]
+        outcomes: Option<u64>,
+        #[arg(long)]
+        json: bool,
+    },
     TrustCenter {
         /// Repeatable evaluation disclosure JSON file.
         #[arg(long)]
@@ -2989,6 +3001,37 @@ async fn main() -> Result<()> {
                 if let Some(recipient) = &recipient {
                     println!("待 {recipient} 接受的交接：{handoff_open} 条");
                 }
+            }
+        }
+        Command::UnitEconomics {
+            revenue_micros,
+            variable_cost_micros,
+            fixed_cost_micros,
+            outcomes,
+            json,
+        } => {
+            let report = first_principles_agent::unit_economics::evaluate(
+                first_principles_agent::unit_economics::UnitEconomics {
+                    revenue_micros,
+                    variable_cost_micros,
+                    fixed_cost_micros,
+                },
+                outcomes,
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("revenue: {} micros", report.revenue_micros);
+                println!(
+                    "contribution: {} micros; net: {} micros; gross margin: {:?} bps",
+                    report.contribution_micros, report.net_micros, report.gross_margin_bps
+                );
+                println!(
+                    "per outcome: revenue={:?} cost={:?}; break-even outcomes={:?}",
+                    report.revenue_per_outcome_micros,
+                    report.cost_per_outcome_micros,
+                    report.break_even_outcomes
+                );
             }
         }
         Command::TrustCenter {

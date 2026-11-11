@@ -278,6 +278,13 @@
   the file directly.
 - Tests: one `eval_disclosure_cli` e2e test
   (`cargo test --test eval_disclosure_cli`).
+- Unit economics calculator (ADR-0077): `unit_economics::evaluate` reports
+  contribution, net, gross-margin bps, per-outcome revenue/cost and break-even
+  outcomes from caller-supplied revenue and costs. `1agent unit-economics`
+  exposes it. No pricing policy or price points are built in.
+- Tests: three unit-economics unit tests plus two `unit_economics_cli` e2e
+  tests (`cargo test unit_economics --lib`,
+  `cargo test --test unit_economics_cli`).
 - Agent Card trust store (ADR-0067): `CardTrustStore` keeps trusted Ed25519
   public keys with add/revoke timestamps. `verify` requires the card's embedded
   key to be trusted and unrevoked, then delegates to `agent_card::verify_card`.
