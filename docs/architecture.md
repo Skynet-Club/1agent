@@ -443,13 +443,16 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `schedule_run_failed` alert and deliver it to a webhook. With `--heartbeat`,
   each daemon loop writes an atomic `{pid, updated_at_ms}` file; a separate
   `1agent watchdog --heartbeat PATH --max-age-ms N` process exits non-zero when
-  the heartbeat is missing, stale or invalid. With `--quiet-hours` and a fixed
-  `--utc-offset-minutes`, the daemon skips due jobs inside the window, keeps
-  them due, and the heartbeat still advances. The quiet-period sleep is
-  `min(poll interval, milliseconds until the window ends)`, so the loop
-  re-checks due jobs at the boundary instead of only after a full poll.
-  Escalation and cross-restart deduplication are not yet wired into the
-  daemon.
+  the heartbeat is missing, stale or invalid. With `--escalate-inbox-store`,
+  `--escalate-step`, `--escalate-webhook` and `--escalate-state`, each tick
+  projects the open inbox through the ladder and delivers only newly reached
+  `notify`/`urgent` rungs; failures are logged and retried on the next tick
+  (at-least-once). With `--quiet-hours` and a fixed `--utc-offset-minutes`, the
+  daemon skips due jobs and escalation delivery inside the window, keeps jobs
+  due, and the heartbeat still advances. The quiet-period sleep is `min(poll
+  interval, milliseconds until the window ends)`, so the loop re-checks due
+  jobs at the boundary instead of only after a full poll. Cross-restart
+  deduplication is not yet wired into scheduled job execution.
 - A job may bind an active skill with `--routine-skill NAME@VERSION`; the child
   run composes that version's body into its task. This reuses the approved
   skill without granting permissions, and rejects inactive or mismatched

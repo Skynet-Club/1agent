@@ -425,6 +425,20 @@ enum Command {
         /// Fixed local offset from UTC for --quiet-hours.
         #[arg(long, default_value_t = 0)]
         utc_offset_minutes: i32,
+        /// Open inbox store to escalate; requires --escalate-webhook and --escalate-state.
+        #[arg(long)]
+        escalate_inbox_store: Option<PathBuf>,
+        /// AFTER_MS=inbox|digest|notify|urgent; repeat in increasing order.
+        #[arg(long, value_name = "AFTER_MS=ACTION")]
+        escalate_step: Vec<String>,
+        /// Deliver newly reached notify/urgent rungs here.
+        #[arg(long)]
+        escalate_webhook: Option<String>,
+        #[arg(long, default_value = "generic")]
+        escalate_format: String,
+        /// Per-item highest delivered rung; required with --escalate-webhook.
+        #[arg(long)]
+        escalate_state: Option<PathBuf>,
     },
     Watchdog {
         #[arg(long)]
@@ -2727,10 +2741,33 @@ async fn run_daemon(
     heartbeat: Option<PathBuf>,
     quiet_hours: Option<String>,
     utc_offset_minutes: i32,
+    escalate_inbox_store: Option<PathBuf>,
+    escalate_step: Vec<String>,
+    escalate_webhook: Option<String>,
+    escalate_format: String,
+    escalate_state: Option<PathBuf>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
     }
+    let escalation = match (escalate_inbox_store, escalate_webhook, escalate_state) {
+        (Some(store), Some(webhook), Some(state)) => {
+            let ladder = parse_escalation_ladder(&escalate_step)?;
+            let format: first_principles_agent::alerts::WebhookFormat = escalate_format
+                .parse()
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let notifier =
+                first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
+            Some((store, ladder, state, notifier))
+        }
+        (None, None, None) if escalate_step.is_empty() => None,
+        (None, None, None) => bail!(
+            "--escalate-step requires --escalate-inbox-store, --escalate-webhook and --escalate-state"
+        ),
+        _ => bail!(
+            "inbox escalation requires --escalate-inbox-store, --escalate-webhook and --escalate-state together"
+        ),
+    };
     let quiet_hours = quiet_hours
         .as_deref()
         .map(first_principles_agent::autonomy::QuietHours::parse)
@@ -2806,6 +2843,41 @@ async fn run_daemon(
                     && let Err(error) = webhook.send(&record).await
                 {
                     eprintln!("[daemon] cannot send alert: {error}");
+                }
+            }
+        }
+        if let Some((inbox_store, ladder, state_path, notifier)) = &escalation {
+            match first_principles_agent::InboxStore::open(inbox_store) {
+                Ok(inbox) => {
+                    let now = current_time_ms();
+                    let items = inbox.open_sorted(now);
+                    match first_principles_agent::inbox_escalation::run(
+                        &items,
+                        ladder,
+                        now,
+                        Some(notifier),
+                        Some(state_path.as_path()),
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(report) => {
+                            if let Some(notification) = report.notification
+                                && notification.sent
+                            {
+                                eprintln!(
+                                    "[daemon] notified {} escalated inbox item(s)",
+                                    notification.notified
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("[daemon] inbox escalation failed: {error}");
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("[daemon] cannot open inbox store: {error}");
                 }
             }
         }
@@ -4439,6 +4511,11 @@ async fn main() -> Result<()> {
             heartbeat,
             quiet_hours,
             utc_offset_minutes,
+            escalate_inbox_store,
+            escalate_step,
+            escalate_webhook,
+            escalate_format,
+            escalate_state,
         } => {
             run_daemon(
                 store,
@@ -4450,6 +4527,11 @@ async fn main() -> Result<()> {
                 heartbeat,
                 quiet_hours,
                 utc_offset_minutes,
+                escalate_inbox_store,
+                escalate_step,
+                escalate_webhook,
+                escalate_format,
+                escalate_state,
             )
             .await?;
         }
@@ -5538,17 +5620,6 @@ async fn main() -> Result<()> {
                 let now = now_ms.unwrap_or_else(current_time_ms);
                 let store = first_principles_agent::InboxStore::open(store)?;
                 let items = store.open_sorted(now);
-                let mut rows = Vec::with_capacity(items.len());
-                for item in &items {
-                    let plan = first_principles_agent::escalation::plan(
-                        &ladder,
-                        item.created_ms,
-                        now,
-                        false,
-                    );
-                    rows.push((item, plan));
-                }
-
                 let notifier = match &webhook {
                     Some(url) => {
                         let format: first_principles_agent::alerts::WebhookFormat =
@@ -5560,129 +5631,42 @@ async fn main() -> Result<()> {
                     }
                     None => None,
                 };
-                let mut escalation_state = match state {
-                    Some(path) => {
-                        let state =
-                            first_principles_agent::escalation::EscalationState::open(&path)?;
-                        Some((path, state))
-                    }
-                    None => None,
-                };
-
-                let mut to_notify = Vec::new();
-                if notifier.is_some() {
-                    let delivered = escalation_state.as_ref().map(|(_, state)| &state.delivered);
-                    to_notify = rows
-                        .iter()
-                        .filter(|(item, plan)| {
-                            let Some(level) = plan.level else {
-                                return false;
-                            };
-                            level >= first_principles_agent::escalation::EscalationAction::Notify
-                                && delivered.is_some_and(|delivered| {
-                                    delivered
-                                        .get(&item.item_id)
-                                        .is_none_or(|sent| *sent < level)
-                                })
-                        })
-                        .take(50)
-                        .collect();
-                }
-
-                let mut sent = false;
-                if let Some(notifier) = &notifier
-                    && !to_notify.is_empty()
-                    && !dry_run
-                {
-                    let mut text = format!("1Agent Escalation: {} item(s)\n", to_notify.len());
-                    for (item, plan) in &to_notify {
-                        text.push_str(&format!(
-                            "[{}] {} ({})\n",
-                            plan.level.map_or("none", |level| level.as_str()),
-                            item.title,
-                            item.item_id
-                        ));
-                    }
-                    notifier.send_text(text.trim_end()).await?;
-                    sent = true;
-                }
-                if let Some((path, state)) = escalation_state.as_mut()
-                    && !dry_run
-                {
-                    let open_items = rows
-                        .iter()
-                        .map(|(item, _)| item.item_id.as_str())
-                        .collect::<std::collections::BTreeSet<_>>();
-                    let before = state.delivered.len();
-                    state
-                        .delivered
-                        .retain(|item_id, _| open_items.contains(item_id.as_str()));
-                    let pruned = state.delivered.len() != before;
-                    if sent {
-                        for (item, plan) in &to_notify {
-                            if let Some(level) = plan.level {
-                                state.delivered.insert(item.item_id.clone(), level);
-                            }
-                        }
-                    }
-                    if sent || pruned {
-                        state.save(path)?;
-                    }
-                }
+                let report = first_principles_agent::inbox_escalation::run(
+                    &items,
+                    &ladder,
+                    now,
+                    notifier.as_ref(),
+                    state.as_deref(),
+                    dry_run,
+                )
+                .await?;
 
                 if json {
-                    let rows = rows
-                        .iter()
-                        .map(|(item, plan)| {
-                            serde_json::json!({
-                                "item_id": item.item_id,
-                                "kind": item.kind.as_str(),
-                                "title": item.title,
-                                "created_ms": item.created_ms,
-                                "elapsed_ms": plan.elapsed_ms,
-                                "level": plan.level.map(|level| level.as_str()),
-                                "reason": plan.reason,
-                            })
-                        })
-                        .collect::<Vec<_>>();
-                    let notification = notifier.as_ref().map(|_| {
-                        serde_json::json!({
-                            "sent": sent,
-                            "notified": to_notify.len(),
-                            "dry_run": dry_run,
-                        })
-                    });
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
-                            "items": rows,
-                            "notification": notification,
-                        }))?
-                    );
+                    println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     println!("1Agent Inbox Escalation");
-                    if rows.is_empty() {
+                    if report.items.is_empty() {
                         println!("(empty)");
                     }
-                    for (item, plan) in &rows {
+                    for item in &report.items {
                         println!(
                             "- [{}] {} {} | elapsed={}ms | level={} | {}",
-                            item.kind.as_str(),
-                            item.status.as_str(),
+                            item.kind,
+                            item.status,
                             item.item_id,
-                            plan.elapsed_ms,
-                            plan.level.map_or("none", |level| level.as_str()),
-                            plan.reason
+                            item.elapsed_ms,
+                            item.level.as_deref().unwrap_or("none"),
+                            item.reason
                         );
                     }
-                    if notifier.is_some() {
-                        if dry_run {
+                    if let Some(notification) = &report.notification {
+                        if notification.dry_run {
                             println!(
                                 "dry-run: would notify {} escalated item(s)",
-                                to_notify.len()
+                                notification.notified
                             );
-                        } else if sent {
-                            println!("notified {} escalated item(s)", to_notify.len());
+                        } else if notification.sent {
+                            println!("notified {} escalated item(s)", notification.notified);
                         } else {
                             println!("no new escalation to notify");
                         }
