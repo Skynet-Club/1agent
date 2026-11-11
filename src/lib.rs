@@ -42,6 +42,7 @@ pub mod master;
 pub mod master_coordination;
 pub mod master_planner;
 pub mod master_workshop;
+pub mod mcp_auth;
 pub mod memory;
 pub mod memory_backup;
 pub mod memory_consolidate;
