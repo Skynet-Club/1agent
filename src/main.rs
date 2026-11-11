@@ -512,8 +512,12 @@ enum Command {
     InboxNotify {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
+        /// Single target URL; mutually exclusive with --target.
         #[arg(long)]
-        webhook: String,
+        webhook: Option<String>,
+        /// Repeatable FORMAT=URL target, e.g. slack=https://hooks.slack.com/...
+        #[arg(long, value_name = "FORMAT=URL")]
+        target: Vec<String>,
         #[arg(long, default_value = "generic")]
         format: String,
         /// Suppress repeats until an item is newer than this state's watermark.
@@ -2900,6 +2904,44 @@ async fn run_daemon(
         }
     }
     Ok(())
+}
+
+fn parse_notify_notifiers(
+    webhook: Option<String>,
+    format: &str,
+    targets: &[String],
+) -> Result<Vec<first_principles_agent::notify::InboxNotifier>> {
+    if webhook.is_some() && !targets.is_empty() {
+        anyhow::bail!("use either --webhook or --target, not both");
+    }
+    if let Some(url) = webhook {
+        let format: first_principles_agent::alerts::WebhookFormat =
+            format.parse().map_err(|error| anyhow::anyhow!("{error}"))?;
+        return Ok(vec![
+            first_principles_agent::notify::InboxNotifier::new(url)?.with_format(format),
+        ]);
+    }
+    if targets.is_empty() {
+        anyhow::bail!("--webhook or at least one --target FORMAT=URL is required");
+    }
+    let mut notifiers = Vec::with_capacity(targets.len());
+    for raw in targets {
+        let (target_format, url) = raw
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--target must be FORMAT=URL"))?;
+        let target_format: first_principles_agent::alerts::WebhookFormat = target_format
+            .trim()
+            .parse()
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        if url.trim().is_empty() {
+            anyhow::bail!("--target URL is empty");
+        }
+        notifiers.push(
+            first_principles_agent::notify::InboxNotifier::new(url.trim())?
+                .with_format(target_format),
+        );
+    }
+    Ok(notifiers)
 }
 
 fn parse_escalation_ladder(
@@ -5787,16 +5829,14 @@ async fn main() -> Result<()> {
         Command::InboxNotify {
             store,
             webhook,
+            target,
             format,
             state,
             log,
             dry_run,
             json,
         } => {
-            let format: first_principles_agent::alerts::WebhookFormat =
-                format.parse().map_err(|error| anyhow::anyhow!("{error}"))?;
-            let notifier =
-                first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
+            let notifiers = parse_notify_notifiers(webhook, &format, &target)?;
             let store = first_principles_agent::InboxStore::open(store)?;
             let items = store.open_sorted(current_time_ms());
             let outcome = if dry_run {
@@ -5819,8 +5859,8 @@ async fn main() -> Result<()> {
                 }
             } else if let Some(path) = state {
                 let mut state = first_principles_agent::notify::NotifyState::open(&path)?;
-                let outcome = first_principles_agent::notify::notify_inbox_if_new(
-                    &notifier,
+                let outcome = first_principles_agent::notify::notify_inbox_if_new_to(
+                    &notifiers,
                     &items,
                     &mut state,
                     current_time_ms(),
@@ -5831,7 +5871,10 @@ async fn main() -> Result<()> {
                 }
                 outcome
             } else {
-                let sent = first_principles_agent::notify::notify_inbox(&notifier, &items).await?;
+                let mut sent = false;
+                for notifier in &notifiers {
+                    sent |= first_principles_agent::notify::notify_inbox(notifier, &items).await?;
+                }
                 first_principles_agent::notify::NotifyOutcome {
                     sent,
                     open: items.len(),
@@ -5843,22 +5886,28 @@ async fn main() -> Result<()> {
             if outcome.sent
                 && let Some(path) = log
             {
-                first_principles_agent::notify::append_receipt(
-                    &path,
-                    &first_principles_agent::notify::NotifyReceipt {
-                        sent_at_ms: current_time_ms(),
-                        open: outcome.open,
-                        new_items: outcome.new_items,
-                        format: notifier.format_name().into(),
-                    },
-                )?;
+                for notifier in &notifiers {
+                    first_principles_agent::notify::append_receipt(
+                        &path,
+                        &first_principles_agent::notify::NotifyReceipt {
+                            sent_at_ms: current_time_ms(),
+                            open: outcome.open,
+                            new_items: outcome.new_items,
+                            format: notifier.format_name().into(),
+                        },
+                    )?;
+                }
             }
             if json {
-                println!("{}", serde_json::to_string_pretty(&outcome)?);
+                let mut value = serde_json::to_value(&outcome)?;
+                value["targets"] = serde_json::json!(notifiers.len());
+                println!("{}", serde_json::to_string_pretty(&value)?);
             } else if outcome.sent {
                 println!(
-                    "sent {} open inbox item(s) ({} new)",
-                    outcome.open, outcome.new_items
+                    "sent {} open inbox item(s) ({} new) to {} target(s)",
+                    outcome.open,
+                    outcome.new_items,
+                    notifiers.len()
                 );
             } else if outcome.dry_run {
                 println!(

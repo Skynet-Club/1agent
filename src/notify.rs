@@ -217,13 +217,18 @@ pub async fn notify_inbox(
 }
 
 /// Sends the full open queue only when at least one item is newer than the
-/// stored watermark, then advances the in-memory watermark.
-pub async fn notify_inbox_if_new(
-    notifier: &InboxNotifier,
+/// stored watermark, then advances the in-memory watermark. A later target
+/// failing stops the fan-out; the caller must not persist the watermark, so
+/// already-delivered targets can receive one duplicate on retry.
+pub async fn notify_inbox_if_new_to(
+    notifiers: &[InboxNotifier],
     items: &[InboxItem],
     state: &mut NotifyState,
     now_ms: u128,
 ) -> Result<NotifyOutcome, NotifyError> {
+    if notifiers.is_empty() {
+        return Err(NotifyError::Invalid("no notification targets".into()));
+    }
     let new_items = items
         .iter()
         .filter(|item| item.updated_ms > state.last_sent_ms)
@@ -237,7 +242,9 @@ pub async fn notify_inbox_if_new(
             dry_run: false,
         });
     }
-    notifier.send(items).await?;
+    for notifier in notifiers {
+        notifier.send(items).await?;
+    }
     state.last_sent_ms = now_ms;
     Ok(NotifyOutcome {
         sent: true,
@@ -246,6 +253,16 @@ pub async fn notify_inbox_if_new(
         last_sent_ms: Some(state.last_sent_ms),
         dry_run: false,
     })
+}
+
+/// Single-target convenience wrapper around [`notify_inbox_if_new_to`].
+pub async fn notify_inbox_if_new(
+    notifier: &InboxNotifier,
+    items: &[InboxItem],
+    state: &mut NotifyState,
+    now_ms: u128,
+) -> Result<NotifyOutcome, NotifyError> {
+    notify_inbox_if_new_to(std::slice::from_ref(notifier), items, state, now_ms).await
 }
 
 pub fn append_receipt(path: &Path, receipt: &NotifyReceipt) -> Result<(), NotifyError> {

@@ -43,20 +43,27 @@ test result: ok. 2 passed; 0 failed
   suppressed repeat; the receipt records format and counts but not the URL.
 - `--dry-run` reports open=2/new_items=2 without a webhook; with a high
   watermark it reports new_items=0.
+- `--target slack=URL --target discord=URL` delivers a Slack `{text}` payload
+  and a Discord `{content}` payload in one run, reports `targets: 2`, and
+  writes two receipts.
+- A shared watermark suppresses both targets on a repeat run.
+- If the second target fails, the command exits non-zero, the watermark file is
+  byte-identical to before, and a retry delivers to both targets again.
 
 ## What this does not prove
 
 - Real Slack/Discord delivery, authentication or rate limits.
 - Reply handling, item mutation or a full chat transport.
-- Retry, delivery receipt or deduplication.
+- Automatic retry, per-target delivery receipts or per-target deduplication;
+  the shared watermark can duplicate one message to earlier targets.
 - That webhook URLs are handled as secrets by the shell/caller.
 - Cross-platform behavior; tests ran on Linux only.
 
 ## Files
 
 - `src/notify.rs`
-- `src/main.rs` (`inbox-notify`)
-- `tests/inbox_notify_cli.rs`
+- `src/main.rs` (`inbox-notify`, `--target`)
+- `tests/inbox_notify_cli.rs`, `tests/inbox_notify_targets_cli.rs`
 - `docs/adr/0080-one-way-inbox-notification.md`
 - `docs/architecture.md`, `docs/features.md`, `docs/features.en.md`,
   `docs/claims.md`, `CHANGELOG.md`

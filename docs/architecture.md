@@ -301,9 +301,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   embedded credentials, does not follow redirects, bounds the payload, and
   returns `sent=false` for an empty queue. `--state PATH` stores a watermark and suppresses a re-send when
   no item is newer; the watermark advances only after a successful send.
-  `--log PATH` appends one JSONL receipt per successful send without storing
-  the webhook URL; `--dry-run` computes open/new counts but sends nothing and
-  does not advance the watermark. `send_text` reuses the same URL policy for the digest
+  `--target FORMAT=URL` may repeat for fan-out; all targets share one
+  watermark, and a later target failing stops the fan-out without advancing it
+  (a retry may duplicate one message to earlier targets). `--log PATH` appends
+  one JSONL receipt per target per successful send without storing the webhook
+  URL; `--dry-run` computes open/new counts but sends nothing and does not
+  advance the watermark. `send_text` reuses the same URL policy for the digest
   `--notify-webhook` path. It is one-way presence, not a chat transport;
   `notify` remains the one-message operator command.
 - `unit_economics`: a pure subscription/usage/BYOK calculator. The caller
