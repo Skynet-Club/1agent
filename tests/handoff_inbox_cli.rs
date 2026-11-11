@@ -102,6 +102,106 @@ fn handoffs_project_into_the_recipient_inbox_once() {
 }
 
 #[test]
+fn inbox_reconcile_closes_accepted_and_cancelled_handoffs() {
+    let workspace = tempfile::tempdir().unwrap();
+    let handoffs = workspace.path().join("handoffs.jsonl");
+    let inbox = workspace.path().join("inbox.jsonl");
+    let handoffs = handoffs.to_str().unwrap();
+    let inbox = inbox.to_str().unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    for (id, title) in [("h1", "cancelled"), ("h2", "accepted")] {
+        let created = Command::new(bin)
+            .args(["handoff", "create", "--store", handoffs, "--id", id])
+            .args([
+                "--from",
+                "alice",
+                "--to",
+                "bob",
+                "--summary",
+                title,
+                "--evidence",
+                "journal:run-1",
+            ])
+            .output()
+            .unwrap();
+        assert!(created.status.success());
+    }
+    let synced = Command::new(bin)
+        .args([
+            "inbox",
+            "sync",
+            "--store",
+            inbox,
+            "--handoff-store",
+            handoffs,
+            "--recipient",
+            "bob",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert!(synced.status.success());
+
+    let cancelled = Command::new(bin)
+        .args([
+            "handoff", "cancel", "--store", handoffs, "--id", "h1", "--actor", "alice",
+        ])
+        .output()
+        .unwrap();
+    assert!(cancelled.status.success());
+    let accepted = Command::new(bin)
+        .args([
+            "handoff", "accept", "--store", handoffs, "--id", "h2", "--actor", "bob",
+        ])
+        .output()
+        .unwrap();
+    assert!(accepted.status.success());
+
+    let dry = Command::new(bin)
+        .args([
+            "inbox",
+            "reconcile",
+            "--store",
+            inbox,
+            "--handoff-store",
+            handoffs,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(dry.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&dry.stdout).unwrap();
+    assert_eq!(report["resolved"], 2);
+    assert_eq!(report["dry_run"], true);
+
+    let applied = Command::new(bin)
+        .args([
+            "inbox",
+            "reconcile",
+            "--store",
+            inbox,
+            "--handoff-store",
+            handoffs,
+            "--apply",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(applied.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(report["resolved"], 2);
+    assert_eq!(report["dry_run"], false);
+
+    let listed = Command::new(bin)
+        .args(["inbox", "list", "--store", inbox, "--json"])
+        .output()
+        .unwrap();
+    let items: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(items.as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn inbox_resolve_accepts_the_linked_handoff() {
     let workspace = tempfile::tempdir().unwrap();
     let handoffs = workspace.path().join("handoffs.jsonl");
