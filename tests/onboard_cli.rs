@@ -205,6 +205,102 @@ fn onboard_interactive_reads_stdin_answers() {
 }
 
 #[test]
+fn onboard_imports_plain_text_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("memory-journal.jsonl");
+    let payloads = dir.path().join("payloads");
+    let key = dir.path().join("memory.key");
+    let import = dir.path().join("context.txt");
+    std::fs::write(
+        &import,
+        "# profile\nvoice_mode=advisor\n\nsecond line is ignored for voice\n",
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+
+    let output = Command::new(bin)
+        .args(["onboard", "--memory-journal"])
+        .arg(&journal)
+        .arg("--memory-payloads")
+        .arg(&payloads)
+        .arg("--memory-key")
+        .arg(&key)
+        .args(["--bot-id", "bot-1", "--import-file"])
+        .arg(&import)
+        .args(["--import-kind", "preference", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["imported"], 2);
+    assert_eq!(report["written"], 2);
+    assert_eq!(report["user_model"]["voice"]["mode"], "advisor");
+
+    let facts = dir.path().join("facts.txt");
+    std::fs::write(&facts, "fact one\n# skip\nfact two\n").unwrap();
+    let second = Command::new(bin)
+        .args(["onboard", "--memory-journal"])
+        .arg(&journal)
+        .arg("--memory-payloads")
+        .arg(&payloads)
+        .arg("--memory-key")
+        .arg(&key)
+        .args(["--bot-id", "bot-2", "--import-file"])
+        .arg(&facts)
+        .args(["--import-kind", "fact", "--json"])
+        .output()
+        .unwrap();
+    assert!(second.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(report["imported"], 2);
+    assert_eq!(report["written"], 2);
+}
+
+#[test]
+fn onboard_import_rejects_bad_files_and_kinds() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let comments = dir.path().join("comments.txt");
+    std::fs::write(&comments, "# only comments\n\n").unwrap();
+
+    for (file, kind) in [(dir.path().join("missing.txt"), "fact"), (comments, "fact")] {
+        let output = Command::new(bin)
+            .args(["onboard", "--memory-journal"])
+            .arg(dir.path().join("journal.jsonl"))
+            .arg("--memory-payloads")
+            .arg(dir.path().join("payloads"))
+            .arg("--memory-key")
+            .arg(dir.path().join("key"))
+            .args(["--import-file"])
+            .arg(&file)
+            .args(["--import-kind", kind])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+    }
+
+    let facts = dir.path().join("facts.txt");
+    std::fs::write(&facts, "one fact\n").unwrap();
+    let bad_kind = Command::new(bin)
+        .args(["onboard", "--memory-journal"])
+        .arg(dir.path().join("journal2.jsonl"))
+        .arg("--memory-payloads")
+        .arg(dir.path().join("payloads2"))
+        .arg("--memory-key")
+        .arg(dir.path().join("key2"))
+        .args(["--import-file"])
+        .arg(&facts)
+        .args(["--import-kind", "gossip"])
+        .output()
+        .unwrap();
+    assert!(!bad_kind.status.success());
+}
+
+#[test]
 fn onboard_commitment_without_goal_fails_closed() {
     let dir = tempfile::tempdir().unwrap();
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
