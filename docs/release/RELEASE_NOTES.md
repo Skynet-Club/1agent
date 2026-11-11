@@ -7,6 +7,10 @@ Status: **R1 public pre-release (patch), not production-stable**
 
 GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1>
 
+## 产品是什么
+
+1Agent 是本地优先、可审计、可解释的 Super-Agent 运行时。它把任务、证据、授权、执行、验收和审计做成一条可回放的链路：先说清楚为什么做，再决定做什么；能分析，接上受控执行底座后也能执行；每一步都留下可验证的记录。当前是 R1 候选版，不是生产稳定版。
+
 ## 版本定位
 
 0.96.1 是 0.96.0 的补丁版本，集中改进 TUI 可读性、上下文预算、提示词补充和答案格式。它**不包含** 0.97 Reliable Loop 的流式输出、并行只读工具、增量 journal、崩溃恢复等范围。
@@ -53,6 +57,15 @@ GitHub pre-release: <https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1>
 - Composer 支持整框鼠标拖拽选择；编辑针对 stale/mid-grapheme 光标加固，输入上限 64 KiB；新增确定性编辑 fuzz 和 PTY 粘贴/退格/空格 fuzz。TUI panic 会恢复终端并追加到 `$HOME/.1a/tui-crash.log`，瞬时输入读取错误会重试。
 - 最终答案围栏为 `╭─ 结论 Conclusion ... ╮`：深绿边框、亮绿加粗标题、白色正文；结构化“主张/依据/假设/约束/未知/冲突/翻转条件”使用深绿 `#487748`，只有结论正文为白色。
 - 状态/工作标记改为更小的 `•`；正常活动使用一个青色强调，绿/黄/红只用于完成、等待/重试和阻塞结果。
+
+## 下一版本：Super-Agent 0.97–1.0
+
+- **0.97.0 Reliable Loop**（目标窗口 2026-12-22）：长时程可靠闭环——流式输出、并行只读工具、增量 journal、崩溃恢复/断点续跑、验证门、memory MVP、沙箱、结果先行的回答契约。
+- **0.98.0 Real World**（2027-02-02）：浏览器写操作 / computer-use、MCP 扩展、技能学习、常驻 MVP。
+- **0.99.0 Multi-Agent Organization**（2027-03-16）：Master/Worker 可靠性、成本治理、市场信任、外部审计准备。
+- **1.0.0 Trusted Super-Agent**（2027-05-11）：外部审计、SDK/API、团队协作、跨平台、生态。
+
+日期是目标窗口，不是无条件承诺；指标门未过，不发布，不宣称 Super-Agent。
 
 ## 验证
 

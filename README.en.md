@@ -17,7 +17,7 @@ Most agents hand you a polished drill recommendation.
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
 > **This project is under active development.** Current version **0.96.1** (updated 2026-11-11), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
-> This release: local writes and terminal execution on by default; file, terminal, web, PDF, MCP and subagent tools; scheduling and routines; signed skill bundles; cost, digest and dashboard observability.  
+> This release: TUI readability and Markdown conclusions; the complete prompt source library (`//`); a 1M-token context budget; and unlimited interactive steps/tools/timeout.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
 > Current Linux pre-release: [v0.96.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1) · [Release notes](docs/release/RELEASE_NOTES.en.md).
 
@@ -58,6 +58,24 @@ Read the full design trade-offs in [Design Philosophy](docs/design-philosophy.en
 
 **Not available today**: computer-use clicks/screenshots, voice/image understanding, automatic watchdog escalation, mobile and Bot.  
 These are listed honestly in [Status & Roadmap](docs/status.en.md).
+
+---
+
+## Next: Super-Agent 0.97–1.0
+
+0.96.1 is still an auditable runtime at the R1-candidate stage, not an accepted
+Super-Agent. The next steps are public and gated by metrics and evidence rather
+than feature count:
+
+| Version | Theme | Target window | Core outcome |
+|---|---|---|---|
+| **0.97.0** | Reliable Loop | 2026-12-22 | Long-horizon reliable closure: streaming, parallel read-only tools, incremental journal, crash recovery/checkpoint resume, verification gate, memory MVP, sandbox and a result-first answer contract |
+| **0.98.0** | Real World | 2027-02-02 | Browser writes / computer-use, MCP expansion, skill learning and a resident MVP |
+| **0.99.0** | Multi-Agent Organization | 2027-03-16 | Master/Worker reliability, cost governance, market trust and external-audit preparation |
+| **1.0.0** | Trusted Super-Agent | 2027-05-11 | External audit, SDK/API, team collaboration, cross-platform and ecosystem |
+
+Dates are target windows, not unconditional promises. **If a metric gate does
+not pass, we do not release and do not claim Super-Agent.**
 
 ---
 

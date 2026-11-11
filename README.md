@@ -19,7 +19,7 @@
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
 > **项目仍在持续开发。** 当前版本 **0.96.1**（2026-11-11 更新），R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
-> 本版重点：本地写/终端默认开启；文件、Terminal、Web、PDF、MCP、子 Agent；调度/Routine；签名技能包；成本/审计/dashboard。  
+> 本版重点：TUI 可读性与 Markdown 结论；完整提示词原文库（`//`）；1M token 上下文预算；交互式 TUI 不设步数/工具/超时上限。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
 > 当前 Linux 预发布：[v0.96.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1) · [发布说明](docs/release/RELEASE_NOTES.md)。
 
@@ -62,6 +62,21 @@
 
 
 这些不是“隐藏功能”，而是明确写在 [STATUS.md](docs/status.md) 里的研发中/未实现项。
+
+---
+
+## 下一版本：Super-Agent 0.97–1.0
+
+0.96.1 仍是“可审计 Runtime”的 R1 候选，不是已验收的 Super-Agent。下一步按公开路线推进，以指标和证据为退出条件，不以功能数量为退出条件：
+
+| 版本 | 主题 | 目标窗口 | 核心结果 |
+|---|---|---|---|
+| **0.97.0** | Reliable Loop | 2026-12-22 | 长时程可靠闭环：流式输出、并行只读工具、增量 journal、崩溃恢复/断点续跑、验证门、memory MVP、沙箱、结果先行的回答契约 |
+| **0.98.0** | Real World | 2027-02-02 | 真实世界操作：浏览器写操作 / computer-use、MCP 扩展、技能学习、常驻 MVP |
+| **0.99.0** | Multi-Agent Organization | 2027-03-16 | 多 Agent 组织：Master/Worker 可靠性、成本治理、市场信任、外部审计准备 |
+| **1.0.0** | Trusted Super-Agent | 2027-05-11 | 可信 Super-Agent：外部审计、SDK/API、团队协作、跨平台、生态 |
+
+日期是目标窗口，不是无条件承诺；**指标门未过，不发布，不宣称 Super-Agent**。
 
 ---
 
