@@ -391,7 +391,9 @@
   daemon_goal_inbox_cli`).
 - Inbox reopen: `1agent inbox reopen --store PATH --item-id ID [--json]`
   returns an open/snoozed item to open, cancelling a snooze; terminal items
-  still fail closed. Tests extend `inbox_cli` (`cargo test --test inbox_cli`).
+  still fail closed. The TUI `/inbox reopen <id>` uses the same action parser
+  and apply path. Tests extend `inbox_cli` and the inbox unit suite (`cargo
+  test --test inbox_cli`, `cargo test inbox --lib`).
 - Repair marking: `1agent repair-mark --store PATH --ticket-id ID
   --side-effect-id ID --actor NAME --evidence TEXT [--json]` records a
   human-performed compensation by appending a `SideEffectStatusChanged` event
