@@ -326,14 +326,19 @@
   ... [--now-ms ...] [--json]` applies the existing ladder to every open or
   due-snoozed item using its `created_ms`. Terminal items are excluded; it
   reports levels and reasons without sending or changing status.
-- Escalation delivery: with `--webhook URL --state PATH`, newly reached
-  `notify`/`urgent` rungs are delivered in one batch (at most 50 items) and
-  the per-item watermark advances only after a successful send. Resolved items
-  are pruned; `--dry-run` reports without sending. A crash between send and
-  save can duplicate one batch; digest-rung delivery is not implemented.
-- Tests: four `inbox_escalate_cli` e2e tests cover open-vs-resolved items, the
-  below-first-threshold case, invalid ladders, and one delivery per reached
-  rung including a raised level (`cargo test --test inbox_escalate_cli`).
+- Escalation delivery: with `--state PATH` and `--webhook URL` or repeatable
+  `--target FORMAT=URL`, newly reached `notify`/`urgent` rungs are delivered
+  in one batch (at most 50 items) and the per-item watermark advances only
+  after every target succeeds. Targets share one state and are sent in order;
+  a later failure can duplicate one batch to earlier targets on retry.
+  Resolved items are pruned; `--dry-run` reports without sending. A crash
+  between send and save can duplicate one batch; digest-rung delivery is not
+  implemented. The daemon accepts the same `--escalate-target FORMAT=URL`
+  fan-out.
+- Tests: five `inbox_escalate_cli` e2e tests cover open-vs-resolved items, the
+  below-first-threshold case, invalid ladders, one delivery per reached rung
+  including a raised level, and multi-target fan-out (`cargo test --test
+  inbox_escalate_cli`). The daemon e2e test now uses two escalation targets.
 - Daemon escalation delivery: `daemon --escalate-inbox-store PATH
   --escalate-step ... --escalate-webhook URL --escalate-state PATH
   [--escalate-format ...]` runs the same projection and delivery on every

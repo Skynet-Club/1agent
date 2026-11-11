@@ -55,17 +55,19 @@ pub enum EscalationRunError {
     MissingState,
 }
 
-/// Computes levels for `items`; when a notifier and state path are supplied,
-/// also delivers items whose level is newly `notify` or `urgent`.
+/// Computes levels for `items`; when notifiers and a state path are supplied,
+/// also delivers items whose level is newly `notify` or `urgent`. Delivery
+/// runs in target order; a later failure leaves the watermark unadvanced, so a
+/// retry can duplicate one batch to earlier targets.
 pub async fn run(
     items: &[InboxItem],
     ladder: &EscalationLadder,
     now_ms: u128,
-    notifier: Option<&InboxNotifier>,
+    notifiers: &[InboxNotifier],
     state_path: Option<&Path>,
     dry_run: bool,
 ) -> Result<EscalationReport, EscalationRunError> {
-    if notifier.is_some() != state_path.is_some() {
+    if !notifiers.is_empty() != state_path.is_some() {
         return Err(EscalationRunError::MissingState);
     }
     let mut state = state_path.map(EscalationState::open).transpose()?;
@@ -80,7 +82,7 @@ pub async fn run(
         .collect::<Vec<_>>();
 
     let mut to_notify = Vec::new();
-    if notifier.is_some() {
+    if !notifiers.is_empty() {
         let delivered = state.as_ref().map(|state| &state.delivered);
         to_notify = rows
             .iter()
@@ -100,10 +102,7 @@ pub async fn run(
     }
 
     let mut sent = false;
-    if let Some(notifier) = notifier
-        && !to_notify.is_empty()
-        && !dry_run
-    {
+    if !notifiers.is_empty() && !to_notify.is_empty() && !dry_run {
         let mut text = format!("1Agent Escalation: {} item(s)\n", to_notify.len());
         for (item, plan) in &to_notify {
             text.push_str(&format!(
@@ -113,7 +112,9 @@ pub async fn run(
                 item.item_id
             ));
         }
-        notifier.send_text(text.trim_end()).await?;
+        for notifier in notifiers {
+            notifier.send_text(text.trim_end()).await?;
+        }
         sent = true;
     }
     if let (Some(state), Some(path)) = (state.as_mut(), state_path)
@@ -155,7 +156,7 @@ pub async fn run(
         .collect();
     Ok(EscalationReport {
         items,
-        notification: notifier.map(|_| EscalationNotification {
+        notification: (!notifiers.is_empty()).then_some(EscalationNotification {
             sent,
             notified: to_notify.len(),
             dry_run,

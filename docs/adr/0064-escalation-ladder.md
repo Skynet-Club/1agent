@@ -24,17 +24,21 @@ escalation ladder so a forgotten approval does not stay silent forever.
    actions exit non-zero.
 5. `1agent inbox escalate` applies the same ladder to open and due-snoozed
    inbox items using each item's `created_ms`; terminal items are excluded.
-6. With `--webhook URL --state PATH`, the command delivers a batch of items
-   whose level is newly `notify` or `urgent` (higher than the highest rung
-   recorded for that item), at most 50 per invocation. Delivery uses the
-   existing no-redirect notifier. The state advances only after a successful
-   send, so a crash in between can duplicate one batch. Resolved items are
-   pruned from the state. `--dry-run` reports without sending.
-7. `daemon --escalate-inbox-store PATH --escalate-step ... --escalate-webhook
-   URL --escalate-state PATH [--escalate-format ...]` runs the same projection
-   and delivery on every tick using one shared implementation. Delivery
-   failures are logged and retried on the next tick; quiet hours suppress
-   delivery because the daemon takes the quiet branch before it.
+6. With `--state PATH` and either `--webhook URL` or repeatable `--target
+   FORMAT=URL`, the command delivers a batch of items whose level is newly
+   `notify` or `urgent` (higher than the highest rung recorded for that item),
+   at most 50 per invocation. Targets share one state and are sent in order;
+   a later failure does not advance the state, so a retry can duplicate one
+   batch to earlier targets. Delivery uses the existing no-redirect notifier.
+   The state advances only after every target succeeds, so a crash in between
+   can also duplicate one batch. Resolved items are pruned from the state.
+   `--dry-run` reports without sending.
+7. `daemon --escalate-inbox-store PATH --escalate-step ... (--escalate-webhook
+   URL | --escalate-target FORMAT=URL ...) --escalate-state PATH
+   [--escalate-format ...]` runs the same projection and delivery on every
+   tick using one shared implementation. Delivery failures are logged and
+   retried on the next tick; quiet hours suppress delivery because the daemon
+   takes the quiet branch before it.
 8. Delivery does not change item status or stop after acknowledgement.
    `digest --escalation-step` counts every rung, including `digest`, but
    `digest`-rung delivery and per-channel ladders remain separate.

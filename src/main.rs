@@ -453,6 +453,9 @@ enum Command {
         /// Deliver newly reached notify/urgent rungs here.
         #[arg(long)]
         escalate_webhook: Option<String>,
+        /// Repeatable FORMAT=URL escalation target.
+        #[arg(long, value_name = "FORMAT=URL")]
+        escalate_target: Vec<String>,
         #[arg(long, default_value = "generic")]
         escalate_format: String,
         /// Per-item highest delivered rung; required with --escalate-webhook.
@@ -1569,9 +1572,12 @@ enum InboxCommand {
         /// Deliver notify/urgent rungs to this webhook; requires --state.
         #[arg(long)]
         webhook: Option<String>,
+        /// Repeatable FORMAT=URL delivery target; requires --state.
+        #[arg(long, value_name = "FORMAT=URL")]
+        target: Vec<String>,
         #[arg(long, default_value = "generic")]
         format: String,
-        /// Highest delivered rung per item; required with --webhook.
+        /// Highest delivered rung per item; required with a delivery target.
         #[arg(long)]
         state: Option<PathBuf>,
         /// Report what would be delivered without calling the webhook.
@@ -2792,6 +2798,7 @@ async fn run_daemon(
     escalate_inbox_store: Option<PathBuf>,
     escalate_step: Vec<String>,
     escalate_webhook: Option<String>,
+    escalate_target: Vec<String>,
     escalate_format: String,
     escalate_state: Option<PathBuf>,
     reconcile_inbox_store: Option<PathBuf>,
@@ -2804,22 +2811,20 @@ async fn run_daemon(
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
     }
-    let escalation = match (escalate_inbox_store, escalate_webhook, escalate_state) {
-        (Some(store), Some(webhook), Some(state)) => {
+    let has_escalation_delivery = escalate_webhook.is_some() || !escalate_target.is_empty();
+    let escalation = match (escalate_inbox_store, escalate_state) {
+        (Some(store), Some(state)) => {
             let ladder = parse_escalation_ladder(&escalate_step)?;
-            let format: first_principles_agent::alerts::WebhookFormat = escalate_format
-                .parse()
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
-            let notifier =
-                first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
-            Some((store, ladder, state, notifier))
+            let notifiers =
+                parse_notify_notifiers(escalate_webhook, &escalate_format, &escalate_target)?;
+            Some((store, ladder, state, notifiers))
         }
-        (None, None, None) if escalate_step.is_empty() => None,
-        (None, None, None) => bail!(
-            "--escalate-step requires --escalate-inbox-store, --escalate-webhook and --escalate-state"
+        (None, None) if escalate_step.is_empty() && !has_escalation_delivery => None,
+        (None, None) => bail!(
+            "--escalate-step/--escalate-webhook/--escalate-target require --escalate-inbox-store and --escalate-state"
         ),
         _ => bail!(
-            "inbox escalation requires --escalate-inbox-store, --escalate-webhook and --escalate-state together"
+            "inbox escalation requires --escalate-inbox-store, --escalate-webhook/--escalate-target and --escalate-state together"
         ),
     };
     let reconcile = match (
@@ -2920,7 +2925,7 @@ async fn run_daemon(
                 }
             }
         }
-        if let Some((inbox_store, ladder, state_path, notifier)) = &escalation {
+        if let Some((inbox_store, ladder, state_path, notifiers)) = &escalation {
             match first_principles_agent::InboxStore::open(inbox_store) {
                 Ok(inbox) => {
                     let now = current_time_ms();
@@ -2929,7 +2934,7 @@ async fn run_daemon(
                         &items,
                         ladder,
                         now,
-                        Some(notifier),
+                        notifiers,
                         Some(state_path.as_path()),
                         false,
                     )
@@ -3639,7 +3644,7 @@ async fn main() -> Result<()> {
                     &inbox_items,
                     &ladder,
                     current_time_ms(),
-                    None,
+                    &[],
                     None,
                     false,
                 )
@@ -4887,6 +4892,7 @@ async fn main() -> Result<()> {
             escalate_inbox_store,
             escalate_step,
             escalate_webhook,
+            escalate_target,
             escalate_format,
             escalate_state,
             reconcile_inbox_store,
@@ -4909,6 +4915,7 @@ async fn main() -> Result<()> {
                 escalate_inbox_store,
                 escalate_step,
                 escalate_webhook,
+                escalate_target,
                 escalate_format,
                 escalate_state,
                 reconcile_inbox_store,
@@ -6003,37 +6010,32 @@ async fn main() -> Result<()> {
                 step,
                 now_ms,
                 webhook,
+                target,
                 format,
                 state,
                 dry_run,
                 json,
             } => {
                 let ladder = parse_escalation_ladder(&step)?;
-                if webhook.is_some() != state.is_some() {
-                    anyhow::bail!("--webhook and --state are required together");
+                let notifiers = if webhook.is_none() && target.is_empty() {
+                    Vec::new()
+                } else {
+                    parse_notify_notifiers(webhook, &format, &target)?
+                };
+                if !notifiers.is_empty() && state.is_none() {
+                    anyhow::bail!("--webhook/--target and --state are required together");
                 }
-                if dry_run && webhook.is_none() {
-                    anyhow::bail!("--dry-run requires --webhook and --state");
+                if dry_run && notifiers.is_empty() {
+                    anyhow::bail!("--dry-run requires a notification target");
                 }
                 let now = now_ms.unwrap_or_else(current_time_ms);
                 let store = first_principles_agent::InboxStore::open(store)?;
                 let items = store.open_sorted(now);
-                let notifier = match &webhook {
-                    Some(url) => {
-                        let format: first_principles_agent::alerts::WebhookFormat =
-                            format.parse().map_err(|error| anyhow::anyhow!("{error}"))?;
-                        Some(
-                            first_principles_agent::notify::InboxNotifier::new(url.clone())?
-                                .with_format(format),
-                        )
-                    }
-                    None => None,
-                };
                 let report = first_principles_agent::inbox_escalation::run(
                     &items,
                     &ladder,
                     now,
-                    notifier.as_ref(),
+                    &notifiers,
                     state.as_deref(),
                     dry_run,
                 )
