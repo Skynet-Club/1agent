@@ -469,6 +469,16 @@ enum Command {
         #[command(subcommand)]
         command: IdempotencyCommand,
     },
+    InboxNotify {
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        store: PathBuf,
+        #[arg(long)]
+        webhook: String,
+        #[arg(long, default_value = "generic")]
+        format: String,
+        #[arg(long)]
+        json: bool,
+    },
     OrgAudit {
         #[command(subcommand)]
         command: OrgAuditCommand,
@@ -5196,6 +5206,34 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Command::InboxNotify {
+            store,
+            webhook,
+            format,
+            json,
+        } => {
+            let format: first_principles_agent::alerts::WebhookFormat =
+                format.parse().map_err(|error| anyhow::anyhow!("{error}"))?;
+            let notifier =
+                first_principles_agent::notify::InboxNotifier::new(webhook)?.with_format(format);
+            let store = first_principles_agent::InboxStore::open(store)?;
+            let items = store.open_sorted(current_time_ms());
+            let open = items.len();
+            let sent = first_principles_agent::notify::notify_inbox(&notifier, &items).await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "sent": sent,
+                        "open": open,
+                    }))?
+                );
+            } else if sent {
+                println!("sent {open} open inbox item(s)");
+            } else {
+                println!("no open inbox items; nothing sent");
+            }
+        }
         Command::Idempotency { command } => match command {
             IdempotencyCommand::Record {
                 store,

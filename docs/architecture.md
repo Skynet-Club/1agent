@@ -277,6 +277,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   enforces exact audience, expiry/not-before with clock skew, a maximum TTL and
   an exact required scope. Signature verification and token acquisition are
   the caller's; this module never stores or prints the token.
+- `notify`: `InboxNotifier` posts the open inbox queue to a
+  generic/Slack/Discord webhook. It requires HTTPS except for loopback, rejects
+  embedded credentials, bounds the payload, and returns `sent=false` for an
+  empty queue. It is one-way presence, not a chat transport; `notify` remains
+  the one-message operator command.
 - `unit_economics`: a pure subscription/usage/BYOK calculator. The caller
   supplies revenue, variable cost, fixed cost and an optional verified-outcome
   count; it reports contribution, net, gross-margin basis points, per-outcome
