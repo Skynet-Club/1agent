@@ -213,3 +213,48 @@ fn daemon_digest_escalation_steps_require_an_inbox_store() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+fn quiet_window_covering_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let minute = ((now / 60_000) % 1_440) as u16;
+    let end = (minute + 2) % 1_440;
+    format!(
+        "{:02}:{:02}-{:02}:{:02}",
+        minute / 60,
+        minute % 60,
+        end / 60,
+        end % 60
+    )
+}
+
+#[test]
+fn daemon_quiet_hours_skip_the_digest() {
+    let workspace = tempfile::tempdir().unwrap();
+    let output = Command::new(bin())
+        .args(["daemon", "--store"])
+        .arg(workspace.path().join("schedules.json"))
+        .arg("--journal-dir")
+        .arg(workspace.path().join("journals"))
+        .args(["--once", "--quiet-hours", &quiet_window_covering_now()])
+        .args([
+            "--digest-webhook",
+            "http://127.0.0.1:9/hook",
+            "--digest-every-seconds",
+            "60",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("cannot send digest"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
