@@ -40,6 +40,7 @@ fn agent_card_cli_reports_capabilities_and_limits() {
         "inbox_escalation",
         "repair_runbook",
         "daemon_maintenance",
+        "otel_export",
     ] {
         let capability = capabilities
             .iter()
