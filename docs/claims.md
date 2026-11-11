@@ -91,7 +91,7 @@ file: <路径>              → 文件必须存在
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |
 | Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |
-| 安静时段持久化：onboard --quiet-hours 写入 preference，UserModel 读取并回显 | cmd: cargo test user_model --lib && cargo test --test onboard_cli | ✅ | 偏好视图；运行时调度仍未自动读取 |
+| 安静时段持久化：onboard --quiet-hours 写入 preference，UserModel 读取并回显；autonomy-for 读取域档位+安静时段 | cmd: cargo test user_model --lib && cargo test --test onboard_cli && cargo test --test autonomy_cli | ✅ | 偏好视图；无窗口结束唤醒/调度 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |
 | 团队交接：必须有 evidence、from≠to；仅 addressee 可接受；终态不可再转换 | cmd: cargo test handoff --lib && cargo test --test handoff_cli | ✅ | 本地交接；无实时共享上下文/IdP |
 | 交接投影：open + to=recipient → inbox review，`handoff:<id>` 去重，不自动接受 | cmd: cargo test inbox --lib && cargo test --test handoff_inbox_cli | ✅ | 仅投影；通知/实时上下文未实现 |
