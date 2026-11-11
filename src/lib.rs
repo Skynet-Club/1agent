@@ -50,6 +50,7 @@ pub mod memory_payload;
 pub mod memory_service;
 pub mod metrics;
 pub mod ops_guard;
+pub mod org_audit;
 pub mod otel;
 pub mod platform;
 pub mod production_line;

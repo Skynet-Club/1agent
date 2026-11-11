@@ -209,6 +209,13 @@
   does not send or mutate the item.
 - Tests: four escalation unit tests plus two `escalate_cli` e2e tests
   (`cargo test escalation --lib`, `cargo test --test escalate_cli`).
+- Organization audit index (ADR-0065): `OrgAuditStore` appends
+  actor/action/scope/decision entries with seq, previous hash and a SHA-256
+  hash over a canonical body; every append is synced. `verify` detects edited
+  fields, reordering and broken links. `1agent org-audit append|verify` exposes
+  it. This is a local index, not a remote transparency log or an IdP.
+- Tests: four org-audit unit tests plus two `org_audit_cli` e2e tests
+  (`cargo test org_audit --lib`, `cargo test --test org_audit_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
