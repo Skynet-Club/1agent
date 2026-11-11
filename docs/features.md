@@ -69,7 +69,8 @@
 - Agent Card v0：`1agent agent-card [--json]` 输出 schema/version/platform/能力状态/限制；`GET /v0/agent-card` 以公开只读方式提供同一 payload；平台能力取平台注册表，unsupported/untested 不得标为 verified；本地未签名，尚非 A2A registry-signed 卡；
 - Tool search：`1agent tools --query TEXT [--json]` 按名称/前缀/描述/参数名确定性排序；`1agent run --tool-query TEXT` 将模型可见工具限制为 top 8 + always-on（read_file/write_file/edit_file/terminal_exec），选择结果写入 journal；无 query 时保持全量；
 - CUA 策略：`1agent cua-check` 按参数来源（plan/trusted/untrusted）、风险、可逆性与 planned branch 输出 allow/require_approval/deny；高风险 + untrusted → deny；planner 不看 untrusted；未规划 branch → deny。仅策略，无浏览器执行；
-- Cascade 遏制：`1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` 计算 affected/contained/propagated、containment_rate_bps、cascade_depth、blast_radius，并按策略门禁；确定性模拟，不是真实多 Agent 运行。
+- Cascade 遏制：`1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` 计算 affected/contained/propagated、containment_rate_bps、cascade_depth、blast_radius，并按策略门禁；确定性模拟，不是真实多 Agent 运行；
+- 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。策略/CI 辅助，运行时接线待做。
 
 ### 2.4 本地记忆（可用，RC）
 

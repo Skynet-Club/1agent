@@ -351,6 +351,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   The planner must not see untrusted content, and a branch target must be in
   the pre-approved plan (branch-steering guard). This is policy only; no
   browser execution.
+- `budget`: optional cost/token/tool-call limits; exceeding any limit is a
+  failure, 80% is a warning, unset limits are unbounded.
+  `cost_per_verified_outcome` returns `None` when nothing verified.
+  `1agent budget-check` exposes it and exits non-zero on an exceeded budget.
+  This is a policy/CI helper; runtime enforcement is a later slice.
 - `cascade`: `simulate(root, edges, contained)` walks a directed failure graph;
   a contained node is affected but stops propagation. The report exposes
   `containment_rate_bps = contained / affected`, `cascade_depth` and

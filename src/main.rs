@@ -423,6 +423,24 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    BudgetCheck {
+        #[arg(long, default_value_t = 0)]
+        cost_micros: u64,
+        #[arg(long, default_value_t = 0)]
+        tokens: u64,
+        #[arg(long, default_value_t = 0)]
+        tool_calls: u64,
+        #[arg(long)]
+        max_cost_micros: Option<u64>,
+        #[arg(long)]
+        max_tokens: Option<u64>,
+        #[arg(long)]
+        max_tool_calls: Option<u64>,
+        #[arg(long)]
+        verified_outcomes: Option<u64>,
+        #[arg(long)]
+        json: bool,
+    },
     Onboard {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         memory_journal: PathBuf,
@@ -4354,6 +4372,58 @@ async fn main() -> Result<()> {
                 for failure in &verdict.failures {
                     println!("- {failure}");
                 }
+            }
+        }
+        Command::BudgetCheck {
+            cost_micros,
+            tokens,
+            tool_calls,
+            max_cost_micros,
+            max_tokens,
+            max_tool_calls,
+            verified_outcomes,
+            json,
+        } => {
+            let usage = first_principles_agent::budget::Usage {
+                cost_micros,
+                tokens,
+                tool_calls,
+            };
+            let budget = first_principles_agent::budget::Budget {
+                max_cost_micros,
+                max_tokens,
+                max_tool_calls,
+            };
+            let verdict = first_principles_agent::budget::evaluate(&usage, &budget);
+            let cost_per = verified_outcomes.and_then(|verified| {
+                first_principles_agent::budget::cost_per_verified_outcome(cost_micros, verified)
+            });
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "verdict": verdict,
+                        "cost_per_verified_outcome": cost_per
+                    }))?
+                );
+            } else {
+                println!(
+                    "budget: {} allowed={}",
+                    verdict.status.as_str(),
+                    verdict.allowed
+                );
+                for failure in &verdict.failures {
+                    println!("- {failure}");
+                }
+                for warning in &verdict.warnings {
+                    println!("- warning: {warning}");
+                }
+                if let Some(cost) = cost_per {
+                    println!("cost per verified outcome: {cost} micros");
+                }
+            }
+            if !verdict.allowed {
+                anyhow::bail!("budget exceeded");
             }
         }
         Command::Onboard {

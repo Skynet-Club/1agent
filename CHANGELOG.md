@@ -126,6 +126,13 @@
   deterministic simulation, not a live multi-agent run.
 - Tests: four cascade unit tests plus three `cascade_check_cli` e2e tests
   (`cargo test cascade --lib`, `cargo test --test cascade_check_cli`).
+- Budget policy (ADR-0055): `budget::evaluate` enforces optional hard limits
+  on cost/tokens/tool calls (exceeded fails, 80% warns) and
+  `cost_per_verified_outcome` returns `None` when nothing verified.
+  `1agent budget-check` exposes it and exits non-zero on an exceeded budget.
+  This is a policy/CI helper; runtime enforcement is pending.
+- Tests: four budget unit tests plus two `budget_check_cli` e2e tests
+  (`cargo test budget --lib`, `cargo test --test budget_check_cli`).
 - Tool search v0 (ADR-0049): `tool_search::search` ranks tools by exact name,
   name prefix, name token, description token and parameter-name token, with
   deterministic tie-breaking. `1agent tools --query TEXT` exposes it. This is
