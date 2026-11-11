@@ -179,7 +179,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "mcp_token_exchange",
                 CapabilityStatus::Verified,
-                "manual RFC 8693-style exchange writing a 0600 bearer-token file with env-only secrets",
+                "manual or spawn-time RFC 8693-style exchange with env-only secrets and a 0600 token-file output",
             ),
             capability(
                 "otel_export",

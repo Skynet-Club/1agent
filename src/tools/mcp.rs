@@ -56,6 +56,9 @@ pub struct McpServerConfig {
     /// Read the HTTP bearer token from this 0600 regular file instead.
     #[serde(default)]
     pub bearer_token_file: Option<std::path::PathBuf>,
+    /// Exchange a subject token for an HTTP bearer token at spawn time.
+    #[serde(default)]
+    pub token_exchange: Option<crate::mcp_exchange::TokenExchangeConfig>,
     /// Per-request timeout in seconds (1..=300, default 20).
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
@@ -139,9 +142,15 @@ impl McpClient {
             )));
         }
         let timeout = Duration::from_secs(timeout_seconds);
+        if server.command.is_some() && server.token_exchange.is_some() {
+            return Err(ToolError::InvalidArguments(format!(
+                "MCP server '{}' token_exchange is only valid for HTTP servers",
+                server.name
+            )));
+        }
         let transport = match (&server.command, &server.url) {
             (Some(command), None) => Self::stdio_transport(server, command).await?,
-            (None, Some(url)) => Self::http_transport(server, url, timeout)?,
+            (None, Some(url)) => Self::http_transport(server, url, timeout).await?,
             _ => {
                 return Err(ToolError::InvalidArguments(format!(
                     "MCP server '{}' must set exactly one of command or url",
@@ -199,7 +208,7 @@ impl McpClient {
         })
     }
 
-    fn http_transport(
+    async fn http_transport(
         server: &McpServerConfig,
         url: &str,
         timeout: Duration,
@@ -235,31 +244,53 @@ impl McpClient {
                 server.name
             )));
         }
-        let bearer_token = match (&server.bearer_token_env, &server.bearer_token_file) {
-            (Some(variable), None) => {
-                if variable.trim().is_empty() {
-                    return Err(ToolError::InvalidArguments(format!(
-                        "MCP server '{}' bearer token environment variable is empty",
-                        server.name
-                    )));
-                }
-                let token = std::env::var(variable).map_err(|_| {
+        if server.token_exchange.is_some()
+            && (server.bearer_token_env.is_some() || server.bearer_token_file.is_some())
+        {
+            return Err(ToolError::InvalidArguments(format!(
+                "MCP server '{}' must set only one authentication source (token_exchange, bearer_token_env or bearer_token_file)",
+                server.name
+            )));
+        }
+        let bearer_token = if let Some(exchange) = &server.token_exchange {
+            Some(
+                crate::mcp_exchange::exchange(exchange)
+                    .await
+                    .map_err(|error| {
+                        ToolError::InvalidArguments(format!(
+                            "MCP server '{}' token exchange failed: {error}",
+                            server.name
+                        ))
+                    })?
+                    .access_token,
+            )
+        } else {
+            match (&server.bearer_token_env, &server.bearer_token_file) {
+                (Some(variable), None) => {
+                    if variable.trim().is_empty() {
+                        return Err(ToolError::InvalidArguments(format!(
+                            "MCP server '{}' bearer token environment variable is empty",
+                            server.name
+                        )));
+                    }
+                    let token = std::env::var(variable).map_err(|_| {
                     ToolError::InvalidArguments(format!(
                         "MCP server '{}' bearer token environment variable {variable} is not set",
                         server.name
                     ))
                 })?;
-                if token.trim().is_empty() {
-                    return Err(ToolError::InvalidArguments(format!(
-                        "MCP server '{}' bearer token environment variable {variable} is empty",
-                        server.name
-                    )));
+                    if token.trim().is_empty() {
+                        return Err(ToolError::InvalidArguments(format!(
+                            "MCP server '{}' bearer token environment variable {variable} is empty",
+                            server.name
+                        )));
+                    }
+                    Some(token)
                 }
-                Some(token)
+                (None, Some(path)) => Some(read_bearer_token_file(path, &server.name)?),
+                (None, None) => None,
+                (Some(_), Some(_)) => unreachable!("conflict checked above"),
             }
-            (None, Some(path)) => Some(read_bearer_token_file(path, &server.name)?),
-            (None, None) => None,
-            (Some(_), Some(_)) => unreachable!("conflict checked above"),
         };
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -973,6 +1004,63 @@ mod tests {
         let mut permissions = std::fs::metadata(path).unwrap().permissions();
         permissions.set_mode(mode);
         std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    async fn fake_token_endpoint() -> std::net::SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await;
+            let body =
+                br#"{"access_token":"exchanged-token","token_type":"Bearer","expires_in":60}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.ok();
+            socket.write_all(body).await.ok();
+        });
+        address
+    }
+
+    #[tokio::test]
+    async fn http_mcp_exchanges_a_subject_token_at_spawn() {
+        let (address, authorization) = fake_http_server().await;
+        let token_address = fake_token_endpoint().await;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("mcp.json");
+        std::fs::write(
+            &config_path,
+            serde_json::to_vec(&json!({
+                "servers": [{
+                    "name": "fake",
+                    "url": format!("http://{address}/mcp"),
+                    "token_exchange": {
+                        "token_endpoint": format!("http://{token_address}/token"),
+                        "audience": "mcp://fake",
+                        "scope": "tools.read",
+                        "subject_token_env": "MCP_EXCHANGE_SUBJECT_TEST",
+                        "max_ttl_seconds": 60
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        // The test process owns this unique variable for the duration of the test.
+        unsafe { std::env::set_var("MCP_EXCHANGE_SUBJECT_TEST", "subject-secret") };
+        let tools = load_mcp_tools(&config_path).await.unwrap();
+        unsafe { std::env::remove_var("MCP_EXCHANGE_SUBJECT_TEST") };
+        assert_eq!(tools.len(), 1);
+        assert!(
+            authorization
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|value| value == "Bearer exchanged-token")
+        );
     }
 
     #[cfg(unix)]

@@ -419,7 +419,10 @@
   only from named environment variables; the endpoint must be HTTPS or
   loopback, redirects are refused, the response is capped at 1 MiB, and
   stdout reports only type/TTL/SHA-256 (ADR-0083). The file can feed
-  `McpServerConfig.bearer_token_file`; automatic refresh is not implemented.
+  `McpServerConfig.bearer_token_file`; alternatively,
+  `McpServerConfig.token_exchange` runs the exchange once at HTTP spawn and
+  keeps the token in memory (mutually exclusive with env/file auth). Refresh
+  on expiry is not implemented.
 - Tests: three `mcp_token_exchange_cli` e2e tests cover form fields, 0600
   output, non-disclosure, missing env, insecure endpoint, wrong type,
   excessive TTL, partial client credentials and no-overwrite
