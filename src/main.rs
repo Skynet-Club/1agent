@@ -1701,6 +1701,14 @@ enum OrgAuditCommand {
         #[arg(long)]
         json: bool,
     },
+    List {
+        #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
+        store: PathBuf,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     Seal {
         #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
         store: PathBuf,
@@ -5585,6 +5593,30 @@ async fn main() -> Result<()> {
                 }
                 if !report.valid {
                     anyhow::bail!("organization audit verification failed");
+                }
+            }
+            OrgAuditCommand::List { store, limit, json } => {
+                let store = first_principles_agent::org_audit::OrgAuditStore::open(store)?;
+                let entries = store.entries();
+                let start = entries.len().saturating_sub(limit.min(entries.len()));
+                let tail = &entries[start..];
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&tail)?);
+                } else if tail.is_empty() {
+                    println!("(empty)");
+                } else {
+                    for entry in tail {
+                        println!(
+                            "seq={} at={} actor={} action={} scope={} decision={} hash={}",
+                            entry.seq,
+                            entry.at_ms,
+                            entry.actor,
+                            entry.action,
+                            entry.scope,
+                            entry.decision,
+                            entry.hash
+                        );
+                    }
                 }
             }
             OrgAuditCommand::Seal {
