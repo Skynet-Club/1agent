@@ -21,7 +21,9 @@ baseline.
      evidence, failed, cancelled, other;
    - journals, tokens, cost, cost per completed outcome;
    - tool calls and failures;
-   - alerts and `pending_decisions = needs_authorization + alerts`.
+   - alerts and `pending_decisions = needs_authorization + alerts`;
+   - `inbox_open`: open or due-snoozed inbox items. This is a separate queue
+     size and is not deduplicated against alerts.
 2. The caller passes a `UsageLedger` scoped to the same journals as the run
    list. The report does not re-read journals or guess a usage window.
 3. Add `1agent value-report --journal-dir ... [--alert-log ...] [--since-ms ...]

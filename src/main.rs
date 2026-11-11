@@ -252,6 +252,8 @@ enum Command {
         journal_dir: PathBuf,
         #[arg(long)]
         alert_log: Option<PathBuf>,
+        #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
+        inbox_store: PathBuf,
         #[arg(long)]
         since_ms: Option<u128>,
         #[arg(long)]
@@ -2506,6 +2508,7 @@ async fn main() -> Result<()> {
         Command::ValueReport {
             journal_dir,
             alert_log,
+            inbox_store,
             since_ms,
             until_ms,
             window_ms,
@@ -2536,10 +2539,14 @@ async fn main() -> Result<()> {
                 .iter()
                 .filter(|alert| alert.at_ms >= since && alert.at_ms <= until)
                 .count() as u32;
+            let inbox_open = first_principles_agent::InboxStore::open(&inbox_store)
+                .map(|store| store.open_sorted(current_time_ms()).len() as u32)
+                .unwrap_or(0);
             let report = first_principles_agent::build_value_report(
                 &runs,
                 &usage,
                 alert_count,
+                inbox_open,
                 since,
                 until,
             );
@@ -2561,6 +2568,7 @@ async fn main() -> Result<()> {
                     "cost: {} micros; per completed: {} micros; tokens: {}",
                     report.cost_micros, report.cost_per_completed_micros, report.tokens
                 );
+                println!("inbox: open={}", report.inbox_open);
                 println!(
                     "tools: calls={} failures={} journals={} alerts={} pending_decisions={}",
                     report.tool_calls,

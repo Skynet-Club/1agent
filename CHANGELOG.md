@@ -32,10 +32,10 @@
 - Tests: six repair unit tests plus two `away_digest_cli` e2e tests
   (`cargo test repair --lib`, `cargo test --test away_digest_cli`).
 - Value Report v0 (ADR-0039): `value_report::build_value_report` counts runs by
-  stop reason, tokens/cost, tool calls/failures, alerts and pending decisions
-  over a bounded window, plus cost per completed outcome. `1agent value-report`
-  exposes it. It does not invent a time-saved estimate.
-- Tests: two value-report unit tests plus two `value_report_cli` e2e tests
+  stop reason, tokens/cost, tool calls/failures, alerts, open inbox items and
+  pending decisions over a bounded window, plus cost per completed outcome.
+  `1agent value-report` exposes it. It does not invent a time-saved estimate.
+- Tests: two value-report unit tests plus three `value_report_cli` e2e tests
   (`cargo test value_report --lib`, `cargo test --test value_report_cli`).
 - Partner voice modes (ADR-0040): `operator` (default), `advisor` and
   `companion` blocks are appended to the base system prompt.
