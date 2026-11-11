@@ -325,8 +325,11 @@ artifact check per expectation. Outcomes are `verified`, `rejected` or
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`
   reports `ok`/`overdue`/`failing`. Failed or timed-out runs can append a
-  `schedule_run_failed` alert and deliver it to a webhook; escalation and
-  cross-restart deduplication remain open.
+  `schedule_run_failed` alert and deliver it to a webhook. With `--heartbeat`,
+  each daemon loop writes an atomic `{pid, updated_at_ms}` file; a separate
+  `1agent watchdog --heartbeat PATH --max-age-ms N` process exits non-zero when
+  the heartbeat is missing, stale or invalid. Escalation and cross-restart
+  deduplication are not yet wired into the daemon.
 - A job may bind an active skill with `--routine-skill NAME@VERSION`; the child
   run composes that version's body into its task. This reuses the approved
   skill without granting permissions, and rejects inactive or mismatched

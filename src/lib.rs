@@ -99,6 +99,7 @@ pub mod user_model;
 pub mod value_report;
 pub mod verification;
 pub mod voice;
+pub mod watchdog;
 pub mod worker_runtime;
 pub mod workshop_worker;
 

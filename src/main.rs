@@ -338,6 +338,17 @@ enum Command {
         /// Append schedule failure alerts to this local JSONL log.
         #[arg(long)]
         alert_log: Option<PathBuf>,
+        /// Write a liveness heartbeat for an out-of-band watchdog.
+        #[arg(long)]
+        heartbeat: Option<PathBuf>,
+    },
+    Watchdog {
+        #[arg(long)]
+        heartbeat: PathBuf,
+        #[arg(long, default_value_t = 120_000)]
+        max_age_ms: u128,
+        #[arg(long)]
+        json: bool,
     },
     Key {
         #[command(subcommand)]
@@ -2171,6 +2182,7 @@ async fn run_daemon(
     poll_seconds: u64,
     alert_webhook: Option<String>,
     alert_log: Option<PathBuf>,
+    heartbeat: Option<PathBuf>,
 ) -> Result<()> {
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
@@ -2186,6 +2198,9 @@ async fn run_daemon(
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
     loop {
         let now = current_time_ms();
+        if let Some(path) = &heartbeat {
+            first_principles_agent::watchdog::touch(path, std::process::id(), now)?;
+        }
         for job in first_principles_agent::scheduler::due(&store, now)? {
             let trigger_mtime = first_principles_agent::scheduler::trigger_mtime(&job);
             let (status, journal) = run_scheduled_job(&job, &journal_dir).await;
@@ -3366,6 +3381,7 @@ async fn main() -> Result<()> {
             poll_seconds,
             alert_webhook,
             alert_log,
+            heartbeat,
         } => {
             run_daemon(
                 store,
@@ -3374,8 +3390,39 @@ async fn main() -> Result<()> {
                 poll_seconds,
                 alert_webhook,
                 alert_log,
+                heartbeat,
             )
             .await?;
+        }
+        Command::Watchdog {
+            heartbeat,
+            max_age_ms,
+            json,
+        } => {
+            let recorded = first_principles_agent::watchdog::read(&heartbeat)?;
+            let status = first_principles_agent::watchdog::evaluate(
+                recorded.as_ref(),
+                current_time_ms(),
+                max_age_ms,
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                println!(
+                    "{}: {} (pid={:?} age_ms={:?})",
+                    if status.healthy {
+                        "healthy"
+                    } else {
+                        "unhealthy"
+                    },
+                    status.reason,
+                    status.pid,
+                    status.age_ms
+                );
+            }
+            if !status.healthy {
+                anyhow::bail!("watchdog: {}", status.reason);
+            }
         }
         Command::Master { command } => match command {
             MasterCommand::Validate { plan, json } => {
