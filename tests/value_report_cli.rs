@@ -27,7 +27,15 @@ fn value_report_cli_reads_a_real_journal() {
         .arg(&journal_dir)
         .arg("--inbox-store")
         .arg(dir.path().join("inbox.jsonl"))
-        .args(["--since-ms", "0", "--until-ms", "99999999999999", "--json"])
+        .args([
+            "--since-ms",
+            "0",
+            "--until-ms",
+            "99999999999999",
+            "--verified-outcomes",
+            "1",
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(
@@ -38,6 +46,12 @@ fn value_report_cli_reads_a_real_journal() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["runs"], 1);
     assert_eq!(report["journals"], 1);
+    assert_eq!(report["verified_outcomes"], 1);
+    assert!(
+        report["cost_per_verified_outcome_micros"]
+            .as_u64()
+            .is_some()
+    );
     assert!(report["tokens"].as_u64().is_some());
     assert_eq!(report["alerts"], 0);
     assert_eq!(report["inbox_open"], 0);

@@ -268,6 +268,9 @@ enum Command {
         until_ms: Option<u128>,
         #[arg(long, default_value_t = 7 * 86_400_000)]
         window_ms: u128,
+        /// Independently verified outcomes; used for cost per verified outcome.
+        #[arg(long)]
+        verified_outcomes: Option<u32>,
         #[arg(long)]
         json: bool,
     },
@@ -2866,6 +2869,7 @@ async fn main() -> Result<()> {
             since_ms,
             until_ms,
             window_ms,
+            verified_outcomes,
             json,
         } => {
             let until = until_ms.unwrap_or_else(current_time_ms);
@@ -2901,6 +2905,7 @@ async fn main() -> Result<()> {
                 &usage,
                 alert_count,
                 inbox_open,
+                verified_outcomes,
                 since,
                 until,
             );
@@ -2921,6 +2926,10 @@ async fn main() -> Result<()> {
                 println!(
                     "cost: {} micros; per completed: {} micros; tokens: {}",
                     report.cost_micros, report.cost_per_completed_micros, report.tokens
+                );
+                println!(
+                    "verified outcomes: {:?}; cost per verified: {:?} micros",
+                    report.verified_outcomes, report.cost_per_verified_outcome_micros
                 );
                 println!("inbox: open={}", report.inbox_open);
                 println!(
