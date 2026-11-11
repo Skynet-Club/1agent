@@ -58,6 +58,6 @@ cargo test --test repair_plan_cli
 
 The unit tests cover planned/compensated, reversible compensation,
 missing compensation, irreversible manual review, failed cleanup, window
-filtering, receipt fields and the runbook counts. The repair-plan CLI test
-covers an empty clean store and a corrupt store; a task-graph fixture with
-side effects is still needed for a non-clean CLI case.
+filtering, receipt fields and the runbook counts. The repair-plan CLI tests
+cover an empty clean store, a corrupt store and a `task-graph demo` fixture
+that reports one compensation and fails `--require-clean`.

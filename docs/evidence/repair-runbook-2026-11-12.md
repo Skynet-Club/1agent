@@ -18,11 +18,12 @@ repair unit tests include:
 test repair::tests::runbook_counts_actions_and_fails_closed_on_missing_compensation ... ok
 ... existing repair tests ...
 
-running 2 tests (tests/repair_plan_cli.rs)
+running 3 tests (tests/repair_plan_cli.rs)
 test repair_plan_rejects_a_corrupt_store ... ok
+test repair_plan_reports_a_demo_side_effect_as_compensation ... ok
 test repair_plan_reports_an_empty_store_as_clean ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 3 passed; 0 failed
 ```
 
 ## What this proves
@@ -32,12 +33,14 @@ test result: ok. 2 passed; 0 failed
   reports 3 plans, 1 error, 1 compensate, 1 manual and `clean: false`.
 - The CLI succeeds with `--require-clean` on an empty store and fails on a
   corrupt store.
+- `task-graph demo` produces one applied reversible effect; `repair-plan`
+  reports `compensate=1, manual=0, clean=false` and `--require-clean` exits
+  non-zero.
 
 ## What this does not prove
 
 - That a compensation is executed; this is planning only.
 - Authority/Policy/Approval around execution.
-- A non-clean CLI fixture; the non-clean path is covered at the unit level.
 - Cross-platform behavior; tests ran on Linux only.
 
 ## Files
