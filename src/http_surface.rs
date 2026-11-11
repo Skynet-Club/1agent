@@ -250,6 +250,10 @@ pub fn handle_http(
             let document = openapi_document();
             Ok(HttpResponse::json(200, &document)?)
         }
+        ("GET", "/v0/agent-card") => Ok(HttpResponse::json(
+            200,
+            &serde_json::to_value(crate::agent_card::build_card(env!("CARGO_PKG_VERSION")))?,
+        )?),
         ("GET", "/v0/events") => Ok(HttpResponse::error(
             501,
             SurfaceError::new(
@@ -561,6 +565,23 @@ mod tests {
             handle_http(&surface, &mut service, "token", &server_auth()).unwrap_err(),
             HttpSurfaceError::Unauthorized
         ));
+    }
+
+    #[test]
+    fn handler_serves_agent_card_without_bearer() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut service = SurfaceService::open(dir.path().join("graph.jsonl")).unwrap();
+        let request = HttpRequest {
+            method: "GET".into(),
+            path: "/v0/agent-card".into(),
+            headers: BTreeMap::new(),
+            body: Vec::new(),
+        };
+        let response = handle_http(&request, &mut service, "token", &server_auth()).unwrap();
+        assert_eq!(response.status, 200);
+        let card: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
+        assert_eq!(card["name"], "1Agent");
+        assert!(!card["capabilities"].as_array().unwrap().is_empty());
     }
 
     #[test]

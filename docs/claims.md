@@ -63,7 +63,7 @@ file: <路径>              → 文件必须存在
 | 自治档位策略：observe/suggest 不行动；act 仅低风险可逆；auto 低/中风险可逆；高风险/不可逆需审批 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 偏好不是授权；Authority/Policy/ExecutionGate 仍决定执行 |
 | Onboarding 写入 memory 并可经 user-model 回读；非法值失败关闭；可 seed goal/commitment | cmd: cargo test --test onboard_cli | ✅ | 非交互 v0；访谈/文档/日历导入未做；memory 与 goal 写入非原子 |
 | TUI `/inbox` 列出并可 resolve/snooze；解析与应用契约与 CLI 一致 | cmd: cargo test inbox --lib && cargo test tui_commands --lib | ✅ | 只操作 inbox store；不绕过 Authority/Policy/Approval |
-| Agent Card 列出能力状态与限制；unsupported/untested 不标为 verified | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli | ✅ | 本地未签名；非 A2A HTTP/served 卡 |
+| Agent Card 列出能力状态与限制；unsupported/untested 不标为 verified；HTTP 公开只读提供 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test http_surface --lib | ✅ | 本地未签名；非 A2A registry-signed 卡 |
 | skill scan 预检 frontmatter/控制字符/密钥/指令覆盖；不注册不执行 | cmd: cargo test skill --lib && cargo test --test skill_scan_cli | ✅ | 启发式扫描，不是 malware sandbox；签名/权限另算 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
