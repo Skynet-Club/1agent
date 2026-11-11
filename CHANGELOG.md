@@ -394,10 +394,12 @@
   the daemon goal e2e test now closes the commitment and asserts the item is
   dismissed on the next tick (`cargo test inbox --lib`, `cargo test --test
   daemon_goal_inbox_cli`).
-- Windows GNU link check: `scripts/cross-check.sh --build` now links
-  `target/x86_64-pc-windows-gnu/debug/first-principles-agent.exe` with MinGW
-  in addition to the `-D warnings` all-targets check. This proves compilation
-  and linking only; Windows runtime, ConPTY and installers remain untested.
+- Windows GNU link check: `scripts/cross-check.sh --build` now links the
+  release artifact
+  (`target/x86_64-pc-windows-gnu/release/first-principles-agent.exe`, about
+  32 MB) with MinGW in addition to the `-D warnings` all-targets check. This
+  proves compilation and linking only; Windows runtime, ConPTY and installers
+  remain untested.
 - Trust Center HTTP routes: `GET /v0/trust-center` returns the JSON disclosure
   and `GET /v0/trust-center.html` the static escaped page, both public
   read-only like the Agent Card. They use the baseline disclosure (no
