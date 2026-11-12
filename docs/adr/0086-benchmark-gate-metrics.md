@@ -27,7 +27,11 @@ same way.
    closed. Bps uses integer division; there is no rounding up.
 4. `benchmark::parse_samples` accepts one JSON object per non-empty line and
    reports the source line on malformed input. Unknown fields are rejected.
-5. This module is a gate and a calculator, not a runner. It does not execute
+5. Add `1agent benchmark --input PATH [--min-completion-bps N]
+   [--min-crash-free-bps N] [--min-replay-bps N] [--json]`. It reads at most
+   64 MiB, prints the report, and exits non-zero when the gate fails; the JSON
+   report is still printed first.
+6. This module is a gate and a calculator, not a runner. It does not execute
    tasks, measure latency, prove task quality or create samples.
 
 ## Consequences
@@ -44,8 +48,11 @@ same way.
 
 ```bash
 cargo test benchmark --lib
+cargo test --test benchmark_cli
 ```
 
-The tests cover a clean window, a crashed sample being excluded from
+The unit tests cover a clean window, a crashed sample being excluded from
 completion/replay, independent threshold failures, JSONL parsing with line
-numbers, and empty/oversized/invalid input.
+numbers, and empty/oversized/invalid input. The CLI tests cover a passing
+window, a crashing window that prints the report and exits non-zero, and
+malformed input that names the source line.

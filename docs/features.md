@@ -120,6 +120,8 @@
 | DelegationProfile | 可用（模块） | observe/suggest/draft/ask/act-and-report；运行时接线和真实动作域仍有限 |
 | 自我总结/进化 | 基础可用 | Reflection/Lesson、EvolutionProposal、Ledger、人工审批/回滚；自动候选研发中 |
 
+- 基准门禁：`1agent benchmark --input JSONL [--min-completion-bps N] [--min-crash-free-bps N] [--min-replay-bps N] [--json]`；按样本计算完成率/crash-free/replay bps，crash 不计入完成或 replay，失败非零；只计算调用方样本，不是 8h runner；
+
 ### 2.7 模型路由（可用，RC）
 
 - 确定性 provider + OpenAI-compatible provider；

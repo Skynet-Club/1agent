@@ -2,12 +2,24 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Security fixes from an independent review:
+  - skill capture redacts balanced object/array values under secret-named
+    keys, normalizes hyphenated header names, sanitizes JSON object keys,
+    rejects multi-line metadata and duplicate frontmatter keys, uses the last
+    `@` in URL userinfo, preserves trailing email punctuation, and enforces
+    the 64 MiB cap at read time on a regular file.
+  - Trust Center incident Markdown is escaped and HTML renders the incident
+    title.
+  - Agent Card text no longer claims HTTP serves caller-supplied evaluations
+    or incident reports.
+  - `SkillManifest::validate` rejects unsafe scopes and platform/tool entries.
 - Benchmark gate metrics (ADR-0086): `benchmark::summarize` computes
   completion, crash-free and replay bps from caller-supplied samples; a
   crashed sample is excluded from completion and replay. `parse_samples`
-  accepts JSONL and reports the source line on malformed input. Empty,
-  oversized or invalid-threshold input fails closed. Tests: five
-  `benchmark` unit tests.
+  accepts JSONL and reports the source line on malformed input.
+  `1agent benchmark --input PATH` prints the report and exits non-zero when
+  the gate fails. Empty, oversized or invalid-threshold input fails closed.
+  Tests: five `benchmark` unit tests plus three CLI e2e tests.
 - Agent Card disclosure now includes voice forms, skill lifecycle, skill
   capture and Trust Center incident reports. Limits state that capture
   redaction is heuristic and that the static marker suite is not a quality

@@ -15,12 +15,13 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 6 tests
+running 7 tests
 test skill_capture::tests::captures_a_completed_run_with_redaction_and_generalization ... ok
 test skill_capture::tests::refuses_a_run_without_a_completed_stop ... ok
 test skill_capture::tests::refuses_a_run_without_successful_tools ... ok
 test skill_capture::tests::refuses_a_run_with_too_many_steps ... ok
 test skill_capture::tests::rejects_an_oversized_journal_before_reading_it ... ok
+test skill_capture::tests::rejects_frontmatter_injection_in_metadata ... ok
 test skill_capture::tests::sanitizes_assignments_and_url_credentials ... ok
 
 running 3 tests
@@ -40,8 +41,16 @@ test capture_rejects_an_incomplete_run ... ok
   secret token and secret-named JSON value.
 - The generated draft passes `skill scan` (`scan_markdown`).
 - An existing output file is not overwritten unless `--force` is passed.
-- A journal larger than 64 MiB is rejected from metadata before it is read.
+- A journal larger than 64 MiB is rejected from metadata and again by the
+  bounded reader; non-regular files are rejected.
 - More than 100 successful steps fail closed instead of producing a draft.
+- Balanced object/array values under a secret-named key are redacted
+  wholesale, hyphenated header names (`X-Api-Key`) match, and JSON object keys
+  are sanitized/generalized (email, home path, backtick).
+- URL userinfo uses the last `@`, so a password fragment after an earlier `@`
+  is removed; an email followed by a period becomes `<email>.`.
+- Multi-line metadata and duplicate frontmatter keys are rejected, and
+  `SkillManifest::validate` rejects unsafe scopes and platform/tool entries.
 
 ## What this does not prove
 

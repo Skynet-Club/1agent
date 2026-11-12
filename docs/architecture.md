@@ -319,9 +319,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `benchmark`: a pure gate over caller-supplied samples. It computes
   completion, crash-free and replay basis points; a crashed sample is never
   counted as completed or replay-verified. `parse_samples` reads one JSON
-  object per line and reports the source line on malformed input. Empty,
-  oversized or invalid-threshold input fails closed. It is a calculator, not
-  an 8-hour runner.
+  object per line and reports the source line on malformed input.
+  `1agent benchmark --input PATH` prints the report and exits non-zero when
+  the gate fails. Empty, oversized or invalid-threshold input fails closed. It
+  is a calculator, not an 8-hour runner.
 - `trust_center`: `build_disclosure` derives capability counts and limits from
   the Agent Card, states the data policy, and includes caller-supplied
   evaluation disclosures. The audit section is always `not_audited` with

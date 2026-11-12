@@ -114,6 +114,10 @@ pub enum SkillError {
     InvalidDescription,
     #[error("skill version is unsafe")]
     UnsafeVersion,
+    #[error("skill scope is unsafe")]
+    UnsafeScope,
+    #[error("skill platform or tool name is unsafe")]
+    UnsafeListEntry,
     #[error("skill body must not be empty")]
     EmptyBody,
     #[error("skill {0} version {1} already exists")]
@@ -156,7 +160,15 @@ impl SkillManifest {
                     "expected key: value, got {line}"
                 )));
             };
-            frontmatter.insert(key.trim().to_string(), value.trim().to_string());
+            let key = key.trim().to_string();
+            if frontmatter
+                .insert(key.clone(), value.trim().to_string())
+                .is_some()
+            {
+                return Err(SkillError::InvalidFrontmatter(format!(
+                    "duplicate key {key}"
+                )));
+            }
         }
         if !closed {
             return Err(SkillError::InvalidFrontmatter(
@@ -204,7 +216,10 @@ impl SkillManifest {
             return Err(SkillError::UnsafeName);
         }
         let description_len = self.description.chars().count();
-        if description_len == 0 || description_len > 60 {
+        if description_len == 0
+            || description_len > 60
+            || self.description.chars().any(char::is_control)
+        {
             return Err(SkillError::InvalidDescription);
         }
         if !safe_token(&self.version)
@@ -214,6 +229,22 @@ impl SkillManifest {
                 .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'))
         {
             return Err(SkillError::UnsafeVersion);
+        }
+        if self.scope.trim().is_empty()
+            || self.scope.chars().count() > 128
+            || self.scope.chars().any(char::is_control)
+        {
+            return Err(SkillError::UnsafeScope);
+        }
+        for entry in self.platforms.iter().chain(self.requires_tools.iter()) {
+            if entry.is_empty()
+                || entry.chars().count() > 64
+                || !entry.chars().all(|ch| {
+                    ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | ':' | '/' | '@')
+                })
+            {
+                return Err(SkillError::UnsafeListEntry);
+            }
         }
         if self.body.trim().is_empty() {
             return Err(SkillError::EmptyBody);
@@ -691,6 +722,12 @@ mod tests {
         hidden.platforms = vec!["linux\u{0}".into()];
         assert!(matches!(
             store.register(hidden, 11).unwrap_err(),
+            SkillError::UnsafeListEntry
+        ));
+        let mut marker = manifest("1.0.2");
+        marker.platforms = vec!["jailbreak".into()];
+        assert!(matches!(
+            store.register(marker, 12).unwrap_err(),
             SkillError::ScanRejected(_)
         ));
     }
@@ -774,5 +811,23 @@ mod tests {
         assert_eq!(list[0].description, "release process");
         assert!(store.view("release", "1.0.0").is_some());
         assert!(store.view("release", "9.9.9").is_none());
+    }
+
+    #[test]
+    fn duplicate_frontmatter_and_unsafe_scope_or_lists_are_rejected() {
+        let duplicate =
+            "---\nname: one\nname: two\ndescription: release\nversion: 1.0.0\n---\nbody";
+        assert!(matches!(
+            SkillManifest::from_markdown(duplicate),
+            Err(SkillError::InvalidFrontmatter(_))
+        ));
+
+        let mut unsafe_scope = manifest("1.0.0");
+        unsafe_scope.scope = "global\nname: hijacked".into();
+        assert_eq!(unsafe_scope.validate(), Err(SkillError::UnsafeScope));
+
+        let mut unsafe_tool = manifest("1.0.0");
+        unsafe_tool.requires_tools = vec!["shell\nextra".into()];
+        assert_eq!(unsafe_tool.validate(), Err(SkillError::UnsafeListEntry));
     }
 }

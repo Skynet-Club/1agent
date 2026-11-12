@@ -5,6 +5,8 @@
 //! existing candidate lifecycle.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 use serde_json::Value;
@@ -12,7 +14,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::domain::{StopReason, ToolStatus};
-use crate::journal::{JournalEventKind, read_events};
+use crate::journal::{JournalEvent, JournalEventKind};
 use crate::skill::{SkillManifest, scan_markdown};
 
 pub const MAX_CAPTURE_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
@@ -54,14 +56,47 @@ pub fn capture_journal(
     description: &str,
     scope: &str,
 ) -> Result<CapturedSkill, SkillCaptureError> {
+    for (label, value) in [
+        ("name", name),
+        ("version", version),
+        ("description", description),
+        ("scope", scope),
+    ] {
+        if value.trim().is_empty() || value.chars().any(char::is_control) {
+            return Err(SkillCaptureError::InvalidDraft(format!(
+                "{label} must be a non-empty single line"
+            )));
+        }
+    }
     let path = path.as_ref();
     let metadata =
         std::fs::metadata(path).map_err(|error| SkillCaptureError::Journal(error.to_string()))?;
+    if !metadata.is_file() {
+        return Err(SkillCaptureError::Journal(
+            "journal is not a regular file".into(),
+        ));
+    }
     if metadata.len() > MAX_CAPTURE_JOURNAL_BYTES {
         return Err(SkillCaptureError::JournalTooLarge(metadata.len()));
     }
-    let events =
-        read_events(path).map_err(|error| SkillCaptureError::Journal(error.to_string()))?;
+    let file = File::open(path).map_err(|error| SkillCaptureError::Journal(error.to_string()))?;
+    let mut reader = BufReader::new(file).take(MAX_CAPTURE_JOURNAL_BYTES + 1);
+    let mut raw = String::new();
+    reader
+        .read_to_string(&mut raw)
+        .map_err(|error| SkillCaptureError::Journal(error.to_string()))?;
+    if raw.len() as u64 > MAX_CAPTURE_JOURNAL_BYTES {
+        return Err(SkillCaptureError::JournalTooLarge(raw.len() as u64));
+    }
+    let mut events = Vec::new();
+    for (index, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event = serde_json::from_str::<JournalEvent>(line)
+            .map_err(|error| SkillCaptureError::Journal(format!("line {}: {error}", index + 1)))?;
+        events.push(event);
+    }
 
     let start = events
         .iter()
@@ -91,10 +126,13 @@ pub fn capture_journal(
         .map(|position| start + 1 + position)
         .ok_or(SkillCaptureError::NotCompleted)?;
 
-    let mut observed = BTreeMap::<String, ToolStatus>::new();
+    let mut observed = BTreeMap::<(String, String), ToolStatus>::new();
     for event in &events[start + 1..stop] {
         if let JournalEventKind::ToolObserved { observation } = &event.event {
-            observed.insert(observation.call_id.clone(), observation.status);
+            observed.insert(
+                (observation.call_id.clone(), observation.tool.clone()),
+                observation.status,
+            );
         }
     }
     let mut seen = BTreeSet::new();
@@ -104,7 +142,7 @@ pub fn capture_journal(
             if !seen.insert(call.id.clone()) {
                 continue;
             }
-            if observed.get(&call.id) == Some(&ToolStatus::Ok) {
+            if observed.get(&(call.id.clone(), call.name.clone())) == Some(&ToolStatus::Ok) {
                 calls.push(call.clone());
             }
         }
@@ -122,6 +160,11 @@ pub fn capture_journal(
     let mut tools = BTreeSet::new();
     let mut procedure = Vec::with_capacity(calls.len());
     for (index, call) in calls.iter().enumerate() {
+        if call.name.trim().is_empty() || call.name.chars().any(char::is_control) {
+            return Err(SkillCaptureError::InvalidDraft(
+                "tool name must be a non-empty single line".into(),
+            ));
+        }
         tools.insert(call.name.clone());
         let value = sanitize_value(&call.arguments, &mut redactions, &mut generalizations);
         let arguments = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
@@ -149,21 +192,28 @@ pub fn capture_journal(
 
 fn sanitize_value(value: &Value, redactions: &mut usize, generalizations: &mut usize) -> Value {
     match value {
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(key, value)| {
-                    if is_secret_key(key) {
-                        *redactions += 1;
-                        (key.clone(), Value::String("<redacted>".into()))
-                    } else {
-                        (
-                            key.clone(),
-                            sanitize_value(value, redactions, generalizations),
-                        )
-                    }
-                })
-                .collect(),
-        ),
+        Value::Object(map) => {
+            let mut output = serde_json::Map::new();
+            for (key, value) in map {
+                let (key, value) = if is_secret_key(key) {
+                    *redactions += 1;
+                    (key.clone(), Value::String("<redacted>".into()))
+                } else {
+                    (
+                        sanitize_key(key, redactions, generalizations),
+                        sanitize_value(value, redactions, generalizations),
+                    )
+                };
+                let mut unique = key.clone();
+                let mut suffix = 2;
+                while output.contains_key(&unique) {
+                    unique = format!("{key}#{suffix}");
+                    suffix += 1;
+                }
+                output.insert(unique, value);
+            }
+            Value::Object(output)
+        }
         Value::Array(items) => Value::Array(
             items
                 .iter()
@@ -175,8 +225,13 @@ fn sanitize_value(value: &Value, redactions: &mut usize, generalizations: &mut u
     }
 }
 
+fn sanitize_key(key: &str, redactions: &mut usize, generalizations: &mut usize) -> String {
+    let key = truncate_chars(&sanitize_text(key, redactions, generalizations), 120);
+    if key.is_empty() { "<key>".into() } else { key }
+}
+
 fn is_secret_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
+    let key = key.to_ascii_lowercase().replace('-', "_");
     [
         "token",
         "secret",
@@ -404,7 +459,7 @@ fn redact_assignments(input: &str, redactions: &mut usize) -> String {
                     {
                         cursor += input[cursor..].chars().next().unwrap().len_utf8();
                     }
-                    if input[cursor..].starts_with('=') {
+                    if input[cursor..].starts_with('=') || input[cursor..].starts_with(':') {
                         cursor += 1;
                         while cursor < input.len()
                             && input[cursor..]
@@ -470,6 +525,30 @@ fn value_end(input: &str, start: usize) -> Option<usize> {
         }
         return Some(input.len());
     }
+    if matches!(first, '{' | '[') {
+        let mut depth = 0usize;
+        let mut quote = None;
+        for (offset, character) in input[start..].char_indices() {
+            if let Some(open) = quote {
+                if character == open {
+                    quote = None;
+                }
+                continue;
+            }
+            match character {
+                '"' | '\'' => quote = Some(character),
+                '{' | '[' => depth += 1,
+                '}' | ']' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(start + offset + character.len_utf8());
+                    }
+                }
+                _ => {}
+            }
+        }
+        return Some(input.len());
+    }
     let mut end = start;
     for (offset, character) in input[start..].char_indices() {
         if character.is_whitespace() || matches!(character, ',' | ';' | ')' | ']' | '}') {
@@ -491,7 +570,7 @@ fn redact_url_userinfo(input: &str, redactions: &mut usize) -> String {
             for (offset, character) in input[start..].char_indices() {
                 if character == '@' {
                     at = Some(start + offset);
-                    break;
+                    continue;
                 }
                 if matches!(
                     character,
@@ -631,8 +710,18 @@ fn generalize_emails(input: &str, generalizations: &mut usize) -> String {
 }
 
 fn flush_email(token: &mut String, output: &mut String, generalizations: &mut usize) {
-    if is_email(token) {
+    let mut end = token.len();
+    while let Some((index, character)) = token[..end].char_indices().next_back() {
+        if matches!(character, '.' | ':' | '!' | '?' | ';' | ',') {
+            end = index;
+        } else {
+            break;
+        }
+    }
+    let (core, suffix) = token.split_at(end);
+    if is_email(core) {
         output.push_str("<email>");
+        output.push_str(suffix);
         *generalizations += 1;
     } else {
         output.push_str(token);
@@ -711,7 +800,12 @@ mod tests {
                             "path": "/home/alice/acme/README.md",
                             "api_key": "sk-ant-1234567890abcdefghij",
                             "comment": "token sk-ant-1234567890abcdefghij",
-                            "note": "id 550e8400-e29b-41d4-a716-446655440000"
+                            "note": "id 550e8400-e29b-41d4-a716-446655440000",
+                            "headers": {"X-Api-Key": "SECRET-HEADER-1234"},
+                            "nested": {"token": {"a": "b", "c": "SECRET-ONE"}},
+                            "users": {"bob@example.com": 1},
+                            "paths": {"/home/alice/x": 2},
+                            "a`b": 3
                         }),
                     },
                 },
@@ -759,13 +853,18 @@ mod tests {
         .unwrap();
         assert_eq!(captured.run_id, run_id);
         assert_eq!(captured.steps, 1);
-        assert!(captured.redactions >= 2);
-        assert!(captured.generalizations >= 2);
+        assert!(captured.redactions >= 4);
+        assert!(captured.generalizations >= 4);
         assert!(captured.markdown.contains("$HOME/acme/README.md"));
+        assert!(captured.markdown.contains("$HOME/x"));
         assert!(captured.markdown.contains("<redacted>"));
         assert!(captured.markdown.contains("<id>"));
         assert!(captured.markdown.contains("<email>"));
+        assert!(captured.markdown.contains("a'b"));
         assert!(!captured.markdown.contains("/home/alice"));
+        assert!(!captured.markdown.contains("bob@example.com"));
+        assert!(!captured.markdown.contains("SECRET-HEADER-1234"));
+        assert!(!captured.markdown.contains("SECRET-ONE"));
         assert!(!captured.markdown.contains("sk-ant-1234567890abcdefghij"));
         assert!(
             !captured
@@ -863,6 +962,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_frontmatter_injection_in_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.jsonl");
+        completed_run(&path);
+        for (name, version, description, scope) in [
+            ("draft", "1.0.0", "Draft", "global\nname: hijacked"),
+            ("draft\nname: hijacked", "1.0.0", "Draft", "global"),
+            ("draft", "1.0.0", "Draft\nname: hijacked", "global"),
+        ] {
+            assert!(matches!(
+                capture_journal(&path, name, version, description, scope),
+                Err(SkillCaptureError::InvalidDraft(_))
+            ));
+        }
+    }
+
+    #[test]
     fn refuses_a_run_with_too_many_steps() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("run.jsonl");
@@ -935,19 +1051,27 @@ mod tests {
         let mut redactions = 0;
         let mut generalizations = 0;
         let text = sanitize_text(
-            "password=hunter2 Bearer abc.def https://user:pass@example.com/x \
-             /tmp/build token=abc {\"api_key\":\"quoted-secret\"} C:\\Users\\bob\\project",
+            "password=hunter2 password: hunter3 Bearer abc.def \
+             https://alice:p@ssw0rd@example.com/x /tmp/build token=abc \
+             {\"api_key\":{\"a\":\"b\",\"c\":\"SECRET-ONE\"}} \
+             {\"token\":[1,2,\"SECRET-TWO\"]} contact bob@example.com. \
+             \"api-key\": \"quoted-secret\" C:\\Users\\bob\\project",
             &mut redactions,
             &mut generalizations,
         );
         assert!(!text.contains("hunter2"));
+        assert!(!text.contains("hunter3"));
         assert!(!text.contains("abc.def"));
         assert!(!text.contains("user:pass"));
+        assert!(!text.contains("ssw0rd"));
         assert!(!text.contains("quoted-secret"));
+        assert!(!text.contains("SECRET-ONE"));
+        assert!(!text.contains("SECRET-TWO"));
         assert!(text.contains("$TMPDIR/build"));
         assert!(text.contains("$HOME"));
-        assert!(text.matches("<redacted>").count() >= 5);
-        assert!(redactions >= 5);
+        assert!(text.contains("<email>."));
+        assert!(text.matches("<redacted>").count() >= 8);
+        assert!(redactions >= 8);
         assert!(generalizations >= 2);
     }
 }
