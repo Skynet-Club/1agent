@@ -1,0 +1,64 @@
+{
+  "journals": 3,
+  "runs": 3,
+  "completed": 3,
+  "terminal_stops": 3,
+  "interrupted": 0,
+  "crash_free_bps": 10000,
+  "resumes": 0,
+  "resumed_completed": 0,
+  "recovery_bps": null,
+  "replay_total": 3,
+  "replay_ok": 3,
+  "replay_bps": 10000,
+  "compacted_runs": 0,
+  "compacted_replay_ok": 0,
+  "compacted_replay_bps": null,
+  "tool_calls": 0,
+  "tool_ok": 0,
+  "tool_success_bps": null,
+  "denied_observations": 0,
+  "audit_total": 3,
+  "audit_complete": 3,
+  "audit_complete_bps": 10000,
+  "context_compactions": 0,
+  "input_tokens": 14211,
+  "output_tokens": 694,
+  "cost_micros": 0,
+  "run_latency": {
+    "count": 3,
+    "min_ms": 910,
+    "p50_ms": 1268,
+    "p95_ms": 2895,
+    "max_ms": 2895
+  },
+  "ttft_latency": {
+    "count": 3,
+    "min_ms": 719,
+    "p50_ms": 1079,
+    "p95_ms": 2480,
+    "max_ms": 2480
+  },
+  "route_latency": {
+    "count": 3,
+    "min_ms": 0,
+    "p50_ms": 0,
+    "p95_ms": 0,
+    "max_ms": 0
+  },
+  "context_latency": {
+    "count": 3,
+    "min_ms": 0,
+    "p50_ms": 0,
+    "p95_ms": 0,
+    "max_ms": 0
+  },
+  "model_latency": {
+    "count": 3,
+    "min_ms": 910,
+    "p50_ms": 1268,
+    "p95_ms": 2895,
+    "max_ms": 2895
+  },
+  "tool_latency": null
+}
