@@ -2,6 +2,9 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- TUI recovery hint: a failed interactive or line-mode run now appends
+  `提示：<hint>` after the error, using the same `RuntimeError::recovery_hint`
+  as the CLI. The new CLI e2e drives line mode with an unreachable provider.
 - Real-provider eval baseline: three post-calibration runs of the eight-task
   suite on DeepSeek `deepseek-flash` passed 17/24 cases (70.83%) with rubric
   52/52 and decision completeness above the 8000 bps floor; one hard-gate

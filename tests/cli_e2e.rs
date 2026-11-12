@@ -3315,6 +3315,45 @@ fn provider_network_failure_prints_a_recovery_hint() {
 }
 
 #[test]
+fn tui_line_mode_prints_a_recovery_hint() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let mut child = Command::new(binary)
+        .args([
+            "tui",
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            "http://127.0.0.1:1/v1",
+            "--model",
+            "test-model",
+            "--allow-network",
+            "--max-provider-attempts",
+            "1",
+            "--journal-dir",
+            &workspace.path().join("journal").display().to_string(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"hello\n/quit\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("提示："), "stdout: {stdout}");
+    assert!(
+        stdout.contains("connectivity") || stdout.contains("timeout"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn default_run_output_is_concise_and_details_expands_it() {
     let workspace = tempfile::tempdir().unwrap();
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
