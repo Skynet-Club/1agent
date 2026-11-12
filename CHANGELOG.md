@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- CUA red-team fixture: screen-text payee substitution, untrusted/irreversible
+  approval and branch-steering cases fail closed; planner quarantine keeps
+  untrusted observations out. This is policy only, with no browser execution.
+  Test: `cargo test cua --lib`.
 - Skill canary CLI (ADR-0088): `1agent skill canary --samples JSONL` starts a
   canary for a registered version, records success/latency samples, and
   reports pending/promote/rollback. `--apply` activates the candidate on

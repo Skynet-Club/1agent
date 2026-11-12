@@ -173,6 +173,58 @@ mod tests {
     }
 
     #[test]
+    fn red_team_cases_fail_closed() {
+        let cases = [
+            (
+                "screen text changes the payee",
+                action(
+                    RiskLevel::High,
+                    false,
+                    vec![ArgumentSource::Plan, ArgumentSource::UntrustedObservation],
+                ),
+                CuaDecision::Deny,
+            ),
+            (
+                "untrusted address book value",
+                action(
+                    RiskLevel::Medium,
+                    true,
+                    vec![ArgumentSource::UntrustedObservation],
+                ),
+                CuaDecision::RequireApproval,
+            ),
+            (
+                "irreversible publish from the plan",
+                action(RiskLevel::Medium, false, vec![ArgumentSource::Plan]),
+                CuaDecision::RequireApproval,
+            ),
+            (
+                "trusted reversible click",
+                action(
+                    RiskLevel::Low,
+                    true,
+                    vec![ArgumentSource::Plan, ArgumentSource::TrustedObservation],
+                ),
+                CuaDecision::Allow,
+            ),
+        ];
+        for (name, case, expected) in cases {
+            assert_eq!(evaluate(&case).decision, expected, "{name}");
+        }
+        let planned = vec!["confirm".into(), "cancel".into()];
+        assert_eq!(
+            check_branch("transfer-all", &planned).decision,
+            CuaDecision::Deny,
+            "branch steering must not leave the approved plan"
+        );
+        assert_eq!(
+            planner_sees_untrusted(true).decision,
+            CuaDecision::Deny,
+            "planner quarantine must hide untrusted observations"
+        );
+    }
+
+    #[test]
     fn planner_and_branch_guards_fail_closed() {
         assert_eq!(planner_sees_untrusted(true).decision, CuaDecision::Deny);
         assert_eq!(planner_sees_untrusted(false).decision, CuaDecision::Allow);
