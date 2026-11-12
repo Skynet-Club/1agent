@@ -206,7 +206,8 @@ pub fn summarize_latency(events: &[JournalEvent]) -> Vec<LatencyGroup> {
     let mut groups = BTreeMap::<(String, String), Vec<u64>>::new();
     for event in events {
         match &event.event {
-            JournalEventKind::ModelRequested { .. } => {
+            JournalEventKind::ModelRequested { .. }
+            | JournalEventKind::ModelRequestDelta { .. } => {
                 pending
                     .entry(event.run_id)
                     .or_default()

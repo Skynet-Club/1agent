@@ -275,7 +275,8 @@ fn stage_latencies(events: &[JournalEvent]) -> (Vec<u64>, Vec<u64>, Vec<u64>, Ve
                     context_anchor = Some(timestamp);
                 }
             }
-            JournalEventKind::ModelRequested { .. } => {
+            JournalEventKind::ModelRequested { .. }
+            | JournalEventKind::ModelRequestDelta { .. } => {
                 if let Some(anchor) = context_anchor.take()
                     && let Some(sample) = elapsed_ms(anchor, timestamp)
                 {

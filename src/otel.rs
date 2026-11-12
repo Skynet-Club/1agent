@@ -85,7 +85,8 @@ pub fn spans_from_events(events: &[JournalEvent]) -> Vec<OtelSpan> {
     let mut next_span = 2u64;
     for event in events {
         match &event.event {
-            JournalEventKind::ModelRequested { .. } => {
+            JournalEventKind::ModelRequested { .. }
+            | JournalEventKind::ModelRequestDelta { .. } => {
                 pending_request = Some((event.timestamp_unix_ms, event.seq));
             }
             JournalEventKind::ModelResponded { response } => {

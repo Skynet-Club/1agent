@@ -19,8 +19,8 @@ use crate::domain::{
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
 use crate::journal::{
-    Journal, JournalEventKind, ProviderFailure, ResumablePrefix, RetryOutcome, RetryTiming,
-    find_resumable_prefix, read_events,
+    Journal, JournalEventKind, ModelRequestLog, ProviderFailure, ResumablePrefix, RetryOutcome,
+    RetryTiming, find_resumable_prefix, read_events,
 };
 use crate::provider::{
     ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
@@ -75,6 +75,7 @@ pub struct AgentRuntime {
 
 struct AnswerRepairContext<'a> {
     journal: &'a mut Journal,
+    model_request_log: &'a mut ModelRequestLog,
     journal_path: PathBuf,
     request: &'a TaskRequest,
     model_request: &'a ModelRequest,
@@ -343,6 +344,7 @@ impl AgentRuntime {
         const MAX_REPAIR_CONTENT_CHARS: usize = 20_000;
         let AnswerRepairContext {
             journal,
+            model_request_log,
             journal_path,
             request,
             model_request,
@@ -394,10 +396,8 @@ impl AgentRuntime {
             messages: repair_messages,
             tools: model_request.tools.clone(),
         };
-        journal
-            .append(JournalEventKind::ModelRequested {
-                request: repair_request.clone(),
-            })
+        model_request_log
+            .append(journal, repair_request.clone())
             .map_err(|source| RuntimeError::Journal {
                 path: journal_path.clone(),
                 source,
@@ -562,6 +562,7 @@ impl AgentRuntime {
                 path: journal_path.clone(),
                 source,
             })?;
+        let mut model_request_log = ModelRequestLog::default();
         let mode = resume
             .as_ref()
             .map(|prefix| prefix.checkpoint.mode)
@@ -1016,10 +1017,8 @@ impl AgentRuntime {
                         path: journal_path.clone(),
                         source,
                     })?;
-                journal
-                    .append(JournalEventKind::ModelRequested {
-                        request: model_request.clone(),
-                    })
+                model_request_log
+                    .append(&mut journal, model_request.clone())
                     .map_err(|source| RuntimeError::Journal {
                         path: journal_path.clone(),
                         source,
@@ -1374,6 +1373,7 @@ impl AgentRuntime {
                             .repair_answer(
                                 AnswerRepairContext {
                                     journal: &mut journal,
+                                    model_request_log: &mut model_request_log,
                                     journal_path: journal_path.clone(),
                                     request: &request,
                                     model_request: &model_request,
@@ -1415,6 +1415,7 @@ impl AgentRuntime {
                         .repair_answer(
                             AnswerRepairContext {
                                 journal: &mut journal,
+                                model_request_log: &mut model_request_log,
                                 journal_path: journal_path.clone(),
                                 request: &request,
                                 model_request: &model_request,
@@ -2464,13 +2465,13 @@ mod tests {
         assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
         assert!(result.answer.conclusion.contains("C uses"));
         let events = read_events(&result.journal_path).unwrap();
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event.event, JournalEventKind::ModelRequested { .. }))
-                .count(),
-            2
-        );
+        let mut chain = crate::journal::ModelRequestChain::new();
+        let reconstructed = events
+            .iter()
+            .filter_map(|event| chain.apply(event).ok().flatten().cloned())
+            .collect::<Vec<_>>();
+        assert_eq!(reconstructed.len(), 2);
+        assert!(reconstructed[1].messages.len() > reconstructed[0].messages.len());
         assert!(events.iter().any(|event| matches!(
             &event.event,
             JournalEventKind::ModelResponded {
@@ -3009,8 +3010,18 @@ mod tests {
         let mut messages = Vec::new();
         let mut full_checkpoint_bytes = 0usize;
         let mut actual_checkpoint_bytes = 0usize;
+        let mut model_requests = crate::journal::ModelRequestChain::new();
+        let mut full_model_request_bytes = 0usize;
+        let mut actual_model_request_bytes = 0usize;
         for event in &events {
             match &event.event {
+                JournalEventKind::ModelRequested { .. }
+                | JournalEventKind::ModelRequestDelta { .. } => {
+                    if let Ok(Some(request)) = model_requests.apply(event) {
+                        full_model_request_bytes += serde_json::to_vec(request).unwrap().len();
+                        actual_model_request_bytes += serde_json::to_vec(event).unwrap().len();
+                    }
+                }
                 JournalEventKind::Checkpoint { checkpoint } => {
                     messages = checkpoint.messages.clone();
                     full_checkpoint_bytes += serde_json::to_vec(&messages).unwrap().len();
@@ -3029,9 +3040,17 @@ mod tests {
             "journal total={total} checkpoint actual={actual_checkpoint_bytes} full-checkpoint estimate={full_checkpoint_bytes} ratio={:.3}",
             actual_checkpoint_bytes as f64 / full_checkpoint_bytes.max(1) as f64
         );
+        eprintln!(
+            "model-request actual={actual_model_request_bytes} full-request estimate={full_model_request_bytes} ratio={:.3}",
+            actual_model_request_bytes as f64 / full_model_request_bytes.max(1) as f64
+        );
         assert!(
             actual_checkpoint_bytes * 2 < full_checkpoint_bytes,
             "delta checkpoints should be much smaller than full checkpoints"
+        );
+        assert!(
+            actual_model_request_bytes * 2 < full_model_request_bytes,
+            "delta model requests should be much smaller than full requests"
         );
     }
 

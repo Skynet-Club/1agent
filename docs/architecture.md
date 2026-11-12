@@ -311,8 +311,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Checkpoint deltas: after the first full `Checkpoint`, the runtime journals `CheckpointDelta`
   with only appended messages and a `base_seq`. Resume and replay apply deltas in order and
   reject a mismatched base; audit reports orphan deltas. `ResumeStarted` still embeds a full
-  reconstructed checkpoint, and old full-checkpoint journals remain resumable. `ModelRequested`
-  is still journaled in full per attempt.
+  reconstructed checkpoint, and old full-checkpoint journals remain resumable.
+- Model request deltas: the first request in a journal is a full `ModelRequested`; later
+  attempts journal `ModelRequestDelta` with the previous request event as `base_seq`, the
+  unchanged message prefix length, the remaining messages, and tools only when they changed.
+  `ModelRequestChain` reconstructs the request; audit reports orphan deltas and prefix
+  overflows. A resumed journal starts with a full request. Old journals with full requests
+  replay unchanged, while binaries older than this variant cannot read new journals.
 - Journal incremental read: `JournalCursor` plus `read_events_incremental` consume only
   newline-terminated events after a byte offset; a trailing partial line stays unread, and a
   shrunk journal fails closed with `Truncated`. `read_events` still parses the whole file but

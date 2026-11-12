@@ -73,8 +73,9 @@ what the release must not claim.
   chain.
 - M1/M2/M3, M7 real-provider TTFT, M10 pricing, M11/M12, M14 real sessions,
   M19–M23 golden set are not measured to the release targets.
-- `ModelRequested` is still a full per-step journal copy; TUI/daemon
-  projections do not use the incremental cursor.
+- Model requests are journaled as full events plus `model_request_delta`
+  events; binaries older than this variant cannot read those journals. TUI and
+  daemon projections do not use the incremental cursor.
 - Skill scanning is heuristic; it is not a malware sandbox.
 
 ## 7. Rollback verification
