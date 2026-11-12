@@ -2,6 +2,14 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- TUI unslop pass: one green accent/link role replaces blue-plus-green; body
+  and work-log green `#5E9E5E` reaches 6.0:1 on the backdrop and border
+  `#4A7855` reaches 3.8:1, while local-file links use `#3FB950` (7.6:1). The
+  full ASCII mark is reserved for tall terminals and a 72×20 terminal gets the
+  compact `1-Agent` wordmark. The idle caption no longer repeats `就绪`, missing
+  token/cache metrics are omitted instead of shown as `—`, `/help` shows
+  `1/29`, and an empty composer shows `输入任务，/ 查看命令`. PTY frames and
+  contrast maths are in `docs/evidence/tui-unslop-2026-11-12.md`.
 - Model request deltas (ADR-0122): after the first full `ModelRequested`,
   attempts journal `ModelRequestDelta` with the previous request event as
   `base_seq`, the unchanged prefix length, the remaining messages and changed
