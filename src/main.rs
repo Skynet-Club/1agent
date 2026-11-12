@@ -92,6 +92,9 @@ enum Command {
         allow_write: bool,
         #[arg(long)]
         read_root: Vec<PathBuf>,
+        /// Attach a UTF-8 text file as untrusted data; repeatable.
+        #[arg(long)]
+        attach: Vec<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long)]
@@ -3485,6 +3488,7 @@ async fn main() -> Result<()> {
             read_only,
             allow_write: _allow_write,
             read_root,
+            attach,
             journal_dir,
             experience_dir,
             experience_scope,
@@ -3616,9 +3620,11 @@ async fn main() -> Result<()> {
                 }
                 None => first_principles_agent::VoiceMode::Operator,
             };
+            let attachments = first_principles_agent::load_attachments(&attach)?;
             let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
                 .with_route_objective(objective)
                 .with_voice_mode(voice_mode)
+                .with_attachments(attachments)
                 .with_route_policy_sources(RoutePolicySources {
                     objective: objective_source,
                     latency_budget: latency_budget_source,

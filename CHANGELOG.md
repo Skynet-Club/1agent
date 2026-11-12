@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Text file attachments (ADR-0087): `1agent run --attach PATH` accepts up to
+  five regular UTF-8 files (1 MiB each, 4 MiB total), rejects NUL/binary/
+  symlinks, and injects an explicitly untrusted `ATTACHMENTS` block with the
+  file name, SHA-256 and byte length. The block is journaled in
+  `ModelRequested`. Attachments are not redacted; images/screen/voice remain
+  future work. Tests: three unit tests plus two CLI e2e tests.
 - Security fixes from an independent review:
   - skill capture redacts balanced object/array values under secret-named
     keys, normalizes hyphenated header names, sanitizes JSON object keys,

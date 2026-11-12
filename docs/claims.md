@@ -109,6 +109,7 @@ file: <路径>              → 文件必须存在
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |
 | 基准门禁：完成率/crash-free/replay bps；crash 不计入完成或 replay；空/超限/非法阈值失败关闭；JSONL 行号错误；CLI 失败非零 | cmd: cargo test benchmark --lib && cargo test --test benchmark_cli | ✅ | 只计算调用方样本，不是 8h runner；默认阈值为计划目标，不是证据 |
+| 文本附件：最多 5×1 MiB/总 4 MiB；仅普通 UTF-8 文本；拒绝 NUL/二进制/符号链接；作为 untrusted data 注入并记录 SHA-256 | cmd: cargo test attachment --lib && cargo test --test attachment_cli | ✅ | 不脱敏；不证明模型抵御提示注入；图片/屏幕/语音未实现 |
 | Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |
 | 安静时段持久化：onboard --quiet-hours 写入 preference，UserModel 读取并回显；autonomy-for 读取域档位+安静时段 | cmd: cargo test user_model --lib && cargo test --test onboard_cli && cargo test --test autonomy_cli | ✅ | 偏好视图；无窗口结束唤醒/调度 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |

@@ -62,6 +62,7 @@ pub struct AgentRuntime {
     alert_webhook: Option<Arc<AlertWebhook>>,
     voice_mode: crate::user_model::VoiceMode,
     tool_query: Option<String>,
+    attachments: Vec<crate::attachment::Attachment>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -113,7 +114,13 @@ impl AgentRuntime {
             alert_webhook: None,
             voice_mode: crate::user_model::VoiceMode::Operator,
             tool_query: None,
+            attachments: Vec::new(),
         }
+    }
+
+    pub fn with_attachments(mut self, attachments: Vec<crate::attachment::Attachment>) -> Self {
+        self.attachments = attachments;
+        self
     }
 
     pub fn with_voice_mode(mut self, mode: crate::user_model::VoiceMode) -> Self {
@@ -726,6 +733,11 @@ impl AgentRuntime {
                     "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
                     request.known_facts.join("\n")
                 )));
+            }
+            if !self.attachments.is_empty() {
+                initial_messages.push(ModelMessage::system(
+                    crate::attachment::format_attachment_block(&self.attachments),
+                ));
             }
             initial_messages.push(ModelMessage::user(format!(
                 "Task objective:\n{}\n\nStructured task:\n{}",
