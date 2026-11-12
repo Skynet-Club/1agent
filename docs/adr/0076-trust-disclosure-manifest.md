@@ -23,12 +23,17 @@ invented those would be worse than no manifest.
      passed <= total, optional 64-hex evidence digest) and sorted by name;
    - an optional all-time local verification summary from
      `--verification-store` (verified/hacked/rejected/resolved/bps);
-   - optional security contact and incident URL.
+   - optional security contact and incident URL;
+   - caller-supplied incident disclosures (id, title, status, opened time,
+     optional resolved time, summary, optional http(s) link), validated for
+     unique safe ids, non-empty bounded text, open/resolved timestamp
+     consistency and escaped rendering; sorted newest first.
 2. Add `1agent trust-center [--evaluation PATH ...] [--security-contact ...]
-   [--incident-url ...] [--out PATH] [--markdown-out PATH] [--html-out PATH]
-   [--json]`. `--markdown-out` renders the same disclosure as a
-   human-readable page; `--html-out` renders a static, script-free page with
-   every caller-supplied value HTML-escaped and contact URLs kept as text.
+   [--incident-url ...] [--incident-report PATH ...] [--out PATH]
+   [--markdown-out PATH] [--html-out PATH] [--json]`. `--markdown-out`
+   renders the same disclosure as a human-readable page; `--html-out`
+   renders a static, script-free page with every caller-supplied value
+   HTML-escaped and contact/incident URLs kept as text.
 3. Evaluations must be supplied by the caller from real runs. The command does
    not run an evaluation or read a hidden benchmark.
 4. `1agent eval --disclosure-out PATH` writes a compatible disclosure for the
@@ -47,9 +52,10 @@ invented those would be worse than no manifest.
   supplied evidence.
 - The audit field cannot accidentally overclaim; changing it requires a code
   change and evidence.
-- Evaluation files can be wrong; the manifest records what it was given.
-- Incident reports, audit reports, hosting and certification mappings remain
-  future work; the HTML output is a local static file, not a hosted page.
+- Evaluation and incident files can be wrong; the manifest records what it
+  was given and does not independently verify either.
+- Audit reports, hosting and certification mappings remain future work; the
+  HTML output is a local static file, not a hosted page.
 - The data-policy strings are static claims about defaults, not per-deployment
   verification.
 
@@ -60,6 +66,7 @@ cargo test trust_center --lib
 cargo test --test trust_center_cli
 ```
 
-The tests cover capability counting, audit non-overclaiming, evaluation
-validation/sorting, JSON round-trip, Markdown/HTML output-file writing, HTML
-escaping of contacts and invalid input.
+The tests cover capability counting, audit non-overclaiming, evaluation and
+incident validation/sorting, JSON round-trip, Markdown/HTML output-file
+writing, HTML escaping of contacts, incident text and links, and invalid
+input.

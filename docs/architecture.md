@@ -321,9 +321,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   evaluation disclosures. The audit section is always `not_audited` with
   `external_audit: false`; the module does not invent certifications. It emits
   a JSON manifest, not a hosted Trust Center page. `--verification-store PATH`
-  adds the local all-time `HackSuiteSummary`; `--markdown-out` renders the same
-  disclosure as Markdown, and `--html-out` as a static, script-free page with
-  every caller-supplied value escaped and contact URLs kept as text.
+  adds the local all-time `HackSuiteSummary`; `--incident-report PATH`
+  validates and sorts caller-supplied incident disclosures (safe unique id,
+  open/resolved timestamp consistency, http(s) link); `--markdown-out` renders
+  the same disclosure as Markdown, and `--html-out` as a static, script-free
+  page with every caller-supplied value escaped and contact/incident URLs kept
+  as text.
   `1agent eval --disclosure-out
   PATH` writes an `EvaluationDisclosure` whose `evidence_sha256` is the SHA-256
   of the pretty-printed evaluation report.

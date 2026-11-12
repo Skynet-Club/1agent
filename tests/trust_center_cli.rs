@@ -174,3 +174,82 @@ fn trust_center_writes_escaped_static_html() {
     assert!(html.contains("not_audited"));
     assert!(html.contains("Static disclosure"));
 }
+
+#[test]
+fn trust_center_accepts_and_escapes_incident_reports() {
+    let workspace = tempfile::tempdir().unwrap();
+    let incident = workspace.path().join("incident.json");
+    let markdown_path = workspace.path().join("trust.md");
+    let html_path = workspace.path().join("trust.html");
+    std::fs::write(
+        &incident,
+        serde_json::to_vec(&serde_json::json!({
+            "id": "INC-1",
+            "title": "Test incident",
+            "status": "resolved",
+            "opened_at_ms": 10,
+            "resolved_at_ms": 30,
+            "summary": "summary <script>alert(1)</script>",
+            "link": "https://example.com/incidents/1"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["trust-center", "--incident-report"])
+        .arg(&incident)
+        .arg("--markdown-out")
+        .arg(&markdown_path)
+        .arg("--html-out")
+        .arg(&html_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let disclosure: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(disclosure["incidents"][0]["id"], "INC-1");
+    assert_eq!(disclosure["incidents"][0]["status"], "resolved");
+    let markdown = std::fs::read_to_string(&markdown_path).unwrap();
+    assert!(markdown.contains("## Incidents"));
+    assert!(markdown.contains("[resolved] INC-1"));
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!html.contains("<script>alert(1)</script>"));
+    assert!(!html.contains("href=\"https://example.com/incidents/1\""));
+}
+
+#[test]
+fn trust_center_rejects_an_inconsistent_incident_report() {
+    let workspace = tempfile::tempdir().unwrap();
+    let incident = workspace.path().join("incident.json");
+    std::fs::write(
+        &incident,
+        serde_json::to_vec(&serde_json::json!({
+            "id": "INC-2",
+            "title": "Open incident",
+            "status": "open",
+            "opened_at_ms": 10,
+            "resolved_at_ms": 20,
+            "summary": "should be rejected"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["trust-center", "--incident-report"])
+        .arg(&incident)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("incident"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

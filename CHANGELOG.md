@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Trust Center incident disclosures (ADR-0076): `trust-center
+  --incident-report PATH` accepts caller-supplied incident JSON with a safe
+  unique id, title, status, opened/resolved timestamps, summary and optional
+  http(s) link. Open/resolved timestamp consistency and bounds are validated;
+  incidents render newest first in JSON, Markdown and escaped HTML. Tests:
+  one unit test plus two `trust_center_cli` e2e tests.
 - Skill capture (ADR-0084): `1agent skill capture` turns the last segment of
   a `Completed` journal into a `SKILL.md` draft. Only tool calls with an `Ok`
   observation become steps; observation bodies and model answers are not
