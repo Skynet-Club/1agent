@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Trust Center audit reports: `AuditReportDisclosure` records a caller-supplied auditor, scope,
+  status, started/completed timestamps and P0/P1 counts; `trust-center --audit-report PATH` is
+  repeatable and renders Markdown/escaped HTML. The fixed audit status remains `not_audited`;
+  a caller-supplied report is not an independent audit.
 - Memory recall explainability: `1agent memory recall --query TEXT [--bot-id ID]` prints each
   hit's score, layer/kind/content, source event, taint, confidence, validity and scope; output
   may contain decrypted memory content and must not be piped to shared logs.

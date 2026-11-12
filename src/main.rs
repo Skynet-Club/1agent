@@ -333,6 +333,9 @@ enum Command {
         /// Repeatable incident report JSON file.
         #[arg(long)]
         incident_report: Vec<PathBuf>,
+        /// Repeatable third-party audit report JSON file.
+        #[arg(long)]
+        audit_report: Vec<PathBuf>,
         #[arg(long)]
         out: Option<PathBuf>,
         /// Write a human-readable Markdown disclosure.
@@ -4323,6 +4326,7 @@ async fn main() -> Result<()> {
             security_contact,
             incident_url,
             incident_report,
+            audit_report,
             out,
             markdown_out,
             html_out,
@@ -4350,6 +4354,17 @@ async fn main() -> Result<()> {
                     .with_context(|| format!("invalid incident report {}", path.display()))?,
                 );
             }
+            let mut audit_reports = Vec::with_capacity(audit_report.len());
+            for path in audit_report {
+                let raw = std::fs::read_to_string(&path)
+                    .with_context(|| format!("cannot read {}", path.display()))?;
+                audit_reports.push(
+                    serde_json::from_str::<
+                        first_principles_agent::trust_center::AuditReportDisclosure,
+                    >(&raw)
+                    .with_context(|| format!("invalid audit report {}", path.display()))?,
+                );
+            }
             let verification = match verification_store {
                 Some(path) => {
                     let store =
@@ -4358,7 +4373,7 @@ async fn main() -> Result<()> {
                 }
                 None => None,
             };
-            let disclosure = first_principles_agent::trust_center::build_disclosure_with_incidents(
+            let disclosure = first_principles_agent::trust_center::build_disclosure_with_reports(
                 env!("CARGO_PKG_VERSION"),
                 current_time_ms(),
                 security_contact,
@@ -4366,6 +4381,7 @@ async fn main() -> Result<()> {
                 verification,
                 evaluations,
                 incidents,
+                audit_reports,
             )?;
             if let Some(out) = &out {
                 std::fs::write(
@@ -4425,6 +4441,16 @@ async fn main() -> Result<()> {
                     println!(
                         "- evaluation {} {}: {}/{}",
                         evaluation.name, evaluation.version, evaluation.passed, evaluation.total
+                    );
+                }
+                for report in &disclosure.audit_reports {
+                    println!(
+                        "- audit {} [{}] {} P0={} P1={}",
+                        report.id,
+                        report.status.as_str(),
+                        report.title,
+                        report.p0_findings,
+                        report.p1_findings
                     );
                 }
                 if let Some(out) = &out {

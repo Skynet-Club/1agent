@@ -22,6 +22,8 @@ pub enum TrustCenterError {
     InvalidEvaluation(String),
     #[error("incident disclosure is invalid: {0}")]
     InvalidIncident(String),
+    #[error("audit report disclosure is invalid: {0}")]
+    InvalidAuditReport(String),
     #[error("trust disclosure JSON failed: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -87,6 +89,44 @@ pub struct IncidentDisclosure {
     pub link: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditReportStatus {
+    Planned,
+    InProgress,
+    Completed,
+}
+
+impl AuditReportStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::InProgress => "in_progress",
+            Self::Completed => "completed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AuditReportDisclosure {
+    pub id: String,
+    pub title: String,
+    pub auditor: String,
+    pub status: AuditReportStatus,
+    pub scope: String,
+    pub started_at_ms: u128,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at_ms: Option<u128>,
+    #[serde(default)]
+    pub p0_findings: u32,
+    #[serde(default)]
+    pub p1_findings: u32,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TrustDisclosure {
@@ -108,6 +148,8 @@ pub struct TrustDisclosure {
     pub incident_url: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub incidents: Vec<IncidentDisclosure>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audit_reports: Vec<AuditReportDisclosure>,
 }
 
 pub fn build_disclosure(
@@ -135,8 +177,31 @@ pub fn build_disclosure_with_incidents(
     security_contact: Option<String>,
     incident_url: Option<String>,
     verification: Option<HackSuiteSummary>,
+    evaluations: Vec<EvaluationDisclosure>,
+    incidents: Vec<IncidentDisclosure>,
+) -> Result<TrustDisclosure, TrustCenterError> {
+    build_disclosure_with_reports(
+        version,
+        now_ms,
+        security_contact,
+        incident_url,
+        verification,
+        evaluations,
+        incidents,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_disclosure_with_reports(
+    version: &str,
+    now_ms: u128,
+    security_contact: Option<String>,
+    incident_url: Option<String>,
+    verification: Option<HackSuiteSummary>,
     mut evaluations: Vec<EvaluationDisclosure>,
     mut incidents: Vec<IncidentDisclosure>,
+    mut audit_reports: Vec<AuditReportDisclosure>,
 ) -> Result<TrustDisclosure, TrustCenterError> {
     for evaluation in &evaluations {
         validate_evaluation(evaluation)?;
@@ -151,6 +216,13 @@ pub fn build_disclosure_with_incidents(
         right
             .opened_at_ms
             .cmp(&left.opened_at_ms)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    validate_audit_reports(&audit_reports)?;
+    audit_reports.sort_by(|left, right| {
+        right
+            .started_at_ms
+            .cmp(&left.started_at_ms)
             .then_with(|| left.id.cmp(&right.id))
     });
     let card = agent_card::build_card(version);
@@ -194,6 +266,7 @@ pub fn build_disclosure_with_incidents(
         security_contact,
         incident_url,
         incidents,
+        audit_reports,
     })
 }
 
@@ -292,6 +365,35 @@ pub fn render_markdown(disclosure: &TrustDisclosure) -> String {
                 markdown_text(&incident.summary)
             ));
             if let Some(link) = &incident.link {
+                out.push_str(&format!("  Link: {}\n", markdown_text(link)));
+            }
+        }
+        out.push('\n');
+    }
+    if !disclosure.audit_reports.is_empty() {
+        out.push_str("## Audit reports\n\n");
+        for report in &disclosure.audit_reports {
+            let status = match report.status {
+                AuditReportStatus::Planned => "planned",
+                AuditReportStatus::InProgress => "in_progress",
+                AuditReportStatus::Completed => "completed",
+            };
+            let completed = report
+                .completed_at_ms
+                .map(|ms| format!(", completed {ms} ms"))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "- [{status}] {} — {} (auditor: {}, scope: {}, started {} ms{completed}, P0={}, P1={})\n  {}\n",
+                markdown_text(&report.id),
+                markdown_text(&report.title),
+                markdown_text(&report.auditor),
+                markdown_text(&report.scope),
+                report.started_at_ms,
+                report.p0_findings,
+                report.p1_findings,
+                markdown_text(&report.summary)
+            ));
+            if let Some(link) = &report.link {
                 out.push_str(&format!("  Link: {}\n", markdown_text(link)));
             }
         }
@@ -409,6 +511,40 @@ pub fn render_html(disclosure: &TrustDisclosure) -> String {
                 escape_html(&one_line(&incident.id)),
                 escape_html(&one_line(&incident.title)),
                 incident.opened_at_ms
+            ));
+        }
+        out.push_str("</table>");
+    }
+    if !disclosure.audit_reports.is_empty() {
+        out.push_str(
+            "<h2>Audit reports</h2><table><tr><th>ID</th><th>Title</th><th>Auditor</th>\
+             <th>Status</th><th>Scope</th><th>Started</th><th>Completed</th>\
+             <th>P0</th><th>P1</th><th>Summary</th></tr>",
+        );
+        for report in &disclosure.audit_reports {
+            let status = match report.status {
+                AuditReportStatus::Planned => "planned",
+                AuditReportStatus::InProgress => "in_progress",
+                AuditReportStatus::Completed => "completed",
+            };
+            let completed = report
+                .completed_at_ms
+                .map(|ms| ms.to_string())
+                .unwrap_or_default();
+            let mut summary = escape_html(&one_line(&report.summary));
+            if let Some(link) = &report.link {
+                summary.push_str(&format!("<br>{}", escape_html(&one_line(link))));
+            }
+            out.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{status}</td><td>{}</td>\
+                 <td>{}</td><td>{completed}</td><td>{}</td><td>{}</td><td>{summary}</td></tr>",
+                escape_html(&one_line(&report.id)),
+                escape_html(&one_line(&report.title)),
+                escape_html(&one_line(&report.auditor)),
+                escape_html(&one_line(&report.scope)),
+                report.started_at_ms,
+                report.p0_findings,
+                report.p1_findings
             ));
         }
         out.push_str("</table>");
@@ -549,6 +685,86 @@ fn validate_incidents(incidents: &[IncidentDisclosure]) -> Result<(), TrustCente
                     .any(|character| character.is_whitespace() || character.is_control())
             {
                 return Err(TrustCenterError::InvalidIncident(
+                    "link must be a single http(s) URL".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_audit_reports(reports: &[AuditReportDisclosure]) -> Result<(), TrustCenterError> {
+    let mut ids = BTreeSet::new();
+    for report in reports {
+        if report.id.trim().is_empty()
+            || report.id.chars().count() > 64
+            || !report.id.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+        {
+            return Err(TrustCenterError::InvalidAuditReport(
+                "id must be 1..=64 safe characters".into(),
+            ));
+        }
+        if !ids.insert(&report.id) {
+            return Err(TrustCenterError::InvalidAuditReport(format!(
+                "duplicate id {}",
+                report.id
+            )));
+        }
+        for (label, value, limit) in [
+            ("title", report.title.as_str(), 200),
+            ("auditor", report.auditor.as_str(), 200),
+            ("scope", report.scope.as_str(), 500),
+            ("summary", report.summary.as_str(), 2000),
+        ] {
+            if value.trim().is_empty() || value.chars().count() > limit {
+                return Err(TrustCenterError::InvalidAuditReport(format!(
+                    "{label} must be 1..={limit} characters"
+                )));
+            }
+            if value
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+            {
+                return Err(TrustCenterError::InvalidAuditReport(format!(
+                    "{label} contains control characters"
+                )));
+            }
+        }
+        if report.p0_findings > 10_000 || report.p1_findings > 10_000 {
+            return Err(TrustCenterError::InvalidAuditReport(
+                "finding counts must be <= 10000".into(),
+            ));
+        }
+        match report.status {
+            AuditReportStatus::Planned | AuditReportStatus::InProgress
+                if report.completed_at_ms.is_some() =>
+            {
+                return Err(TrustCenterError::InvalidAuditReport(
+                    "a planned or in-progress report cannot have completed_at_ms".into(),
+                ));
+            }
+            AuditReportStatus::Completed
+                if report
+                    .completed_at_ms
+                    .is_none_or(|completed| completed < report.started_at_ms) =>
+            {
+                return Err(TrustCenterError::InvalidAuditReport(
+                    "a completed report needs completed_at_ms >= started_at_ms".into(),
+                ));
+            }
+            _ => {}
+        }
+        if let Some(link) = &report.link {
+            let lower = link.to_ascii_lowercase();
+            if !(lower.starts_with("https://") || lower.starts_with("http://"))
+                || link.chars().count() > 2048
+                || link
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control())
+            {
+                return Err(TrustCenterError::InvalidAuditReport(
                     "link must be a single http(s) URL".into(),
                 ));
             }
@@ -795,6 +1011,129 @@ mod tests {
     fn markdown_text_escapes_backslashes_before_brackets() {
         assert_eq!(markdown_text(r"\[click\]"), r"\\\[click\\\]");
         assert_eq!(markdown_text("<script>"), "&lt;script&gt;");
+    }
+
+    fn audit_report(
+        id: &str,
+        status: AuditReportStatus,
+        started_at_ms: u128,
+        completed_at_ms: Option<u128>,
+    ) -> AuditReportDisclosure {
+        AuditReportDisclosure {
+            id: id.into(),
+            title: "Security audit".into(),
+            auditor: "Independent Lab".into(),
+            status,
+            scope: "runtime and tools".into(),
+            started_at_ms,
+            completed_at_ms,
+            p0_findings: 0,
+            p1_findings: 2,
+            summary: "No P0 findings.".into(),
+            link: None,
+        }
+    }
+
+    #[test]
+    fn audit_reports_validate_status_and_timestamps() {
+        let build = |report| {
+            build_disclosure_with_reports(
+                "0.97.0",
+                10,
+                None,
+                None,
+                None,
+                vec![],
+                vec![],
+                vec![report],
+            )
+        };
+        assert!(matches!(
+            build(audit_report("a1", AuditReportStatus::Completed, 100, None)),
+            Err(TrustCenterError::InvalidAuditReport(_))
+        ));
+        assert!(matches!(
+            build(audit_report(
+                "a1",
+                AuditReportStatus::Completed,
+                100,
+                Some(99)
+            )),
+            Err(TrustCenterError::InvalidAuditReport(_))
+        ));
+        assert!(matches!(
+            build(audit_report(
+                "a1",
+                AuditReportStatus::Planned,
+                100,
+                Some(200)
+            )),
+            Err(TrustCenterError::InvalidAuditReport(_))
+        ));
+        assert!(matches!(
+            build(audit_report(
+                "a1",
+                AuditReportStatus::InProgress,
+                100,
+                Some(200)
+            )),
+            Err(TrustCenterError::InvalidAuditReport(_))
+        ));
+        assert!(
+            build(audit_report(
+                "a1",
+                AuditReportStatus::Completed,
+                100,
+                Some(200)
+            ))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn audit_reports_sort_and_render_escaped() {
+        let mut completed = audit_report("a1", AuditReportStatus::Completed, 100, Some(200));
+        completed.summary = "<script>alert(1)</script>".into();
+        let planned = audit_report("a2", AuditReportStatus::Planned, 300, None);
+        let disclosure = build_disclosure_with_reports(
+            "0.97.0",
+            10,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            vec![completed, planned],
+        )
+        .unwrap();
+        assert_eq!(disclosure.audit_reports[0].id, "a2");
+        assert_eq!(disclosure.audit_reports[1].id, "a1");
+        let markdown = render_markdown(&disclosure);
+        assert!(markdown.contains("## Audit reports"));
+        assert!(markdown.contains("&lt;script&gt;"));
+        assert!(!markdown.contains("<script>"));
+        let html = render_html(&disclosure);
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>"));
+    }
+
+    #[test]
+    fn audit_reports_reject_bad_links_and_duplicate_ids() {
+        let build = |reports| {
+            build_disclosure_with_reports("0.97.0", 10, None, None, None, vec![], vec![], reports)
+        };
+        let mut bad_link = audit_report("a1", AuditReportStatus::Planned, 100, None);
+        bad_link.link = Some("javascript:alert(1)".into());
+        assert!(matches!(
+            build(vec![bad_link]),
+            Err(TrustCenterError::InvalidAuditReport(_))
+        ));
+        let first = audit_report("a1", AuditReportStatus::Planned, 100, None);
+        let second = audit_report("a1", AuditReportStatus::Planned, 200, None);
+        assert!(matches!(
+            build(vec![first, second]),
+            Err(TrustCenterError::InvalidAuditReport(_))
+        ));
     }
 
     #[test]

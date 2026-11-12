@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Trust Center audit reports (ADR-0110): `AuditReportDisclosure` and
+  `trust-center --audit-report PATH` disclose auditor, scope, status,
+  timestamps, P0/P1 counts and a summary in JSON, Markdown and escaped HTML.
+  Validation covers timestamps, ids, bounds and links; the fixed `audit`
+  status stays `not_audited`. Tests: three unit and two CLI e2e.
 - Memory recall explainability (ADR-0109): `1agent memory recall --query TEXT
   [--bot-id ID] [--limit N] [--json]` returns scoped hits with score,
   layer/kind/content, source event, taint, confidence, validity and scope.
