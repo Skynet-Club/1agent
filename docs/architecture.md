@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Benchmark runner: `1agent benchmark-run --suite PATH --runs N` executes a suite N times and
+  feeds completion/crash-free/structural-replay samples to the existing benchmark gate. A process
+  abort is not a sample; contract fixtures are not model-quality evidence.
 - Answer rendering lives in `answer_render.rs` (full and layered default views plus label
   mappings); `main.rs` imports it. This is the second RFC-0001/SA97-25 slice.
 - Subagent acceptance: `spawn_agent` accepts only `stop_reason=completed`,

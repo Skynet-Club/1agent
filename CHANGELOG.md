@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Benchmark runner (ADR-0108): `1agent benchmark-run --suite PATH --runs N`
+  executes a suite repeatedly and feeds completion, crash-free and structural
+  replay samples to the existing gate; a failing gate exits non-zero. A
+  process abort is not converted into a sample, and contract fixtures are not
+  model-quality evidence. Tests: two CLI e2e (passing and failing suites).
 - 0.97 rollback and limits: `docs/rollback-v0.97.md` covers binary rollback,
   the journal incompatibility from `checkpoint_delta`, config rollback, the
   kill switch, incident steps and known limitations. It is a document, not a

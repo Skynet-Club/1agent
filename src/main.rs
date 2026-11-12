@@ -384,6 +384,27 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Run an eval suite N times and feed the samples to the benchmark gate.
+    BenchmarkRun {
+        #[arg(long, default_value = "evals/core.json")]
+        suite: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        runs: usize,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        allow_network: bool,
+        #[arg(long, default_value_t = 120)]
+        timeout_seconds: u64,
+        #[arg(long, default_value_t = 7000)]
+        min_completion_bps: u16,
+        #[arg(long, default_value_t = 9950)]
+        min_crash_free_bps: u16,
+        #[arg(long, default_value_t = 10000)]
+        min_replay_bps: u16,
+        #[arg(long)]
+        json: bool,
+    },
     RepairPlan {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -4546,6 +4567,86 @@ async fn main() -> Result<()> {
             let report = first_principles_agent::summarize(
                 &samples,
                 first_principles_agent::BenchmarkPolicy {
+                    min_completion_bps,
+                    min_crash_free_bps,
+                    min_replay_bps,
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "iterations: {} completed: {} crashed: {} replay_verified: {}",
+                    report.iterations, report.completed, report.crashed, report.replay_verified
+                );
+                println!(
+                    "completion: {} bps (min {}); crash-free: {} bps (min {}); replay: {} bps (min {})",
+                    report.completion_bps,
+                    min_completion_bps,
+                    report.crash_free_bps,
+                    min_crash_free_bps,
+                    report.replay_bps,
+                    min_replay_bps
+                );
+                println!("passed: {}", report.passed);
+            }
+            if !report.passed {
+                anyhow::bail!("benchmark gate failed");
+            }
+        }
+        Command::BenchmarkRun {
+            suite,
+            runs,
+            config,
+            allow_network,
+            timeout_seconds,
+            min_completion_bps,
+            min_crash_free_bps,
+            min_replay_bps,
+            json,
+        } => {
+            if runs == 0 || runs > 100_000 {
+                anyhow::bail!("--runs must be between 1 and 100000");
+            }
+            let suite = load_suite(&suite)?;
+            let providers = if let Some(config_path) = config {
+                let config = AgentConfig::load(&config_path)?;
+                config.build_providers(Duration::from_secs(timeout_seconds.max(1)))?
+            } else {
+                vec![ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                }]
+            };
+            let mut samples = Vec::with_capacity(runs);
+            for _ in 0..runs {
+                match run_suite_with_providers(suite.clone(), providers.clone(), allow_network)
+                    .await
+                {
+                    Ok(report) => {
+                        let completed = report.total > 0
+                            && report.passed == report.total
+                            && report.hard_gate_failures == 0;
+                        let replay_verified = report.validate_integrity().is_ok()
+                            && report.cases.iter().all(|case| case.audit_ok);
+                        samples.push(first_principles_agent::benchmark::BenchmarkSample {
+                            completed,
+                            crashed: false,
+                            replay_verified,
+                        });
+                    }
+                    Err(_) => {
+                        samples.push(first_principles_agent::benchmark::BenchmarkSample {
+                            completed: false,
+                            crashed: true,
+                            replay_verified: false,
+                        });
+                    }
+                }
+            }
+            let report = first_principles_agent::benchmark::summarize(
+                &samples,
+                first_principles_agent::benchmark::BenchmarkPolicy {
                     min_completion_bps,
                     min_crash_free_bps,
                     min_replay_bps,
