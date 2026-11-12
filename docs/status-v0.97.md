@@ -28,9 +28,9 @@ This page is a measurement review, not a release announcement. A metric marked
 
 | Metric | Current | Note |
 |---|---|---|
-| M1 long-horizon success | current suite v1.1: 16/16 (100%) across two runs; earlier v1.0 baseline 17/24 (70.83%) | not an 8h benchmark; 8 tasks, one provider/model, two repetitions |
-| M2 autonomy hours | not measured | only short benchmark and deterministic runs |
-| M3 interventions/task | not measured | no real 8h benchmark |
+| M1 long-horizon success | current suite v1.1: 16/16 (100%) across two short runs; earlier v1.0 baseline 17/24 (70.83%); 8h run `job-1794496736687-2245-2` in progress | not an 8h result yet; 8 tasks, one provider/model |
+| M2 autonomy hours | 8h run in progress (`job-1794496736687-2245-2`) | unattended; result appended when the job finishes |
+| M3 interventions/task | 0 in the unattended 8h run so far | interventions are not possible in the scheduled job |
 | M7 TTFT | DeepSeek `deepseek-flash`, n=3 short streaming runs: p50 1.08 s, p95 2.48 s (min 0.72, max 2.48) | `StreamFirstToken` + `metrics`; small sample, one provider, short prompts |
 | M8 end-to-end p95 | 72.9 s historical snapshot | first/last event time, not a tool-dense benchmark |
 | M9 tool success | 86.17% historical; 50% test-generated repo set | repo set is dominated by failure-injection tests |
@@ -54,8 +54,8 @@ This page is a measurement review, not a release announcement. A metric marked
   help position indicator, empty-composer hint.
 - Clarify TUI batch panel (`/clarify`): 1–5 blocking questions, per-question
   lock, inline `Other`, one confirm, cancel, 300s expiry, result in transcript
-  and `/details`. Model-initiated runtime-tool wiring and persistent history
-  are still absent.
+  and `/details`. The interactive TUI also registers a model-initiated
+  `clarify` tool; persistent history is still absent.
 - Real-provider 8-task baseline: suite v1.1 passes 16/16 across two runs;
   the earlier v1.0 baseline was 17/24. 8h M1/M2/M3 remain unmeasured.
 - Real TTFT baseline: three DeepSeek streaming runs, p50 1.08 s / p95 2.48 s.
@@ -95,4 +95,4 @@ This page is a measurement review, not a release announcement. A metric marked
 - Run an 8h benchmark for M1/M2/M3 and broaden TTFT samples beyond one provider
   and short prompts.
 - Keep the release check fail-closed on a representative journal directory.
-- Wire model-initiated clarify to a runtime tool and persist question history.
+- Persist clarify question history across sessions.
