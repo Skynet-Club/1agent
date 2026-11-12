@@ -404,6 +404,9 @@ pub struct TuiState {
     selection_anchor: Option<usize>,
     transcript_area: Option<Rect>,
     transcript_lines: Vec<TranscriptVisualLine>,
+    transcript_revision: u64,
+    transcript_lines_revision: u64,
+    transcript_lines_width: Option<u16>,
     transcript_scroll_top: usize,
     transcript_anchor: Option<TranscriptPosition>,
     transcript_focus: Option<TranscriptPosition>,
@@ -467,6 +470,9 @@ impl TuiState {
             selection_anchor: None,
             transcript_area: None,
             transcript_lines: Vec::new(),
+            transcript_revision: 0,
+            transcript_lines_revision: u64::MAX,
+            transcript_lines_width: None,
             transcript_scroll_top: 0,
             transcript_anchor: None,
             transcript_focus: None,
@@ -801,6 +807,7 @@ impl TuiState {
         self.status = TuiStatus::Idle;
         self.context_tokens = 0;
         self.transcript.clear();
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
         self.clear_input();
         self.last_details = None;
         self.details_open = false;
@@ -2030,7 +2037,13 @@ impl TuiState {
         if area.is_empty() {
             return;
         }
-        self.transcript_lines = self.build_transcript_lines(area.width);
+        if self.transcript_lines_width != Some(area.width)
+            || self.transcript_lines_revision != self.transcript_revision
+        {
+            self.transcript_lines = self.build_transcript_lines(area.width);
+            self.transcript_lines_width = Some(area.width);
+            self.transcript_lines_revision = self.transcript_revision;
+        }
         let total = self.transcript_lines.len();
         let full_height = usize::from(area.height);
         let max_scroll = total.saturating_sub(full_height);
@@ -3493,6 +3506,7 @@ impl TuiState {
         if self.transcript.len() > 200 {
             self.transcript.remove(0);
         }
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
     }
 
     fn push_code_block(&mut self, language: &str, lines: &[&str]) {
@@ -7798,5 +7812,121 @@ int main(int argc, char **argv) {
             .collect::<String>();
         assert!(!rendered.contains("panel-line-01"));
         assert!(rendered.contains("panel-line-20"));
+    }
+
+    #[test]
+    fn transcript_projection_rebuilds_after_a_new_entry() {
+        let backend = TestBackend::new(70, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("test", 6, 0);
+        state.push_entry(
+            TranscriptKind::Assistant,
+            TuiTone::Body,
+            None,
+            TuiTone::Muted,
+            "first-line".into(),
+        );
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let first_revision = state.transcript_lines_revision;
+        assert_eq!(first_revision, state.transcript_revision);
+
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        assert_eq!(
+            state.transcript_lines_revision, first_revision,
+            "an unchanged frame should reuse the projection"
+        );
+
+        state.push_entry(
+            TranscriptKind::Assistant,
+            TuiTone::Body,
+            None,
+            TuiTone::Muted,
+            "second-line".into(),
+        );
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        assert!(state.transcript_lines_revision > first_revision);
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("second-line"));
+    }
+
+    #[test]
+    fn transcript_projection_rebuilds_when_the_width_changes() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("test", 6, 0);
+        state.push_entry(
+            TranscriptKind::Assistant,
+            TuiTone::Body,
+            None,
+            TuiTone::Muted,
+            "a long line that should wrap differently at two widths ".repeat(3),
+        );
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let wide = state.transcript_lines_width;
+        assert!(wide.is_some());
+
+        terminal.backend_mut().resize(40, 20);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        assert_ne!(state.transcript_lines_width, wide);
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("a long line"));
+    }
+
+    #[test]
+    #[ignore = "timing probe; run with --ignored --nocapture"]
+    fn long_transcript_frame_budget() {
+        let mut state = TuiState::new("test", 6, 0);
+        for index in 0..200 {
+            state.push_entry(
+                TranscriptKind::Assistant,
+                TuiTone::Body,
+                None,
+                TuiTone::Muted,
+                format!("entry {index} {}", "word ".repeat(30)),
+            );
+        }
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        let mut samples = Vec::new();
+        for index in 0..120 {
+            if index % 4 == 0 {
+                state.push_entry(
+                    TranscriptKind::Assistant,
+                    TuiTone::Body,
+                    None,
+                    TuiTone::Muted,
+                    format!("stream entry {index}"),
+                );
+            }
+            let started = std::time::Instant::now();
+            terminal.draw(|frame| state.draw(frame)).unwrap();
+            samples.push(started.elapsed());
+        }
+        samples.sort();
+        let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+        eprintln!(
+            "tui frame p95={p95:?} max={:?} profile={}",
+            samples.last().unwrap(),
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }
+        );
+        // M15's 8 ms hard gate is measured on the release build. A debug build
+        // is slower, so it gets a looser smoke bound.
+        let limit = if cfg!(debug_assertions) { 25 } else { 8 };
+        assert!(p95 < std::time::Duration::from_millis(limit));
     }
 }
