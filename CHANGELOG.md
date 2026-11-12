@@ -35,6 +35,11 @@
   a cancellation; missing questions stay unanswered with a valid default. This
   is the state machine only; TUI rendering and persistent history remain open.
   Tests: four unit cases plus the existing clarify CLI suite.
+- CI matrix (ADR-0120): `.github/workflows/ci.yml` runs the full Linux
+  `verify.sh` on push/PR/manual, and `cargo check --all-targets` plus
+  `cargo test --no-run` on Windows/macOS. It is compile-level only, not P-Gate,
+  and has not run on GitHub yet. Locally validated with the same commands and
+  the Windows GNU cross-check.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal

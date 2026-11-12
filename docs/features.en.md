@@ -175,6 +175,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - key escrow / restore;
 - Linux release archive, SHA256SUMS, Linux provenance and installer;
 - platform capability registry: `1agent platform [--json]` reports `verified` / `degraded` / `unsupported` / `untested`; macOS/Windows are `untested` and are not claimed as supported;
+- CI matrix: `.github/workflows/ci.yml` runs the full Linux `verify.sh` on push/PR/manual, and `cargo check --all-targets` plus `cargo test --no-run` on Windows/macOS. This is compile-level only, not P-Gate, and the workflow has not run on GitHub yet;
 - MIT license and third-party notices.
 
 ## 3. Explicitly not implemented
