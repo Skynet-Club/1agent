@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Crash-recovery soak (ADR-0099): the ignored `recovery_soak` test interrupts
+  a deterministic write task at the first checkpoint, at `ToolCalled` and at
+  `ToolObserved`. Checkpoint resume must finish without replaying the side
+  effect; mid-call and checkpoint-less journals must fail closed.
+  `SOAK_RECOVERY_CYCLES` and `SOAK_RECOVERY_SECONDS` (250 ms pacing) select a
+  smoke or duration run; `scripts/soak-recovery.sh` runs the release profile.
 - Answer/audit layering (ADR-0098): default human `run`/`resume` output is
   status, conclusion and one trust-summary line. Conditional/needs-evidence
   answers or high-impact unknowns inline up to three evidence entries and all

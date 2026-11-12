@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Crash-recovery soak: a deterministic write task is interrupted at the first checkpoint, at
+  `ToolCalled` and at `ToolObserved`; resume from the checkpoint must finish without replaying
+  the completed side effect, while the two later prefixes must fail closed. Duration mode
+  (`SOAK_RECOVERY_SECONDS`) paces cycles for a two-hour release-gate run.
 - Answer/audit layering: the default human `run`/`resume` output is status, conclusion and one
   trust-summary line; conditional/needs-evidence answers or high-impact unknowns inline up to
   three evidence entries and all flip conditions. `--details` restores the full structured
