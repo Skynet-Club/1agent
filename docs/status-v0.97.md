@@ -1,8 +1,9 @@
 # 0.97 Status and Metric Review (2026-11-12, 21:05 CST)
 
 - Status: **local review; 0.97 is not release-ready**
-- Base commit at review: `7d12f0d`; this snapshot includes the model-request
-  delta slice (ADR-0122)
+- Latest reviewed commits: `bbecf78` (M4 soak evidence), `7e6306f` (Clarify
+  panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas), based on
+  `7d12f0d`
 - Full suite: 1230 passed / 0 failed / 13 ignored
 - Claims: 219 (197 verified / 14 partial / 8 no evidence)
 - Local release: Linux and Windows GNU binaries are rebuilt per slice; the
