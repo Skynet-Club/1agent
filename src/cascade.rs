@@ -119,6 +119,165 @@ pub fn evaluate(report: &CascadeReport, policy: &CascadePolicy) -> CascadeVerdic
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CascadeEdge {
+    pub parent: String,
+    pub child: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CascadeScenario {
+    pub id: String,
+    pub root: String,
+    pub edges: Vec<CascadeEdge>,
+    #[serde(default)]
+    pub contained: Vec<String>,
+    pub policy: CascadePolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CascadeScenarioResult {
+    pub id: String,
+    pub report: CascadeReport,
+    pub verdict: CascadeVerdict,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CascadeBenchReport {
+    pub scenarios: u64,
+    pub passed: u64,
+    pub failed: u64,
+    pub max_cascade_depth: usize,
+    pub max_blast_radius: usize,
+    pub min_containment_bps: Option<u16>,
+    pub results: Vec<CascadeScenarioResult>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CascadeBenchError {
+    #[error("cascade bench line {line} is invalid: {source}")]
+    Json {
+        line: usize,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("cascade bench scenario is invalid: {0}")]
+    Invalid(String),
+    #[error("cascade bench has no scenarios")]
+    Empty,
+}
+
+pub fn parse_cascade_scenarios(text: &str) -> Result<Vec<CascadeScenario>, CascadeBenchError> {
+    let mut scenarios = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line_number = index + 1;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let scenario: CascadeScenario =
+            serde_json::from_str(line).map_err(|source| CascadeBenchError::Json {
+                line: line_number,
+                source,
+            })?;
+        scenarios.push(scenario);
+    }
+    Ok(scenarios)
+}
+
+pub fn bench(scenarios: &[CascadeScenario]) -> Result<CascadeBenchReport, CascadeBenchError> {
+    if scenarios.is_empty() {
+        return Err(CascadeBenchError::Empty);
+    }
+    if scenarios.len() > 1_000 {
+        return Err(CascadeBenchError::Invalid(
+            "at most 1000 scenarios are allowed".into(),
+        ));
+    }
+    let mut ids = BTreeSet::new();
+    for scenario in scenarios {
+        if scenario.id.trim().is_empty()
+            || scenario.id.chars().count() > 64
+            || !scenario.id.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+        {
+            return Err(CascadeBenchError::Invalid(
+                "scenario id must be 1..=64 safe characters".into(),
+            ));
+        }
+        if !ids.insert(scenario.id.as_str()) {
+            return Err(CascadeBenchError::Invalid(format!(
+                "duplicate scenario id {}",
+                scenario.id
+            )));
+        }
+        if scenario.root.trim().is_empty() || scenario.root.chars().count() > 128 {
+            return Err(CascadeBenchError::Invalid(
+                "root must be 1..=128 characters".into(),
+            ));
+        }
+        if scenario.edges.len() > 1_000 {
+            return Err(CascadeBenchError::Invalid(
+                "a scenario has at most 1000 edges".into(),
+            ));
+        }
+        for edge in &scenario.edges {
+            if edge.parent.trim().is_empty()
+                || edge.parent.chars().count() > 128
+                || edge.child.trim().is_empty()
+                || edge.child.chars().count() > 128
+            {
+                return Err(CascadeBenchError::Invalid(
+                    "edge endpoints must be 1..=128 characters".into(),
+                ));
+            }
+        }
+        if scenario.policy.min_containment_bps > 10_000 {
+            return Err(CascadeBenchError::Invalid(
+                "min_containment_bps must be <= 10000".into(),
+            ));
+        }
+    }
+
+    let mut report = CascadeBenchReport {
+        scenarios: scenarios.len() as u64,
+        ..CascadeBenchReport::default()
+    };
+    for scenario in scenarios {
+        let edges = scenario
+            .edges
+            .iter()
+            .map(|edge| (edge.parent.clone(), edge.child.clone()))
+            .collect::<Vec<_>>();
+        let result = simulate(&scenario.root, &edges, &scenario.contained);
+        let verdict = evaluate(&result, &scenario.policy);
+        report.max_cascade_depth = report.max_cascade_depth.max(result.cascade_depth);
+        report.max_blast_radius = report.max_blast_radius.max(result.blast_radius);
+        report.min_containment_bps = Some(
+            report
+                .min_containment_bps
+                .map_or(result.containment_rate_bps, |current| {
+                    current.min(result.containment_rate_bps)
+                }),
+        );
+        if verdict.passed {
+            report.passed += 1;
+        } else {
+            report.failed += 1;
+        }
+        report.results.push(CascadeScenarioResult {
+            id: scenario.id.clone(),
+            report: result,
+            verdict,
+        });
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +342,98 @@ mod tests {
         );
         assert!(!fail.passed);
         assert_eq!(fail.failures.len(), 3);
+    }
+
+    fn scenario(id: &str, contained: &[&str], policy: CascadePolicy) -> CascadeScenario {
+        CascadeScenario {
+            id: id.into(),
+            root: "a".into(),
+            edges: vec![
+                CascadeEdge {
+                    parent: "a".into(),
+                    child: "b".into(),
+                },
+                CascadeEdge {
+                    parent: "b".into(),
+                    child: "c".into(),
+                },
+                CascadeEdge {
+                    parent: "c".into(),
+                    child: "d".into(),
+                },
+            ],
+            contained: contained.iter().map(|node| node.to_string()).collect(),
+            policy,
+        }
+    }
+
+    #[test]
+    fn bench_passes_contained_and_fails_uncontained() {
+        let report = bench(&[
+            scenario(
+                "contained",
+                &["b"],
+                CascadePolicy {
+                    min_containment_bps: 5_000,
+                    max_depth: 1,
+                    max_blast_radius: 2,
+                },
+            ),
+            scenario(
+                "uncontained",
+                &[],
+                CascadePolicy {
+                    min_containment_bps: 5_000,
+                    max_depth: 2,
+                    max_blast_radius: 4,
+                },
+            ),
+        ])
+        .unwrap();
+        assert_eq!(report.scenarios, 2);
+        assert_eq!(report.passed, 1);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.max_cascade_depth, 3);
+        assert_eq!(report.max_blast_radius, 4);
+        assert_eq!(report.min_containment_bps, Some(0));
+        assert_eq!(report.results[0].id, "contained");
+        assert!(report.results[0].verdict.passed);
+        assert_eq!(report.results[1].id, "uncontained");
+        assert!(!report.results[1].verdict.passed);
+    }
+
+    #[test]
+    fn bench_rejects_invalid_scenarios() {
+        let policy = CascadePolicy {
+            min_containment_bps: 0,
+            max_depth: 10,
+            max_blast_radius: 10,
+        };
+        assert!(matches!(bench(&[]), Err(CascadeBenchError::Empty)));
+        assert!(matches!(
+            bench(&[scenario("dup", &[], policy), scenario("dup", &[], policy)]),
+            Err(CascadeBenchError::Invalid(_))
+        ));
+        let mut too_strict = scenario("strict", &[], policy);
+        too_strict.policy.min_containment_bps = 10_001;
+        assert!(matches!(
+            bench(&[too_strict]),
+            Err(CascadeBenchError::Invalid(_))
+        ));
+        let mut empty_root = scenario("root", &[], policy);
+        empty_root.root.clear();
+        assert!(matches!(
+            bench(&[empty_root]),
+            Err(CascadeBenchError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn parse_reports_line_numbers() {
+        let text = "{\"id\":\"ok\",\"root\":\"a\",\"edges\":[],\"policy\":{\"min_containment_bps\":0,\"max_depth\":1,\"max_blast_radius\":1}}\n{\"broken\":true}\n";
+        match parse_cascade_scenarios(text).unwrap_err() {
+            CascadeBenchError::Json { line, .. } => assert_eq!(line, 2),
+            other => panic!("expected a JSON error, got {other:?}"),
+        }
     }
 }
