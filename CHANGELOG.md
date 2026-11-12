@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- First module-split slice (ADR-0102): pure TUI text helpers move to
+  `src/tui_text.rs` and are re-exported from `tui.rs`. No behavior change;
+  the TUI PTY interaction check still passes. `tui.rs` loses about 100 lines;
+  transcript/input/state and `main.rs` splits remain.
 - Legacy journal read fix (ADR-0101): `Evidence.observed_unix_ms`/
   `expires_unix_ms` and `ReframeDecided.decided_at_unix_ms` use `u64` instead
   of `u128`. serde's tagged-enum content buffer does not support `u128`, so
