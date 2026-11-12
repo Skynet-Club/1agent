@@ -1,7 +1,7 @@
 # 0.97 Status and Metric Review (2026-11-13, 00:30 CST)
 
 - Status: **local review; 0.97 is not release-ready**
-- Latest reviewed commit: `44558ec` (watchdog containment), based on
+- Latest feature commit: `e1291b1` (watchdog containment), based on
   `825af12`; earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify
   panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas)
 - Full suite: 1261 passed / 0 failed / 13 ignored
