@@ -15,7 +15,7 @@ This page is a measurement review, not a release announcement. A metric marked
 
 | Gate | Metric | Current evidence | Status |
 |---|---|---|---|
-| M4 | Crash recovery ≥95% | Controlled resume sample 1/1 (100%); 2h crash-injection soak started 15:49 CST and is still running; no aggregate from real crashes | **Open** |
+| M4 | Crash recovery ≥95% | Controlled resume sample 1/1 (100%); 2h crash-injection soak 28,552 cycles / 7,200.20s, exit 0, raw output retained (binary based on `7d12f0d`); no real-crash aggregate | **Local pass (soak)** |
 | M5 | Replay 100% | 100% structural replay on completed journals in both local snapshots | **Local pass** |
 | M6 | Zero security incidents | No P0 in the local red-team/security tests; 5 denied observations in historical journals | **Not externally verified** |
 | M13 | Audit completeness 100% | 100% under `AgentAnswer::validate` on local journals | **Local pass** |
@@ -51,6 +51,10 @@ This page is a measurement review, not a release announcement. A metric marked
 - TUI unslop pass: body contrast 6.0:1, border 3.8:1, one green accent/link
   role, compact wordmark on short terminals, quieter idle status and metrics,
   help position indicator, empty-composer hint.
+- Clarify TUI batch panel (`/clarify`): 1–5 blocking questions, per-question
+  lock, inline `Other`, one confirm, cancel, 300s expiry, result in transcript
+  and `/details`. Model-initiated runtime-tool wiring and persistent history
+  are still absent.
 - TUI transcript projection cache.
 - Watchdog escalation ladder plus explicit checked `--execute pause/resume`.
 - Clarify gate and round outcome states.
@@ -67,20 +71,21 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Release blockers
 
-1. 2h crash-recovery soak result (M4).
-2. Real eight-task benchmark and M1/M2/M3 measurements.
-3. M7 real-provider TTFT samples; M17 is now locally proven.
-4. M19–M23 blind-review labels; the prompt inventory exists, labels do not.
-5. External A-Gate/W-Gate and security review; P-Gate macOS.
-6. Automatic watchdog repair remains manual; pause/resume is explicit and
+1. Real eight-task benchmark and M1/M2/M3 measurements.
+2. M7 real-provider TTFT samples; M17 is now locally proven.
+3. M19–M23 blind-review labels; the prompt inventory exists, labels do not.
+4. External A-Gate/W-Gate and security review; P-Gate macOS.
+5. Automatic watchdog repair remains manual; pause/resume is explicit and
    checked. M6 is not an external audit.
 
 ## Next actions
 
-- Finish the 2h soak rerun and record its result with raw output.
+- M4 soak raw output is recorded; collect a real-crash aggregate if the gate
+  requires one.
 - Add a real-task suite once provider credentials and reviewed tasks are
   available; do not relabel contract fixtures as model quality.
 - Collect blind-review labels for the fixed golden set.
 - Add first-stream-chunk timing to journals for M7 (instrumentation exists; real
   provider samples do not).
 - Keep the release check fail-closed on a representative journal directory.
+- Wire model-initiated clarify to a runtime tool and persist question history.

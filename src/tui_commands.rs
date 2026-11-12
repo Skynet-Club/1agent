@@ -60,6 +60,7 @@ pub enum TuiCommandId {
     Inbox,
     Receipt,
     Why,
+    Clarify,
     Config,
     Mission,
     Reframe,
@@ -101,6 +102,7 @@ impl TuiCommandId {
                 | Self::Inbox
                 | Self::Receipt
                 | Self::Why
+                | Self::Clarify
                 | Self::Copy
         )
     }
@@ -370,6 +372,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         CommandStage::Any,
         false,
         true,
+    ),
+    command(
+        TuiCommandId::Clarify,
+        "/clarify",
+        "打开批量澄清面板（1–5 题，一次确认）",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
     ),
     command(
         TuiCommandId::Config,
@@ -696,6 +707,7 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
         | TuiCommandId::Challenge
         | TuiCommandId::Decide
         | TuiCommandId::Postmortem
+        | TuiCommandId::Clarify
         | TuiCommandId::Reframe => CommandGroup::Reasoning,
         TuiCommandId::Evidence | TuiCommandId::Audit | TuiCommandId::Report | TuiCommandId::Why => {
             CommandGroup::Evidence
@@ -1373,23 +1385,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 29);
+        assert_eq!(standalone.len(), 30);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            31
+            32
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            33
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             34
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            35
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            39
+            40
         );
     }
 
@@ -1434,6 +1446,7 @@ mod tests {
                 "/inbox",
                 "/receipt",
                 "/why",
+                "/clarify",
                 "/config",
                 "/reframe",
                 "/mission",
