@@ -267,11 +267,7 @@ impl AgentRuntime {
     ) -> ToolObservation {
         if let Some(path) = &self.kill_switch
             && path.exists()
-            && self
-                .tools
-                .capabilities()
-                .iter()
-                .any(|capability| capability.name == call.name && capability.requires_write)
+            && self.tools.requires_write(&call.name)
         {
             return ToolObservation {
                 call_id: call.id.clone(),

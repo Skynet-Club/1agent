@@ -198,6 +198,14 @@ impl ToolRegistry {
             .is_some_and(|tool| tool.parallel_safe())
     }
 
+    /// Whether the named tool can write. Unknown tools return false; the
+    /// executor reports the unknown tool separately.
+    pub fn requires_write(&self, name: &str) -> bool {
+        self.tools
+            .get(name)
+            .is_some_and(|tool| tool.requires_write())
+    }
+
     pub fn capabilities(&self) -> Vec<ToolCapability> {
         let mut capabilities = self
             .tools
