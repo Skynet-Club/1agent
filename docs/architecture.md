@@ -460,7 +460,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - MCP tools are discovered from stdio or streamable-HTTP servers configured
   with `--mcp-config`. Exactly one of `command` or `url` is required. HTTP
   requires HTTPS except for loopback, rejects credentials in the URL, carries
-  `Mcp-Session-Id`, accepts JSON or `text/event-stream` responses, and reads a
+  the `Mcp-Session-Id` returned by initialize on every later request, accepts
+  JSON or `text/event-stream` responses, and reads a
   bearer token from the environment variable named by `bearer_token_env` or
   from a 0600 regular non-symlink file named by `bearer_token_file` (never
   both), and does not follow HTTP redirects. `timeout_seconds` (1..=300, default 20) bounds each
@@ -472,7 +473,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
   metadata for the journal. `1agent mcp-token-exchange` obtains a short-lived
   bearer token through an RFC 8693-style loopback/HTTPS exchange and writes it
-  to a new 0600 file for `bearer_token_file`; refresh is manual.
+  to a new 0600 file for `bearer_token_file`; that file is refreshed manually.
+  `McpServerConfig.token_exchange` exchanges at HTTP spawn, keeps the token in
+  memory, refreshes within 30 seconds of expiry and re-exchanges once on a
+  401 response.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, requested write/network
   permissions are intersected with the parent's (they can only restrict), and
@@ -594,9 +598,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Proving real-model quality without configured providers.
 - Structured patch/edit tools beyond whole-file replacement (`write_file`) and
   exact text replacement (`edit_file`).
-- Web search is best-effort Bing RSS; authenticated web content, computer-use
-  clicks/typing/screenshots, and MCP OAuth issuer discovery/token exchange are
-  absent.
+- Web search is best-effort Bing RSS; authenticated web content and
+  computer-use clicks/typing/screenshots are absent.
 - Voice/image understanding and OCR; `read_pdf` only extracts embedded PDF text.
 - Page-range selection for PDFs; `max_chars` only bounds returned text.
 - Terminal commands require a running Skynet Workshop session daemon; there is
