@@ -26,20 +26,24 @@ questions and leaves the default answer valid when the user does not answer.
    Duplicates do not consume budget.
 4. At most five blocking questions may be submitted in one batch
    (`SA97-35`'s batch panel bound). A batch over the limit fails closed.
-5. `1agent clarify --questions PATH` exposes the gate to frontends. It reads
-   an array or `{"questions":[...]}`, rejects input over 1 MiB or more than 50
-   questions, and prints either `ask` with the normalized questions and a
-   300-second timeout or `skip` with a reason.
+5. `resolve_round` validates a submitted/cancelled/timed-out/undelivered
+   round. Answers must reference admitted questions and existing options; an
+   answered question needs an option, a skipped or unanswered one must not
+   carry one, and a submitted round needs at least one answer. Missing
+   questions count as unanswered, and `default_answer_valid` stays true.
+6. `1agent clarify --questions PATH [--answers PATH --outcome STATUS]`
+   exposes the gate and round resolution to frontends. It reads an array or
+   an object wrapper, rejects input over 1 MiB or more than 50 questions, and
+   prints either `ask`/`skip` or the round summary.
 
 ## Consequences
 
 - Every frontend sees the same options, with `Other` last and the recommended
-  option first.
+  option first, and can report the same five outcome statuses.
 - A skipped or unanswered question does not invalidate the default answer;
-  the gate only decides what may be asked.
+  the gate only decides what may be asked and how the round is summarized.
 - This slice is policy and serialization only. It does not render a panel,
-  read stdin, or store answers; the TUI batch panel and answer outcome states
-  (`answered|skipped|unanswered`, `submitted|cancelled|timed_out|undelivered`)
-  remain SA97-35 work.
+  read stdin, or store answers; the TUI batch panel and persistent round
+  history remain SA97-35 work.
 - The gate is per-process; deduplication across sessions needs a persisted
   question history and is not claimed here.

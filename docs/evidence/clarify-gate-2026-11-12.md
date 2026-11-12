@@ -26,13 +26,18 @@ cargo test --test clarify_cli
   normalized question and a 300-second timeout, prints `skip` for an empty
   batch, and rejects invalid questions and oversized blocking batches with a
   non-zero exit.
+- `resolve_round` counts answered/skipped/unanswered, treats missing answers
+  as unanswered, counts blocking questions without an answer, and keeps
+  `default_answer_valid` true. Unknown questions/options, duplicate answers,
+  answered-without-option, skipped-with-option and an empty submission fail
+  closed.
+- The CLI resolves an answers file against the admitted questions and prints
+  the summary for `submitted` and `cancelled` rounds.
 
 ## What this does not prove
 
 - That a TUI or any other frontend renders the questions; no panel exists.
-- That answers are collected, stored or correlated with
-  `answered|skipped|unanswered` and `submitted|cancelled|timed_out|undelivered`;
-  those outcome states are SA97-35 work.
+- That answers are persisted or survive the process; the CLI is one-shot.
 - Deduplication across sessions or processes; the gate is per-process.
 - That a blocking question actually blocks for 300 seconds; only the timeout
   value is emitted.

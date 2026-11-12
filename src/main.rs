@@ -775,6 +775,12 @@ enum Command {
         /// Total question budget; 0 means unlimited.
         #[arg(long, default_value_t = 0)]
         budget: usize,
+        /// Answers to resolve against the admitted questions.
+        #[arg(long, requires = "outcome")]
+        answers: Option<PathBuf>,
+        /// submitted, cancelled, timed_out or undelivered.
+        #[arg(long, requires = "answers", value_name = "STATUS")]
+        outcome: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -7682,6 +7688,8 @@ async fn main() -> Result<()> {
             questions,
             max_questions,
             budget,
+            answers,
+            outcome,
             json,
         } => {
             let bytes = std::fs::read(&questions)
@@ -7707,7 +7715,59 @@ async fn main() -> Result<()> {
             let mut gate = first_principles_agent::clarify::ClarifyGate::new(budget)
                 .with_per_turn(max_questions);
             let decision = gate.admit(parsed).map_err(anyhow::Error::msg)?;
-            if json {
+            if let Some(answers_path) = answers {
+                let outcome = match outcome.as_deref().map(str::trim).unwrap_or_default() {
+                    "submitted" => first_principles_agent::clarify::ClarifyOutcome::Submitted,
+                    "cancelled" => first_principles_agent::clarify::ClarifyOutcome::Cancelled,
+                    "timed_out" => first_principles_agent::clarify::ClarifyOutcome::TimedOut,
+                    "undelivered" => first_principles_agent::clarify::ClarifyOutcome::Undelivered,
+                    other => anyhow::bail!(
+                        "outcome must be submitted, cancelled, timed_out or undelivered (got {other})"
+                    ),
+                };
+                let answer_bytes = std::fs::read(&answers_path)
+                    .with_context(|| format!("cannot read {}", answers_path.display()))?;
+                if answer_bytes.len() > 1_048_576 {
+                    anyhow::bail!("clarify answers file exceeds 1 MiB");
+                }
+                let answer_value: serde_json::Value = serde_json::from_slice(&answer_bytes)
+                    .context("invalid clarify answers JSON")?;
+                let answer_list = if answer_value.is_array() {
+                    answer_value
+                } else {
+                    answer_value
+                        .get("answers")
+                        .cloned()
+                        .context("clarify answers must be an array or an object with `answers`")?
+                };
+                let parsed_answers: Vec<first_principles_agent::clarify::ClarifyAnswer> =
+                    serde_json::from_value(answer_list).context("invalid clarify answers")?;
+                let admitted = match &decision {
+                    first_principles_agent::clarify::ClarifyDecision::Ask { questions, .. } => {
+                        questions.clone()
+                    }
+                    first_principles_agent::clarify::ClarifyDecision::Skip { .. } => Vec::new(),
+                };
+                let summary = first_principles_agent::clarify::resolve_round(
+                    &admitted,
+                    &parsed_answers,
+                    outcome,
+                )
+                .map_err(anyhow::Error::msg)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&summary)?);
+                } else {
+                    println!(
+                        "outcome={:?} answered={} skipped={} unanswered={} blocking_unanswered={} default_answer_valid={}",
+                        summary.outcome,
+                        summary.answered,
+                        summary.skipped,
+                        summary.unanswered,
+                        summary.blocking_unanswered,
+                        summary.default_answer_valid
+                    );
+                }
+            } else if json {
                 println!("{}", serde_json::to_string_pretty(&decision)?);
             } else {
                 match decision {
