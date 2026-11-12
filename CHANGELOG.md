@@ -2,6 +2,15 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Skill capture (ADR-0084): `1agent skill capture` turns the last segment of
+  a `Completed` journal into a `SKILL.md` draft. Only tool calls with an `Ok`
+  observation become steps; observation bodies and model answers are not
+  copied. Secret-like tokens, `Bearer` values, secret assignments, URL
+  userinfo and secret-named JSON keys are redacted; home/temp paths, UUIDs and
+  emails are generalized. The draft passes `scan_markdown` and is never
+  registered or activated automatically. Tests: five unit tests plus three
+  CLI e2e tests (`cargo test skill_capture --lib`,
+  `cargo test --test skill_capture_cli`).
 - `UserModel` 2.0 (ADR-0035): derived view now carries per-domain autonomy
   (`observe`/`suggest`/`act`/`auto`), voice mode
   (`operator`/`advisor`/`companion`) and memory consent

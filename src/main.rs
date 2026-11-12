@@ -1959,6 +1959,25 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    Capture {
+        /// Completed run journal to capture.
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        description: String,
+        #[arg(long, default_value = "global")]
+        scope: String,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Verify {
         #[arg(long)]
         bundle: PathBuf,
@@ -4938,6 +4957,72 @@ async fn main() -> Result<()> {
                         }
                         anyhow::bail!("skill scan rejected");
                     }
+                }
+            }
+            SkillCommand::Capture {
+                journal,
+                name,
+                version,
+                description,
+                scope,
+                out,
+                force,
+                json,
+            } => {
+                let captured = first_principles_agent::capture_journal(
+                    &journal,
+                    &name,
+                    &version,
+                    &description,
+                    &scope,
+                )?;
+                if let Some(parent) = out.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("create {}", parent.display()))?;
+                }
+                use std::io::Write as _;
+                let mut file = if force {
+                    std::fs::File::create(&out)
+                        .with_context(|| format!("write {}", out.display()))?
+                } else {
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&out)
+                        .with_context(|| {
+                            format!("create {} (use --force to overwrite)", out.display())
+                        })?
+                };
+                file.write_all(captured.markdown.as_bytes())
+                    .with_context(|| format!("write {}", out.display()))?;
+                file.sync_all()
+                    .with_context(|| format!("sync {}", out.display()))?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "name": captured.manifest.name,
+                            "version": captured.manifest.version,
+                            "content_sha256": captured.manifest.content_sha256,
+                            "steps": captured.steps,
+                            "redactions": captured.redactions,
+                            "generalizations": captured.generalizations,
+                            "out": out,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "已捕获技能草稿 {}@{}（{} 步，脱敏 {} 处，泛化 {} 处）→ {}",
+                        captured.manifest.name,
+                        captured.manifest.version,
+                        captured.steps,
+                        captured.redactions,
+                        captured.generalizations,
+                        out.display()
+                    );
                 }
             }
             SkillCommand::Verify {

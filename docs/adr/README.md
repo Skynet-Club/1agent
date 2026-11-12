@@ -87,3 +87,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0081 | File Chat Bridge | [0081-file-chat-bridge.md](0081-file-chat-bridge.md) |
 | 0082 | OTLP/HTTP JSON Export | [0082-otlp-http-export.md](0082-otlp-http-export.md) |
 | 0083 | MCP OAuth Token Exchange | [0083-mcp-token-exchange.md](0083-mcp-token-exchange.md) |
+| 0084 | Skill Capture from a Completed Journal | [0084-skill-capture.md](0084-skill-capture.md) |
