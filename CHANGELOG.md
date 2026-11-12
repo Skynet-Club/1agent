@@ -2,6 +2,14 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Parallel read-only tools (ADR-0091): `AgentTool::parallel_safe` opts
+  side-effect-free tools (`read_file`, `search_files`, `read_pdf`,
+  `fetch_url`, `web_search`, `browser_read`) into concurrent execution.
+  Contiguous safe calls form one group; write, terminal, skill, subagent and
+  MCP calls stay ordered. Calls and observations are journaled in model order,
+  so replay and audit remain deterministic. An interrupted group stays
+  unpaired and is not resumed. Tests: one registry test, one grouping test,
+  one overlap/order test and one write-serialization test.
 - Streaming provider (ADR-0090): `ModelProvider::complete_streaming` reports
   content fragments as they arrive and still returns one complete response.
   The OpenAI-compatible adapter parses SSE, reassembles lines split across

@@ -214,6 +214,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Parallel read-only tools: `AgentTool::parallel_safe` opts side-effect-free tools
+  (`read_file`, `search_files`, `read_pdf`, `fetch_url`, `web_search`, `browser_read`)
+  into concurrent execution. Contiguous safe calls run as one group; write/terminal calls
+  stay ordered. `ToolCalled` and `ToolObserved` events both follow model order, so replay
+  and audit are deterministic. An interrupted group remains unpaired and is not resumed.
 - `EvalReport`: suite outcome counts, decision-completeness policy version/source,
   canonical content digest and per-case results.
 - `EvalReportSummary`: case-content-free status view with schema version, integrity,

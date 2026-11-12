@@ -545,6 +545,7 @@ dependencies = [
  "async-trait",
  "clap",
  "crossterm",
+ "futures-util",
  "hex",
  "libc",
  "ratatui",

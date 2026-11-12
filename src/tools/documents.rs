@@ -53,6 +53,10 @@ fn default_max_chars() -> usize {
 
 #[async_trait]
 impl AgentTool for PdfReadTool {
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read_pdf".into(),
