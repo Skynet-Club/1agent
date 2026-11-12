@@ -1,0 +1,198 @@
+{
+  "name": "real-tasks-v1",
+  "suite_version": "1",
+  "kind": "model_quality",
+  "execution_status": "ready",
+  "provider_requirements": [
+    "real provider with tool calling; do not run this suite with the deterministic mock"
+  ],
+  "reviewer": "human reviewer required",
+  "calibration_required": true,
+  "min_decision_completeness_bps": 8000,
+  "cases": [
+    {
+      "id": "bug-fix-last-index",
+      "objective": "Read ${workspace}/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "setup_files": [
+        {
+          "path": "counter.rs",
+          "content": "pub fn last_index(len: usize) -> usize {\n    len\n}\n"
+        }
+      ],
+      "rubric": {
+        "required_conclusion_terms": ["saturating_sub"],
+        "required_sources": ["counter.rs"],
+        "required_claim_statuses": ["verified"]
+      },
+      "allow_write": true,
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 1,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "config-retries",
+      "objective": "Read ${workspace}/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "setup_files": [
+        {
+          "path": "agent.conf",
+          "content": "endpoint = local\nretries = 1\ntimeout_seconds = 30\n"
+        }
+      ],
+      "rubric": {
+        "required_sources": ["agent.conf"],
+        "required_claim_statuses": ["verified"]
+      },
+      "allow_write": true,
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 1,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "data-processing-sales",
+      "objective": "Read ${workspace}/sales.jsonl, compute the total amount and the number of records, write a summary to ${workspace}/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "setup_files": [
+        {
+          "path": "sales.jsonl",
+          "content": "{\"amount\":10}\n{\"amount\":20}\n{\"amount\":30}\n"
+        }
+      ],
+      "rubric": {
+        "required_conclusion_terms": ["60"],
+        "required_sources": ["sales.jsonl"],
+        "required_claim_statuses": ["verified"]
+      },
+      "allow_write": true,
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 1,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "research-compare",
+      "objective": "Read ${workspace}/a.md and ${workspace}/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "setup_files": [
+        {
+          "path": "a.md",
+          "content": "Evidence A: option A has the lower total cost.\n"
+        },
+        {
+          "path": "b.md",
+          "content": "Evidence B: option B has the lower migration risk.\n"
+        }
+      ],
+      "rubric": {
+        "required_sources": ["a.md", "b.md"],
+        "required_claim_statuses": ["verified"]
+      },
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 2,
+        "min_claims": 2,
+        "min_flip_conditions": 1,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "long-task-plan",
+      "objective": "Read ${workspace}/README.md, create a three-step plan to finish the checklist, write it to ${workspace}/plan.md, and report the first step with README.md as evidence.",
+      "setup_files": [
+        {
+          "path": "README.md",
+          "content": "# Checklist\n\n- [ ] Add retries\n- [ ] Add tests\n- [ ] Update changelog\n"
+        }
+      ],
+      "rubric": {
+        "required_sources": ["README.md"],
+        "required_claim_statuses": ["verified"]
+      },
+      "allow_write": true,
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 1,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "broken-json",
+      "objective": "Read ${workspace}/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "setup_files": [
+        {
+          "path": "broken.json",
+          "content": "{\"retries\": 3,}\n"
+        }
+      ],
+      "rubric": {
+        "required_sources": ["broken.json"]
+      },
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 0,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "checksum-file",
+      "objective": "Create ${workspace}/checksum.txt containing the exact text evidence, compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "setup_files": [],
+      "rubric": {
+        "required_sources": ["checksum.txt"],
+        "required_claim_statuses": ["verified"]
+      },
+      "allow_write": true,
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 1,
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "directory-summary",
+      "objective": "Read the files in ${workspace}/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "setup_files": [
+        {
+          "path": "notes/a.txt",
+          "content": "Retry policy: cap attempts and back off.\n"
+        },
+        {
+          "path": "notes/b.txt",
+          "content": "Retry policy: log every attempt and surface the final failure.\n"
+        }
+      ],
+      "rubric": {
+        "required_sources": ["a.txt", "b.txt"]
+      },
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 2,
+        "min_claims": 1,
+        "min_flip_conditions": 0,
+        "audit_ok": true
+      }
+    }
+  ]
+}

@@ -1030,6 +1030,9 @@ enum Command {
         /// Write a trust-center evaluation disclosure for this run.
         #[arg(long)]
         disclosure_out: Option<PathBuf>,
+        /// Validate the suite structure without running a model.
+        #[arg(long)]
+        validate_only: bool,
         #[arg(long)]
         json: bool,
     },
@@ -8948,9 +8951,35 @@ async fn main() -> Result<()> {
             allow_network,
             timeout_seconds,
             disclosure_out,
+            validate_only,
             json,
         } => {
             let suite = load_suite(&suite)?;
+            if validate_only {
+                first_principles_agent::eval::validate_suite(&suite).map_err(anyhow::Error::msg)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "valid": true,
+                            "suite": suite.name,
+                            "suite_version": suite.suite_version,
+                            "kind": suite.kind,
+                            "execution_status": suite.execution_status,
+                            "cases": suite.cases.len(),
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "valid suite {} ({} cases, {:?}, {:?})",
+                        suite.name,
+                        suite.cases.len(),
+                        suite.kind,
+                        suite.execution_status
+                    );
+                }
+                return Ok(());
+            }
             let providers = if let Some(config_path) = config {
                 let config = AgentConfig::load(&config_path)?;
                 config.build_providers(Duration::from_secs(timeout_seconds.max(1)))?

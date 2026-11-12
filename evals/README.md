@@ -43,3 +43,15 @@ Blind-review procedure:
 5. Archive the prompt version, provider version, random seed and raw journals with the report.
 
 Changing a prompt after labels exist requires a new version and a CHANGELOG/ADR entry so prior labels remain comparable.
+
+## Real-task suite v1
+
+`real-tasks-v1.json` declares eight real tasks with `kind = model_quality` and `execution_status = ready`: off-by-one bug fix, config change, JSONL aggregation, two-file research comparison, three-step planning, invalid-JSON handling, checksum write and directory summary. Cases that must modify the workspace set `"allow_write": true`; every other suite stays read-only.
+
+Validate the suite structure without a provider:
+
+```bash
+1agent eval --suite evals/real-tasks-v1.json --validate-only --json
+```
+
+Running it requires a real provider with tool calling and a human reviewer; the deterministic mock must not be used. A green validation is not a benchmark result.
