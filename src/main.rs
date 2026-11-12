@@ -12538,7 +12538,7 @@ async fn run_tui_line_request(
             state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
         }
         Err(error) => {
-            state.finish(TuiStatus::Failed, format!("Error: {error}"));
+            finish_tui_error(state, &error);
         }
     }
     Ok(())
@@ -13193,7 +13193,7 @@ async fn run_tui_line_epistemic(
             state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
         }
         Err(error) => {
-            state.finish(TuiStatus::Failed, format!("Error: {error}"));
+            finish_tui_error(state, &error);
         }
     }
     Ok(())
@@ -17596,7 +17596,7 @@ async fn run_tui_task(
                         state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
                     }
                     Err(error) => {
-                        state.finish(TuiStatus::Failed, format!("Error: {error}"));
+                        finish_tui_error(state, &error);
                     }
                 }
                 return Ok(quit_after_run);
@@ -17946,6 +17946,11 @@ fn tui_run_trace(journal_path: &Path) -> String {
         }
     }
     lines.join("\n")
+}
+
+fn finish_tui_error(state: &mut TuiState, error: &RuntimeError) {
+    state.finish(TuiStatus::Failed, format!("Error: {error}"));
+    state.info(format!("提示：{}", error.recovery_hint()));
 }
 
 fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunResult) {
