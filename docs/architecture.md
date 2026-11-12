@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Cascade bench: `CascadeScenario` JSONL plus `1agent cascade-bench --input PATH` summarize
+  containment rate, depth and blast radius across scenarios and fail the command when any
+  scenario misses its policy. Deterministic graph simulation, not live fault injection.
 - Trust Center audit reports: `AuditReportDisclosure` records a caller-supplied auditor, scope,
   status, started/completed timestamps and P0/P1 counts; `trust-center --audit-report PATH` is
   repeatable and renders Markdown/escaped HTML. The fixed audit status remains `not_audited`;

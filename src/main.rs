@@ -864,6 +864,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Run cascade fault-injection scenarios from a JSONL file.
+    CascadeBench {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     BudgetCheck {
         #[arg(long, default_value_t = 0)]
         cost_micros: u64,
@@ -8225,6 +8232,52 @@ async fn main() -> Result<()> {
                 for failure in &verdict.failures {
                     println!("- {failure}");
                 }
+            }
+        }
+        Command::CascadeBench { input, json } => {
+            let metadata = std::fs::metadata(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            if metadata.len() > 10 * 1024 * 1024 {
+                anyhow::bail!("cascade bench input exceeds 10 MiB");
+            }
+            let raw = std::fs::read_to_string(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            let scenarios = first_principles_agent::cascade::parse_cascade_scenarios(&raw)
+                .map_err(anyhow::Error::msg)?;
+            let report =
+                first_principles_agent::cascade::bench(&scenarios).map_err(anyhow::Error::msg)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "scenarios={} passed={} failed={} max_depth={} max_blast_radius={} min_containment_bps={:?}",
+                    report.scenarios,
+                    report.passed,
+                    report.failed,
+                    report.max_cascade_depth,
+                    report.max_blast_radius,
+                    report.min_containment_bps
+                );
+                for result in &report.results {
+                    println!(
+                        "- {}: {} containment_bps={} depth={} blast_radius={}",
+                        result.id,
+                        if result.verdict.passed {
+                            "pass"
+                        } else {
+                            "fail"
+                        },
+                        result.report.containment_rate_bps,
+                        result.report.cascade_depth,
+                        result.report.blast_radius
+                    );
+                    for failure in &result.verdict.failures {
+                        println!("  - {failure}");
+                    }
+                }
+            }
+            if report.failed > 0 {
+                anyhow::bail!("cascade bench failed");
             }
         }
         Command::BudgetCheck {

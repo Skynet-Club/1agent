@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Cascade bench (ADR-0111): `CascadeScenario` JSONL and `1agent cascade-bench
+  --input PATH` run many containment scenarios, report max depth/blast radius
+  and minimum containment, and exit non-zero when any scenario fails. It is a
+  deterministic graph simulation, not live fault injection. Tests: three unit
+  and two CLI e2e.
 - Trust Center audit reports (ADR-0110): `AuditReportDisclosure` and
   `trust-center --audit-report PATH` disclose auditor, scope, status,
   timestamps, P0/P1 counts and a summary in JSON, Markdown and escaped HTML.
