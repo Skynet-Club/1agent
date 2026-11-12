@@ -1,5 +1,6 @@
 use sha2::{Digest, Sha256};
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,10 @@ pub struct EvalCase {
     pub experience_scope: Option<String>,
     #[serde(default)]
     pub rubric: Option<EvalRubric>,
+    /// Real tasks may need to modify the workspace. Default false preserves
+    /// read-only contract fixtures.
+    #[serde(default)]
+    pub allow_write: bool,
     pub expect: EvalExpectation,
 }
 
@@ -781,6 +786,7 @@ async fn run_case(
         .replace("${workspace}", &workspace.path().to_string_lossy());
     let mut request = TaskRequest::from_objective(objective, workspace.path().to_path_buf());
     request.permissions.allow_network = allow_network;
+    request.permissions.allow_write = case.allow_write;
     request.experience_scope = case.experience_scope.clone();
     let mut runtime = AgentRuntime::new(
         providers,
@@ -1217,6 +1223,8 @@ pub enum EvalError {
     Json(#[from] serde_json::Error),
     #[error("evaluation suite has no cases")]
     EmptySuite,
+    #[error("invalid evaluation suite: {0}")]
+    InvalidSuite(String),
     #[error("evaluation requires at least one provider")]
     NoProviders,
     #[error("training and evaluation groups must differ")]
@@ -1292,6 +1300,44 @@ fn ensure_runnable_model_quality(suite: &EvalSuite) -> Result<(), EvalError> {
     {
         return Err(EvalError::ModelQualityMetadataMissing);
     }
+    Ok(())
+}
+
+/// Validate a suite without running a model. This checks structure, metadata
+/// and unique case ids; it does not prove task quality or provider behavior.
+pub fn validate_suite(suite: &EvalSuite) -> Result<(), EvalError> {
+    if suite.cases.is_empty() && suite.execution_status != EvalExecutionStatus::Template {
+        return Err(EvalError::EmptySuite);
+    }
+    let mut ids = BTreeSet::new();
+    for case in &suite.cases {
+        if case.id.trim().is_empty() || !ids.insert(case.id.as_str()) {
+            return Err(EvalError::InvalidSuite(format!(
+                "case id is empty or duplicated: `{}`",
+                case.id
+            )));
+        }
+        if case.objective.trim().is_empty() {
+            return Err(EvalError::InvalidSuite(format!(
+                "case `{}` has an empty objective",
+                case.id
+            )));
+        }
+        if let Some(rubric) = &case.rubric
+            && rubric
+                .required_conclusion_terms
+                .iter()
+                .chain(rubric.forbidden_conclusion_terms.iter())
+                .chain(rubric.required_sources.iter())
+                .any(|term| term.trim().is_empty())
+        {
+            return Err(EvalError::InvalidSuite(format!(
+                "case `{}` has an empty rubric term",
+                case.id
+            )));
+        }
+    }
+    ensure_runnable_model_quality(suite)?;
     Ok(())
 }
 
@@ -1516,6 +1562,7 @@ mod tests {
                 }],
                 experience_scope: None,
                 rubric: None,
+                allow_write: false,
                 expect: EvalExpectation {
                     stop_reason: StopReason::Completed,
                     answer_status: AnswerStatus::Completed,
@@ -1822,6 +1869,7 @@ mod tests {
                         required_sources: vec!["source-a".into(), "source-b".into()],
                         required_claim_statuses: vec![ClaimStatus::Verified],
                     }),
+                    allow_write: false,
                     expect: EvalExpectation {
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Conditional,
@@ -1844,6 +1892,7 @@ mod tests {
                     setup_files: Vec::new(),
                     experience_scope: None,
                     rubric: None,
+                    allow_write: false,
                     expect: EvalExpectation {
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Conditional,
@@ -1875,6 +1924,7 @@ mod tests {
                         required_sources: vec!["evidence.txt".into()],
                         required_claim_statuses: vec![ClaimStatus::Verified],
                     }),
+                    allow_write: false,
                     expect: EvalExpectation {
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Completed,
@@ -2183,6 +2233,7 @@ mod tests {
                     setup_files: Vec::new(),
                     experience_scope: Some("repository decisions".into()),
                     rubric: None,
+                    allow_write: false,
                     expect: EvalExpectation {
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Completed,
@@ -2275,5 +2326,38 @@ mod tests {
         assert_eq!(report.verification.case_ids, vec!["heldout-1"]);
         assert_eq!(report.verification.suite_sha256.len(), 64);
         let ExperienceVerificationInput { .. } = report.verification;
+    }
+
+    #[test]
+    fn shipped_real_task_suite_is_structurally_valid() {
+        let suite: EvalSuite = serde_json::from_str(include_str!("../evals/real-tasks-v1.json"))
+            .expect("real-task suite must parse");
+        validate_suite(&suite).unwrap();
+        assert_eq!(suite.kind, EvalSuiteKind::ModelQuality);
+        assert_eq!(suite.execution_status, EvalExecutionStatus::Ready);
+        assert_eq!(suite.cases.len(), 8);
+        assert!(
+            suite.cases.iter().filter(|case| case.allow_write).count() >= 4,
+            "real tasks must be able to opt into writes"
+        );
+    }
+
+    #[test]
+    fn validate_suite_rejects_duplicate_ids_and_empty_objectives() {
+        let mut suite: EvalSuite =
+            serde_json::from_str(include_str!("../evals/real-tasks-v1.json")).unwrap();
+        suite.cases[1].id = suite.cases[0].id.clone();
+        assert!(matches!(
+            validate_suite(&suite),
+            Err(EvalError::InvalidSuite(_))
+        ));
+
+        let mut suite: EvalSuite =
+            serde_json::from_str(include_str!("../evals/real-tasks-v1.json")).unwrap();
+        suite.cases[0].objective = "   ".into();
+        assert!(matches!(
+            validate_suite(&suite),
+            Err(EvalError::InvalidSuite(_))
+        ));
     }
 }

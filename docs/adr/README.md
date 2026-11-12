@@ -124,3 +124,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0118 | Runtime Kill Switch | [0118-runtime-kill-switch.md](0118-runtime-kill-switch.md) |
 | 0119 | Clarify Batch Panel State Machine | [0119-clarify-panel-state-machine.md](0119-clarify-panel-state-machine.md) |
 | 0120 | CI Matrix | [0120-ci-matrix.md](0120-ci-matrix.md) |
+| 0121 | Real-Task Suite and Validate-Only Eval | [0121-real-task-suite.md](0121-real-task-suite.md) |

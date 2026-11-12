@@ -247,6 +247,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   authorization, honest refusal, missing/directory failure, hidden/zero-width controls,
   sleep/honesty). `tests/eval_repeatability_cli.rs` compares verdicts across two runs; the
   report digest includes per-case duration and is not byte-identical.
+- Real-task suite: `evals/real-tasks-v1.json` declares eight `model_quality` tasks (bug fix,
+  config, data, research, long plan, invalid input, checksum, directory summary). `EvalCase.
+  allow_write` gives a case explicit write permission (default false), and `validate_suite` /
+  `1agent eval --validate-only` check structure, metadata, unique ids and rubric terms without
+  running a model. Structural validity is not M1/M2/M3 evidence.
 - Answer-quality board: `AnswerQualitySample` and `summarize_answer_quality` project M19–M23
   (first-answer usable, pairwise win with ties excluded, over-structure, unnecessary follow-up,
   follow-up adoption) from caller-supplied JSONL. `1agent answer-quality --input PATH` exposes
