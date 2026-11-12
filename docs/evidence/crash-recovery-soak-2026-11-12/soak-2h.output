@@ -1,0 +1,467 @@
+recovery soak: profile=release cycles=5 seconds=7200
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling cfg-if v1.0.5
+   Compiling stable_deref_trait v1.2.1
+   Compiling itoa v1.0.18
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.4
+   Compiling futures-core v0.3.34
+   Compiling bytes v1.12.1
+   Compiling pin-project-lite v0.2.17
+   Compiling bitflags v2.13.2
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling heck v0.5.0
+   Compiling icu_normalizer_data v2.4.0
+   Compiling once_cell v1.21.4
+   Compiling icu_properties_data v2.4.0
+   Compiling utf8_iter v1.0.4
+   Compiling rustversion v1.0.23
+   Compiling allocator-api2 v0.2.21
+   Compiling equivalent v1.0.3
+   Compiling ryu v1.0.23
+   Compiling futures-task v0.3.34
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling version_check v0.9.5
+   Compiling foldhash v0.2.0
+   Compiling zeroize v1.9.1
+   Compiling percent-encoding v2.3.2
+   Compiling thiserror v2.0.21
+   Compiling slab v0.4.12
+   Compiling serde_core v1.0.229
+   Compiling httparse v1.10.1
+   Compiling parking_lot_core v0.9.12
+   Compiling rustls-pki-types v1.15.1
+   Compiling either v1.19.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling signal-hook v0.3.18
+   Compiling cc v1.10.0
+   Compiling untrusted v0.9.0
+   Compiling rustix v1.1.6
+   Compiling unicode-width v0.2.2
+   Compiling try-lock v0.2.5
+   Compiling static_assertions v1.1.0
+   Compiling tower-service v0.3.3
+   Compiling scopeguard v1.2.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling typenum v1.20.1
+   Compiling rustls v0.23.46
+   Compiling want v0.3.2
+   Compiling tracing-core v0.1.36
+   Compiling form_urlencoded v1.2.2
+   Compiling lock_api v0.4.14
+   Compiling zmij v1.0.23
+   Compiling critical-section v1.2.0
+   Compiling atomic-waker v1.1.2
+   Compiling getrandom v0.4.3
+   Compiling generic-array v0.14.7
+   Compiling utf8parse v0.2.2
+   Compiling indoc v2.0.8
+   Compiling itertools v0.14.0
+   Compiling serde v1.0.229
+   Compiling subtle v2.6.1
+   Compiling litrs v1.0.1
+   Compiling anstyle-parse v1.0.0
+   Compiling futures-channel v0.3.34
+   Compiling sync_wrapper v1.0.2
+   Compiling hashbrown v0.17.1
+   Compiling anstyle-query v1.1.5
+   Compiling colorchoice v1.0.5
+   Compiling base64 v0.23.1
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.2
+   Compiling anstyle v1.0.14
+   Compiling serde_json v1.0.154
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling line-clipping v0.3.8
+   Compiling anyhow v1.0.104
+   Compiling clap_lex v1.1.1
+   Compiling memchr v2.8.3
+   Compiling futures-sink v0.3.34
+   Compiling fastrand v2.5.0
+   Compiling base64 v0.22.1
+   Compiling convert_case v0.10.0
+   Compiling anstream v1.0.0
+   Compiling webpki-roots v1.0.10
+   Compiling cpufeatures v0.2.17
+   Compiling http v1.5.0
+   Compiling hex v0.4.3
+   Compiling tracing v0.1.44
+   Compiling castaway v0.2.4
+   Compiling document-features v0.2.12
+   Compiling compact_str v0.9.1
+   Compiling clap_builder v4.6.7
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling lru v0.18.5
+   Compiling errno v0.3.14
+   Compiling mio v1.2.4
+   Compiling socket2 v0.6.5
+   Compiling getrandom v0.2.17
+   Compiling http-body v1.1.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling ring v0.17.14
+   Compiling http-body-util v0.1.5
+   Compiling parking_lot v0.12.5
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling signal-hook-mio v0.2.5
+   Compiling sha2 v0.10.9
+   Compiling unicode-truncate v2.0.1
+   Compiling tempfile v3.27.0
+   Compiling strum_macros v0.28.0
+   Compiling derive_more-impl v2.1.1
+   Compiling uuid v1.29.0
+   Compiling derive_more v2.1.1
+   Compiling crossterm v0.29.0
+   Compiling strum v0.28.0
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.7
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling futures-macro v0.3.34
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.7
+   Compiling async-trait v0.1.92
+   Compiling tokio v1.54.1
+   Compiling futures-util v0.3.34
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.4
+   Compiling kasuari v0.4.13
+   Compiling darling_macro v0.24.1
+   Compiling zerovec v0.11.9
+   Compiling zerotrie v0.2.5
+   Compiling clap v4.6.7
+   Compiling ratatui-core v0.1.2
+   Compiling darling v0.24.1
+   Compiling tinystr v0.8.5
+   Compiling potential_utf v0.1.6
+   Compiling instability v0.3.14
+   Compiling icu_collections v2.4.0
+   Compiling icu_locale_core v2.4.0
+   Compiling ratatui-widgets v0.3.2
+   Compiling ratatui-crossterm v0.1.2
+   Compiling serde_urlencoded v0.7.1
+   Compiling icu_provider v2.4.0
+   Compiling icu_normalizer v2.4.0
+   Compiling icu_properties v2.4.0
+   Compiling ratatui v0.30.2
+   Compiling rustls-webpki v0.103.16
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling hyper v1.12.0
+   Compiling tower v0.5.3
+   Compiling tokio-util v0.7.20
+   Compiling tower-http v0.6.11
+   Compiling hyper-util v0.1.21
+   Compiling tokio-rustls v0.26.6
+   Compiling hyper-rustls v0.27.10
+   Compiling reqwest v0.12.28
+   Compiling first-principles-agent v0.96.1 (/home/skynet/1-agent)
+    Finished `release` profile [optimized] target(s) in 1m 55s
+     Running tests/recovery_soak.rs (target/release/deps/recovery_soak-15a68c246760831c)
+
+running 1 test
+recovery soak: 100 cycles in 24.94652345s
+recovery soak: 200 cycles in 50.153722019s
+test crash_injection_resumes_cleanly_or_fails_closed has been running for over 60 seconds
+recovery soak: 300 cycles in 75.356178068s
+recovery soak: 400 cycles in 100.554239376s
+recovery soak: 500 cycles in 125.760983024s
+recovery soak: 600 cycles in 150.954034736s
+recovery soak: 700 cycles in 176.171705886s
+recovery soak: 800 cycles in 201.40737055s
+recovery soak: 900 cycles in 226.621512496s
+recovery soak: 1000 cycles in 251.824363739s
+recovery soak: 1100 cycles in 277.029046742s
+recovery soak: 1200 cycles in 302.230791826s
+recovery soak: 1300 cycles in 327.429372176s
+recovery soak: 1400 cycles in 352.623629669s
+recovery soak: 1500 cycles in 377.818563621s
+recovery soak: 1600 cycles in 403.049884991s
+recovery soak: 1700 cycles in 428.24855876s
+recovery soak: 1800 cycles in 453.462336116s
+recovery soak: 1900 cycles in 478.712874207s
+recovery soak: 2000 cycles in 503.916063979s
+recovery soak: 2100 cycles in 529.154602379s
+recovery soak: 2200 cycles in 554.401941423s
+recovery soak: 2300 cycles in 579.599790317s
+recovery soak: 2400 cycles in 604.800941575s
+recovery soak: 2500 cycles in 630.033702033s
+recovery soak: 2600 cycles in 655.29611559s
+recovery soak: 2700 cycles in 680.485129257s
+recovery soak: 2800 cycles in 705.678506814s
+recovery soak: 2900 cycles in 730.894413829s
+recovery soak: 3000 cycles in 756.093503433s
+recovery soak: 3100 cycles in 781.299858023s
+recovery soak: 3200 cycles in 806.548145736s
+recovery soak: 3300 cycles in 831.786277057s
+recovery soak: 3400 cycles in 856.98739733s
+recovery soak: 3500 cycles in 882.184611125s
+recovery soak: 3600 cycles in 907.404966091s
+recovery soak: 3700 cycles in 932.598475331s
+recovery soak: 3800 cycles in 957.805647665s
+recovery soak: 3900 cycles in 982.996626975s
+recovery soak: 4000 cycles in 1008.191638763s
+recovery soak: 4100 cycles in 1033.386782312s
+recovery soak: 4200 cycles in 1058.582702685s
+recovery soak: 4300 cycles in 1083.794204921s
+recovery soak: 4400 cycles in 1108.993563817s
+recovery soak: 4500 cycles in 1134.183585226s
+recovery soak: 4600 cycles in 1159.416050315s
+recovery soak: 4700 cycles in 1184.6863342s
+recovery soak: 4800 cycles in 1209.899692995s
+recovery soak: 4900 cycles in 1235.142909253s
+recovery soak: 5000 cycles in 1260.373310868s
+recovery soak: 5100 cycles in 1285.556788667s
+recovery soak: 5200 cycles in 1310.754565155s
+recovery soak: 5300 cycles in 1335.978636554s
+recovery soak: 5400 cycles in 1361.24038449s
+recovery soak: 5500 cycles in 1386.482487151s
+recovery soak: 5600 cycles in 1411.712466768s
+recovery soak: 5700 cycles in 1436.935419595s
+recovery soak: 5800 cycles in 1462.200373877s
+recovery soak: 5900 cycles in 1487.436547411s
+recovery soak: 6000 cycles in 1512.650591902s
+recovery soak: 6100 cycles in 1537.888212449s
+recovery soak: 6200 cycles in 1563.129373971s
+recovery soak: 6300 cycles in 1588.353751843s
+recovery soak: 6400 cycles in 1613.563741792s
+recovery soak: 6500 cycles in 1638.795582743s
+recovery soak: 6600 cycles in 1664.034463472s
+recovery soak: 6700 cycles in 1689.265504528s
+recovery soak: 6800 cycles in 1714.508461817s
+recovery soak: 6900 cycles in 1739.722273715s
+recovery soak: 7000 cycles in 1764.973818796s
+recovery soak: 7100 cycles in 1790.196434284s
+recovery soak: 7200 cycles in 1815.394003662s
+recovery soak: 7300 cycles in 1840.611754751s
+recovery soak: 7400 cycles in 1865.818522964s
+recovery soak: 7500 cycles in 1891.042331642s
+recovery soak: 7600 cycles in 1916.26270355s
+recovery soak: 7700 cycles in 1941.474259474s
+recovery soak: 7800 cycles in 1966.741548582s
+recovery soak: 7900 cycles in 1991.976376137s
+recovery soak: 8000 cycles in 2017.194097616s
+recovery soak: 8100 cycles in 2042.410841516s
+recovery soak: 8200 cycles in 2067.611468902s
+recovery soak: 8300 cycles in 2092.832307581s
+recovery soak: 8400 cycles in 2118.056399918s
+recovery soak: 8500 cycles in 2143.256338304s
+recovery soak: 8600 cycles in 2168.452496177s
+recovery soak: 8700 cycles in 2193.673793892s
+recovery soak: 8800 cycles in 2218.893429441s
+recovery soak: 8900 cycles in 2244.129578709s
+recovery soak: 9000 cycles in 2269.33063443s
+recovery soak: 9100 cycles in 2294.557986972s
+recovery soak: 9200 cycles in 2319.778123756s
+recovery soak: 9300 cycles in 2345.000033409s
+recovery soak: 9400 cycles in 2370.202598259s
+recovery soak: 9500 cycles in 2395.400758765s
+recovery soak: 9600 cycles in 2420.603010522s
+recovery soak: 9700 cycles in 2445.848759934s
+recovery soak: 9800 cycles in 2471.07037452s
+recovery soak: 9900 cycles in 2496.273553351s
+recovery soak: 10000 cycles in 2521.474553181s
+recovery soak: 10100 cycles in 2546.687321381s
+recovery soak: 10200 cycles in 2571.889552693s
+recovery soak: 10300 cycles in 2597.097597599s
+recovery soak: 10400 cycles in 2622.327387034s
+recovery soak: 10500 cycles in 2647.574886282s
+recovery soak: 10600 cycles in 2672.795680955s
+recovery soak: 10700 cycles in 2698.039507543s
+recovery soak: 10800 cycles in 2723.243027662s
+recovery soak: 10900 cycles in 2748.459089828s
+recovery soak: 11000 cycles in 2773.659450326s
+recovery soak: 11100 cycles in 2798.879428463s
+recovery soak: 11200 cycles in 2824.085172547s
+recovery soak: 11300 cycles in 2849.292818839s
+recovery soak: 11400 cycles in 2874.489156097s
+recovery soak: 11500 cycles in 2899.722865081s
+recovery soak: 11600 cycles in 2924.932862921s
+recovery soak: 11700 cycles in 2950.159545217s
+recovery soak: 11800 cycles in 2975.367678954s
+recovery soak: 11900 cycles in 3000.575435348s
+recovery soak: 12000 cycles in 3025.778441465s
+recovery soak: 12100 cycles in 3050.981716151s
+recovery soak: 12200 cycles in 3076.176210853s
+recovery soak: 12300 cycles in 3101.382550753s
+recovery soak: 12400 cycles in 3126.579460924s
+recovery soak: 12500 cycles in 3151.778880981s
+recovery soak: 12600 cycles in 3177.008839393s
+recovery soak: 12700 cycles in 3202.218625774s
+recovery soak: 12800 cycles in 3227.422657027s
+recovery soak: 12900 cycles in 3252.630049407s
+recovery soak: 13000 cycles in 3277.854490221s
+recovery soak: 13100 cycles in 3303.059720783s
+recovery soak: 13200 cycles in 3328.280169593s
+recovery soak: 13300 cycles in 3353.502462975s
+recovery soak: 13400 cycles in 3378.706494308s
+recovery soak: 13500 cycles in 3403.913035112s
+recovery soak: 13600 cycles in 3429.112965132s
+recovery soak: 13700 cycles in 3454.335442521s
+recovery soak: 13800 cycles in 3479.564684991s
+recovery soak: 13900 cycles in 3504.772738981s
+recovery soak: 14000 cycles in 3529.979828042s
+recovery soak: 14100 cycles in 3555.179373757s
+recovery soak: 14200 cycles in 3580.420108417s
+recovery soak: 14300 cycles in 3605.619792262s
+recovery soak: 14400 cycles in 3630.816517691s
+recovery soak: 14500 cycles in 3656.02455135s
+recovery soak: 14600 cycles in 3681.250579971s
+recovery soak: 14700 cycles in 3706.472704248s
+recovery soak: 14800 cycles in 3731.693448006s
+recovery soak: 14900 cycles in 3756.90543588s
+recovery soak: 15000 cycles in 3782.096311701s
+recovery soak: 15100 cycles in 3807.28875675s
+recovery soak: 15200 cycles in 3832.524816715s
+recovery soak: 15300 cycles in 3857.729433165s
+recovery soak: 15400 cycles in 3882.931225288s
+recovery soak: 15500 cycles in 3908.147489119s
+recovery soak: 15600 cycles in 3933.375286083s
+recovery soak: 15700 cycles in 3958.578638202s
+recovery soak: 15800 cycles in 3983.792831446s
+recovery soak: 15900 cycles in 4008.994251077s
+recovery soak: 16000 cycles in 4034.210411977s
+recovery soak: 16100 cycles in 4059.412664055s
+recovery soak: 16200 cycles in 4084.618408531s
+recovery soak: 16300 cycles in 4109.826459286s
+recovery soak: 16400 cycles in 4135.024396771s
+recovery soak: 16500 cycles in 4160.231992103s
+recovery soak: 16600 cycles in 4185.44521507s
+recovery soak: 16700 cycles in 4210.648920904s
+recovery soak: 16800 cycles in 4235.880400296s
+recovery soak: 16900 cycles in 4261.083620467s
+recovery soak: 17000 cycles in 4286.291586291s
+recovery soak: 17100 cycles in 4311.497251914s
+recovery soak: 17200 cycles in 4336.696049805s
+recovery soak: 17300 cycles in 4361.924895722s
+recovery soak: 17400 cycles in 4387.143064079s
+recovery soak: 17500 cycles in 4412.347567842s
+recovery soak: 17600 cycles in 4437.570618628s
+recovery soak: 17700 cycles in 4462.790390447s
+recovery soak: 17800 cycles in 4488.018885379s
+recovery soak: 17900 cycles in 4513.220227148s
+recovery soak: 18000 cycles in 4538.418893276s
+recovery soak: 18100 cycles in 4563.621080781s
+recovery soak: 18200 cycles in 4588.82533996s
+recovery soak: 18300 cycles in 4614.030488478s
+recovery soak: 18400 cycles in 4639.241426887s
+recovery soak: 18500 cycles in 4664.470771858s
+recovery soak: 18600 cycles in 4689.668336365s
+recovery soak: 18700 cycles in 4714.887127047s
+recovery soak: 18800 cycles in 4740.104010717s
+recovery soak: 18900 cycles in 4765.32011144s
+recovery soak: 19000 cycles in 4790.520645496s
+recovery soak: 19100 cycles in 4815.751162601s
+recovery soak: 19200 cycles in 4840.96045619s
+recovery soak: 19300 cycles in 4866.174280565s
+recovery soak: 19400 cycles in 4891.373010685s
+recovery soak: 19500 cycles in 4916.597753141s
+recovery soak: 19600 cycles in 4941.800712831s
+recovery soak: 19700 cycles in 4967.00445301s
+recovery soak: 19800 cycles in 4992.232011273s
+recovery soak: 19900 cycles in 5017.450087256s
+recovery soak: 20000 cycles in 5042.676548139s
+recovery soak: 20100 cycles in 5067.929991345s
+recovery soak: 20200 cycles in 5093.153901049s
+recovery soak: 20300 cycles in 5118.3678247s
+recovery soak: 20400 cycles in 5143.577685537s
+recovery soak: 20500 cycles in 5168.799574173s
+recovery soak: 20600 cycles in 5194.046882692s
+recovery soak: 20700 cycles in 5219.249521988s
+recovery soak: 20800 cycles in 5244.458638308s
+recovery soak: 20900 cycles in 5269.693625968s
+recovery soak: 21000 cycles in 5294.923501127s
+recovery soak: 21100 cycles in 5320.141545292s
+recovery soak: 21200 cycles in 5345.362925498s
+recovery soak: 21300 cycles in 5370.641741969s
+recovery soak: 21400 cycles in 5395.888600038s
+recovery soak: 21500 cycles in 5421.119522091s
+recovery soak: 21600 cycles in 5446.330024673s
+recovery soak: 21700 cycles in 5471.556467001s
+recovery soak: 21800 cycles in 5496.80176631s
+recovery soak: 21900 cycles in 5522.028465946s
+recovery soak: 22000 cycles in 5547.246023197s
+recovery soak: 22100 cycles in 5572.466447777s
+recovery soak: 22200 cycles in 5597.671633595s
+recovery soak: 22300 cycles in 5622.876104893s
+recovery soak: 22400 cycles in 5648.101960454s
+recovery soak: 22500 cycles in 5673.317501499s
+recovery soak: 22600 cycles in 5698.523517826s
+recovery soak: 22700 cycles in 5723.740734471s
+recovery soak: 22800 cycles in 5748.949418271s
+recovery soak: 22900 cycles in 5774.149389393s
+recovery soak: 23000 cycles in 5799.350346994s
+recovery soak: 23100 cycles in 5824.55113057s
+recovery soak: 23200 cycles in 5849.7620847s
+recovery soak: 23300 cycles in 5874.986887579s
+recovery soak: 23400 cycles in 5900.196725042s
+recovery soak: 23500 cycles in 5925.408169433s
+recovery soak: 23600 cycles in 5950.727035984s
+recovery soak: 23700 cycles in 5975.947231841s
+recovery soak: 23800 cycles in 6001.166713845s
+recovery soak: 23900 cycles in 6026.420899812s
+recovery soak: 24000 cycles in 6051.660428078s
+recovery soak: 24100 cycles in 6076.876622494s
+recovery soak: 24200 cycles in 6102.071118343s
+recovery soak: 24300 cycles in 6127.284644969s
+recovery soak: 24400 cycles in 6152.508343588s
+recovery soak: 24500 cycles in 6177.725513952s
+recovery soak: 24600 cycles in 6202.977574952s
+recovery soak: 24700 cycles in 6228.179232719s
+recovery soak: 24800 cycles in 6253.387492672s
+recovery soak: 24900 cycles in 6278.599533866s
+recovery soak: 25000 cycles in 6303.819514668s
+recovery soak: 25100 cycles in 6329.046718158s
+recovery soak: 25200 cycles in 6354.24347501s
+recovery soak: 25300 cycles in 6379.468195198s
+recovery soak: 25400 cycles in 6404.666557951s
+recovery soak: 25500 cycles in 6429.876248081s
+recovery soak: 25600 cycles in 6455.087436309s
+recovery soak: 25700 cycles in 6480.347100273s
+recovery soak: 25800 cycles in 6505.570277365s
+recovery soak: 25900 cycles in 6530.767656203s
+recovery soak: 26000 cycles in 6555.990420805s
+recovery soak: 26100 cycles in 6581.191602521s
+recovery soak: 26200 cycles in 6606.42258974s
+recovery soak: 26300 cycles in 6631.648204522s
+recovery soak: 26400 cycles in 6656.899598558s
+recovery soak: 26500 cycles in 6682.098035538s
+recovery soak: 26600 cycles in 6707.345056616s
+recovery soak: 26700 cycles in 6732.604065045s
+recovery soak: 26800 cycles in 6757.858418589s
+recovery soak: 26900 cycles in 6783.082376995s
+recovery soak: 27000 cycles in 6808.328534255s
+recovery soak: 27100 cycles in 6833.535853504s
+recovery soak: 27200 cycles in 6858.828385657s
+recovery soak: 27300 cycles in 6884.04131043s
+recovery soak: 27400 cycles in 6909.257879324s
+recovery soak: 27500 cycles in 6934.463124288s
+recovery soak: 27600 cycles in 6959.663758605s
+recovery soak: 27700 cycles in 6984.938641735s
+recovery soak: 27800 cycles in 7010.17729534s
+recovery soak: 27900 cycles in 7035.458511847s
+recovery soak: 28000 cycles in 7060.681807311s
+recovery soak: 28100 cycles in 7085.891919925s
+recovery soak: 28200 cycles in 7111.115426235s
+recovery soak: 28300 cycles in 7136.347121103s
+recovery soak: 28400 cycles in 7161.566801351s
+recovery soak: 28500 cycles in 7186.805455863s
+recovery soak: 28552 cycles in 7200.197629806s
+test crash_injection_resumes_cleanly_or_fails_closed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7200.20s
+

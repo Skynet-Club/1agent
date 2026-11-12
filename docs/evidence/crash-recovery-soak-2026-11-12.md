@@ -1,6 +1,6 @@
 # Crash-Recovery Soak — Evidence (2026-11-12)
 
-Status: **5-cycle smoke passed; 2h run reported completed, raw output lost; rerun in progress**
+Status: **5-cycle smoke passed; 2h rerun passed with raw output**
 Scope: crash injection at checkpoint/tool-call boundaries, resume, and
 duplicate-side-effect avoidance.
 
@@ -45,7 +45,25 @@ two-hour gate.
 
 A fresh 2h soak was submitted at 2026-11-12 20:19 as job
 `job-1794485959622-2245-1` (release profile, `SOAK_RECOVERY_SECONDS=7200`,
-timeout 7800s). Its raw output will be appended when it completes.
+timeout 7800s). It finished at 22:21 CST with **exit 0**, wall clock 7315.4s:
+
+```text
+recovery soak: 28552 cycles in 7200.197629806s
+test crash_injection_resumes_cleanly_or_fails_closed ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7200.20s
+```
+
+Raw output (19,139 bytes, sha256
+`282a51e51bd3f4610f0c1812718e669caed7fcd6c090a4a61a389d8c0bec2110`):
+
+```text
+docs/evidence/crash-recovery-soak-2026-11-12/soak-2h.output
+```
+
+The soak binary was built at 20:19 from the tree based on `7d12f0d`, before
+the later model-request-delta, TUI-unslop and Clarify commits. Those changes do
+not touch checkpoint, resume or tool-pairing code, so M4's recovery path is
+unchanged; release evidence should still name the base commit.
 
 ## What this does not prove
 
@@ -55,4 +73,5 @@ timeout 7800s). Its raw output will be appended when it completes.
   prefixes.
 - That the first 2h run's raw output existed at review time; only the
   completion signal survives.
-- That the rerun has passed yet; it is in progress.
+- Real-crash telemetry: the rerun is a deterministic injection loop, not a
+  sample of organic crashes.
