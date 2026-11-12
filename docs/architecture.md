@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Memory recall explainability: `1agent memory recall --query TEXT [--bot-id ID]` prints each
+  hit's score, layer/kind/content, source event, taint, confidence, validity and scope; output
+  may contain decrypted memory content and must not be piped to shared logs.
 - Benchmark runner: `1agent benchmark-run --suite PATH --runs N` executes a suite N times and
   feeds completion/crash-free/structural-replay samples to the existing benchmark gate. A process
   abort is not a sample; contract fixtures are not model-quality evidence.

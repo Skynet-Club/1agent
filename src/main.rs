@@ -1620,6 +1620,22 @@ enum TaskGraphCommand {
 
 #[derive(Subcommand)]
 enum MemoryCommand {
+    Recall {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        key: PathBuf,
+        #[arg(long)]
+        query: String,
+        #[arg(long, default_value = "bot-1")]
+        bot_id: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     Consolidate {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -6693,6 +6709,60 @@ async fn main() -> Result<()> {
             }
         },
         Command::Memory { command } => match command {
+            MemoryCommand::Recall {
+                journal,
+                payloads,
+                key,
+                query,
+                bot_id,
+                limit,
+                json,
+            } => {
+                if query.trim().is_empty() {
+                    anyhow::bail!("query must not be empty");
+                }
+                let service = first_principles_agent::MemoryService::open(journal, payloads, &key)?;
+                let scope = first_principles_agent::MemoryScope::bot(bot_id);
+                let hits = service.recall(&query, &scope, current_time_ms(), limit.clamp(1, 100));
+                if json {
+                    let hits = hits
+                        .iter()
+                        .map(|hit| {
+                            serde_json::json!({
+                                "score": hit.score,
+                                "record": hit.record,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "query": query,
+                            "scope": scope,
+                            "hits": hits,
+                        }))?
+                    );
+                } else if hits.is_empty() {
+                    println!("no memory hits");
+                } else {
+                    for hit in hits {
+                        let record = &hit.record;
+                        println!(
+                            "- score={} {:?}/{:?} {} (source={:?}:{}, taint={:?}, confidence={}, valid_from={}, valid_to={:?})",
+                            hit.score,
+                            record.layer,
+                            record.kind,
+                            record.content.lines().next().unwrap_or(""),
+                            record.source.kind,
+                            record.source.event_id,
+                            record.taint,
+                            record.confidence,
+                            record.valid_from_ms,
+                            record.valid_to_ms
+                        );
+                    }
+                }
+            }
             MemoryCommand::Consolidate {
                 journal,
                 payloads,
