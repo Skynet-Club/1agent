@@ -26,9 +26,15 @@ callers.
    with the sample count and state. With `--apply`, a promote activates the
    candidate; a rollback restores the baseline when one exists. A pending
    decision is a no-op and leaves the active version unchanged.
-5. The command does not collect live traffic or persist canary state. The
-   caller supplies the sample file for that invocation; each invocation
-   recomputes the decision. This is a gate, not an observability system.
+5. `1agent run --canary-sample PATH` appends one sample per run after the run
+   finishes: `success` is true only when the run stops with `Completed`, and
+   `latency_ms` is the wall-clock duration. The line contains no task text or
+   output. Appending is create-if-missing and never overwrites; a write failure
+   prints a warning after the run rather than discarding the run result.
+6. The canary command itself does not collect live traffic or persist canary
+   state. The caller supplies the sample file for that invocation; each
+   invocation recomputes the decision. This is a gate, not an observability
+   system.
 
 ## Consequences
 
@@ -39,7 +45,14 @@ callers.
 - Without a baseline, a rollback decision marks the canary rolled back but
   cannot restore a previous active version.
 - Canary state is not persisted between invocations; the sample file is the
-  record. A future live canary should journal samples and state.
+  record. `run --canary-sample` makes that file easy to collect from real
+  runs, but it still does not journal canary decisions or automatically
+  promote.
+- `success` means the run stopped `Completed`. A run that stops
+  `NeedsEvidence` or `NeedsAuthorization` counts as a failed canary sample,
+  which is deliberate but may be strict for exploratory tasks.
+- A sample write failure does not fail the run; the warning is the only
+  signal.
 
 ## Evidence
 
