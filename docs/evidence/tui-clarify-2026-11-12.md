@@ -36,6 +36,17 @@ docs/evidence/tui-clarify-2026-11-12/submitted-100x30.txt
 - The resolved round is stored in `TuiState::last_clarify`, displayed once in
   the transcript and written as JSON to `/details`.
 
+## Model-initiated tool
+
+The interactive TUI registers `ClarifyTool`; the model calls it with 1–5
+questions and receives the resolved round as a JSON tool observation. The
+tool timeout is 310 s, so the panel's 300 s expiry wins. Line and headless
+modes do not register the tool.
+
+A real PTY run asked the model to call `clarify` once, answered the panel, and
+the model continued to a final answer. Capture:
+`docs/evidence/tui-clarify-tool-2026-11-12.txt`.
+
 ## Validation
 
 ```bash

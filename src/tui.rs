@@ -1456,6 +1456,14 @@ impl TuiState {
         self.last_clarify.as_ref()
     }
 
+    pub fn take_last_clarify(&mut self) -> Option<TuiClarifyResult> {
+        self.last_clarify.take()
+    }
+
+    pub fn close_clarify(&mut self) {
+        self.clarify = None;
+    }
+
     pub fn handle_clarify_input(&mut self, input: TuiInput, now_ms: u128) -> bool {
         let step = match self.clarify.as_mut() {
             Some(clarify) => clarify.handle_input(input, now_ms),

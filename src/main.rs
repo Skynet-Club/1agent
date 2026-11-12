@@ -12201,7 +12201,11 @@ async fn run_tui(
         planning_provider,
     };
     if interactive_terminal_available() {
-        run_tui_interactive(runtime, state, settings, session).await
+        let (clarify_sender, clarify_receiver) = tokio::sync::mpsc::unbounded_channel();
+        runtime.register_tool(Arc::new(
+            first_principles_agent::tui_clarify::ClarifyTool::new(clarify_sender),
+        ));
+        run_tui_interactive(runtime, state, settings, session, clarify_receiver).await
     } else {
         run_tui_line_mode(&mut runtime, &mut state, &mut settings, &mut session).await
     }
@@ -16961,6 +16965,9 @@ async fn run_tui_interactive(
     mut state: TuiState,
     mut settings: TuiRunSettings,
     mut session: TuiSession,
+    mut clarify_receiver: tokio::sync::mpsc::UnboundedReceiver<
+        first_principles_agent::tui_clarify::ClarifyToolRequest,
+    >,
 ) -> Result<()> {
     let mut terminal = TerminalSession::enter().context("cannot initialize terminal")?;
     let mut inputs = spawn_input_reader();
@@ -17317,6 +17324,7 @@ async fn run_tui_interactive(
                                     &mut state,
                                     &mut terminal,
                                     &mut inputs,
+                                    &mut clarify_receiver,
                                     &mut session,
                                     request,
                                     Some(mode),
@@ -17452,6 +17460,7 @@ async fn run_tui_interactive(
                                         &mut state,
                                         &mut terminal,
                                         &mut inputs,
+                                        &mut clarify_receiver,
                                         &mut session,
                                         request,
                                         Some(mode),
@@ -17524,6 +17533,7 @@ async fn run_tui_interactive(
                             &mut state,
                             &mut terminal,
                             &mut inputs,
+                            &mut clarify_receiver,
                             &mut session,
                             request,
                             Some(mode),
@@ -17550,11 +17560,15 @@ async fn run_tui_interactive(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_tui_task(
     runtime: &mut AgentRuntime,
     state: &mut TuiState,
     terminal: &mut TerminalSession,
     inputs: &mut tokio::sync::mpsc::UnboundedReceiver<TuiInput>,
+    clarify_receiver: &mut tokio::sync::mpsc::UnboundedReceiver<
+        first_principles_agent::tui_clarify::ClarifyToolRequest,
+    >,
     session: &mut TuiSession,
     request: TaskRequest,
     requested_mode: Option<CognitiveMode>,
@@ -17577,10 +17591,19 @@ async fn run_tui_task(
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     ticker.tick().await;
     let mut quit_after_run = false;
+    let mut pending_clarify: Option<
+        tokio::sync::oneshot::Sender<
+            Result<first_principles_agent::tui_clarify::TuiClarifyResult, String>,
+        >,
+    > = None;
 
     loop {
         tokio::select! {
             result = &mut run => {
+                if let Some(response) = pending_clarify.take() {
+                    let _ = response.send(Err("run ended before clarify completed".into()));
+                }
+                state.close_clarify();
                 if let Some((path, _, last_seq)) = active_journal.as_mut() {
                     append_work_events(state, path, last_seq);
                 }
@@ -17601,7 +17624,54 @@ async fn run_tui_task(
                 }
                 return Ok(quit_after_run);
             }
+            request = clarify_receiver.recv() => {
+                if let Some(request) = request {
+                    if pending_clarify.is_some() || state.clarify_open() {
+                        let _ = request
+                            .response
+                            .send(Err("another clarify panel is already open".into()));
+                    } else {
+                        match first_principles_agent::clarify::ClarifyPanel::new(
+                            request.questions,
+                            now_unix_ms(),
+                        ) {
+                            Ok(panel) => {
+                                pending_clarify = Some(request.response);
+                                state.open_clarify(panel);
+                            }
+                            Err(error) => {
+                                let _ = request.response.send(Err(error.to_string()));
+                            }
+                        }
+                    }
+                }
+                draw_tui_frame(terminal, state)?;
+                continue;
+            }
             input = inputs.recv() => {
+                if state.clarify_open() && !state.quit_requested() {
+                    match input {
+                        Some(event) => {
+                            state.handle_clarify_input(event, now_unix_ms());
+                        }
+                        None => {
+                            if let Some(response) = pending_clarify.take() {
+                                let _ = response.send(Err("input closed during clarify".into()));
+                            }
+                            state.close_clarify();
+                            quit_after_run = true;
+                            cancellation.cancel();
+                        }
+                    }
+                    if !state.clarify_open()
+                        && let Some(response) = pending_clarify.take()
+                    {
+                        let result = state.take_last_clarify();
+                        let _ = response.send(result.ok_or_else(|| "clarify panel closed".into()));
+                    }
+                    draw_tui_frame(terminal, state)?;
+                    continue;
+                }
                 if let Some(event) = input.as_ref()
                     && state.quit_requested()
                     && !matches!(
