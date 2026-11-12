@@ -61,6 +61,7 @@ file: <路径>              → 文件必须存在
 | 架构边界 RFC：session/harness/sandbox 三接口与 main.rs/tui.rs 拆分计划已记录 | file: docs/rfc/0001-module-boundaries.md | ⚠️ | 本地架构评审；拆分实现未开始 |
 | 本地门禁指标：journal 投影 runs/completed/interrupted、恢复率、结构回放率、压缩回放率、工具成功率、审计完整率、拒绝观测、token/成本、run 延迟；零分母为 null，坏 journal 失败关闭 | cmd: cargo test journal_metrics --lib && cargo test metrics --lib && cargo test --test metrics_cli | ✅ | 结构回放非模型重跑；M6 拒绝观测只是代理；M7 TTFT/M14/M19–M23 未计算 |
 | 旧 journal 兼容：Evidence 时间戳与 ReframeDecided 使用 u64，含时间戳的 tagged event 可读；JSON 数字格式不变 | test: tagged_events_with_evidence_timestamps_round_trip | ✅ | 修复 serde tagged-enum 的 u128 缓冲限制；其它应用层 u128 字段若进入 tagged payload 仍需转换 |
+| TUI 纯文本函数已拆到 `tui_text`（sanitize/fit/wrap/truncate/split），`tui.rs` 重新导出；行为不变 | cmd: cargo test tui_text --lib && ./scripts/tui-interaction-check.sh | ✅ | 仅第一批拆分；transcript/input/command panel/state 与 main.rs 未拆 |
 | 威胁模型：P0/P1 清单、信任边界、缓解与残余缺口已记录 | file: docs/threat-model.md | ⚠️ | 自评，无外部审计；CUA 执行器/运行 journal 哈希链/同 UID 隔离等缺口仍在 |
 | 答案分层：默认只显示状态/结论/信任摘要；conditional、needs_evidence 或高影响未知时内联 ≤3 条依据与全部翻转条件；`--details` 恢复完整字段与路由轨迹 | cmd: cargo test --test cli_e2e default_run_output_is_concise_and_details_expands_it | ✅ | 高风险判定是启发式；低风险答案默认隐藏证据（摘要行给出计数）；TUI 已有 `/details` 与 `/why` |
 | 崩溃注入恢复：从首个 checkpoint 续跑完成且不重放已完成副作用；ToolCalled 未观测或无 checkpoint 的 journal 失败关闭；可配周期/时长 soak | cmd: cargo test --test recovery_soak -- --ignored --nocapture | ✅ | 确定性本地 provider + 单写工具；不代表真实外部副作用/多 Agent 竞争；2h 时长门需单独运行 |
