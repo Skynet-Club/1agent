@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Benchmark gate metrics (ADR-0086): `benchmark::summarize` computes
+  completion, crash-free and replay bps from caller-supplied samples; a
+  crashed sample is excluded from completion and replay. `parse_samples`
+  accepts JSONL and reports the source line on malformed input. Empty,
+  oversized or invalid-threshold input fails closed. Tests: five
+  `benchmark` unit tests.
 - Agent Card disclosure now includes voice forms, skill lifecycle, skill
   capture and Trust Center incident reports. Limits state that capture
   redaction is heuristic and that the static marker suite is not a quality
