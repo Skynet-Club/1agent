@@ -88,4 +88,52 @@ fn metrics_summarize_completed_and_interrupted_journals() {
     assert!(stdout.contains("context latency ms:"), "stdout: {stdout}");
     assert!(stdout.contains("model latency ms:"), "stdout: {stdout}");
     assert!(stdout.contains("tool latency ms:"), "stdout: {stdout}");
+
+    let gate_pass = Command::new(binary)
+        .args([
+            "metrics",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--require-replay-bps",
+            "10000",
+            "--require-audit-complete-bps",
+            "10000",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        gate_pass.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&gate_pass.stderr)
+    );
+
+    let gate_fail = Command::new(binary)
+        .args([
+            "metrics",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--require-recovery-bps",
+            "9500",
+        ])
+        .output()
+        .unwrap();
+    assert!(!gate_fail.status.success());
+    let stderr = String::from_utf8_lossy(&gate_fail.stderr);
+    assert!(
+        stderr.contains("gate violation: recovery_bps"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("observed=None"), "stderr: {stderr}");
+
+    let invalid = Command::new(binary)
+        .args([
+            "metrics",
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--require-replay-bps",
+            "10001",
+        ])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
 }

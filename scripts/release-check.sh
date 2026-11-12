@@ -9,6 +9,29 @@ cd "$ROOT"
 export TMPDIR="${TMPDIR:-$HOME/.cache/1agent-tmp}"
 mkdir -p "$TMPDIR"
 
+metrics_dir=""
+run_soak=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --soak)
+            run_soak=true
+            shift
+            ;;
+        --metrics-dir)
+            metrics_dir="${2:-}"
+            if [[ -z "$metrics_dir" ]]; then
+                echo "release-check: --metrics-dir needs a path" >&2
+                exit 2
+            fi
+            shift 2
+            ;;
+        *)
+            echo "release-check: unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
 echo "== fmt"
 cargo fmt --all --check
 
@@ -27,7 +50,14 @@ echo "== ci"
 echo "== tui interaction"
 ./scripts/tui-interaction-check.sh
 
-if [[ "${1:-}" == "--soak" ]]; then
+if [[ -n "$metrics_dir" ]]; then
+    echo "== metrics gate"
+    ./scripts/gate-check.sh "$metrics_dir"
+else
+    echo "== metrics gate skipped (pass --metrics-dir DIR)"
+fi
+
+if $run_soak; then
     cycles="${SOAK_CYCLES:-5}"
     echo "== soak cycles=$cycles"
     for i in $(seq 1 "$cycles"); do

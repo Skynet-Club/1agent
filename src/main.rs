@@ -239,6 +239,27 @@ enum Command {
         journal_dir: PathBuf,
         #[arg(long)]
         json: bool,
+        /// Fail closed when crash-free bps is below this threshold.
+        #[arg(long)]
+        require_crash_free_bps: Option<u16>,
+        /// Fail closed when recovery bps is below this threshold.
+        #[arg(long)]
+        require_recovery_bps: Option<u16>,
+        /// Fail closed when structural replay bps is below this threshold.
+        #[arg(long)]
+        require_replay_bps: Option<u16>,
+        /// Fail closed when compacted-run replay bps is below this threshold.
+        #[arg(long)]
+        require_compacted_replay_bps: Option<u16>,
+        /// Fail closed when tool success bps is below this threshold.
+        #[arg(long)]
+        require_tool_success_bps: Option<u16>,
+        /// Fail closed when audit completeness bps is below this threshold.
+        #[arg(long)]
+        require_audit_complete_bps: Option<u16>,
+        /// Fail closed when denied observations exceed this count.
+        #[arg(long)]
+        max_denied_observations: Option<u64>,
     },
     /// M19–M23 answer-quality board over caller-supplied JSONL samples.
     AnswerQuality {
@@ -5262,9 +5283,43 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::Metrics { journal_dir, json } => {
+        Command::Metrics {
+            journal_dir,
+            json,
+            require_crash_free_bps,
+            require_recovery_bps,
+            require_replay_bps,
+            require_compacted_replay_bps,
+            require_tool_success_bps,
+            require_audit_complete_bps,
+            max_denied_observations,
+        } => {
             let report = first_principles_agent::metrics::summarize_journal_dir(&journal_dir)
                 .map_err(anyhow::Error::msg)?;
+            for (name, value) in [
+                ("require_crash_free_bps", require_crash_free_bps),
+                ("require_recovery_bps", require_recovery_bps),
+                ("require_replay_bps", require_replay_bps),
+                ("require_compacted_replay_bps", require_compacted_replay_bps),
+                ("require_tool_success_bps", require_tool_success_bps),
+                ("require_audit_complete_bps", require_audit_complete_bps),
+            ] {
+                if let Some(value) = value
+                    && value > 10_000
+                {
+                    anyhow::bail!("{name} must be between 0 and 10000 bps");
+                }
+            }
+            let policy = first_principles_agent::metrics::MetricsGatePolicy {
+                min_crash_free_bps: require_crash_free_bps,
+                min_recovery_bps: require_recovery_bps,
+                min_replay_bps: require_replay_bps,
+                min_compacted_replay_bps: require_compacted_replay_bps,
+                min_tool_success_bps: require_tool_success_bps,
+                min_audit_complete_bps: require_audit_complete_bps,
+                max_denied_observations,
+            };
+            let violations = first_principles_agent::metrics::evaluate_gate(&report, &policy);
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -5323,6 +5378,18 @@ async fn main() -> Result<()> {
                         );
                     }
                 }
+            }
+            if !violations.is_empty() {
+                for violation in &violations {
+                    eprintln!(
+                        "gate violation: {} observed={:?} required={} direction={:?}",
+                        violation.metric,
+                        violation.observed,
+                        violation.required,
+                        violation.direction
+                    );
+                }
+                anyhow::bail!("metrics gate failed: {} violation(s)", violations.len());
             }
         }
         Command::AnswerQuality { input, json } => {
