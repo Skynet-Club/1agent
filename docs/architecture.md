@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- First-token timing: a streaming attempt journals `StreamFirstToken` with the
+  provider/model and elapsed milliseconds from just before the call to the first
+  fragment. `1agent metrics` reports TTFT p50/p95; non-streaming runs have no sample.
 - Core contract suite: `evals/core.json` is `core-v3` with eight deterministic cases (evidence,
   authorization, honest refusal, missing/directory failure, hidden/zero-width controls,
   sleep/honesty). `tests/eval_repeatability_cli.rs` compares verdicts across two runs; the
