@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- CUA single-shot plan (ADR-0089): `CuaPlan` validates a plan id and unique
+  branches, refuses to authorize any action before `freeze`, checks the frozen
+  branch, then applies provenance/risk; `replan` after freeze is denied and
+  leaves the branches unchanged. Policy only, no browser execution. Tests:
+  one lifecycle test plus invalid-plan coverage.
 - Inbox escalation acknowledgement: `1agent inbox ack --state PATH --item-id
   ID` idempotently records an acknowledgement in the escalation state. The
   item stays visible with no level and reason `item is acknowledged`, and
