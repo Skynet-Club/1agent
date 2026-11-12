@@ -117,3 +117,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0111 | Cascade Bench | [0111-cascade-bench.md](0111-cascade-bench.md) |
 | 0112 | Python Read-Only SDK | [0112-python-read-only-sdk.md](0112-python-read-only-sdk.md) |
 | 0113 | Dashboard Gate Metrics | [0113-dashboard-gate-metrics.md](0113-dashboard-gate-metrics.md) |
+| 0114 | Journal-Derived Stage Latencies | [0114-journal-stage-latencies.md](0114-journal-stage-latencies.md) |

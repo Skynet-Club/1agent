@@ -5310,6 +5310,19 @@ async fn main() -> Result<()> {
                         latency.p50_ms, latency.p95_ms, latency.max_ms, latency.count
                     );
                 }
+                for (stage, latency) in [
+                    ("route", report.route_latency),
+                    ("context", report.context_latency),
+                    ("model", report.model_latency),
+                    ("tool", report.tool_latency),
+                ] {
+                    if let Some(latency) = latency {
+                        println!(
+                            "{stage} latency ms: p50={} p95={} max={} samples={}",
+                            latency.p50_ms, latency.p95_ms, latency.max_ms, latency.count
+                        );
+                    }
+                }
             }
         }
         Command::AnswerQuality { input, json } => {

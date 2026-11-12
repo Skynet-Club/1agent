@@ -85,6 +85,7 @@
 - 基准运行器：`1agent benchmark-run --suite PATH --runs N [--config PATH] [--allow-network]` 重复执行 eval suite，将完成率/crash-free/结构回放样本喂给现有 benchmark 门禁；失败非零退出；进程崩溃不会变成样本；契约夹具不是模型质量；
 - 首 token 计时：`--stream` 的首次 provider 尝试记录 `StreamFirstToken`（provider/model/elapsed_ms）；`1agent metrics` 输出 TTFT p50/p95；非流式运行无样本，每次重试单独计数；
 - 本地门禁指标：`1agent metrics --journal-dir DIR [--json]` 从 journal 投影 runs/completed/interrupted、恢复率、结构回放率、压缩后回放率、工具成功率、审计完整率、拒绝观测、token/成本与 run 延迟 p50/p95；零分母为 `null`，坏 journal 失败关闭；M7 TTFT/M14/M19–M23 不在本投影；
+- 阶段耗时：同一报告从事件时间戳投影互不重叠的 route（启动→首个 RouteSelected）、context（路由选择或上次 ModelResponded/ToolObserved→ModelRequested）、model（ModelRequested→ModelResponded/ProviderFailed）、tool（ToolCalled→匹配 ToolObserved）p50/p95；重试只计 model，不计 context；journal 写入与 TUI 渲染不从事件间隔推断；
 - 答案分层：默认 `run`/`resume` 人类输出只显示状态、结论和一行信任摘要（主张/证据/假设/未知/翻转计数）；`conditional`/`needs_evidence` 或含高影响未知时内联最多 3 条依据与全部翻转条件；`--details` 恢复完整字段与路由轨迹；JSON 和内部调用不变；
 - 错误恢复建议：`run`/`resume` 失败时在 stderr 打印一条 `hint:`（鉴权→检查密钥/账号、限流→等待或切换、超时/网络→检查连通性或提高 `--timeout-seconds`、journal→检查目录写权限/空间、取消→resume 续跑等）；不改变错误、重试次数、权限或退出码；TUI 未接；
 - Clarify 门控：`1agent clarify --questions PATH [--answers PATH --outcome STATUS]` 校验结构化问题（2–4 个唯一选项、至多一个推荐项、prompt/选项有界），自动补 `Other` 并把推荐项放首位；默认每轮 1 题、可按总预算限流、重复 id/prompt 过滤；blocking 批量最多 5 题；`resolve_round` 校验 `answered|skipped|unanswered` 与 `submitted|cancelled|timed_out|undelivered`，未回答不使默认答案失效；TUI 面板与持久化问题历史未做；

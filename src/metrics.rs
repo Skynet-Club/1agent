@@ -229,6 +229,86 @@ pub struct JournalMetricsReport {
     pub cost_micros: u64,
     pub run_latency: Option<LatencyDigest>,
     pub ttft_latency: Option<LatencyDigest>,
+    /// Time from run start to the first route selection.
+    pub route_latency: Option<LatencyDigest>,
+    /// Time from the previous turn boundary to the next model request.
+    pub context_latency: Option<LatencyDigest>,
+    /// Time from a model request to its response or provider failure.
+    pub model_latency: Option<LatencyDigest>,
+    /// Time from a tool call to its matching observation.
+    pub tool_latency: Option<LatencyDigest>,
+}
+
+fn elapsed_ms(start: u128, end: u128) -> Option<u64> {
+    (end >= start).then(|| (end - start).min(u128::from(u64::MAX)) as u64)
+}
+
+/// Project per-stage wall-clock samples from journal timestamps.
+///
+/// The stages are disjoint: route ends at the first `RouteSelected`, context
+/// runs from that point (or the previous response/tool observation) to the
+/// next `ModelRequested`, model runs to `ModelResponded`/`ProviderFailed`, and
+/// tool runs from `ToolCalled` to the matching `ToolObserved`.
+fn stage_latencies(events: &[JournalEvent]) -> (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
+    let mut route = Vec::new();
+    let mut context = Vec::new();
+    let mut model = Vec::new();
+    let mut tool = Vec::new();
+    let mut route_start = None;
+    let mut context_anchor = None;
+    let mut model_start = None;
+    let mut pending_tools: BTreeMap<String, u128> = BTreeMap::new();
+
+    for event in events {
+        let timestamp = event.timestamp_unix_ms;
+        match &event.event {
+            JournalEventKind::RunStarted { .. } | JournalEventKind::ResumeStarted { .. } => {
+                route_start = Some(timestamp);
+            }
+            JournalEventKind::RouteSelected { .. } => {
+                if let Some(start) = route_start.take() {
+                    if let Some(sample) = elapsed_ms(start, timestamp) {
+                        route.push(sample);
+                    }
+                    // The first route selection closes the route stage and
+                    // opens the context stage.
+                    context_anchor = Some(timestamp);
+                }
+            }
+            JournalEventKind::ModelRequested { .. } => {
+                if let Some(anchor) = context_anchor.take()
+                    && let Some(sample) = elapsed_ms(anchor, timestamp)
+                {
+                    context.push(sample);
+                }
+                model_start = Some(timestamp);
+            }
+            JournalEventKind::ModelResponded { .. } | JournalEventKind::ProviderFailed { .. } => {
+                if let Some(start) = model_start.take()
+                    && let Some(sample) = elapsed_ms(start, timestamp)
+                {
+                    model.push(sample);
+                }
+                if matches!(event.event, JournalEventKind::ModelResponded { .. }) {
+                    context_anchor = Some(timestamp);
+                }
+            }
+            JournalEventKind::ToolCalled { call } => {
+                pending_tools.insert(call.id.clone(), timestamp);
+            }
+            JournalEventKind::ToolObserved { observation } => {
+                if let Some(start) = pending_tools.remove(&observation.call_id)
+                    && let Some(sample) = elapsed_ms(start, timestamp)
+                {
+                    tool.push(sample);
+                }
+                context_anchor = Some(timestamp);
+            }
+            _ => {}
+        }
+    }
+
+    (route, context, model, tool)
 }
 
 /// Summarize already-parsed journals. Each slice is one run attempt.
@@ -238,6 +318,10 @@ pub fn summarize_journal_events<'a>(
     let mut report = JournalMetricsReport::default();
     let mut latencies = Vec::new();
     let mut ttft_samples = Vec::new();
+    let mut route_samples = Vec::new();
+    let mut context_samples = Vec::new();
+    let mut model_samples = Vec::new();
+    let mut tool_samples = Vec::new();
     for events in journals {
         if events.is_empty() {
             continue;
@@ -335,6 +419,11 @@ pub fn summarize_journal_events<'a>(
                     .min(u128::from(u64::MAX)) as u64,
             );
         }
+        let (route, context, model, tool) = stage_latencies(events);
+        route_samples.extend(route);
+        context_samples.extend(context);
+        model_samples.extend(model);
+        tool_samples.extend(tool);
     }
     report.interrupted = report.runs.saturating_sub(report.terminal_stops);
     report.crash_free_bps = ratio_bps(report.runs.saturating_sub(report.interrupted), report.runs);
@@ -345,6 +434,10 @@ pub fn summarize_journal_events<'a>(
     report.audit_complete_bps = ratio_bps(report.audit_complete, report.audit_total);
     report.run_latency = LatencyDigest::from_samples(&latencies);
     report.ttft_latency = LatencyDigest::from_samples(&ttft_samples);
+    report.route_latency = LatencyDigest::from_samples(&route_samples);
+    report.context_latency = LatencyDigest::from_samples(&context_samples);
+    report.model_latency = LatencyDigest::from_samples(&model_samples);
+    report.tool_latency = LatencyDigest::from_samples(&tool_samples);
     report
 }
 
@@ -755,5 +848,57 @@ mod tests {
         assert_eq!(report.runs, 2);
         assert_eq!(report.completed, 1);
         assert_eq!(report.interrupted, 1);
+    }
+
+    #[test]
+    fn journal_metrics_project_stage_latencies_from_timestamps() {
+        let request = crate::domain::ModelRequest {
+            run_id: Uuid::new_v4(),
+            mode: CognitiveMode::DirectAnswer,
+            messages: Vec::new(),
+            tools: Vec::new(),
+        };
+        let mut events = journal_with(vec![
+            JournalEventKind::RouteSelected {
+                provider_id: "p".into(),
+                model: "m".into(),
+                reason: "fixture".into(),
+            },
+            JournalEventKind::ModelRequested {
+                request: request.clone(),
+            },
+            JournalEventKind::ModelResponded {
+                response: response(),
+            },
+            JournalEventKind::ToolCalled {
+                call: crate::domain::ToolCall {
+                    id: "call-1".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({}),
+                },
+            },
+            JournalEventKind::ToolObserved {
+                observation: observation(ToolStatus::Ok),
+            },
+            JournalEventKind::ModelRequested { request },
+            JournalEventKind::ModelResponded {
+                response: response(),
+            },
+        ]);
+        let stamps = [0u128, 10, 30, 80, 90, 110, 120, 150];
+        assert_eq!(events.len(), stamps.len());
+        for (event, stamp) in events.iter_mut().zip(stamps) {
+            event.timestamp_unix_ms = stamp;
+        }
+
+        let report = summarize_journal_events([events.as_slice()]);
+        let route = report.route_latency.unwrap();
+        assert_eq!((route.count, route.p50_ms, route.p95_ms), (1, 10, 10));
+        let context = report.context_latency.unwrap();
+        assert_eq!((context.count, context.p50_ms, context.p95_ms), (2, 10, 20));
+        let model = report.model_latency.unwrap();
+        assert_eq!((model.count, model.p50_ms, model.p95_ms), (2, 30, 50));
+        let tool = report.tool_latency.unwrap();
+        assert_eq!((tool.count, tool.p50_ms, tool.p95_ms), (1, 20, 20));
     }
 }
