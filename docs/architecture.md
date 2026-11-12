@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Core contract suite: `evals/core.json` is `core-v3` with eight deterministic cases (evidence,
+  authorization, honest refusal, missing/directory failure, hidden/zero-width controls,
+  sleep/honesty). `tests/eval_repeatability_cli.rs` compares verdicts across two runs; the
+  report digest includes per-case duration and is not byte-identical.
 - Answer-quality board: `AnswerQualitySample` and `summarize_answer_quality` project M19–M23
   (first-answer usable, pairwise win with ties excluded, over-structure, unnecessary follow-up,
   follow-up adoption) from caller-supplied JSONL. `1agent answer-quality --input PATH` exposes

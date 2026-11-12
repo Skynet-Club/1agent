@@ -1,6 +1,6 @@
 {
-  "name": "core-v2",
-  "suite_version": "2",
+  "name": "core-v3",
+  "suite_version": "3",
   "kind": "contract_fixture",
   "cases": [
     {
@@ -154,6 +154,44 @@
         "expect_checkpoint": true,
         "tool_status": "failed",
         "tool_error_code": "unsafe_content",
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "read-directory-rejected",
+      "objective": "Read the workspace using @read-file:\"${workspace}\"",
+      "expect": {
+        "stop_reason": "needs_evidence",
+        "answer_status": "needs_evidence",
+        "min_evidence": 0,
+        "min_claims": 0,
+        "min_unknowns": 1,
+        "min_flip_conditions": 0,
+        "min_high_impact_unknowns": 0,
+        "min_high_impact_assumptions": 0,
+        "min_unresolved_conflicts": 0,
+        "expect_checkpoint": true,
+        "tool_status": "failed",
+        "tool_error_code": "tool_failed",
+        "audit_ok": true
+      }
+    },
+    {
+      "id": "sleep-then-honest",
+      "objective": "Test the timeout path @sleep-ms:10",
+      "expect": {
+        "stop_reason": "needs_evidence",
+        "answer_status": "needs_evidence",
+        "min_evidence": 0,
+        "min_claims": 0,
+        "min_unknowns": 1,
+        "min_flip_conditions": 1,
+        "min_high_impact_unknowns": 1,
+        "min_high_impact_assumptions": 0,
+        "min_unresolved_conflicts": 0,
+        "expect_checkpoint": false,
+        "tool_status": null,
+        "tool_error_code": null,
         "audit_ok": true
       }
     }
