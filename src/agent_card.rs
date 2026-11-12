@@ -99,7 +99,17 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "voice_modes",
                 CapabilityStatus::Verified,
-                "operator/advisor/companion prompt blocks",
+                "operator/advisor/companion prompt blocks with decision/research/execution task forms",
+            ),
+            capability(
+                "skill_lifecycle",
+                CapabilityStatus::Verified,
+                "SKILL.md registry, static held-out evaluation, journaled activation/rollback and canary primitives",
+            ),
+            capability(
+                "skill_capture",
+                CapabilityStatus::Verified,
+                "completed-run capture with secret redaction and path/ID generalization into a scannable SKILL.md draft",
             ),
             capability(
                 "onboarding",
@@ -189,7 +199,7 @@ pub fn build_card(version: &str) -> AgentCard {
             capability(
                 "trust_center",
                 CapabilityStatus::Verified,
-                "JSON/Markdown/static-HTML trust disclosure with not_audited audit status, also served read-only over HTTP",
+                "JSON/Markdown/static-HTML trust disclosure with caller-supplied evaluations and incident reports, not_audited audit status, also served read-only over HTTP",
             ),
             capability(
                 "computer_use",
@@ -223,6 +233,8 @@ pub fn build_card(version: &str) -> AgentCard {
             "No team IdP, live shared context, multi-tenant isolation or marketplace.".into(),
             "No claim of calibrated confidence or model-quality generalization.".into(),
             "Autonomy is a preference; Authority/Policy/ExecutionGate still decide execution.".into(),
+            "Skill capture redaction is heuristic, not a full DLP system.".into(),
+            "Skill evaluation is a static marker suite supplied by the operator; it is not a quality guarantee or a runtime canary.".into(),
         ],
         signature: None,
     }
@@ -331,6 +343,8 @@ mod tests {
             "mcp_http_transport",
             "chat_bridge",
             "trust_center",
+            "skill_lifecycle",
+            "skill_capture",
         ] {
             let capability = card
                 .capabilities

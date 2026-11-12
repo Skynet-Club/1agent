@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Agent Card disclosure now includes voice forms, skill lifecycle, skill
+  capture and Trust Center incident reports. Limits state that capture
+  redaction is heuristic and that the static marker suite is not a quality
+  guarantee or runtime canary.
 - Skill evaluation CLI gate (ADR-0085): `skill register --path SKILL.md`
   scans and registers an immutable version; `skill eval --suite PATH` runs the
   static held-out suite and prints per-case missing/forbidden markers; `skill
