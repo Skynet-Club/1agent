@@ -80,7 +80,7 @@ file: <路径>              → 文件必须存在
 | Cascade 基准：多场景遏制模拟，汇总最大深度/影响面/最小遏制率，任一失败非零；非法行报行号 | cmd: cargo test cascade --lib && cargo test --test cascade_bench_cli | ✅ | 确定性图模拟；非实时故障注入/24h 多 Agent 验收 |
 | Python 只读 SDK：封装 health/agent-card/trust-center/surface；env/参数 token；4 MiB 上限；HTTP/JSON 错误抛 ClientError | cmd: cd sdk/python && python3 -m unittest discover -s . -p 'test_*.py' | ✅ | 无任务运行/流式/重试/async；不在 verify.sh 中；fake HTTP server 测试 |
 | 看板门禁指标：dashboard 增加 crash-free/recovery/replay/tool/audit/denied/TTFT 卡片；静态转义 HTML | cmd: cargo test dashboard --lib | ✅ | 读 journal 两次；M19–M23 不在；M1–M3 仍需 8h benchmark；TTFT 已有 3 个真实样本 |
-| 首 token 计时：`--stream` 首次尝试记录 provider/model/elapsed_ms；metrics 输出 TTFT p50/p95；非流式无样本 | test: stream_sink_receives_deltas_before_the_final_answer && test: journal_metrics_count_completion_tools_and_audit | ✅ | 真实样本 n=3（DeepSeek `deepseek-flash` 短任务，p50 1.08 s / p95 2.48 s）；每次重试单独计数；非统计充分 |
+| 首 token 计时：`--stream` 首次尝试记录 provider/model/elapsed_ms；metrics 输出 TTFT p50/p95；非流式无样本 | cmd: cargo test --offline stream_sink_receives_deltas_before_the_final_answer -- --quiet && cargo test --offline journal_metrics_count_completion_tools_and_audit -- --quiet | ✅ | 真实样本 n=3（DeepSeek `deepseek-flash` 短任务，p50 1.08 s / p95 2.48 s）；每次重试单独计数；非统计充分 |
 | M14/M17 本地证据：`crash_free_bps` 为有终止 stop 的 run 比例；强制压缩 run 可 replay/audit 且 compacted_replay_bps=100% | cmd: cargo test compacted_run_replays_and_audits --lib && cargo test journal_metrics --lib | ✅ | M14 是代理；M17 为确定性压缩夹具，非真实 1M 上下文 |
 | 威胁模型：P0/P1 清单、信任边界、缓解与残余缺口已记录 | file: docs/threat-model.md | ⚠️ | 自评，无外部审计；CUA 执行器/运行 journal 哈希链/同 UID 隔离等缺口仍在 |
 | 答案分层：默认只显示状态/结论/信任摘要；conditional、needs_evidence 或高影响未知时内联 ≤3 条依据与全部翻转条件；`--details` 恢复完整字段与路由轨迹 | cmd: cargo test --test cli_e2e default_run_output_is_concise_and_details_expands_it | ✅ | 高风险判定是启发式；低风险答案默认隐藏证据（摘要行给出计数）；TUI 已有 `/details` 与 `/why` |
@@ -160,7 +160,7 @@ file: <路径>              → 文件必须存在
 | daemon 轻量定期 digest：`--digest-webhook` + `--digest-every-seconds 60..=86400` 发送 runs/schedules/alerts/inbox_open/升级级别，可选 journal/inbox store 与 `--digest-state` 持久化计时 | cmd: cargo test --test daemon_digest_cli | ✅ | 无 state 时重启立即发送一次；不替代完整 `digest`；发送失败只记录；升级计数需 `--digest-escalation-step` + inbox store；跨平台未测 |
 | Tool search 按名称/前缀/描述/参数名确定性排序；run --tool-query 限制并记录模型可见工具 | cmd: cargo test tool_search --lib && cargo test --test tool_search_cli && cargo test --test tool_query_cli | ✅ | top 8 + always-on；词法而非语义；无 query 时全量 |
 | 读权限关闭时终端执行工具不暴露给模型 | test: write_tools_are_hidden_without_write_permission | ✅ | 工具注册表按权限过滤 |
-| 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ✅ | 需本机 skynet-term-sessiond 与 skynet-workshop-session；默认测试集跳过 |
+| 终端工具可在真实 PTY 会话中创建、执行并销毁 | cmd: cargo test --offline --test terminal_tools_live -- --ignored | ⚠️ | 需本机 skynet-term-sessiond 与空闲会话槽位；本次 128 会话上限已满，测试返回 `session_limit`，无法在当前 daemon 重跑；默认测试集跳过 |
 | 1A 在写权限下用终端工具启动 copilot 并读取 GitHub 登录状态 | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机验收；gh 已登录，未做交互式 device-code 登录 |
 | 本地 CLI/TUI 默认允许执行，`--read-only` 关闭 | test: default_run_allows_execution_and_read_only_blocks_it | ✅ | CLI 层；使用 mock provider |
 | TUI 默认开启执行，无需手动 `/permissions write on` | file: docs/evidence/terminal-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；tmux PTY；journal `allow_write=true` |
