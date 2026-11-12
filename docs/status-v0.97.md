@@ -39,7 +39,7 @@ This page is a measurement review, not a release announcement. A metric marked
 | M12 skill reuse | not measured | no repeated-workflow benchmark |
 | M14 crash-free sessions | proxy reported | `crash_free_bps` = runs with a terminal stop / runs |
 | M18 external audit | not started | 0 P0 unknown |
-| M19–M23 | board plus a fixed 40-prompt golden set; no labels | `answer-quality` computes rates from caller labels; blind review is external |
+| M19–M23 | board plus a fixed 40-prompt golden set; blind-review packet pipeline ready; A/B collection scheduled after the 8h benchmark (`job-1794497599059-2245-3`) | `answer-quality` computes rates from caller labels; a human reviewer must label the packet |
 
 ## What the 0.97 work added
 
@@ -80,7 +80,8 @@ This page is a measurement review, not a release announcement. A metric marked
 1. M1 8h long-horizon, M2 autonomy hours and M3 interventions; the current
    8-task suite v1.1 passes 16/16 but is a short sample.
 2. M7 broader TTFT samples (provider/long-task); a 3-sample baseline exists.
-3. M19–M23 blind-review labels; the prompt inventory exists, labels do not.
+3. M19–M23 blind-review labels; the packet pipeline is ready and collection is
+   scheduled, but a human reviewer must label it.
 4. External A-Gate/W-Gate and security review; a review draft is at
    `docs/audit-package.md`; P-Gate macOS.
 5. Automatic watchdog repair remains manual; pause/resume is explicit and
@@ -92,7 +93,8 @@ This page is a measurement review, not a release announcement. A metric marked
   requires one.
 - Human-review the 8-task suite v1.1 (16/16 automated); do not relabel
   contract fixtures as model quality.
-- Collect blind-review labels for the fixed golden set.
+- Label the blind-review packet and run `1agent answer-quality`; the packet
+  has 40 prompts and 80 label rows.
 - Run an 8h benchmark for M1/M2/M3 and broaden TTFT samples beyond one provider
   and short prompts.
 - Keep the release check fail-closed on a representative journal directory.

@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Blind-review pipeline: `scripts/blind-review.py` collects the 40 fixed
+  golden-set prompts from 1Agent (read-only) and Hermes (`--safe-mode`),
+  anonymizes A/B with a deterministic seed and a sealed mapping outside the
+  packet, writes a labels template, and finalizes labels into the
+  `answer-quality` sample shape. A two-prompt pilot passed; the full packet is
+  scheduled after the 8h benchmark. Human labels remain external.
 - TUI recovery hint: a failed interactive or line-mode run now appends
   `提示：<hint>` after the error, using the same `RuntimeError::recovery_hint`
   as the CLI. The new CLI e2e drives line mode with an unreachable provider.
