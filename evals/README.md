@@ -1,8 +1,10 @@
 # Evaluation Suites
 
-V0 evaluation is intentionally offline and deterministic. The default `core-v2` suite contains
-six cases covering evidence success, authorization boundaries, honest refusal, file failure and
-hidden-control rejection.
+V0 evaluation is intentionally offline and deterministic. The default `core-v3` suite contains
+eight cases covering evidence success, authorization boundaries, honest refusal, missing-file
+and directory failure, hidden-control rejection, zero-width control rejection, and the
+sleep/honesty path. The case verdicts are repeatable; the report digest includes per-case
+duration and therefore is not byte-identical across runs.
 
 Suites declare a `kind`. `contract_fixture` suites validate system contracts and cannot be used as
 model-quality promotion evidence. `model_quality` requires real provider runs and reviewed tasks.

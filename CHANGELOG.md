@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Eight-case core suite (ADR-0104): `core-v3` adds a directory-read failure
+  and a sleep-then-honest case. `tests/eval_repeatability_cli.rs` runs the
+  suite twice and compares verdicts; the report digest is not compared because
+  it includes per-case duration. The suite remains a contract fixture, not
+  real-task or model-quality evidence.
 - Answer-quality board (ADR-0103): `AnswerQualitySample` and
   `summarize_answer_quality` compute M19–M23 rates from caller-supplied JSONL
   judgments; ties are excluded from the pairwise win rate and all rates are
