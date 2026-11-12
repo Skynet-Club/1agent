@@ -113,3 +113,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0107 | Extract Answer Rendering | [0107-extract-answer-rendering.md](0107-extract-answer-rendering.md) |
 | 0108 | Benchmark Runner | [0108-benchmark-runner.md](0108-benchmark-runner.md) |
 | 0109 | Memory Recall Explainability | [0109-memory-recall-explainability.md](0109-memory-recall-explainability.md) |
+| 0110 | Trust Center Audit Reports | [0110-trust-center-audit-reports.md](0110-trust-center-audit-reports.md) |

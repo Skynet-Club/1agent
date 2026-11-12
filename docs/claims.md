@@ -69,6 +69,7 @@ file: <路径>              → 文件必须存在
 | 0.97 回滚与已知限制：二进制/journal/config 回滚、kill switch、事故流程与限制已记录；旧二进制不能读含 checkpoint_delta 的新 journal | file: docs/rollback-v0.97.md | ⚠️ | 文档级，未做真实升级/回滚演练；发布前需补演练证据 |
 | 基准运行器：重复执行 eval suite，输出完成率/crash-free/结构回放并经 benchmark 门禁；失败非零，进程崩溃不算样本 | cmd: cargo test --test benchmark_run_cli && cargo run --offline --quiet -- benchmark-run --suite evals/core.json --runs 2 --json | ✅ | 契约夹具+确定性 provider；真实 8h/M1 仍需 model_quality suite；回放为结构校验 |
 | 记忆召回解释：按 bot scope 返回命中分数/来源/taint/置信度/有效期；空 query 失败关闭；输出可能含解密内容 | cmd: cargo test --test memory_recall_cli | ✅ | 子串/词项打分非语义检索；无冲突分组；解密内容需防日志泄露 |
+| Trust Center 审计报告：调用方提供审计机构/范围/状态/起止/P0/P1/摘要；JSON/Markdown/转义 HTML；校验失败关闭；固定 audit.status 不变 | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | 调用方提供、未独立验证；不改变 not_audited；P0/P1 不自证 |
 | 首 token 计时：`--stream` 首次尝试记录 provider/model/elapsed_ms；metrics 输出 TTFT p50/p95；非流式无样本 | test: stream_sink_receives_deltas_before_the_final_answer && test: journal_metrics_count_completion_tools_and_audit | ⚠️ | 仅流式运行；每次重试单独计数；尚无真实 provider 的 TTFT 数据 |
 | M14/M17 本地证据：`crash_free_bps` 为有终止 stop 的 run 比例；强制压缩 run 可 replay/audit 且 compacted_replay_bps=100% | cmd: cargo test compacted_run_replays_and_audits --lib && cargo test journal_metrics --lib | ✅ | M14 是代理；M17 为确定性压缩夹具，非真实 1M 上下文 |
 | 威胁模型：P0/P1 清单、信任边界、缓解与残余缺口已记录 | file: docs/threat-model.md | ⚠️ | 自评，无外部审计；CUA 执行器/运行 journal 哈希链/同 UID 隔离等缺口仍在 |

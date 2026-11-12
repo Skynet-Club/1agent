@@ -256,3 +256,93 @@ fn trust_center_rejects_an_inconsistent_incident_report() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn trust_center_discloses_third_party_audit_reports() {
+    let workspace = tempfile::tempdir().unwrap();
+    let report = workspace.path().join("audit.json");
+    let markdown = workspace.path().join("audit.md");
+    let html = workspace.path().join("audit.html");
+    std::fs::write(
+        &report,
+        serde_json::to_vec(&serde_json::json!({
+            "id": "AUD-2026-1",
+            "title": "Runtime security audit",
+            "auditor": "Independent Lab",
+            "status": "completed",
+            "scope": "runtime, tools and journal",
+            "started_at_ms": 100,
+            "completed_at_ms": 200,
+            "p0_findings": 0,
+            "p1_findings": 3,
+            "summary": "<script>escaped</script> no P0",
+            "link": "https://example.com/audit"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args([
+            "trust-center",
+            "--audit-report",
+            report.to_str().unwrap(),
+            "--markdown-out",
+            markdown.to_str().unwrap(),
+            "--html-out",
+            html.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let disclosure: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(disclosure["audit_reports"][0]["id"], "AUD-2026-1");
+    assert_eq!(disclosure["audit_reports"][0]["status"], "completed");
+    assert_eq!(disclosure["audit_reports"][0]["p0_findings"], 0);
+    assert_eq!(disclosure["audit_reports"][0]["p1_findings"], 3);
+    let markdown_text = std::fs::read_to_string(&markdown).unwrap();
+    assert!(markdown_text.contains("## Audit reports"));
+    assert!(markdown_text.contains("&lt;script&gt;"));
+    assert!(!markdown_text.contains("<script>"));
+    let html_text = std::fs::read_to_string(&html).unwrap();
+    assert!(html_text.contains("Audit reports"));
+    assert!(html_text.contains("&lt;script&gt;"));
+    assert!(!html_text.contains("<script>"));
+}
+
+#[test]
+fn trust_center_rejects_an_inconsistent_audit_report() {
+    let workspace = tempfile::tempdir().unwrap();
+    let report = workspace.path().join("audit.json");
+    std::fs::write(
+        &report,
+        serde_json::to_vec(&serde_json::json!({
+            "id": "AUD-1",
+            "title": "Incomplete audit",
+            "auditor": "Lab",
+            "status": "completed",
+            "scope": "runtime",
+            "started_at_ms": 100,
+            "summary": "missing completion time"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bin = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(bin)
+        .args(["trust-center", "--audit-report"])
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("audit report"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
