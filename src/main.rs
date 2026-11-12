@@ -149,6 +149,9 @@ enum Command {
         alert_log: Option<PathBuf>,
         #[arg(long)]
         alert_webhook: Option<String>,
+        /// Print answer content fragments to stderr as the provider streams them.
+        #[arg(long)]
+        stream: bool,
         #[arg(long)]
         json: bool,
     },
@@ -3571,6 +3574,7 @@ async fn main() -> Result<()> {
             provider_health,
             alert_log,
             alert_webhook,
+            stream,
             json,
         } => {
             let max_context_tokens =
@@ -3713,6 +3717,17 @@ async fn main() -> Result<()> {
             if let Some(experience_dir) = experience_dir {
                 runtime = runtime.with_experience_dir(experience_dir);
             }
+            let streamed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            if stream {
+                let streamed = streamed.clone();
+                runtime = runtime.with_stream_sink(Arc::new(move |text: &str| {
+                    use std::io::Write;
+                    let mut stderr = std::io::stderr().lock();
+                    let _ = stderr.write_all(text.as_bytes());
+                    let _ = stderr.flush();
+                    streamed.store(true, std::sync::atomic::Ordering::Relaxed);
+                }));
+            }
             let cancellation = CancellationToken::new();
             let signal_cancellation = cancellation.clone();
             tokio::spawn(async move {
@@ -3722,6 +3737,9 @@ async fn main() -> Result<()> {
             });
             let started = std::time::Instant::now();
             let result = runtime.run(request, cancellation).await?;
+            if streamed.load(std::sync::atomic::Ordering::Relaxed) {
+                eprintln!();
+            }
             if let Some(path) = canary_sample
                 && let Err(error) = append_canary_sample(
                     &path,

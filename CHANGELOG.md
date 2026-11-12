@@ -2,6 +2,16 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Streaming provider (ADR-0090): `ModelProvider::complete_streaming` reports
+  content fragments as they arrive and still returns one complete response.
+  The OpenAI-compatible adapter parses SSE, reassembles lines split across
+  network chunks, assembles tool-call fragments by index, enforces the existing
+  response byte limit, and honors cancellation. Providers without streaming
+  fall back to `complete`; only the first runtime attempt streams, so retries
+  cannot duplicate partial text. `1agent run --stream` writes fragments to
+  stderr while stdout remains the final JSON/answer. Tests: three transport
+  tests (text, tool calls, cancellation), three unit tests and one runtime
+  test plus one CLI e2e.
 - CUA single-shot plan (ADR-0089): `CuaPlan` validates a plan id and unique
   branches, refuses to authorize any action before `freeze`, checks the frozen
   branch, then applies provenance/risk; `replan` after freeze is denied and

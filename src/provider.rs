@@ -68,6 +68,22 @@ pub trait ModelProvider: Send + Sync {
         cancellation: &CancellationToken,
     ) -> Result<ModelResponse, ProviderError>;
 
+    /// Completion that may report text deltas as they arrive.
+    ///
+    /// The default keeps every provider usable without a streaming
+    /// implementation: it delegates to [`ModelProvider::complete`] and never
+    /// calls `on_text`. Providers that implement streaming must call `on_text`
+    /// for each content fragment and still return one complete response.
+    async fn complete_streaming(
+        &self,
+        request: ModelRequest,
+        cancellation: &CancellationToken,
+        on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ModelResponse, ProviderError> {
+        let _ = on_text;
+        self.complete(request, cancellation).await
+    }
+
     /// Raw text completion, for callers whose reply is not an `AgentAnswer`.
     ///
     /// Kept separate from [`ModelProvider::complete`] because that method owns
@@ -792,6 +808,93 @@ impl OpenAiCompatibleProvider {
         }
     }
 
+    fn wire_body(
+        &self,
+        messages: Vec<WireMessage>,
+        tools: Vec<WireTool>,
+        stream: bool,
+    ) -> WireRequest {
+        WireRequest {
+            model: self.model.clone(),
+            messages,
+            tools: (!tools.is_empty()).then_some(tools),
+            temperature: 0.0,
+            stream,
+        }
+    }
+
+    fn wire_messages(request: &ModelRequest) -> Vec<WireMessage> {
+        request
+            .messages
+            .iter()
+            .map(|message| WireMessage {
+                role: match message.role {
+                    crate::domain::MessageRole::System => "system",
+                    crate::domain::MessageRole::User => "user",
+                    crate::domain::MessageRole::Assistant => "assistant",
+                    crate::domain::MessageRole::Tool => "tool",
+                }
+                .into(),
+                content: (!message.content.is_empty()).then(|| message.content.clone()),
+                tool_calls: (!message.tool_calls.is_empty()).then(|| {
+                    message
+                        .tool_calls
+                        .iter()
+                        .map(|call| WireToolCall {
+                            id: call.id.clone(),
+                            kind: "function".into(),
+                            function: WireFunctionCall {
+                                name: call.name.clone(),
+                                arguments: call.arguments.to_string(),
+                            },
+                        })
+                        .collect()
+                }),
+                tool_call_id: message.tool_call_id.clone(),
+            })
+            .collect()
+    }
+
+    fn wire_tools(request: &ModelRequest) -> Vec<WireTool> {
+        request
+            .tools
+            .iter()
+            .map(|tool| WireTool {
+                kind: "function".into(),
+                function: WireToolDefinition {
+                    name: tool.name.clone(),
+                    description: tool.description.clone(),
+                    parameters: tool.parameters.clone(),
+                },
+            })
+            .collect()
+    }
+
+    fn response_from_parts(
+        &self,
+        content: Option<WireContent>,
+        calls: Option<Vec<WireResponseToolCall>>,
+        usage: Usage,
+    ) -> Result<ModelResponse, ProviderError> {
+        let turn = if let Some(calls) = calls {
+            let calls = normalize_tool_calls(calls)?;
+            if calls.is_empty() {
+                Self::final_turn(normalize_content(content)?)
+            } else {
+                ModelTurn::ToolCalls { calls }
+            }
+        } else {
+            Self::final_turn(normalize_content(content)?)
+        };
+
+        Ok(ModelResponse {
+            provider_id: self.id.clone(),
+            model: self.model.clone(),
+            turn,
+            usage,
+        })
+    }
+
     /// One HTTP round trip, returned as raw content. Shared by `complete` and
     /// `complete_text` so neither owns a second copy of the transport rules.
     async fn send(
@@ -807,12 +910,7 @@ impl OpenAiCompatibleProvider {
         ),
         ProviderError,
     > {
-        let body = WireRequest {
-            model: self.model.clone(),
-            messages,
-            tools: (!tools.is_empty()).then_some(tools),
-            temperature: 0.0,
-        };
+        let body = self.wire_body(messages, tools, false);
         let mut builder = self.client.post(&self.endpoint).json(&body);
         if let Some(api_key) = &self.api_key {
             builder = builder.bearer_auth(api_key);
@@ -855,6 +953,92 @@ impl OpenAiCompatibleProvider {
 
         Ok((choice.message.content, choice.message.tool_calls, usage))
     }
+
+    /// One streaming HTTP round trip. Content fragments are reported through
+    /// `on_text`; tool-call fragments are assembled by index and returned only
+    /// once the stream ends, so a caller never observes a half tool call.
+    async fn send_streaming(
+        &self,
+        messages: Vec<WireMessage>,
+        tools: Vec<WireTool>,
+        cancellation: &CancellationToken,
+        on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<(String, Option<Vec<WireResponseToolCall>>, Usage), ProviderError> {
+        let body = self.wire_body(messages, tools, true);
+        let mut builder = self.client.post(&self.endpoint).json(&body);
+        if let Some(api_key) = &self.api_key {
+            builder = builder.bearer_auth(api_key);
+        }
+
+        let mut response = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(ProviderError::new(
+                    ProviderErrorCode::Cancelled,
+                    "provider call cancelled",
+                    false,
+                ));
+            }
+            response = builder.send() => response.map_err(|error| {
+                provider_transport_error(error.is_timeout(), error.is_connect())
+            })?,
+        };
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(provider_http_error(status));
+        }
+
+        let mut budget = ResponseBodyBudget::new(MAX_PROVIDER_RESPONSE_BYTES);
+        budget.check_declared_length(response.content_length())?;
+        let mut pending = Vec::new();
+        let mut content = String::new();
+        let mut calls = std::collections::BTreeMap::new();
+        let mut usage = Usage::default();
+        loop {
+            let chunk = tokio::select! {
+                _ = cancellation.cancelled() => {
+                    return Err(ProviderError::new(
+                        ProviderErrorCode::Cancelled,
+                        "provider response cancelled",
+                        false,
+                    ));
+                }
+                chunk = response.chunk() => chunk.map_err(|error| {
+                    provider_transport_error(error.is_timeout(), error.is_connect())
+                })?,
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
+            budget.push(&chunk)?;
+            pending.extend_from_slice(&chunk);
+            while let Some(position) = pending.iter().position(|byte| *byte == b'\n') {
+                let line: Vec<u8> = pending.drain(..=position).collect();
+                process_stream_line(&line, &mut content, &mut calls, &mut usage, on_text)?;
+            }
+        }
+        if !pending.is_empty() {
+            process_stream_line(&pending, &mut content, &mut calls, &mut usage, on_text)?;
+        }
+
+        let calls = if calls.is_empty() {
+            None
+        } else {
+            Some(
+                calls
+                    .into_values()
+                    .map(|call| WireResponseToolCall {
+                        id: call.id,
+                        function: WireResponseFunction {
+                            name: call.name,
+                            arguments: call.arguments,
+                        },
+                    })
+                    .collect(),
+            )
+        };
+        Ok((content, calls, usage))
+    }
 }
 
 #[async_trait]
@@ -872,65 +1056,24 @@ impl ModelProvider for OpenAiCompatibleProvider {
         request: ModelRequest,
         cancellation: &CancellationToken,
     ) -> Result<ModelResponse, ProviderError> {
-        let messages: Vec<WireMessage> = request
-            .messages
-            .iter()
-            .map(|message| WireMessage {
-                role: match message.role {
-                    crate::domain::MessageRole::System => "system",
-                    crate::domain::MessageRole::User => "user",
-                    crate::domain::MessageRole::Assistant => "assistant",
-                    crate::domain::MessageRole::Tool => "tool",
-                }
-                .into(),
-                content: (!message.content.is_empty()).then(|| message.content.clone()),
-                tool_calls: (!message.tool_calls.is_empty()).then(|| {
-                    message
-                        .tool_calls
-                        .iter()
-                        .map(|call| WireToolCall {
-                            id: call.id.clone(),
-                            kind: "function".into(),
-                            function: WireFunctionCall {
-                                name: call.name.clone(),
-                                arguments: call.arguments.to_string(),
-                            },
-                        })
-                        .collect()
-                }),
-                tool_call_id: message.tool_call_id.clone(),
-            })
-            .collect();
-        let tools: Vec<WireTool> = request
-            .tools
-            .iter()
-            .map(|tool| WireTool {
-                kind: "function".into(),
-                function: WireToolDefinition {
-                    name: tool.name.clone(),
-                    description: tool.description.clone(),
-                    parameters: tool.parameters.clone(),
-                },
-            })
-            .collect();
+        let messages = Self::wire_messages(&request);
+        let tools = Self::wire_tools(&request);
         let (content, calls, usage) = self.send(messages, tools, cancellation).await?;
-        let turn = if let Some(calls) = calls {
-            let calls = normalize_tool_calls(calls)?;
-            if calls.is_empty() {
-                Self::final_turn(normalize_content(content)?)
-            } else {
-                ModelTurn::ToolCalls { calls }
-            }
-        } else {
-            Self::final_turn(normalize_content(content)?)
-        };
+        self.response_from_parts(content, calls, usage)
+    }
 
-        Ok(ModelResponse {
-            provider_id: self.id.clone(),
-            model: self.model.clone(),
-            turn,
-            usage,
-        })
+    async fn complete_streaming(
+        &self,
+        request: ModelRequest,
+        cancellation: &CancellationToken,
+        on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ModelResponse, ProviderError> {
+        let messages = Self::wire_messages(&request);
+        let tools = Self::wire_tools(&request);
+        let (content, calls, usage) = self
+            .send_streaming(messages, tools, cancellation, on_text)
+            .await?;
+        self.response_from_parts(Some(WireContent::Text(content)), calls, usage)
     }
 
     async fn complete_text(
@@ -1152,6 +1295,12 @@ struct WireRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<WireTool>>,
     temperature: f32,
+    #[serde(skip_serializing_if = "is_false")]
+    stream: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Serialize)]
@@ -1237,6 +1386,55 @@ struct WireResponseFunction {
 }
 
 #[derive(Deserialize)]
+struct WireStreamChunk {
+    #[serde(default)]
+    choices: Vec<WireStreamChoice>,
+    #[serde(default)]
+    usage: Option<WireUsage>,
+    #[serde(default)]
+    error: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct WireStreamChoice {
+    #[serde(default)]
+    delta: WireStreamDelta,
+}
+
+#[derive(Deserialize, Default)]
+struct WireStreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<WireStreamToolCallDelta>>,
+}
+
+#[derive(Deserialize)]
+struct WireStreamToolCallDelta {
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<WireStreamFunctionDelta>,
+}
+
+#[derive(Deserialize, Default)]
+struct WireStreamFunctionDelta {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
+}
+
+#[derive(Default)]
+struct StreamToolCallAccumulator {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Deserialize)]
 struct WireUsage {
     #[serde(default)]
     prompt_tokens: u64,
@@ -1285,12 +1483,238 @@ fn usage_from_wire(usage: WireUsage) -> Usage {
     }
 }
 
+fn process_stream_line(
+    line: &[u8],
+    content: &mut String,
+    calls: &mut std::collections::BTreeMap<usize, StreamToolCallAccumulator>,
+    usage: &mut Usage,
+    on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+) -> Result<(), ProviderError> {
+    let line = std::str::from_utf8(line).map_err(|_| {
+        ProviderError::new(
+            ProviderErrorCode::InvalidResponse,
+            "provider stream line is not valid UTF-8",
+            false,
+        )
+    })?;
+    let line = line.trim_end_matches(['\r', '\n']);
+    if line.is_empty() || line.starts_with(':') {
+        return Ok(());
+    }
+    let Some(payload) = line.strip_prefix("data:") else {
+        // `event:`, `id:` and `retry:` fields carry no answer content.
+        return Ok(());
+    };
+    let payload = payload.trim_start();
+    if payload == "[DONE]" {
+        return Ok(());
+    }
+    let chunk: WireStreamChunk = serde_json::from_str(payload).map_err(|error| {
+        ProviderError::new(
+            ProviderErrorCode::InvalidResponse,
+            format!("invalid provider stream chunk: {error}"),
+            false,
+        )
+    })?;
+    if let Some(error) = chunk.error {
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("provider reported a stream error");
+        let message: String = message.chars().take(256).collect();
+        return Err(ProviderError::new(
+            ProviderErrorCode::InvalidResponse,
+            format!("provider stream error: {message}"),
+            false,
+        ));
+    }
+    if let Some(wire_usage) = chunk.usage {
+        *usage = usage_from_wire(wire_usage);
+    }
+    for choice in chunk.choices {
+        if let Some(text) = choice.delta.content
+            && !text.is_empty()
+        {
+            content.push_str(&text);
+            on_text(&text);
+        }
+        if let Some(tool_calls) = choice.delta.tool_calls {
+            for delta in tool_calls {
+                let entry = calls.entry(delta.index).or_default();
+                if let Some(id) = delta.id {
+                    entry.id.push_str(&id);
+                }
+                if let Some(function) = delta.function {
+                    if let Some(name) = function.name {
+                        entry.name.push_str(&name);
+                    }
+                    if let Some(arguments) = function.arguments {
+                        entry.arguments.push_str(&arguments);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::RiskLevel;
     use crate::router::PrivacyClass;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct NonStreamingProvider;
+
+    #[async_trait]
+    impl ModelProvider for NonStreamingProvider {
+        fn id(&self) -> &str {
+            "non-streaming"
+        }
+
+        fn model(&self) -> &str {
+            "non-streaming-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "fallback answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn streaming_falls_back_to_complete_when_unimplemented() {
+        let request = ModelRequest {
+            run_id: uuid::Uuid::new_v4(),
+            mode: CognitiveMode::DecisionAnalysis,
+            messages: vec![ModelMessage::user("hello")],
+            tools: Vec::new(),
+        };
+        let mut deltas = Vec::new();
+        let mut on_text = |text: &str| deltas.push(text.to_string());
+        let response = NonStreamingProvider
+            .complete_streaming(request, &CancellationToken::new(), &mut on_text)
+            .await
+            .unwrap();
+        assert!(deltas.is_empty());
+        assert!(matches!(response.turn, ModelTurn::Final { .. }));
+    }
+
+    #[test]
+    fn stream_lines_accumulate_text_usage_and_tool_calls() {
+        let mut content = String::new();
+        let mut calls = std::collections::BTreeMap::new();
+        let mut usage = Usage::default();
+        let mut deltas = Vec::new();
+        let mut on_text = |text: &str| deltas.push(text.to_string());
+
+        process_stream_line(
+            b": keep-alive\n",
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[{"delta":{"content":"hel"}}]}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[{"delta":{"content":"lo"}}]}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read_file","arguments":"{\"path\":"}}]}}]}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"f.txt\"}"}}]}}]}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7}}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+        process_stream_line(
+            b"data: [DONE]\n",
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap();
+
+        assert_eq!(content, "hello");
+        assert_eq!(deltas, ["hel", "lo"]);
+        assert_eq!(usage.input_tokens, 11);
+        assert_eq!(usage.output_tokens, 7);
+        let call = calls.get(&0).unwrap();
+        assert_eq!(call.id, "call-1");
+        assert_eq!(call.name, "read_file");
+        assert_eq!(call.arguments, r#"{"path":"f.txt"}"#);
+    }
+
+    #[test]
+    fn stream_error_chunk_fails_closed() {
+        let mut content = String::new();
+        let mut calls = std::collections::BTreeMap::new();
+        let mut usage = Usage::default();
+        let mut on_text = |_: &str| {};
+        let error = process_stream_line(
+            br#"data: {"error":{"message":"upstream exploded"}}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ProviderErrorCode::InvalidResponse);
+        assert!(error.message.contains("upstream exploded"));
+    }
 
     struct ToolProbeProvider {
         calls: AtomicUsize,
