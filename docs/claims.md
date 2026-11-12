@@ -66,6 +66,7 @@ file: <路径>              → 文件必须存在
 | 回答质量看板：从 JSONL 样本计算 M19–M23；M20 平局排除、零分母 null、非法行报行号、追问采纳必须有追问 | cmd: cargo test answer_quality --lib && cargo test --test answer_quality_cli | ✅ | 只计算调用方标签；不执行盲评/不采集 golden set；标签质量不受控 |
 | core-v3 八例契约套件 8/8 且两次运行判定一致；报告 digest 含 duration，不逐字节比较 | cmd: cargo test --test eval_repeatability_cli && cargo run --offline --quiet -- eval --suite evals/core.json | ✅ | 契约夹具，不是真实任务/模型质量；历史 6/6 文档不回写 |
 | 0.97 指标复核：硬门/M1–M23 现状、证据与阻塞项已记录；未测项明确标为未测而非 0 | file: docs/status-v0.97.md | ⚠️ | 本地复核，无外部 A-Gate/W-Gate/审计；2h soak 结果与真实任务指标仍缺 |
+| 0.97 回滚与已知限制：二进制/journal/config 回滚、kill switch、事故流程与限制已记录；旧二进制不能读含 checkpoint_delta 的新 journal | file: docs/rollback-v0.97.md | ⚠️ | 文档级，未做真实升级/回滚演练；发布前需补演练证据 |
 | 首 token 计时：`--stream` 首次尝试记录 provider/model/elapsed_ms；metrics 输出 TTFT p50/p95；非流式无样本 | test: stream_sink_receives_deltas_before_the_final_answer && test: journal_metrics_count_completion_tools_and_audit | ⚠️ | 仅流式运行；每次重试单独计数；尚无真实 provider 的 TTFT 数据 |
 | M14/M17 本地证据：`crash_free_bps` 为有终止 stop 的 run 比例；强制压缩 run 可 replay/audit 且 compacted_replay_bps=100% | cmd: cargo test compacted_run_replays_and_audits --lib && cargo test journal_metrics --lib | ✅ | M14 是代理；M17 为确定性压缩夹具，非真实 1M 上下文 |
 | 威胁模型：P0/P1 清单、信任边界、缓解与残余缺口已记录 | file: docs/threat-model.md | ⚠️ | 自评，无外部审计；CUA 执行器/运行 journal 哈希链/同 UID 隔离等缺口仍在 |

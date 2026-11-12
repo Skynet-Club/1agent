@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- 0.97 rollback and limits: `docs/rollback-v0.97.md` covers binary rollback,
+  the journal incompatibility from `checkpoint_delta`, config rollback, the
+  kill switch, incident steps and known limitations. It is a document, not a
+  rehearsed upgrade/rollback drill.
 - Answer rendering split (ADR-0107): `render_answer`, `render_answer_default`
   and the status labels move to `answer_render.rs`; `main.rs` imports them and
   the output is unchanged. Unit tests cover concise, high-risk and label

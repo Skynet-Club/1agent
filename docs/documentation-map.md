@@ -27,6 +27,8 @@ boundary remains until ADR-003 is accepted.
 - [`master-capability-matrix-v1.json`](master-capability-matrix-v1.json): bounded runtime probe evidence.
 - [`master-live-acceptance-v1.json`](master-live-acceptance-v1.json): machine-readable live acceptance.
 - [`status-v0.97.md`](status-v0.97.md): 0.97 metric review and release blockers.
+- [`rollback-v0.97.md`](rollback-v0.97.md): binary/journal/config rollback, kill switch,
+  incident procedure and known limitations.
 - [`status-v0.93.md`](status-v0.93.md): implementation status at 0.93.
 - [`audit-v0.93.md`](audit-v0.93.md): requirement-to-evidence audit.
 - [`handoff-v0.93.md`](handoff-v0.93.md): current resume and verification guide.
