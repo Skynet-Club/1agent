@@ -628,6 +628,20 @@ enum Command {
         /// Require this substring in /proc/<pid>/cmdline before signaling.
         #[arg(long, default_value = "first-principles-agent", requires = "execute")]
         expected_command: String,
+        /// Re-evaluate on an interval and pause on a Pause/Repair transition.
+        /// Requires `--execute pause`; never resumes, kills or restarts.
+        #[arg(
+            long,
+            requires_all = ["warn_after_ms", "pause_after_ms", "repair_after_ms"],
+            requires = "execute"
+        )]
+        watch: bool,
+        /// Re-evaluation interval in milliseconds for `--watch`.
+        #[arg(long, default_value_t = 1000, requires = "watch")]
+        interval_ms: u64,
+        /// Stop after N ticks; 0 runs until interrupted.
+        #[arg(long, default_value_t = 0, requires = "watch")]
+        ticks: u64,
         #[arg(long)]
         json: bool,
     },
@@ -3761,6 +3775,112 @@ fn parse_escalation_ladder(
         .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
+async fn run_watchdog_watch(
+    heartbeat: &std::path::Path,
+    policy: first_principles_agent::watchdog::WatchdogPolicy,
+    intervention_log: Option<&std::path::Path>,
+    expected_command: &str,
+    interval_ms: u64,
+    ticks: u64,
+    json: bool,
+) -> Result<()> {
+    use first_principles_agent::watchdog::{
+        WatchdogAction, WatchdogExecution, append_intervention, decide, execute, read,
+    };
+
+    let mut last_signaled_pid: Option<u32> = None;
+    let mut last_reported: Option<WatchdogAction> = None;
+    let mut read_error_reported = false;
+    let mut completed: u64 = 0;
+    loop {
+        if ticks != 0 && completed >= ticks {
+            break;
+        }
+        completed += 1;
+        let now_ms = current_time_ms();
+        let recorded = match read(heartbeat) {
+            Ok(recorded) => {
+                read_error_reported = false;
+                recorded
+            }
+            Err(error) => {
+                if !json && !read_error_reported {
+                    eprintln!("watchdog: {error}");
+                    read_error_reported = true;
+                }
+                None
+            }
+        };
+        let decision = decide(recorded.as_ref(), now_ms, policy);
+        if let Some(path) = intervention_log {
+            append_intervention(path, &decision, now_ms)?;
+        }
+
+        let mut execution = None;
+        let mut execution_error = None;
+        let signalable = matches!(
+            decision.action,
+            WatchdogAction::Pause | WatchdogAction::Repair
+        );
+        if signalable {
+            if let Some(pid) = decision.pid
+                && last_signaled_pid != Some(pid)
+            {
+                match execute(WatchdogExecution::Pause, pid, expected_command, now_ms) {
+                    Ok(receipt) => {
+                        last_signaled_pid = Some(pid);
+                        execution = Some(receipt);
+                    }
+                    Err(error) => execution_error = Some(error.to_string()),
+                }
+            }
+        } else {
+            last_signaled_pid = None;
+        }
+
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({
+                    "at_ms": now_ms,
+                    "action": decision.action,
+                    "reason": decision.reason,
+                    "pid": decision.pid,
+                    "age_ms": decision.age_ms,
+                    "execution": execution,
+                    "error": execution_error,
+                }))?
+            );
+        } else if last_reported != Some(decision.action)
+            || execution.is_some()
+            || execution_error.is_some()
+        {
+            println!(
+                "{}: {} (pid={:?} age_ms={:?})",
+                decision.action.as_str(),
+                decision.reason,
+                decision.pid,
+                decision.age_ms
+            );
+            if let Some(receipt) = &execution {
+                println!("executed {} pid={}", receipt.action.as_str(), receipt.pid);
+            }
+            if let Some(error) = &execution_error {
+                eprintln!("watchdog: {error}");
+            }
+        }
+        last_reported = Some(decision.action);
+        if let Some(error) = execution_error {
+            anyhow::bail!("watchdog: {error}");
+        }
+        if ticks != 0 && completed >= ticks {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
@@ -6159,10 +6279,11 @@ async fn main() -> Result<()> {
             intervention_log,
             execute,
             expected_command,
+            watch,
+            interval_ms,
+            ticks,
             json,
         } => {
-            let recorded = first_principles_agent::watchdog::read(&heartbeat)?;
-            let now_ms = current_time_ms();
             let execution = match execute.as_deref() {
                 None => None,
                 Some("pause") => Some(first_principles_agent::watchdog::WatchdogExecution::Pause),
@@ -6171,18 +6292,41 @@ async fn main() -> Result<()> {
                     anyhow::bail!("watchdog: unknown execution `{other}` (pause|resume)")
                 }
             };
-            let decision = match (warn_after_ms, pause_after_ms, repair_after_ms) {
-                (Some(warn), Some(pause), Some(repair)) => {
-                    let policy =
-                        first_principles_agent::watchdog::WatchdogPolicy::new(warn, pause, repair)?;
-                    Some(first_principles_agent::watchdog::decide(
-                        recorded.as_ref(),
-                        now_ms,
-                        policy,
-                    ))
-                }
+            let policy = match (warn_after_ms, pause_after_ms, repair_after_ms) {
+                (Some(warn), Some(pause), Some(repair)) => Some(
+                    first_principles_agent::watchdog::WatchdogPolicy::new(warn, pause, repair)?,
+                ),
                 _ => None,
             };
+            if watch {
+                let policy = policy.ok_or_else(|| {
+                    anyhow::anyhow!("watchdog: --watch requires escalation thresholds")
+                })?;
+                if execution != Some(first_principles_agent::watchdog::WatchdogExecution::Pause) {
+                    anyhow::bail!(
+                        "watchdog: --watch requires --execute pause; automatic resume is not supported"
+                    );
+                }
+                if interval_ms < 100 {
+                    anyhow::bail!("watchdog: --interval-ms must be at least 100");
+                }
+                run_watchdog_watch(
+                    &heartbeat,
+                    policy,
+                    intervention_log.as_deref(),
+                    &expected_command,
+                    interval_ms,
+                    ticks,
+                    json,
+                )
+                .await?;
+                return Ok(());
+            }
+            let recorded = first_principles_agent::watchdog::read(&heartbeat)?;
+            let now_ms = current_time_ms();
+            let decision = policy.map(|policy| {
+                first_principles_agent::watchdog::decide(recorded.as_ref(), now_ms, policy)
+            });
             if let Some(decision) = &decision {
                 if let Some(path) = &intervention_log {
                     first_principles_agent::watchdog::append_intervention(path, decision, now_ms)?;

@@ -322,6 +322,134 @@ fn watchdog_execute_pauses_a_matching_process() {
 
 #[cfg(unix)]
 #[test]
+fn watchdog_watch_pauses_once_and_keeps_watching() {
+    let workspace = tempfile::tempdir().unwrap();
+    let heartbeat = workspace.path().join("heartbeat.json");
+    let log = workspace.path().join("interventions.jsonl");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let child = ChildGuard(Command::new("sleep").arg("30").spawn().unwrap());
+    let pid = child.0.id();
+    wait_for_cmdline(pid, "sleep");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    std::fs::write(
+        &heartbeat,
+        serde_json::to_vec(&serde_json::json!({
+            "pid": pid,
+            "updated_at_ms": now_ms.saturating_sub(3000),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut args = pause_args(&heartbeat, "sleep");
+    args.push("--intervention-log".into());
+    args.push(log.display().to_string());
+    args.extend(
+        ["--watch", "--interval-ms", "100", "--ticks", "3"]
+            .into_iter()
+            .map(str::to_string),
+    );
+    let output = Command::new(binary).args(args).output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ticks = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ticks.len(), 3);
+    assert_eq!(ticks[0]["action"], "pause");
+    assert_eq!(ticks[0]["execution"]["action"], "pause");
+    assert_eq!(ticks[0]["execution"]["pid"], pid);
+    assert!(ticks[1]["execution"].is_null(), "must not signal twice");
+    assert!(ticks[2]["execution"].is_null(), "must not signal twice");
+
+    let mut stopped = false;
+    for _ in 0..100 {
+        if process_state(pid) == Some('T') {
+            stopped = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(stopped, "child was not stopped");
+    let interventions = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(interventions.lines().count(), 1);
+}
+
+#[test]
+fn watchdog_watch_rejects_a_sub_100ms_interval() {
+    let workspace = tempfile::tempdir().unwrap();
+    let heartbeat = workspace.path().join("heartbeat.json");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args([
+            "watchdog",
+            "--heartbeat",
+            &heartbeat.display().to_string(),
+            "--warn-after-ms",
+            "1000",
+            "--pause-after-ms",
+            "2000",
+            "--repair-after-ms",
+            "4000",
+            "--execute",
+            "pause",
+            "--watch",
+            "--interval-ms",
+            "10",
+            "--ticks",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("at least 100"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn watchdog_watch_refuses_automatic_resume() {
+    let workspace = tempfile::tempdir().unwrap();
+    let heartbeat = workspace.path().join("heartbeat.json");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args([
+            "watchdog",
+            "--heartbeat",
+            &heartbeat.display().to_string(),
+            "--warn-after-ms",
+            "1000",
+            "--pause-after-ms",
+            "2000",
+            "--repair-after-ms",
+            "4000",
+            "--execute",
+            "resume",
+            "--watch",
+            "--ticks",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("requires --execute pause"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn watchdog_execute_refuses_a_command_mismatch() {
     let workspace = tempfile::tempdir().unwrap();
     let heartbeat = workspace.path().join("heartbeat.json");

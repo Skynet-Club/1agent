@@ -311,9 +311,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   it. Persistent question history is still absent.
 - Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`.
   `pause`/`repair` are recommendations by default; `--execute pause/resume` is an explicit,
-  checked SIGSTOP/SIGCONT path and never kills or restarts. A transition log records only action
-  changes plus one recovery. The original `--max-age-ms` healthy/unhealthy output is preserved
-  when no policy is set.
+  checked SIGSTOP/SIGCONT path and never kills or restarts. `--watch --execute pause` is an
+  opt-in containment loop: one checked SIGSTOP per Pause/Repair pid, no re-signal on
+  Pause-to-Repair, and no automatic resume. A transition log records only action changes plus
+  one recovery. The original `--max-age-ms` healthy/unhealthy output is preserved when no
+  policy is set.
 - Checkpoint deltas: after the first full `Checkpoint`, the runtime journals `CheckpointDelta`
   with only appended messages and a `base_seq`. Resume and replay apply deltas in order and
   reject a mismatched base; audit reports orphan deltas. `ResumeStarted` still embeds a full
@@ -640,7 +642,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   thresholds it projects ok/warn/pause/repair. `--execute pause|resume` is an
   explicit opt-in that checks `/proc/<pid>/cmdline` against
   `--expected-command` before sending SIGSTOP/SIGCONT; it never kills,
-  restarts, clears a lock or expands authority. With `--escalate-inbox-store`,
+  restarts, clears a lock or expands authority. `--watch --execute pause`
+  re-evaluates on an interval and contains a stale process with one checked
+  SIGSTOP per pid; it never auto-resumes. With `--escalate-inbox-store`,
   `--escalate-step`, `--escalate-webhook` and `--escalate-state`, each tick
   projects the open inbox through the ladder and delivers only newly reached
   `notify`/`urgent` rungs; failures are logged and retried on the next tick

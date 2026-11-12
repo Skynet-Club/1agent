@@ -2,10 +2,15 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
-- Watchdog auto-repair RFC (proposed, no behavior change): RFC 0002 recommends
-  opt-in auto-pause containment only for 0.97; restart and external
-  repair-command paths need lease fencing, duplicate-side-effect protection and
-  approval first.
+- Watchdog automatic containment (RFC 0002, 0.97 scope): `watchdog --watch
+  --execute pause --interval-ms N [--ticks N]` re-evaluates the heartbeat and
+  sends one checked SIGSTOP per Pause/Repair pid, with an intervention-log
+  entry and receipt. It does not re-signal on a Pause-to-Repair escalation,
+  allows a new signal after recovery or a pid change, never auto-resumes,
+  kills or restarts, and exits non-zero if the checked signal fails. Restart
+  and external repair-command paths still need lease fencing,
+  duplicate-side-effect protection and approval first. Tests:
+  `cargo test --test watchdog_cli` (10 tests).
 - Onboarding check: `1agent onboard --check --json` performs a read-only check
   of memory/goal path writability and provider key/base/model environment,
   creates no files, prints next commands and exits non-zero when incomplete.
