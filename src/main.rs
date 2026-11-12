@@ -5118,7 +5118,8 @@ async fn main() -> Result<()> {
                     report.resumes
                 );
                 println!(
-                    "recovery={} replay={} compacted_replay={} tool_success={} audit_complete={} denied={}",
+                    "crash_free={} recovery={} replay={} compacted_replay={} tool_success={} audit_complete={} denied={}",
+                    bps(report.crash_free_bps),
                     bps(report.recovery_bps),
                     bps(report.replay_bps),
                     bps(report.compacted_replay_bps),

@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- M14/M17 local evidence: `metrics` now reports `crash_free_bps` (runs with a
+  terminal stop, a proxy for M14). A forced-compaction runtime test proves
+  `ContextCompacted` runs replay and audit cleanly and reports
+  `compacted_replay_bps = 10000` (M17).
 - First-token instrumentation (ADR-0105): a `--stream` attempt journals
   `StreamFirstToken` with provider/model and elapsed milliseconds; `1agent
   metrics` reports TTFT p50/p95. Non-streaming runs have no sample, and every

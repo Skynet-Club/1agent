@@ -9,6 +9,7 @@ Scope: journal-derived gate metrics and the `1agent metrics` command.
 cargo test journal_metrics --lib
 cargo test metrics --lib
 cargo test --test metrics_cli
+cargo test compacted_run_replays_and_audits --lib
 ```
 
 ## Real sample
@@ -39,6 +40,12 @@ construction; a configured provider reports its usage in `ModelResponded`.
 - Empty inputs return zeros with `null` percentages, not a fake 100%.
 - A corrupt journal fails the command; it is not silently skipped.
 - The CLI prints the projection as JSON or a compact human summary.
+- M14 is reported as `crash_free_bps`: runs with a terminal stop divided by
+  all runs. It is a crash-free proxy, not a measure of user-perceived session
+  stability.
+- M17 has a forced-compaction fixture: a four-tool-step run with
+  `auto_compact_tokens = 1` emits `ContextCompacted`, replays, audits and
+  reports `compacted_replay_bps = 10000`.
 
 ## What this does not prove
 

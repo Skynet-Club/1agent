@@ -66,6 +66,7 @@ file: <路径>              → 文件必须存在
 | core-v3 八例契约套件 8/8 且两次运行判定一致；报告 digest 含 duration，不逐字节比较 | cmd: cargo test --test eval_repeatability_cli && cargo run --offline --quiet -- eval --suite evals/core.json | ✅ | 契约夹具，不是真实任务/模型质量；历史 6/6 文档不回写 |
 | 0.97 指标复核：硬门/M1–M23 现状、证据与阻塞项已记录；未测项明确标为未测而非 0 | file: docs/status-v0.97.md | ⚠️ | 本地复核，无外部 A-Gate/W-Gate/审计；2h soak 结果与真实任务指标仍缺 |
 | 首 token 计时：`--stream` 首次尝试记录 provider/model/elapsed_ms；metrics 输出 TTFT p50/p95；非流式无样本 | test: stream_sink_receives_deltas_before_the_final_answer && test: journal_metrics_count_completion_tools_and_audit | ⚠️ | 仅流式运行；每次重试单独计数；尚无真实 provider 的 TTFT 数据 |
+| M14/M17 本地证据：`crash_free_bps` 为有终止 stop 的 run 比例；强制压缩 run 可 replay/audit 且 compacted_replay_bps=100% | cmd: cargo test compacted_run_replays_and_audits --lib && cargo test journal_metrics --lib | ✅ | M14 是代理；M17 为确定性压缩夹具，非真实 1M 上下文 |
 | 威胁模型：P0/P1 清单、信任边界、缓解与残余缺口已记录 | file: docs/threat-model.md | ⚠️ | 自评，无外部审计；CUA 执行器/运行 journal 哈希链/同 UID 隔离等缺口仍在 |
 | 答案分层：默认只显示状态/结论/信任摘要；conditional、needs_evidence 或高影响未知时内联 ≤3 条依据与全部翻转条件；`--details` 恢复完整字段与路由轨迹 | cmd: cargo test --test cli_e2e default_run_output_is_concise_and_details_expands_it | ✅ | 高风险判定是启发式；低风险答案默认隐藏证据（摘要行给出计数）；TUI 已有 `/details` 与 `/why` |
 | 崩溃注入恢复：从首个 checkpoint 续跑完成且不重放已完成副作用；ToolCalled 未观测或无 checkpoint 的 journal 失败关闭；可配周期/时长 soak | cmd: cargo test --test recovery_soak -- --ignored --nocapture | ✅ | 确定性本地 provider + 单写工具；不代表真实外部副作用/多 Agent 竞争；2h 时长门需单独运行 |

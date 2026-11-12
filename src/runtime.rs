@@ -2910,6 +2910,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compacted_run_replays_and_audits() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "counting-tool".into();
+        manifest.model = "counting-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(CountingToolProvider {
+                    calls: AtomicUsize::new(0),
+                    tool_steps: 4,
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("keep working", workspace.path().into());
+        request.budget.max_steps = 0;
+        request.budget.max_tool_calls = 0;
+        request.budget.max_provider_attempts = 0;
+        request.budget.auto_compact_tokens = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event.event, JournalEventKind::ContextCompacted { .. })),
+            "the run should have compacted context"
+        );
+        assert!(replay_events(&events).is_ok());
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+        let metrics = crate::metrics::summarize_journal_events([events.as_slice()]);
+        assert_eq!(metrics.compacted_runs, 1);
+        assert_eq!(metrics.compacted_replay_ok, 1);
+        assert_eq!(metrics.compacted_replay_bps, Some(10_000));
+    }
+
+    #[tokio::test]
     #[ignore = "size probe; run with --ignored --nocapture"]
     async fn delta_checkpoints_keep_the_journal_linear() {
         let workspace = tempfile::tempdir().unwrap();
