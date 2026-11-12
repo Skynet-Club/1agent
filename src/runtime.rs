@@ -21,7 +21,9 @@ use crate::journal::{
     Journal, JournalEventKind, ProviderFailure, ResumablePrefix, RetryOutcome, RetryTiming,
     find_resumable_prefix, read_events,
 };
-use crate::provider::{ModelProvider, ProviderError, agent_system_prompt_for_form};
+use crate::provider::{
+    ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
+};
 use crate::provider_health::ProviderHealth;
 use crate::router::{
     PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
@@ -1814,6 +1816,63 @@ impl RuntimeError {
             Self::Resume(_) => Path::new(""),
             Self::Experience(_) => Path::new(""),
             Self::Reframe(_) => Path::new(""),
+        }
+    }
+
+    /// A short, actionable next step for CLI/TUI callers. Hints describe
+    /// recovery options; they never change the error or expand authority.
+    pub fn recovery_hint(&self) -> &'static str {
+        match self {
+            Self::Journal { .. } => {
+                "check that the journal directory is writable and has free space, then re-run"
+            }
+            Self::Provider { source, .. } => match source.code {
+                ProviderErrorCode::Authentication => {
+                    "check the API key and provider account, or switch provider"
+                }
+                ProviderErrorCode::RateLimited => {
+                    "wait for the retry window or switch provider/model"
+                }
+                ProviderErrorCode::Timeout | ProviderErrorCode::Network => {
+                    "check connectivity or proxy settings, raise --timeout-seconds, then retry"
+                }
+                ProviderErrorCode::InvalidResponse => {
+                    "retry; if it persists, switch model or simplify the task"
+                }
+                ProviderErrorCode::UnsupportedCapability => {
+                    "choose a provider/model that supports the requested capability"
+                }
+                ProviderErrorCode::InvalidConfiguration => {
+                    "check --provider, --base-url, --model and credential settings"
+                }
+                ProviderErrorCode::ProviderUnavailable => {
+                    "retry later or configure a fallback provider"
+                }
+                ProviderErrorCode::Cancelled => {
+                    "re-run, or use `1agent resume --journal PATH` to continue from the checkpoint"
+                }
+                ProviderErrorCode::ResponseTooLarge => {
+                    "reduce context or tool output, or use a provider with a larger response limit"
+                }
+            },
+            Self::NoRoute { .. } => {
+                "check the provider/model and route objective; the journal records the route plan"
+            }
+            Self::InvalidOutput { .. } => {
+                "retry; if it persists, switch model or split the task into smaller steps"
+            }
+            Self::Cancelled { .. } => {
+                "re-run, or use `1agent resume --journal PATH` to continue from the checkpoint"
+            }
+            Self::Resume(_) => {
+                "run `1agent resume-status --journal PATH` to inspect the checkpoint and tool pairing"
+            }
+            Self::RoutePlan { .. } => "check provider manifests and route budgets",
+            Self::ToolCapabilities { .. } => "check tool configuration and permissions",
+            Self::Experience(_) => "check the experience directory or disable it",
+            Self::Reframe(_) => {
+                "retry the reframe request; if it persists, choose a literal option"
+            }
         }
     }
 }
@@ -3798,6 +3857,48 @@ mod tests {
         assert_eq!(answer.status, AnswerStatus::NeedsAuthorization);
         assert!(answer.conclusion.contains("/permissions write on"));
         assert!(answer.conclusion.contains("--read-only"));
+    }
+
+    #[test]
+    fn runtime_errors_carry_actionable_hints() {
+        let provider = |code| RuntimeError::Provider {
+            path: PathBuf::from("journal.jsonl"),
+            source: ProviderError {
+                code,
+                message: "failed".into(),
+                retryable: true,
+            },
+        };
+        assert!(
+            provider(ProviderErrorCode::Authentication)
+                .recovery_hint()
+                .contains("API key")
+        );
+        assert!(
+            provider(ProviderErrorCode::Network)
+                .recovery_hint()
+                .contains("connectivity")
+        );
+        assert!(
+            RuntimeError::Cancelled {
+                path: PathBuf::from("journal.jsonl")
+            }
+            .recovery_hint()
+            .contains("resume")
+        );
+        assert!(
+            RuntimeError::Resume("bad checkpoint".into())
+                .recovery_hint()
+                .contains("resume-status")
+        );
+        assert!(
+            RuntimeError::Journal {
+                path: PathBuf::from("journal.jsonl"),
+                source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+            }
+            .recovery_hint()
+            .contains("writable")
+        );
     }
 
     struct UsageProvider;

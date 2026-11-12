@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Error recovery hints: `RuntimeError::recovery_hint` maps provider codes and runtime errors to
+  one actionable next step. `1agent run` and `1agent resume` print `hint: ...` to stderr; the
+  original error, exit status, retries and authority are unchanged. The TUI does not render the
+  hint yet.
 - Clarify gate: `ClarifyQuestion`/`ClarifyGate` validate two to four unique options, add an
   automatic `Other`, put the recommended option first, deduplicate ids and normalized prompts,
   admit one question per turn by default, and cap a blocking batch at five. `resolve_round`

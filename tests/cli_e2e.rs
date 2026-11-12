@@ -3280,3 +3280,36 @@ fn signed_skill_bundles_verify_against_a_trusted_public_key() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn provider_network_failure_prints_a_recovery_hint() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "hello",
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            "http://127.0.0.1:1/v1",
+            "--model",
+            "test-model",
+            "--allow-network",
+            "--max-provider-attempts",
+            "1",
+            "--journal-dir",
+            &workspace.path().join("journal").display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("hint:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("connectivity") || stderr.contains("timeout"),
+        "stderr: {stderr}"
+    );
+}
