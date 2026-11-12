@@ -15,7 +15,7 @@ cargo test incremental_read_benchmark --lib -- --ignored --nocapture
 ## Results
 
 ```text
-journal bytes=4734890 events=4000 full=31.07939ms
+journal bytes=4738550 events=4000 full=31.968289ms replay=317.668µs incremental_p95=9.424µs
 journal bytes=23689069 full=157.643837ms first=219.378636ms incremental=19.947µs
 incremental_reads_only_new_events ... ok
 incremental_read_holds_a_partial_trailing_line ... ok
@@ -34,8 +34,10 @@ incremental_read_rejects_a_shrunk_journal ... ok
 - Truncating a journal below the cursor returns `Truncated`.
 - `read_events` still returns all events, including a final line without a
   newline.
-- A 4.7 MB journal (roughly 1.2M ASCII tokens) parses in 31 ms in a debug
-  build, under the 50 ms SA97-10 acceptance size.
+- A 4.7 MB journal (roughly 1.2M ASCII tokens) parses in 32 ms in a debug
+  build, under the 50 ms SA97-10 acceptance size; replaying it takes 0.32 ms.
+- After that journal has been consumed once, reading each newly appended event
+  has a p95 of 9.4 µs across 20 samples, establishing M16's 50 ms bound.
 - After a 23.7 MB, 20k-event journal has been consumed once, reading one newly
   appended event takes about 20 µs.
 
