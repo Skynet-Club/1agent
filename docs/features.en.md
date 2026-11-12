@@ -103,6 +103,7 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 - runtime canary, promotion and rollback (module/tests; Router real-time observation wiring still being completed);
 - candidate and demonstration capture (demonstration data kept as hashes);
 - `1agent skill capture --journal PATH --name NAME --version VERSION --description TEXT [--scope SCOPE] --out PATH [--force] [--json]`: accepts only a `Completed` run and turns its successful tool steps into a `SKILL.md` draft; redacts secrets/Bearer/assignments/URL credentials and generalizes `$HOME`/`$TMPDIR`/UUID/email; it does not register, evaluate or activate;
+- `1agent skill register --path SKILL.md`, `skill eval --suite PATH` and `skill activate-if-passed --suite PATH`: the CLI can register, run the static held-out suite and activate only when it passes; a failing evaluation exits non-zero and leaves the active version unchanged;
 - malicious or over-privileged skills rejected;
 - `1agent skill scan --path SKILL.md [--json]`: preflight frontmatter, control characters, key/secret markers and instruction-override markers without registering or executing the skill;
 - `1agent skill verify --bundle PATH --sha256 HEX [--public-key PATH] [--json]`: shares `verify_bundle` with import to check SHA-256, schema, signature, duplicates, manifest hashes and the registry scan; it does not import.

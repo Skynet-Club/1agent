@@ -54,6 +54,7 @@ file: <路径>              → 文件必须存在
 | 平台分支只允许出现在展示适配器 | cmd: ! grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs | ✅ | 本日修正：原门禁依赖缺失的 rg，被静默跳过 |
 | 技能可从捕获、评测、激活回滚到上一版本，失败候选不替换现役版本 | test: skill_lifecycle_capture_to_rollback_is_replayable | ✅ | 确定性集成场景；基于磁盘 journal、重启回放与审计收据；不代表真实示范语料 |
 | skill capture 只接受 Completed run，提取成功工具步骤并生成可扫描的 SKILL.md 草稿；密钥/凭据脱敏、路径/UUID/邮箱泛化；不自动注册/激活 | cmd: cargo test skill_capture --lib && cargo test --test skill_capture_cli | ✅ | 启发式脱敏，不是完整 DLP；只捕获成功工具步骤；草稿需人工评测/激活 |
+| skill CLI 注册→静态 held-out 评测→仅通过后激活；失败评测非零且不改现役版本 | cmd: cargo test --test skill_register_eval_cli && cargo test skill --lib | ✅ | 标记匹配不是质量保证；suite 由操作者提供；canary 另算 |
 | UserModel 2.0 可从记忆重建；自治/声音/同意默认安全，遗忘记录即失效 | cmd: cargo test user_model --lib && cargo test --test user_model_cli | ✅ | 自治与同意是偏好，不是授权；Authority/Policy/Approval 仍决定执行 |
 | 平台能力状态显式；`untested` 不宣称支持 | cmd: cargo test platform --lib && cargo test --test platform_cli | ✅ | Linux 状态图；macOS/Windows/other 全部 `untested`；不是 P-Gate 通过 |
 | 独立验证器拒绝自验证、重复/缺失结果和无证据通过；public pass + hidden fail 记为 hacked | cmd: cargo test verification --lib && cargo test --test hack_verifiable | ✅ | 确定性契约夹具；不代表真实模型质量；隐藏测试需与公开测试分开维护 |

@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Skill evaluation CLI gate (ADR-0085): `skill register --path SKILL.md`
+  scans and registers an immutable version; `skill eval --suite PATH` runs the
+  static held-out suite and prints per-case missing/forbidden markers; `skill
+  activate-if-passed --suite PATH` activates only when the score reaches the
+  threshold and exits non-zero otherwise. Tests: three
+  `skill_register_eval_cli` e2e tests.
 - MCP session reuse is enforced by the test server: initialize returns
   `sess-1`, and every later `notifications/initialized`, `tools/list` or
   `tools/call` request without that `Mcp-Session-Id` gets a 400. Stale
