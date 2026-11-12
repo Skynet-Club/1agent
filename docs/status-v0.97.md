@@ -1,11 +1,11 @@
-# 0.97 Status and Metric Review (2026-11-12, 21:05 CST)
+# 0.97 Status and Metric Review (2026-11-13, 00:30 CST)
 
 - Status: **local review; 0.97 is not release-ready**
-- Latest reviewed commits: `bbecf78` (M4 soak evidence), `7e6306f` (Clarify
-  panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas), based on
-  `7d12f0d`
-- Full suite: 1230 passed / 0 failed / 13 ignored
-- Claims: 219 (197 verified / 14 partial / 8 no evidence)
+- Latest reviewed commit: `44558ec` (watchdog containment), based on
+  `825af12`; earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify
+  panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas)
+- Full suite: 1261 passed / 0 failed / 13 ignored
+- Claims: 224 (201 verified / 15 partial / 8 no evidence)
 - Local release: Linux and Windows GNU binaries are rebuilt per slice; the
   Windows `.exe` is linked, not run on Windows
 
@@ -31,7 +31,7 @@ This page is a measurement review, not a release announcement. A metric marked
 | M1 long-horizon success | current suite v1.1: 16/16 (100%) across two short runs; earlier v1.0 baseline 17/24 (70.83%); 8h run `job-1794496736687-2245-2` in progress | not an 8h result yet; 8 tasks, one provider/model |
 | M2 autonomy hours | 8h run in progress (`job-1794496736687-2245-2`) | unattended; result appended when the job finishes |
 | M3 interventions/task | 0 in the unattended 8h run so far | interventions are not possible in the scheduled job |
-| M7 TTFT | DeepSeek `deepseek-flash`, n=3 short streaming runs: p50 1.08 s, p95 2.48 s (min 0.72, max 2.48) | `StreamFirstToken` + `metrics`; small sample, one provider, short prompts |
+| M7 TTFT | DeepSeek `deepseek-flash`, n=3 short streaming runs: p50 1.08 s, p95 2.48 s (min 0.72, max 2.48); broader n=20 (10 short + 10 long-context) scheduled as `job-1794499887386-2245-5` after the 8h run | `StreamFirstToken` + `metrics`; one provider; broader sample not collected yet |
 | M8 end-to-end p95 | 72.9 s historical snapshot | first/last event time, not a tool-dense benchmark |
 | M9 tool success | 86.17% historical; 50% test-generated repo set | repo set is dominated by failure-injection tests |
 | M10 cost/task | 3,275 micros historical | provider pricing not embedded; usage only |
@@ -63,6 +63,9 @@ This page is a measurement review, not a release announcement. A metric marked
   0.96.1 journals.
 - TUI transcript projection cache.
 - Watchdog escalation ladder plus explicit checked `--execute pause/resume`.
+- Opt-in watchdog automatic containment (`--watch --execute pause`): one
+  checked SIGSTOP per Pause/Repair pid, no repeat on escalation, no automatic
+  resume, kill or restart; 10 `watchdog_cli` tests pass.
 - Clarify gate and round outcome states.
 - Actionable error hints and Answer/Audit layering.
 - Local gate metrics, journal-derived route/context/model/tool stage latencies,
@@ -79,14 +82,17 @@ This page is a measurement review, not a release announcement. A metric marked
 
 1. M1 8h long-horizon, M2 autonomy hours and M3 interventions; the current
    8-task suite v1.1 passes 16/16 but is a short sample.
-2. M7 broader TTFT samples (provider/long-task); a 3-sample baseline exists.
+2. M7 broader TTFT samples (long-task); a 3-sample baseline exists and a
+   scheduled n=20 short/long run waits for the 8h benchmark. A second provider
+   still needs credentials.
 3. M19–M23 blind-review labels; the packet pipeline is ready and collection is
    scheduled, but a human reviewer must label it.
 4. External A-Gate/W-Gate and security review; a review draft is at
    `docs/audit-package.md`; P-Gate macOS.
-5. Automatic watchdog repair: RFC 0002 proposes opt-in auto-pause containment
-   only; restart/repair-command paths need lease fencing/approval. Pause/resume
-   is explicit and checked. M6 is not an external audit.
+5. Automatic watchdog repair: containment is implemented (`--watch --execute
+   pause`); automatic resume, kill/restart and external repair commands remain
+   out of scope pending a health signal, lease fencing and approval. M6 is not
+   an external audit.
 
 ## Next actions
 
@@ -96,7 +102,8 @@ This page is a measurement review, not a release announcement. A metric marked
   contract fixtures as model quality.
 - Label the blind-review packet and run `1agent answer-quality`; the packet
   has 40 prompts and 80 label rows.
-- Decide RFC 0002 and implement opt-in watchdog containment if approved.
+- RFC 0002 containment is implemented; keep automatic resume/restart in 0.98
+  pending lease fencing and an independent health signal.
 - Run an 8h benchmark for M1/M2/M3 and broaden TTFT samples beyond one provider
   and short prompts.
 - Keep the release check fail-closed on a representative journal directory.

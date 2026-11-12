@@ -1,7 +1,7 @@
 # RFC 0002: Watchdog Automatic Repair
 
-- Status: proposed
-- Date: 2026-11-12
+- Status: accepted for 0.97 (containment only)
+- Date: 2026-11-12 (implemented 2026-11-13)
 - Related: SA97-16, M4/M6
 
 ## Context
@@ -46,10 +46,28 @@ decision. It never kills, restarts or clears locks. The 0.97 status lists
 - Any future restart/repair-command feature must first land lease fencing,
   duplicate-side-effect protection and an approval gate.
 
-## Open questions
+## Implementation (0.97)
 
-- Should `--watch` pause on both Pause and Repair, or only Repair?
+`1agent watchdog --watch --execute pause` re-reads the heartbeat every
+`--interval-ms` (minimum 100 ms). On the first Pause or Repair decision for a
+pid it sends the same checked SIGSTOP as the one-shot path, records the
+decision in `--intervention-log`, and prints the receipt. It signals a pid at
+most once until the heartbeat recovers to Ok/Warn or the pid changes; a
+Pause-to-Repair escalation does not signal twice. `--ticks N` bounds the loop
+for tests and supervised runs; 0 runs until interrupted.
+
+The loop refuses `--execute resume`, never sends SIGCONT, never kills or
+restarts, and exits non-zero if the checked signal fails. It is still Unix
+only because the validation uses `/proc/<pid>/cmdline`.
+
+## Open questions (resolved for 0.97)
+
+- Should `--watch` pause on both Pause and Repair, or only Repair? **Both.**
+  Containment is the only automatic action; Repair does not grant more
+  authority.
 - Should the loop resume automatically after a fixed cooldown, or wait for an
-  operator?
+  operator? **Wait for an operator.** A paused process cannot prove it is
+  healthy, so automatic resume remains explicit.
 - Which process should be the target when the heartbeat pid changes between
-  ticks?
+  ticks? **The pid in the latest heartbeat**, after the same cmdline check; the
+  loop signals the new pid once and never reuses the previous target.

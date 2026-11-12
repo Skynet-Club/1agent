@@ -1,0 +1,20 @@
+# Watchdog automatic containment — CLI receipt (2026-11-13)
+
+Command: 1agent watchdog --watch --execute pause --ticks 3 --interval-ms 100 --json
+Target: sleep 60, pid 1005836; heartbeat backdated 5000 ms; thresholds 1000/2000/100000
+Exit status: 0
+Process state after the loop: T
+
+## stdout/stderr
+```
+{"action":"pause","age_ms":5018,"at_ms":1794499777835,"error":null,"execution":{"action":"pause","executed_at_ms":1794499777835,"expected_command":"sleep","pid":1005836},"pid":1005836,"reason":"heartbeat is stale by 5018 ms; pause new work"}
+{"action":"pause","age_ms":5120,"at_ms":1794499777937,"error":null,"execution":null,"pid":1005836,"reason":"heartbeat is stale by 5120 ms; pause new work"}
+{"action":"pause","age_ms":5222,"at_ms":1794499778039,"error":null,"execution":null,"pid":1005836,"reason":"heartbeat is stale by 5222 ms; pause new work"}
+```
+
+## intervention log
+```
+{"at_ms":1794499777835,"action":"pause","pid":1005836,"age_ms":5018,"reason":"heartbeat is stale by 5018 ms; pause new work"}
+```
+
+The first tick sends SIGSTOP; ticks 2 and 3 do not signal again. No resume, kill or restart is issued by the watchdog.
