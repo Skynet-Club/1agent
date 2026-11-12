@@ -46,6 +46,14 @@ pub enum ClarifyError {
     UnexpectedOption(String),
     #[error("submitted round has no answered question")]
     EmptySubmission,
+    #[error("clarify panel is closed or expired")]
+    PanelClosed,
+    #[error("clarify panel requires 1..=5 questions and at least one blocking question")]
+    InvalidPanel,
+    #[error("the Other option requires non-empty text: {0}")]
+    OtherTextRequired(String),
+    #[error("only the Other option may carry other text: {0}")]
+    UnexpectedOtherText(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -165,6 +173,222 @@ pub fn resolve_round(
         blocking_unanswered,
         default_answer_valid: true,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ClarifyPanelAnswer {
+    pub question_id: String,
+    #[serde(default)]
+    pub option_id: Option<String>,
+    pub status: ClarifyAnswerStatus,
+    #[serde(default)]
+    pub other_text: Option<String>,
+}
+
+/// Structured state for a blocking clarify panel: select one option per
+/// question, confirm once, or cancel/time out. The panel owns no rendering and
+/// no terminal input; a TUI or CLI adapter drives these transitions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ClarifyPanel {
+    pub questions: Vec<ClarifyQuestion>,
+    pub answers: Vec<ClarifyPanelAnswer>,
+    pub deadline_ms: u128,
+    #[serde(default)]
+    pub outcome: Option<ClarifyOutcome>,
+}
+
+impl ClarifyPanel {
+    pub fn new(questions: Vec<ClarifyQuestion>, now_ms: u128) -> Result<Self, ClarifyError> {
+        if questions.is_empty() || questions.len() > MAX_BLOCKING_QUESTIONS {
+            return Err(ClarifyError::InvalidPanel);
+        }
+        let mut normalized = Vec::with_capacity(questions.len());
+        let mut ids = BTreeSet::new();
+        let mut blocking = 0;
+        for question in questions {
+            question.validate()?;
+            if question.blocking {
+                blocking += 1;
+            }
+            let question = question.normalize();
+            if !ids.insert(question.id.clone()) {
+                return Err(ClarifyError::InvalidQuestionId(question.id));
+            }
+            normalized.push(question);
+        }
+        if blocking == 0 {
+            return Err(ClarifyError::InvalidPanel);
+        }
+        Ok(Self {
+            questions: normalized,
+            answers: Vec::new(),
+            deadline_ms: now_ms.saturating_add(u128::from(DEFAULT_TIMEOUT_MS)),
+            outcome: None,
+        })
+    }
+
+    pub fn deadline_ms(&self) -> u128 {
+        self.deadline_ms
+    }
+
+    pub fn outcome(&self) -> Option<ClarifyOutcome> {
+        self.outcome
+    }
+
+    /// Normalization moves the recommended option first; that option is the
+    /// default when the panel times out.
+    pub fn default_option(&self, question_id: &str) -> Option<&ClarifyOption> {
+        self.questions
+            .iter()
+            .find(|question| question.id == question_id)
+            .and_then(|question| question.options.first())
+    }
+
+    fn ensure_open(&self, now_ms: u128) -> Result<(), ClarifyError> {
+        if self.outcome.is_some() || now_ms >= self.deadline_ms {
+            Err(ClarifyError::PanelClosed)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn question(&self, question_id: &str) -> Result<&ClarifyQuestion, ClarifyError> {
+        self.questions
+            .iter()
+            .find(|question| question.id == question_id)
+            .ok_or_else(|| ClarifyError::UnknownQuestionId(question_id.into()))
+    }
+
+    /// Lock one answer for a question. The `Other` option requires non-empty
+    /// text; no other option may carry text. A question can be answered once.
+    pub fn select(
+        &mut self,
+        question_id: &str,
+        option_id: &str,
+        other_text: Option<&str>,
+        now_ms: u128,
+    ) -> Result<(), ClarifyError> {
+        self.ensure_open(now_ms)?;
+        let question = self.question(question_id)?;
+        if !question.options.iter().any(|option| option.id == option_id) {
+            return Err(ClarifyError::UnknownOptionId(option_id.into()));
+        }
+        if self
+            .answers
+            .iter()
+            .any(|answer| answer.question_id == question_id)
+        {
+            return Err(ClarifyError::DuplicateAnswer(question_id.into()));
+        }
+        let text = other_text.map(str::trim).unwrap_or("");
+        let other_text = if option_id == OTHER_OPTION_ID {
+            if text.is_empty()
+                || text.chars().count() > 500
+                || text.chars().any(crate::safety::is_disallowed_control)
+            {
+                return Err(ClarifyError::OtherTextRequired(question_id.into()));
+            }
+            Some(text.to_string())
+        } else {
+            if !text.is_empty() {
+                return Err(ClarifyError::UnexpectedOtherText(question_id.into()));
+            }
+            None
+        };
+        self.answers.push(ClarifyPanelAnswer {
+            question_id: question_id.into(),
+            option_id: Some(option_id.into()),
+            status: ClarifyAnswerStatus::Answered,
+            other_text,
+        });
+        Ok(())
+    }
+
+    pub fn skip(&mut self, question_id: &str, now_ms: u128) -> Result<(), ClarifyError> {
+        self.ensure_open(now_ms)?;
+        self.question(question_id)?;
+        if self
+            .answers
+            .iter()
+            .any(|answer| answer.question_id == question_id)
+        {
+            return Err(ClarifyError::DuplicateAnswer(question_id.into()));
+        }
+        self.answers.push(ClarifyPanelAnswer {
+            question_id: question_id.into(),
+            option_id: None,
+            status: ClarifyAnswerStatus::Skipped,
+            other_text: None,
+        });
+        Ok(())
+    }
+
+    fn round_answers(&self) -> Vec<ClarifyAnswer> {
+        self.answers
+            .iter()
+            .map(|answer| ClarifyAnswer {
+                question_id: answer.question_id.clone(),
+                option_id: answer.option_id.clone(),
+                status: answer.status,
+            })
+            .collect()
+    }
+
+    /// Confirm once. An all-skipped panel is a cancellation, not an invalid
+    /// empty submission.
+    pub fn confirm(&mut self, now_ms: u128) -> Result<ClarifyRoundSummary, ClarifyError> {
+        if self.outcome.is_some() {
+            return Err(ClarifyError::PanelClosed);
+        }
+        if now_ms >= self.deadline_ms {
+            return self.expire(now_ms)?.ok_or(ClarifyError::PanelClosed);
+        }
+        let answered = self
+            .answers
+            .iter()
+            .any(|answer| answer.status == ClarifyAnswerStatus::Answered);
+        let outcome = if answered {
+            ClarifyOutcome::Submitted
+        } else {
+            ClarifyOutcome::Cancelled
+        };
+        let summary = resolve_round(&self.questions, &self.round_answers(), outcome)?;
+        self.outcome = Some(outcome);
+        Ok(summary)
+    }
+
+    pub fn cancel(&mut self) -> Result<ClarifyRoundSummary, ClarifyError> {
+        if self.outcome.is_some() {
+            return Err(ClarifyError::PanelClosed);
+        }
+        let summary = resolve_round(
+            &self.questions,
+            &self.round_answers(),
+            ClarifyOutcome::Cancelled,
+        )?;
+        self.outcome = Some(ClarifyOutcome::Cancelled);
+        Ok(summary)
+    }
+
+    /// Expire the panel after the 300-second blocking deadline. Missing
+    /// questions remain unanswered; `default_answer_valid` stays true.
+    pub fn expire(&mut self, now_ms: u128) -> Result<Option<ClarifyRoundSummary>, ClarifyError> {
+        if self.outcome.is_some() {
+            return Ok(None);
+        }
+        if now_ms < self.deadline_ms {
+            return Ok(None);
+        }
+        let summary = resolve_round(
+            &self.questions,
+            &self.round_answers(),
+            ClarifyOutcome::TimedOut,
+        )?;
+        self.outcome = Some(ClarifyOutcome::TimedOut);
+        Ok(Some(summary))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -580,6 +804,92 @@ mod tests {
                 ClarifyOutcome::Submitted,
             ),
             Err(ClarifyError::EmptySubmission)
+        );
+    }
+
+    fn blocking_question(id: &str, prompt: &str) -> ClarifyQuestion {
+        let mut question = question(id, prompt);
+        question.blocking = true;
+        question
+    }
+
+    #[test]
+    fn panel_selects_and_confirms_in_one_round() {
+        let mut panel = ClarifyPanel::new(
+            vec![
+                blocking_question("q1", "Which one?"),
+                blocking_question("q2", "What next?"),
+            ],
+            0,
+        )
+        .unwrap();
+        assert_eq!(panel.deadline_ms(), u128::from(DEFAULT_TIMEOUT_MS));
+        panel.select("q1", "a", None, 10).unwrap();
+        panel
+            .select("q2", OTHER_OPTION_ID, Some("  custom  "), 20)
+            .unwrap();
+        assert_eq!(
+            panel.select("q1", "b", None, 30),
+            Err(ClarifyError::DuplicateAnswer("q1".into()))
+        );
+
+        let summary = panel.confirm(40).unwrap();
+        assert_eq!(summary.outcome, ClarifyOutcome::Submitted);
+        assert_eq!(summary.answered, 2);
+        assert_eq!(summary.unanswered, 0);
+        assert_eq!(summary.blocking_unanswered, 0);
+        assert!(summary.default_answer_valid);
+        assert_eq!(panel.answers[1].other_text.as_deref(), Some("custom"));
+        assert_eq!(panel.confirm(50), Err(ClarifyError::PanelClosed));
+    }
+
+    #[test]
+    fn panel_cancel_keeps_unanswered_default_valid() {
+        let mut panel = ClarifyPanel::new(vec![blocking_question("q1", "Which?")], 0).unwrap();
+        let summary = panel.cancel().unwrap();
+        assert_eq!(summary.outcome, ClarifyOutcome::Cancelled);
+        assert_eq!(summary.answered, 0);
+        assert_eq!(summary.unanswered, 1);
+        assert!(summary.default_answer_valid);
+    }
+
+    #[test]
+    fn panel_times_out_at_300_seconds_and_closes() {
+        let mut panel = ClarifyPanel::new(vec![blocking_question("q1", "Which?")], 1_000).unwrap();
+        assert_eq!(panel.expire(1_000 + 299_999).unwrap(), None);
+        let summary = panel.expire(1_000 + 300_000).unwrap().unwrap();
+        assert_eq!(summary.outcome, ClarifyOutcome::TimedOut);
+        assert_eq!(summary.unanswered, 1);
+        assert!(summary.default_answer_valid);
+        assert_eq!(panel.expire(1_000 + 300_001).unwrap(), None);
+        assert_eq!(
+            panel.select("q1", "a", None, 1_000 + 300_001),
+            Err(ClarifyError::PanelClosed)
+        );
+    }
+
+    #[test]
+    fn panel_rejects_non_blocking_empty_and_bad_other() {
+        assert_eq!(
+            ClarifyPanel::new(Vec::new(), 0).unwrap_err(),
+            ClarifyError::InvalidPanel
+        );
+        assert_eq!(
+            ClarifyPanel::new(vec![question("q1", "Which?")], 0).unwrap_err(),
+            ClarifyError::InvalidPanel
+        );
+        let mut panel = ClarifyPanel::new(vec![blocking_question("q1", "Which?")], 0).unwrap();
+        assert_eq!(
+            panel.select("q1", OTHER_OPTION_ID, None, 1),
+            Err(ClarifyError::OtherTextRequired("q1".into()))
+        );
+        assert_eq!(
+            panel.select("q1", "a", Some("text"), 1),
+            Err(ClarifyError::UnexpectedOtherText("q1".into()))
+        );
+        assert_eq!(
+            panel.select("q1", "nope", None, 1),
+            Err(ClarifyError::UnknownOptionId("nope".into()))
         );
     }
 }
