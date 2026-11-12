@@ -36,10 +36,12 @@ fn voice_mode_reaches_the_journaled_system_prompt() {
     let advisor = journal_text(&dir, "advisor");
     assert!(advisor.contains("VOICE: advisor"));
     assert!(advisor.contains("what would change it"));
+    assert!(advisor.contains("FORM: execution"));
 
     let companion = journal_text(&dir, "companion");
     assert!(companion.contains("VOICE: companion"));
     assert!(companion.contains("direct and warm"));
+    assert!(companion.contains("FORM: execution"));
 }
 
 #[test]

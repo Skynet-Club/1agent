@@ -60,6 +60,7 @@ file: <路径>              → 文件必须存在
 | 可逆副作用无补偿时失败关闭；不可逆/失败需人工；away digest 分区可见 | cmd: cargo test repair --lib && cargo test --test away_digest_cli | ✅ | 只规划补偿，不执行；执行仍需 Authority/Policy/Approval |
 | 价值周报只报可复现结果与每完成结果成本，不编造“省时”；包含 open inbox 计数 | cmd: cargo test value_report --lib && cargo test --test value_report_cli | ✅ | mock journal；真实用户价值需后续测量基线；inbox 与 alerts 未去重 |
 | 三种伙伴声音进入系统提示；无效模式失败关闭；不改变证据规则 | cmd: cargo test voice --lib && cargo test --test voice_mode_cli | ✅ | 契约级；盲评质量未做 |
+| 伙伴声音 v1：按认知模式附加 decision/research/execution 形态；TUI `/why` 展开结论/证据/假设/未知/翻转/收据 | cmd: cargo test voice --lib && cargo test --test voice_mode_cli && cargo test --bin first-principles-agent why_tests | ✅ | 形态由 CognitiveMode 映射；`/why` 只读最近回答；盲评 M20 未做 |
 | Inbox 快照可重放；终端状态不可迁移；重复 ID/空字段/无效 snooze 失败关闭；CLI/TUI 可操作；list kind/source 过滤；sync 去重且默认 dry-run | cmd: cargo test inbox --lib && cargo test --test inbox_cli && cargo test --test inbox_sync_cli | ✅ | 桌面/聊天渠道投递未接；真实用户未验证 |
 | 自治档位策略：observe/suggest 不行动；act 仅低风险可逆；auto 低/中风险可逆；高风险/不可逆需审批 | cmd: cargo test autonomy --lib && cargo test --test autonomy_cli | ✅ | 偏好不是授权；Authority/Policy/ExecutionGate 仍决定执行 |
 | Onboarding 写入 memory 并可经 user-model 回读；非法值失败关闭；可 seed goal/commitment；`--interactive` 读 stdin | cmd: cargo test --test onboard_cli | ✅ | 脚本化访谈；自由追问/文档/日历导入未做；memory 与 goal 写入非原子 |

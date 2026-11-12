@@ -2,6 +2,14 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Partner voice v1 (ADR-0040): the system prompt now carries a task form
+  derived from the cognitive mode: `decision` for decision analysis and
+  escalation, `research` for evidence research and diagnosis, and `execution`
+  for direct answer/execute. The form changes presentation, not evidence or
+  authority. The TUI `/why` command renders the latest structured answer's
+  conclusion, claims, evidence, assumptions, unknowns, flip conditions and
+  action receipts. Tests: two new voice unit tests, two binary `/why` tests
+  and the `voice_mode_cli` form assertion.
 - Trust Center incident disclosures (ADR-0076): `trust-center
   --incident-report PATH` accepts caller-supplied incident JSON with a safe
   unique id, title, status, opened/resolved timestamps, summary and optional

@@ -21,7 +21,7 @@ use crate::journal::{
     Journal, JournalEventKind, ProviderFailure, ResumablePrefix, RetryOutcome, RetryTiming,
     find_resumable_prefix, read_events,
 };
-use crate::provider::{ModelProvider, ProviderError, agent_system_prompt_for};
+use crate::provider::{ModelProvider, ProviderError, agent_system_prompt_for_form};
 use crate::provider_health::ProviderHealth;
 use crate::router::{
     PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
@@ -717,8 +717,9 @@ impl AgentRuntime {
                 Duration::from_millis(prefix.checkpoint.elapsed_ms),
             )
         } else {
-            let mut initial_messages = vec![ModelMessage::system(agent_system_prompt_for(
+            let mut initial_messages = vec![ModelMessage::system(agent_system_prompt_for_form(
                 self.voice_mode,
+                crate::voice::VoiceForm::for_task(mode),
             ))];
             if !request.known_facts.is_empty() {
                 initial_messages.push(ModelMessage::system(format!(
