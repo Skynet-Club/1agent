@@ -268,6 +268,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   (`ToolCalled` to matching `ToolObserved`) digests from event timestamps. Retries add model
   samples but not context samples. Journal-write and TUI-render durations are not inferred
   from event gaps.
+- Metrics gate: `MetricsGatePolicy` and `evaluate_gate` apply optional minimum bps
+  thresholds (crash-free, recovery, replay, compacted replay, tool success, audit
+  completeness) and a maximum denied-observation count. A missing sample fails a positive
+  minimum closed; `0` disables it. `scripts/gate-check.sh DIR` defaults to M4 ≥ 95%,
+  M5/M13/M17 = 100%, and `release-check.sh --metrics-dir DIR` invokes it. M6 remains a
+  separate security-suite gate.
 - Crash-recovery soak: a deterministic write task is interrupted at the first checkpoint, at
   `ToolCalled` and at `ToolObserved`; resume from the checkpoint must finish without replaying
   the completed side effect, while the two later prefixes must fail closed. Duration mode

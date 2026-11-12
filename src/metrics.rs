@@ -471,6 +471,95 @@ fn ratio_bps(part: u64, total: u64) -> Option<u16> {
     Some((part.saturating_mul(10_000) / total).min(10_000) as u16)
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GateDirection {
+    Minimum,
+    Maximum,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GateViolation {
+    pub metric: String,
+    pub observed: Option<u64>,
+    pub required: u64,
+    pub direction: GateDirection,
+}
+
+/// Optional release-gate thresholds over a `JournalMetricsReport`.
+///
+/// A `None` sample fails a minimum gate closed: a missing measurement is not
+/// evidence of a passing gate.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MetricsGatePolicy {
+    pub min_crash_free_bps: Option<u16>,
+    pub min_recovery_bps: Option<u16>,
+    pub min_replay_bps: Option<u16>,
+    pub min_compacted_replay_bps: Option<u16>,
+    pub min_tool_success_bps: Option<u16>,
+    pub min_audit_complete_bps: Option<u16>,
+    pub max_denied_observations: Option<u64>,
+}
+
+pub fn evaluate_gate(
+    report: &JournalMetricsReport,
+    policy: &MetricsGatePolicy,
+) -> Vec<GateViolation> {
+    let mut violations = Vec::new();
+    let mut minimum = |metric: &str, observed: Option<u16>, required: Option<u16>| {
+        // 0 explicitly disables a threshold; any positive threshold fails
+        // closed when the sample is missing.
+        if let Some(required) = required
+            && required > 0
+        {
+            let observed = observed.map(u64::from);
+            if observed.is_none_or(|value| value < u64::from(required)) {
+                violations.push(GateViolation {
+                    metric: metric.into(),
+                    observed,
+                    required: u64::from(required),
+                    direction: GateDirection::Minimum,
+                });
+            }
+        }
+    };
+    minimum(
+        "crash_free_bps",
+        report.crash_free_bps,
+        policy.min_crash_free_bps,
+    );
+    minimum("recovery_bps", report.recovery_bps, policy.min_recovery_bps);
+    minimum("replay_bps", report.replay_bps, policy.min_replay_bps);
+    minimum(
+        "compacted_replay_bps",
+        report.compacted_replay_bps,
+        policy.min_compacted_replay_bps,
+    );
+    minimum(
+        "tool_success_bps",
+        report.tool_success_bps,
+        policy.min_tool_success_bps,
+    );
+    minimum(
+        "audit_complete_bps",
+        report.audit_complete_bps,
+        policy.min_audit_complete_bps,
+    );
+    if let Some(max) = policy.max_denied_observations
+        && report.denied_observations > max
+    {
+        violations.push(GateViolation {
+            metric: "denied_observations".into(),
+            observed: Some(report.denied_observations),
+            required: max,
+            direction: GateDirection::Maximum,
+        });
+    }
+    violations
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -900,5 +989,47 @@ mod tests {
         assert_eq!((model.count, model.p50_ms, model.p95_ms), (2, 30, 50));
         let tool = report.tool_latency.unwrap();
         assert_eq!((tool.count, tool.p50_ms, tool.p95_ms), (1, 20, 20));
+    }
+
+    #[test]
+    fn metrics_gate_fails_closed_on_missing_or_low_samples() {
+        let mut report = JournalMetricsReport {
+            replay_bps: Some(10_000),
+            audit_complete_bps: Some(10_000),
+            ..Default::default()
+        };
+        let policy = MetricsGatePolicy {
+            min_recovery_bps: Some(9_500),
+            min_replay_bps: Some(10_000),
+            min_audit_complete_bps: Some(10_000),
+            max_denied_observations: Some(0),
+            ..Default::default()
+        };
+
+        let violations = evaluate_gate(&report, &policy);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].metric, "recovery_bps");
+        assert_eq!(violations[0].observed, None);
+        assert_eq!(violations[0].direction, GateDirection::Minimum);
+
+        let relaxed = MetricsGatePolicy {
+            min_recovery_bps: Some(0),
+            ..policy
+        };
+        assert!(evaluate_gate(&report, &relaxed).is_empty());
+
+        report.recovery_bps = Some(9_499);
+        let violations = evaluate_gate(&report, &policy);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].observed, Some(9_499));
+
+        report.recovery_bps = Some(10_000);
+        assert!(evaluate_gate(&report, &policy).is_empty());
+
+        report.denied_observations = 1;
+        let violations = evaluate_gate(&report, &policy);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].metric, "denied_observations");
+        assert_eq!(violations[0].direction, GateDirection::Maximum);
     }
 }

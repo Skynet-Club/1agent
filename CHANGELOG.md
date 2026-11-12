@@ -7,6 +7,12 @@
   timestamps. The four stages are disjoint; retries add model samples but not
   context samples. Journal-write and TUI-render durations remain probes. Test:
   one timed-journal unit test plus the metrics CLI e2e.
+- Metrics gate policy (ADR-0115): `metrics` accepts minimum bps thresholds for
+  crash-free/recovery/replay/compacted-replay/tool-success/audit-completeness
+  and a maximum denied-observation count. Missing samples fail a positive
+  minimum closed; `0` disables it. `scripts/gate-check.sh DIR` defaults to the
+  M4/M5/M13/M17 hard gates, and `release-check.sh --metrics-dir DIR` invokes
+  it. Tests: one policy unit test and the CLI gate pass/fail/invalid cases.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal
