@@ -10,6 +10,9 @@ use thiserror::Error;
 
 use crate::skill_service::{SkillService, SkillServiceError};
 
+pub const MAX_CANARY_SAMPLES: usize = 100_000;
+pub const MAX_CANARY_SAMPLES_BYTES: u64 = 16 * 1024 * 1024;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SkillCanaryError {
     #[error("canary skill name must not be empty")]
@@ -22,6 +25,39 @@ pub enum SkillCanaryError {
     UnknownVersion(String, String),
     #[error("canary is already finished")]
     Finished,
+    #[error("canary has {0} samples (limit {MAX_CANARY_SAMPLES})")]
+    TooManySamples(usize),
+    #[error("canary sample line {line} is invalid: {message}")]
+    InvalidSample { line: usize, message: String },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CanarySample {
+    pub success: bool,
+    pub latency_ms: u64,
+}
+
+/// Parse one JSON object per non-empty line. Unknown fields and malformed
+/// lines fail closed with the source line number.
+pub fn parse_canary_samples(raw: &str) -> Result<Vec<CanarySample>, SkillCanaryError> {
+    let mut samples = Vec::new();
+    for (index, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let sample = serde_json::from_str::<CanarySample>(line).map_err(|error| {
+            SkillCanaryError::InvalidSample {
+                line: index + 1,
+                message: error.to_string(),
+            }
+        })?;
+        samples.push(sample);
+        if samples.len() > MAX_CANARY_SAMPLES {
+            return Err(SkillCanaryError::TooManySamples(samples.len()));
+        }
+    }
+    Ok(samples)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,6 +106,16 @@ pub enum CanaryState {
     Running,
     Promoted,
     RolledBack,
+}
+
+impl CanaryState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Promoted => "promoted",
+            Self::RolledBack => "rolled_back",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -333,5 +379,21 @@ mod tests {
             SkillCanary::start(&skills, "release", "9.9.9", policy(), 10).unwrap_err(),
             SkillCanaryError::UnknownVersion(_, _)
         ));
+    }
+
+    #[test]
+    fn jsonl_samples_parse_and_fail_with_line_numbers() {
+        let samples = parse_canary_samples(
+            "{\"success\":true,\"latency_ms\":10}\n\n{\"success\":false,\"latency_ms\":20}\n",
+        )
+        .unwrap();
+        assert_eq!(samples.len(), 2);
+        assert!(samples[0].success);
+        assert_eq!(samples[1].latency_ms, 20);
+        assert!(matches!(
+            parse_canary_samples("{\"success\":true}\n"),
+            Err(SkillCanaryError::InvalidSample { line: 1, .. })
+        ));
+        assert_eq!(CanaryState::Promoted.as_str(), "promoted");
     }
 }

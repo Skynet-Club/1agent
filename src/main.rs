@@ -2029,6 +2029,28 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    Canary {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        /// JSONL: one {"success":bool,"latency_ms":N} per line.
+        #[arg(long)]
+        samples: PathBuf,
+        #[arg(long, default_value_t = 20)]
+        min_samples: u32,
+        #[arg(long, default_value_t = 500)]
+        max_failure_bps: u32,
+        #[arg(long)]
+        max_p95_latency_ms: Option<u64>,
+        /// Apply a promote/rollback decision to the registry.
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Verify {
         #[arg(long)]
         bundle: PathBuf,
@@ -5227,6 +5249,69 @@ async fn main() -> Result<()> {
                         "已激活技能 {name}@{version}（score_bps={}）",
                         report.score_bps
                     );
+                }
+            }
+            SkillCommand::Canary {
+                store,
+                name,
+                version,
+                samples,
+                min_samples,
+                max_failure_bps,
+                max_p95_latency_ms,
+                apply,
+                json,
+            } => {
+                let metadata = std::fs::metadata(&samples)
+                    .with_context(|| format!("read {}", samples.display()))?;
+                if metadata.len() > first_principles_agent::MAX_CANARY_SAMPLES_BYTES {
+                    bail!(
+                        "canary samples exceed {} bytes",
+                        first_principles_agent::MAX_CANARY_SAMPLES_BYTES
+                    );
+                }
+                let raw = std::fs::read_to_string(&samples)
+                    .with_context(|| format!("read {}", samples.display()))?;
+                let samples = first_principles_agent::skill_canary::parse_canary_samples(&raw)?;
+                let mut service = SkillService::open(&store)?;
+                let policy = first_principles_agent::CanaryPolicy {
+                    min_samples,
+                    max_failure_bps,
+                    max_p95_latency_ms,
+                };
+                let mut canary = first_principles_agent::SkillCanary::start(
+                    &service,
+                    &name,
+                    &version,
+                    policy,
+                    current_time_ms(),
+                )?;
+                for sample in &samples {
+                    canary.record(sample.success, sample.latency_ms)?;
+                }
+                let mut decision = canary.decision();
+                if apply {
+                    decision = canary.apply(&mut service, current_time_ms())?;
+                }
+                let state = canary.state().as_str();
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "name": name,
+                            "version": version,
+                            "samples": canary.samples(),
+                            "state": state,
+                            "applied": apply,
+                            "decision": decision,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "canary {name}@{version}: samples={} state={state} applied={apply}",
+                        canary.samples()
+                    );
+                    println!("decision: {decision:?}");
                 }
             }
             SkillCommand::Verify {

@@ -545,6 +545,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   activates only when the score reaches the suite threshold; a failing report
   exits non-zero and leaves the active version unchanged. This is a static
   marker gate, not a runtime canary or a quality guarantee.
+- `skill canary --samples JSONL` feeds caller-supplied success/latency samples
+  into `SkillCanary`. Promote activates the candidate, rollback restores the
+  baseline, and pending leaves the active version unchanged. Samples are
+  bounded at 100,000/16 MiB; the command does not collect live traffic or
+  persist canary state.
 - `cua`: computer-use provenance and branch policy. An action's arguments are
   tagged `plan`, `trusted_observation` or `untrusted_observation`; a high-risk
   action with an untrusted argument is denied, other untrusted arguments

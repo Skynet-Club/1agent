@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Skill canary CLI (ADR-0088): `1agent skill canary --samples JSONL` starts a
+  canary for a registered version, records success/latency samples, and
+  reports pending/promote/rollback. `--apply` activates the candidate on
+  promote or restores the baseline on rollback; pending is a no-op. Input is
+  capped at 100,000 samples/16 MiB and malformed lines report their number.
+  Tests: one unit test plus four CLI e2e tests.
 - Text file attachments (ADR-0087): `1agent run --attach PATH` accepts up to
   five regular UTF-8 files (1 MiB each, 4 MiB total), rejects NUL/binary/
   symlinks, and injects an explicitly untrusted `ATTACHMENTS` block with the
