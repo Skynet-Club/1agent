@@ -27,8 +27,10 @@ be checked structurally would fail late, after provider spend.
    planning, invalid-JSON handling, checksum write, and directory summary.
    Five tasks opt into writes. The suite is `model_quality`, `ready`, has
    provider requirements, a required reviewer and calibration.
-5. Running the suite still requires a real provider and a reviewed task set;
-   the deterministic mock is explicitly forbidden by the provider requirement.
+5. Running the suite still requires a real provider and a reviewed task set.
+   The eval CLI refuses a `model_quality` suite without `--config`; `--validate-only`
+   remains the structure-check path. This prevents an accidental deterministic-mock
+   run from being mistaken for model-quality evidence.
 
 ## Consequences
 

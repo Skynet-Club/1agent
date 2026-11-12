@@ -8980,6 +8980,13 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
+            if suite.kind == first_principles_agent::eval::EvalSuiteKind::ModelQuality
+                && config.is_none()
+            {
+                anyhow::bail!(
+                    "model-quality suites require --config with a real provider; use --validate-only for a structure check"
+                );
+            }
             let providers = if let Some(config_path) = config {
                 let config = AgentConfig::load(&config_path)?;
                 config.build_providers(Duration::from_secs(timeout_seconds.max(1)))?
