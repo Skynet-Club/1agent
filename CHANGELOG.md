@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Architecture boundary RFC and threat model: `docs/rfc/0001-module-boundaries.md`
+  defines the session/harness/sandbox contracts and the migration order for
+  splitting `main.rs` and `tui.rs`; `docs/threat-model.md` records P0/P1
+  threats, trust boundaries, mitigations and open gaps. Both are local
+  reviews, not external audits; no code moved yet.
 - Crash-recovery soak (ADR-0099): the ignored `recovery_soak` test interrupts
   a deterministic write task at the first checkpoint, at `ToolCalled` and at
   `ToolObserved`. Checkpoint resume must finish without replaying the side

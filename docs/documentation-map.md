@@ -1,6 +1,6 @@
 # Documentation Map
 
-Date: 2026-11-02
+Date: 2026-11-12
 
 ## 1A Bot development manual (Obsidian)
 
@@ -12,6 +12,9 @@ boundary remains until ADR-003 is accepted.
 ## Stable technical references
 
 - [`architecture.md`](architecture.md): runtime layers, security behavior and limitations.
+- [`threat-model.md`](threat-model.md): P0/P1 threat inventory, trust boundaries and open gaps.
+- [`rfc/0001-module-boundaries.md`](rfc/0001-module-boundaries.md): session/harness/sandbox
+  interfaces and the `main.rs`/`tui.rs` split plan.
 - [`io-contracts.md`](io-contracts.md): task, model, tool, answer, journal and report contracts.
 - [`model-routing.md`](model-routing.md): hard filters, objectives, fallback and budgets.
 - [`evaluation.md`](evaluation.md): suite kinds, metrics, gates and invalid claims.
