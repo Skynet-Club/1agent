@@ -2,6 +2,21 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Real-provider eval baseline: three post-calibration runs of the eight-task
+  suite on DeepSeek `deepseek-flash` passed 17/24 cases (70.83%) with rubric
+  52/52 and decision completeness above the 8000 bps floor; one hard-gate
+  failure (`checksum-file`, run 2) and repeated `conditional` answers for
+  `research-compare`/`checksum-file` remain. Required
+  evidence sources now accept workspace absolute paths and failures list the
+  actual sources. Human review/calibration is still required; this is not an
+  8h M1 benchmark.
+- Real TTFT baseline: three streaming DeepSeek runs emitted
+  `StreamFirstToken`; `metrics` reports p50 1.08 s and p95 2.48 s (n=3, short
+  direct tasks). This is a baseline, not a statistically useful distribution.
+- Rollback drill: the current binary reads a 0.96.1 journal, while the
+  published 0.96.1 binary cannot read a 0.97 journal (first failure at
+  `RunStarted`/`max_cost_micros`; it also does not know `model_request_delta`).
+  Finish or archive new journals before downgrading.
 - Clarify TUI panel (ADR-0123): `/clarify <questions.json>` opens a full-screen
   blocking batch of 1–5 questions with the recommended option first and an
   automatic `Other`. `↑/↓` moves options, `←/→`/`Tab` moves questions, `Enter`

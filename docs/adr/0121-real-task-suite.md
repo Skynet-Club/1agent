@@ -42,3 +42,17 @@ be checked structurally would fail late, after provider spend.
   permissions for any existing suite.
 - Rubric terms are intentionally narrow and may need calibration after the
   first real run.
+
+## Addendum (2026-11-12)
+
+- The first real DeepSeek run exposed three calibration defects: the
+  checkpoint expectation defaulted to false for tool tasks, the objective did
+  not state the `saturating_sub` rubric term, and required evidence sources
+  used exact matching instead of accepting workspace absolute paths. All three
+  were fixed before the recorded baseline.
+- Three post-calibration runs: 17/24 task runs passed (70.83%), rubric 52/52,
+  one hard-gate failure (`checksum-file`, run 2), decision completeness above
+  the 8000 bps floor. The repair prompt now restates claim/evidence/conflict
+  invariants and the system prompt prefers concrete file paths as evidence
+  sources. Human review and calibration are still required.
+- See `docs/evidence/real-tasks-benchmark-2026-11-12.md`.

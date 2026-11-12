@@ -92,3 +92,10 @@ sha256sum 1agent
 A rollback is complete only when the previous binary runs, doctor is clean
 (or its warnings are understood), and the preserved journals remain readable
 by the version that wrote them.
+
+The 2026-11-12 local drill exercised the journal boundary: the current binary
+read a 0.96.1 journal, while the published 0.96.1 binary failed to read a 0.97
+journal at `RunStarted` (`max_cost_micros`). The 0.97 journal also contains
+`model_request_delta`, which 0.96.1 does not know. Finish or archive new
+journals before downgrading. See
+`docs/evidence/rollback-drill-2026-11-12.md`.
