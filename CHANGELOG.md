@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Onboarding check: `1agent onboard --check --json` performs a read-only check
+  of memory/goal path writability and provider key/base/model environment,
+  creates no files, prints next commands and exits non-zero when incomplete.
+  Test: CLI e2e asserts the paths remain absent.
 - Blind-review pipeline: `scripts/blind-review.py` collects the 40 fixed
   golden-set prompts from 1Agent (read-only) and Hermes (`--safe-mode`),
   anonymizes A/B with a deterministic seed and a sealed mapping outside the

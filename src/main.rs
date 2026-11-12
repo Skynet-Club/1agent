@@ -982,6 +982,9 @@ enum Command {
         /// Ask voice, first goal, commitment and boundary on stdin.
         #[arg(long)]
         interactive: bool,
+        /// Check paths and provider environment without writing anything.
+        #[arg(long)]
+        check: bool,
         /// Import plain-text context, one memory per line; # starts a comment.
         #[arg(long)]
         import_file: Option<PathBuf>,
@@ -2800,6 +2803,90 @@ fn write_onboard(
     record.valid_from_ms = now;
     service.remember_at(record, now)?;
     Ok(())
+}
+
+fn path_parent_check(path: &Path) -> (bool, String) {
+    let Some(parent) = path.parent() else {
+        return (false, "path has no parent".into());
+    };
+    let mut current = parent;
+    loop {
+        if current.exists() {
+            let writable = std::fs::metadata(current)
+                .map(|metadata| metadata.is_dir() && !metadata.permissions().readonly())
+                .unwrap_or(false);
+            return (
+                writable,
+                format!(
+                    "{} is {}",
+                    current.display(),
+                    if writable { "writable" } else { "not writable" }
+                ),
+            );
+        }
+        let Some(next) = current.parent() else {
+            return (
+                false,
+                format!("no existing ancestor for {}", path.display()),
+            );
+        };
+        current = next;
+    }
+}
+
+fn provider_key_check() -> (bool, String) {
+    if std::env::var_os("AGENT_API_KEY").is_some() {
+        (true, "AGENT_API_KEY is set".into())
+    } else if std::env::var_os("PI_DEEPSEEK_API_KEY").is_some() {
+        (true, "PI_DEEPSEEK_API_KEY is set".into())
+    } else {
+        (false, "no AGENT_API_KEY or PI_DEEPSEEK_API_KEY".into())
+    }
+}
+
+fn provider_env_check(name: &str) -> (bool, String) {
+    if std::env::var_os(name).is_some() {
+        (true, format!("{name} is set"))
+    } else {
+        (
+            false,
+            format!("{name} is not set (a default or --config may still work)"),
+        )
+    }
+}
+
+fn onboard_check_report(
+    memory_journal: &Path,
+    memory_payloads: &Path,
+    memory_key: &Path,
+    goal_journal: &Path,
+) -> serde_json::Value {
+    let (journal_ok, journal_detail) = path_parent_check(memory_journal);
+    let (payloads_ok, payloads_detail) = path_parent_check(memory_payloads);
+    let (key_path_ok, key_path_detail) = path_parent_check(memory_key);
+    let (goal_ok, goal_detail) = path_parent_check(goal_journal);
+    let (provider_ok, provider_detail) = provider_key_check();
+    let (base_ok, base_detail) = provider_env_check("AGENT_BASE_URL");
+    let (model_ok, model_detail) = provider_env_check("AGENT_MODEL");
+    let ok = journal_ok && payloads_ok && key_path_ok && goal_ok && provider_ok;
+    serde_json::json!({
+        "ok": ok,
+        "checks": [
+            {"name": "memory_journal", "ok": journal_ok, "detail": journal_detail},
+            {"name": "memory_payloads", "ok": payloads_ok, "detail": payloads_detail},
+            {"name": "memory_key", "ok": key_path_ok, "detail": key_path_detail},
+            {"name": "goal_journal", "ok": goal_ok, "detail": goal_detail},
+            {"name": "provider_key", "ok": provider_ok, "detail": provider_detail},
+            {"name": "provider_base_url", "ok": base_ok, "detail": base_detail},
+            {"name": "provider_model", "ok": model_ok, "detail": model_detail}
+        ],
+        "next": [
+            "1agent onboard --interactive",
+            "1agent run --task \"用一句话说明这个仓库是做什么的\"",
+            "1agent tui",
+            "1agent doctor"
+        ]
+    })
 }
 
 fn run_task_graph_demo(store: &std::path::Path, json: bool) -> Result<()> {
@@ -8573,10 +8660,49 @@ async fn main() -> Result<()> {
             mut commitment,
             commitment_due_ms,
             interactive,
+            check,
             import_file,
             import_kind,
             json,
         } => {
+            if check {
+                let report = onboard_check_report(
+                    &memory_journal,
+                    &memory_payloads,
+                    &memory_key,
+                    &goal_journal,
+                );
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    let ok = report["ok"].as_bool().unwrap_or(false);
+                    for check in report["checks"].as_array().into_iter().flatten() {
+                        let mark = if check["ok"].as_bool().unwrap_or(false) {
+                            "ok"
+                        } else {
+                            "missing"
+                        };
+                        println!(
+                            "[{mark}] {}: {}",
+                            check["name"].as_str().unwrap_or("check"),
+                            check["detail"].as_str().unwrap_or("")
+                        );
+                    }
+                    println!("\nnext:");
+                    for next in report["next"].as_array().into_iter().flatten() {
+                        if let Some(command) = next.as_str() {
+                            println!("  {command}");
+                        }
+                    }
+                    if !ok {
+                        bail!("onboarding check is incomplete");
+                    }
+                }
+                if !report["ok"].as_bool().unwrap_or(false) {
+                    bail!("onboarding check is incomplete");
+                }
+                return Ok(());
+            }
             let mut service = first_principles_agent::MemoryService::open(
                 memory_journal,
                 memory_payloads,
