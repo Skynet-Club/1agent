@@ -116,3 +116,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0110 | Trust Center Audit Reports | [0110-trust-center-audit-reports.md](0110-trust-center-audit-reports.md) |
 | 0111 | Cascade Bench | [0111-cascade-bench.md](0111-cascade-bench.md) |
 | 0112 | Python Read-Only SDK | [0112-python-read-only-sdk.md](0112-python-read-only-sdk.md) |
+| 0113 | Dashboard Gate Metrics | [0113-dashboard-gate-metrics.md](0113-dashboard-gate-metrics.md) |

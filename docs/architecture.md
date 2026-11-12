@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Dashboard gate metrics: `1agent dashboard` adds an optional card grid for runs, crash-free,
+  recovery, replay, tool success, audit completeness, denied observations and TTFT p95, computed
+  by `summarize_journal_dir`. The dashboard is still static, escaped HTML.
 - Python SDK: `sdk/python/oneagent_client.py` wraps `/v0/health`, `/v0/agent-card`,
   `/v0/trust-center` and `POST /v0/surface`, with env/argument bearer auth, a 4 MiB response
   cap and `ClientError` on HTTP/JSON/transport failures. Read/surface only, no retries.
