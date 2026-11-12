@@ -228,6 +228,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Local 0.97 gate metrics derived from run journals.
+    Metrics {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Retention {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -5081,6 +5088,49 @@ async fn main() -> Result<()> {
                             group.samples
                         );
                     }
+                }
+            }
+        }
+        Command::Metrics { journal_dir, json } => {
+            let report = first_principles_agent::metrics::summarize_journal_dir(&journal_dir)
+                .map_err(anyhow::Error::msg)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let bps = |value: Option<u16>| {
+                    value
+                        .map(|value| format!("{:.2}%", f64::from(value) / 100.0))
+                        .unwrap_or_else(|| "-".into())
+                };
+                println!(
+                    "journals={} runs={} completed={} interrupted={} resumes={}",
+                    report.journals,
+                    report.runs,
+                    report.completed,
+                    report.interrupted,
+                    report.resumes
+                );
+                println!(
+                    "recovery={} replay={} compacted_replay={} tool_success={} audit_complete={} denied={}",
+                    bps(report.recovery_bps),
+                    bps(report.replay_bps),
+                    bps(report.compacted_replay_bps),
+                    bps(report.tool_success_bps),
+                    bps(report.audit_complete_bps),
+                    report.denied_observations
+                );
+                println!(
+                    "tokens in={} out={} cost_micros={} compactions={}",
+                    report.input_tokens,
+                    report.output_tokens,
+                    report.cost_micros,
+                    report.context_compactions
+                );
+                if let Some(latency) = report.run_latency {
+                    println!(
+                        "run latency ms: p50={} p95={} max={} samples={}",
+                        latency.p50_ms, latency.p95_ms, latency.max_ms, latency.count
+                    );
                 }
             }
         }
