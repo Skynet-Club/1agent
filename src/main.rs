@@ -617,6 +617,16 @@ enum Command {
         /// Append an intervention record when the action changes.
         #[arg(long)]
         intervention_log: Option<PathBuf>,
+        /// Execute an explicit reversible signal after a Pause/Repair decision.
+        #[arg(
+            long,
+            value_name = "pause|resume",
+            requires_all = ["warn_after_ms", "pause_after_ms", "repair_after_ms"]
+        )]
+        execute: Option<String>,
+        /// Require this substring in /proc/<pid>/cmdline before signaling.
+        #[arg(long, default_value = "first-principles-agent", requires = "execute")]
+        expected_command: String,
         #[arg(long)]
         json: bool,
     },
@@ -6055,10 +6065,20 @@ async fn main() -> Result<()> {
             pause_after_ms,
             repair_after_ms,
             intervention_log,
+            execute,
+            expected_command,
             json,
         } => {
             let recorded = first_principles_agent::watchdog::read(&heartbeat)?;
             let now_ms = current_time_ms();
+            let execution = match execute.as_deref() {
+                None => None,
+                Some("pause") => Some(first_principles_agent::watchdog::WatchdogExecution::Pause),
+                Some("resume") => Some(first_principles_agent::watchdog::WatchdogExecution::Resume),
+                Some(other) => {
+                    anyhow::bail!("watchdog: unknown execution `{other}` (pause|resume)")
+                }
+            };
             let decision = match (warn_after_ms, pause_after_ms, repair_after_ms) {
                 (Some(warn), Some(pause), Some(repair)) => {
                     let policy =
@@ -6085,6 +6105,32 @@ async fn main() -> Result<()> {
                         decision.pid,
                         decision.age_ms
                     );
+                }
+                if let Some(execution) = execution {
+                    if matches!(
+                        decision.action,
+                        first_principles_agent::watchdog::WatchdogAction::Ok
+                            | first_principles_agent::watchdog::WatchdogAction::Warn
+                    ) {
+                        anyhow::bail!(
+                            "watchdog: refusing to execute on a {} decision",
+                            decision.action.as_str()
+                        );
+                    }
+                    let pid = decision
+                        .pid
+                        .ok_or_else(|| anyhow::anyhow!("watchdog: no pid to signal"))?;
+                    let receipt = first_principles_agent::watchdog::execute(
+                        execution,
+                        pid,
+                        &expected_command,
+                        now_ms,
+                    )?;
+                    if json {
+                        eprintln!("executed {} pid={}", receipt.action.as_str(), receipt.pid);
+                    } else {
+                        println!("executed {} pid={}", receipt.action.as_str(), receipt.pid);
+                    }
                 }
                 if decision.action != first_principles_agent::watchdog::WatchdogAction::Ok {
                     anyhow::bail!("watchdog: {}", decision.reason);

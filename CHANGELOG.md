@@ -18,6 +18,12 @@
   `1agent golden-check` validates count, uniqueness, safe ids, control
   characters and category coverage. It is inventory validation only; it does
   not run a model or a blind review. Tests: six unit and two CLI e2e.
+- Watchdog pause/resume execution (ADR-0117): `watchdog --execute pause|resume`
+  requires the three escalation thresholds and checks the target's
+  `/proc/<pid>/cmdline` against `--expected-command` before sending
+  SIGSTOP/SIGCONT. It refuses pid 0, itself, missing processes and command
+  mismatches; it never kills, restarts or clears locks. Tests: real child
+  pause/resume, refusal cases and the CLI e2e.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal

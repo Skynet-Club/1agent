@@ -612,7 +612,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `schedule_run_failed` alert and deliver it to a webhook. With `--heartbeat`,
   each daemon loop writes an atomic `{pid, updated_at_ms}` file; a separate
   `1agent watchdog --heartbeat PATH --max-age-ms N` process exits non-zero when
-  the heartbeat is missing, stale or invalid. With `--escalate-inbox-store`,
+  the heartbeat is missing, stale or invalid. With the three escalation
+  thresholds it projects ok/warn/pause/repair. `--execute pause|resume` is an
+  explicit opt-in that checks `/proc/<pid>/cmdline` against
+  `--expected-command` before sending SIGSTOP/SIGCONT; it never kills,
+  restarts, clears a lock or expands authority. With `--escalate-inbox-store`,
   `--escalate-step`, `--escalate-webhook` and `--escalate-state`, each tick
   projects the open inbox through the ladder and delivers only newly reached
   `notify`/`urgent` rungs; failures are logged and retried on the next tick
