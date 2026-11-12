@@ -48,6 +48,9 @@ This page is a measurement review, not a release announcement. A metric marked
 - Checkpoint deltas and crash-recovery soak (2h run pending).
 - Model request deltas (ADR-0122): first request full, later attempts compact;
   100-step echo probe 2.5% of the full-copy estimate.
+- TUI unslop pass: body contrast 6.0:1, border 3.8:1, one green accent/link
+  role, compact wordmark on short terminals, quieter idle status and metrics,
+  help position indicator, empty-composer hint.
 - TUI transcript projection cache.
 - Watchdog escalation ladder plus explicit checked `--execute pause/resume`.
 - Clarify gate and round outcome states.

@@ -26,15 +26,15 @@ use unicode_width::UnicodeWidthStr;
 /// Whole-terminal backdrop, 80% of the input panel background.
 const APP_BG: Color = Color::Rgb(0x06, 0x10, 0x0a);
 const PANEL_BG: Color = Color::Rgb(0x08, 0x14, 0x0d);
-const PANEL_GREEN: Color = Color::Rgb(0x3f, 0x64, 0x4b);
-const PANEL_TEXT_GREEN: Color = Color::Rgb(0x48, 0x77, 0x48);
+const PANEL_GREEN: Color = Color::Rgb(0x4a, 0x78, 0x55);
+const PANEL_TEXT_GREEN: Color = Color::Rgb(0x5e, 0x9e, 0x5e);
 const INPUT_BG: Color = PANEL_BG;
 const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
 const MARK_GREEN: Color = Color::Rgb(0x3f, 0xb9, 0x50);
-const LINK: Color = Color::LightGreen;
+const LINK: Color = MARK_GREEN;
 const LINK_HOVER: Color = Color::Rgb(0xb7, 0xff, 0xc8);
 const MAX_INPUT_BYTES: usize = 64 * 1024;
 const COMMAND_DESCRIPTION: Color = PANEL_TEXT_GREEN;
@@ -43,9 +43,8 @@ const MENU_BG: Color = Color::Rgb(0x0a, 0x1f, 0x12);
 const MENU_SELECTED_BG: Color = Color::Rgb(0x14, 0x3d, 0x24);
 const MENU_LABEL: Color = Color::LightGreen;
 const MENU_HINT: Color = PANEL_TEXT_GREEN;
-const DEEP_GREEN: Color = Color::Rgb(0x1f, 0x4e, 0x28);
-const CONCLUSION_BORDER: Color = DEEP_GREEN;
-const LOCAL_FILE_GREEN: Color = DEEP_GREEN;
+const CONCLUSION_BORDER: Color = PANEL_GREEN;
+const LOCAL_FILE_GREEN: Color = MARK_GREEN;
 
 /// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2136,8 +2135,9 @@ impl TuiState {
             (prefix.chars().count() + name.chars().count() + tld.chars().count()) as u16;
         let block_width = mark_width.max(text_width);
 
-        // The block needs its own room; below that the compact wordmark is used.
-        if area.width >= block_width + 4 && area.height >= mark_height + 5 {
+        // The full mark also needs room to leave a useful transcript area; on
+        // short terminals the compact wordmark keeps the screen usable.
+        if area.width >= block_width + 4 && area.height >= mark_height + 13 {
             let block_height = mark_height.saturating_add(3);
             let rect = Rect::new(
                 area.x + area.width.saturating_sub(block_width) / 2,
@@ -2184,9 +2184,7 @@ impl TuiState {
             let compact = Rect::new(area.x, start_y, area.width, area.height.min(content_height));
             let title = vec![Line::styled(
                 "1-Agent",
-                Style::default()
-                    .fg(Color::Indexed(75))
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(MARK_GREEN).add_modifier(Modifier::BOLD),
             )];
             frame.render_widget(Paragraph::new(title).alignment(Alignment::Center), compact);
         }
@@ -2661,7 +2659,7 @@ impl TuiState {
         let (title, detail, step) = if self.activity_visible() {
             self.activity_summary()
         } else {
-            ("就绪".to_string(), "Ready".to_string(), 0)
+            ("就绪".to_string(), String::new(), 0)
         };
         let step = if step > 0 {
             format!(" · 第 {step} 步")
@@ -2684,15 +2682,14 @@ impl TuiState {
         {
             (footer, false)
         } else {
-            (
-                format!(
-                    "{} · {} · {}",
-                    self.run_metrics_line(),
-                    self.context_bar_with_cells(bar_cells),
-                    self.elapsed_label()
-                ),
-                false,
-            )
+            let mut parts = Vec::new();
+            let metrics = self.run_metrics_line();
+            if !metrics.is_empty() {
+                parts.push(metrics);
+            }
+            parts.push(self.context_bar_with_cells(bar_cells));
+            parts.push(self.elapsed_label());
+            (parts.join(" · "), false)
         };
         (heading, right_text, follow)
     }
@@ -2858,12 +2855,14 @@ impl TuiState {
             TuiStatus::Completed => "✓ 已完成",
             TuiStatus::Failed => "失败",
             TuiStatus::Cancelled => "已取消",
-            TuiStatus::Idle => "就绪",
+            TuiStatus::Idle => "",
         };
-        format!(
-            "{status} · {model} · {} · Ctrl+T 模式 ",
-            self.displayed_mode().label_zh()
-        )
+        let mode = self.displayed_mode().label_zh();
+        if status.is_empty() {
+            format!("{model} · {mode} · Ctrl+T 模式 ")
+        } else {
+            format!("{status} · {model} · {mode} · Ctrl+T 模式 ")
+        }
     }
 
     fn draw_composer(&mut self, frame: &mut Frame, mut area: Rect) {
@@ -2904,7 +2903,14 @@ impl TuiState {
             "› ",
             Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG),
         )];
-        spans.extend(self.input_spans(visible_end));
+        if self.input.is_empty() {
+            spans.push(Span::styled(
+                "输入任务，/ 查看命令",
+                Style::default().fg(MUTED_TEXT).bg(PANEL_BG),
+            ));
+        } else {
+            spans.extend(self.input_spans(visible_end));
+        }
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(background),
             input_area,
@@ -3074,12 +3080,19 @@ impl TuiState {
             return;
         };
         frame.render_widget(Clear, area);
+        let selected = panel
+            .selected_menu_item
+            .min(panel.menu.len().saturating_sub(1));
         let hint = if panel.menu.is_empty() {
-            ""
+            String::new()
         } else {
-            "↑↓ 选择 · Enter 确认 · Esc 返回"
+            format!(
+                "{}/{} · ↑↓ 选择 · Enter 确认 · Esc 返回",
+                selected + 1,
+                panel.menu.len()
+            )
         };
-        let block = menu_block(&breadcrumb, hint, MENU_BG);
+        let block = menu_block(&breadcrumb, &hint, MENU_BG);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.is_empty() {
@@ -3146,9 +3159,6 @@ impl TuiState {
                 width: inner.width.saturating_sub(2),
                 height: u16::try_from(menu_height).unwrap_or(u16::MAX),
             };
-            let selected = panel
-                .selected_menu_item
-                .min(panel.menu.len().saturating_sub(1));
             let items = panel
                 .menu
                 .iter()
@@ -3468,25 +3478,27 @@ impl TuiState {
 
     fn run_metrics_line(&self) -> String {
         if !self.run_metrics.usage_seen {
-            return "↑ — / ↓ — · 缓存 —".to_string();
+            return String::new();
         }
+        let mut parts = vec![format!(
+            "↑ {} / ↓ {}",
+            format_token_count(self.run_metrics.input_tokens),
+            format_token_count(self.run_metrics.output_tokens)
+        )];
         let total_cache = self
             .run_metrics
             .cache_hit_tokens
             .saturating_add(self.run_metrics.cache_miss_tokens);
-        let cache = self
+        if let Some(percent) = self
             .run_metrics
             .cache_hit_tokens
             .saturating_mul(100)
             .saturating_add(total_cache / 2)
             .checked_div(total_cache)
-            .map(|percent| format!("缓存 {percent}%"))
-            .unwrap_or_else(|| "缓存 —".to_string());
-        format!(
-            "↑ {} / ↓ {} · {cache}",
-            format_token_count(self.run_metrics.input_tokens),
-            format_token_count(self.run_metrics.output_tokens)
-        )
+        {
+            parts.push(format!("缓存 {percent}%"));
+        }
+        parts.join(" · ")
     }
 
     fn push_entry(
@@ -4042,9 +4054,7 @@ fn shortcut_key_spans(text: String, base: Style) -> Vec<Span<'static>> {
 fn tone_style(tone: TuiTone) -> Style {
     match tone {
         TuiTone::Default => Style::default().fg(Color::Reset),
-        TuiTone::Accent => Style::default()
-            .fg(Color::Indexed(75))
-            .add_modifier(Modifier::BOLD),
+        TuiTone::Accent => Style::default().fg(MARK_GREEN).add_modifier(Modifier::BOLD),
         TuiTone::Success => Style::default()
             .fg(Color::LightGreen)
             .add_modifier(Modifier::BOLD),
@@ -4077,7 +4087,7 @@ fn tone_style(tone: TuiTone) -> Style {
         TuiTone::Muted => Style::default().fg(MUTED_TEXT),
         TuiTone::Body => Style::default().fg(Color::Indexed(250)),
         TuiTone::White => Style::default().fg(Color::White),
-        TuiTone::Link => Style::default().fg(Color::LightBlue),
+        TuiTone::Link => Style::default().fg(MARK_GREEN),
         TuiTone::LocalFile => Style::default().fg(LOCAL_FILE_GREEN),
         TuiTone::WorkText => Style::default().fg(PANEL_TEXT_GREEN),
         TuiTone::WorkLink => Style::default().fg(Color::LightGreen),
@@ -5813,7 +5823,7 @@ mod tests {
 
     #[test]
     fn transcript_semantic_tones_match_the_palette() {
-        assert_eq!(tone_style(TuiTone::Accent).fg, Some(Color::Indexed(75)));
+        assert_eq!(tone_style(TuiTone::Accent).fg, Some(MARK_GREEN));
         assert_eq!(tone_style(TuiTone::Success).fg, Some(Color::LightGreen));
         assert_eq!(tone_style(TuiTone::Warning).fg, Some(Color::Yellow));
         assert_eq!(tone_style(TuiTone::Danger).fg, Some(Color::LightRed));
@@ -5845,7 +5855,7 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
-        assert_eq!(tone_style(TuiTone::Link).fg, Some(Color::LightBlue));
+        assert_eq!(tone_style(TuiTone::Link).fg, Some(MARK_GREEN));
         assert_eq!(tone_style(TuiTone::LocalFile).fg, Some(LOCAL_FILE_GREEN));
         assert_eq!(tone_style(TuiTone::WorkText).fg, Some(PANEL_TEXT_GREEN));
         assert_eq!(tone_style(TuiTone::WorkLink).fg, Some(Color::LightGreen));
@@ -6420,7 +6430,7 @@ mod tests {
 
     #[test]
     fn context_meter_colors_used_and_unused_cells_separately() {
-        let backend = TestBackend::new(90, 20);
+        let backend = TestBackend::new(72, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
         state.set_activity(TuiActivity::bilingual(
@@ -6428,15 +6438,22 @@ mod tests {
             "working",
             1,
         ));
+        state.set_status(TuiStatus::Running);
         state.set_context_budget(10_000);
         state.set_context_tokens(2_500);
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
         let buffer = terminal.backend().buffer();
         let metrics_y = (0..20)
-            .find(|y| (0..90).any(|x| buffer.cell((x, *y)).unwrap().symbol() == "↑"))
+            .find(|y| {
+                (0..72)
+                    .map(|x| buffer.cell((x, *y)).unwrap().symbol())
+                    .collect::<String>()
+                    .replace(' ', "")
+                    .contains("上下文")
+            })
             .expect("folded metrics row");
-        let bars: Vec<Color> = (0..90)
+        let bars: Vec<Color> = (0..72)
             .map(|x| buffer.cell((x, metrics_y)).unwrap())
             .filter(|cell| cell.symbol() == "─")
             .map(|cell| cell.fg)
@@ -6676,7 +6693,11 @@ mod tests {
             .rposition(|row| row.contains('╰'))
             .expect("bottom");
         assert!(rows[top].contains('•'), "top: {}", rows[top]);
-        assert!(rows[top].contains('↑'), "top: {}", rows[top]);
+        assert!(
+            rows[top].replace(' ', "").contains("上下文"),
+            "top: {}",
+            rows[top]
+        );
         assert!(
             rows[bottom].contains("deepseek-flash"),
             "bottom: {}",
@@ -6686,7 +6707,7 @@ mod tests {
 
         let metrics_y = rows
             .iter()
-            .position(|row| row.contains('╭') && row.contains('↑'))
+            .position(|row| row.contains('╭') && row.replace(' ', "").contains("上下文"))
             .expect("metrics fence");
         let metrics_cell = (0..100)
             .map(|x| {
@@ -6696,7 +6717,7 @@ mod tests {
                     .cell((x, metrics_y as u16))
                     .unwrap()
             })
-            .find(|cell| cell.symbol() == "↑")
+            .find(|cell| cell.symbol() == "上")
             .expect("metrics text");
         assert_eq!(metrics_cell.fg, PANEL_TEXT_GREEN);
         assert_eq!(
@@ -6765,6 +6786,12 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("openai-compatible/deepseek-flash", 6, 120);
         state.info("Welcome");
+        state.set_activity(TuiActivity::bilingual(
+            TuiActivityKind::Thinking,
+            "working",
+            1,
+        ));
+        state.set_status(TuiStatus::Running);
         terminal.draw(|frame| state.draw(frame)).unwrap();
 
         let rows = (0..18)
@@ -6780,9 +6807,13 @@ mod tests {
             .expect("top");
         let metrics = rows
             .iter()
-            .position(|row| row.contains('↑'))
+            .position(|row| row.replace(' ', "").contains("上下文"))
             .expect("folded metrics");
-        assert!(!rows[top].contains('↑'), "top: {}", rows[top]);
+        assert!(
+            !rows[top].replace(' ', "").contains("上下文"),
+            "top: {}",
+            rows[top]
+        );
         assert_eq!(metrics, top + 1, "{rows:?}");
         assert!(rows[metrics].starts_with('│'), "{}", rows[metrics]);
         assert!(rows[metrics].ends_with('│'), "{}", rows[metrics]);
@@ -6958,7 +6989,10 @@ mod tests {
         }
         assert!(colours.contains(&MARK_GREEN), "the 1 stays bright green");
         assert!(colours.contains(&PANEL_TEXT_GREEN), "Agent uses deep green");
-        assert!(!colours.contains(&LINK), "Agent is no longer blue");
+        assert!(
+            !colours.contains(&Color::Indexed(75)),
+            "the mark has no blue"
+        );
     }
 
     #[test]
@@ -7089,7 +7123,7 @@ mod tests {
                 .cell((area.x + language_column, row_y(header_row)))
                 .unwrap()
                 .fg,
-            Color::Indexed(75)
+            MARK_GREEN
         );
         assert_eq!(
             terminal

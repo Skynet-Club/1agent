@@ -426,17 +426,17 @@ metadata is visually de-emphasized.
 | Composer prompt marker `›` | bright green, unbolded |
 | User prompt body | white on the input-panel dark green `#08140D` |
 | Sticky prompt bar | white on the input-panel dark green `#08140D` |
-| Section marker `▌` and accent text | ANSI-256 blue `75` (nearest to Codex accent `#63A8F8`), bold |
+| Section marker `▌` and accent text | green `#3FB950`, bold |
 | Normal answer and description text | terminal default foreground |
-| Verified claim `[已验证]` | deep green `#487748` text and label, unbolded |
-| User-asserted or derived claim | deep green `#487748` text and label, unbolded |
-| Assumption, model prior or unknown | deep green `#487748` text and label, unbolded |
-| Conflict, failure or error | deep green `#487748` text and label, unbolded |
-| Evidence marker `↳` | deep green `#487748` |
-| Evidence source label | deep green `#487748` |
+| Verified claim `[已验证]` | green `#5E9E5E` text and label, unbolded |
+| User-asserted or derived claim | green `#5E9E5E` text and label, unbolded |
+| Assumption, model prior or unknown | green `#5E9E5E` text and label, unbolded |
+| Conflict, failure or error | green `#5E9E5E` text and label, unbolded |
+| Evidence marker `↳` | green `#5E9E5E` |
+| Evidence source label | green `#5E9E5E` |
 | Quote marker, `引用` label and quoted body | gray `245`, dim |
 | Code block border `╭ │ ╰` | bright green, bold |
-| Code language label | high-light blue `75`, bold |
+| Code language label | green `#3FB950`, bold |
 | Code text | gray `252` |
 | Unified code-block background | ANSI-256 dark gray `236` |
 | Added diff line background (`+`) | ANSI-256 dark green `22` |
@@ -448,34 +448,40 @@ metadata is visually de-emphasized.
 | Code numbers | magenta |
 | Code comments | dark gray, italic |
 | Code import/include references | light cyan |
-| Constraint label and bullets | deep green `#487748` |
-| Work log text, labels and `⎿` results | deep green `#487748`, unbolded |
+| Constraint label and bullets | green `#5E9E5E` |
+| Work log text, labels and `⎿` results | green `#5E9E5E`, unbolded |
 | Work log bullet `•` | bright green |
 | Work log links (local paths and URLs) | bright green |
+| Answer local-file links | green `#3FB950` |
 | System command output | normal answer foreground |
 | Metadata and journal path | gray `245` |
 | Details overlay surface | green `#0A1F12`, bright-green border |
 | Command drawer background | green `#0A1F12` |
 | Mode menu background | green `#0A1F12` |
 | Mode menu selected row | green `#143D24`, bright-green bold label |
-| Command drawer border | dim green `#3F644B` |
+| Command drawer border | green `#4A7855` |
 | Command drawer title | bright green, bold |
 | Command name | bright green, bold |
-| Command description | bright green |
+| Command description | green `#5E9E5E` |
 | Selected command row | green `#143D24`, bold |
 | Conclusion title `结论 Conclusion` | bright green, bold |
 | `Ctrl+T` shortcut key `T` | bright green, bold |
 | Selection | reverse video over the semantic color |
 | Terminal backdrop | dark green `#06100A`, 80% brightness of the input panel |
 | Composer background | dimmed deep green `#08140D` |
-| Input-panel border | dimmed green `#3F644B` |
-| Input-panel text and bottom border | dimmed green `#487748`; no context percentage (top meter only) |
+| Input-panel border | green `#4A7855` |
+| Input-panel text and bottom border | green `#5E9E5E`; no context percentage (top meter only) |
 | Context meter | `─` cells matching the fence border; dimmed green used, black empty; 20 cells wide, 10 narrow |
-| Running activity | dimmed green, unbolded |
+| Running activity | green `#5E9E5E`, unbolded |
 
 While running, the activity line shows `Working... <elapsed> · ↑<input> ↓<output> · cache <hit-rate>`
 and `Ctrl+C 取消`. Elapsed time updates from the run clock; token counts and cache hit rate update as
-provider responses are journaled. A provider that does not report cache statistics shows `cache —`.
+provider responses are journaled. Until a response reports usage, the token and cache segments are
+omitted; a provider that reports usage but no cache statistics omits only the cache segment.
+
+Contrast: `#5E9E5E` on the `#06100A` backdrop is 6.0:1 and on `#08140D` is 5.9:1; the
+`#4A7855` border is 3.8:1. Body and work-log text, borders, links and accents use one green
+ramp instead of blue-plus-green.
 Bright-green copy/paste confirmations remain distinct. `NO_COLOR=1` disables terminal colors through
 Ratatui while preserving all glyphs and hierarchy.
 

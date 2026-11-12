@@ -37,7 +37,8 @@ User
 - `Ctrl+K` opens the command drawer;
 - transcript scrolling, mouse selection, copy and cancellation;
 - a bare launch starts a new session; exit prints the explicit `--session` continue command;
-- running line shows `Working...`, elapsed time, input/output tokens and provider cache hit rate.
+- running line shows `Working...`, elapsed time, input/output tokens and provider cache hit rate;
+- green instrument-panel visual pass: body/work-log contrast 6.0:1 and borders 3.8:1, missing token/cache metrics are hidden instead of shown as placeholders, short terminals use a compact wordmark, an empty composer shows a start hint, and `/help` shows the selected position.
 
 See [Manual](manual.en.md) and repository `docs/tui.md`.
 
