@@ -1007,6 +1007,22 @@ mod tests {
                                 .unwrap_or(Value::Null);
                         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
                         let id = message.get("id").cloned().unwrap_or(Value::Null);
+                        let request_session = headers.lines().find_map(|line| {
+                            let (key, value) = line.split_once(':')?;
+                            key.eq_ignore_ascii_case("mcp-session-id")
+                                .then(|| value.trim().to_string())
+                        });
+                        // initialize returns the session id; every later request
+                        // must reuse it instead of creating a new session.
+                        if method != "initialize" && request_session.as_deref() != Some("sess-1") {
+                            socket
+                                .write_all(
+                                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                )
+                                .await
+                                .ok();
+                            return;
+                        }
                         let (status, session, payload) = match method {
                             "initialize" => (
                                 "200 OK",

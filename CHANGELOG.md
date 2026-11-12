@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- MCP session reuse is enforced by the test server: initialize returns
+  `sess-1`, and every later `notifications/initialized`, `tools/list` or
+  `tools/call` request without that `Mcp-Session-Id` gets a 400. Stale
+  architecture limits that said issuer discovery/token exchange were absent
+  are corrected. Tests: `cargo test tools::mcp --lib`.
 - Partner voice v1 (ADR-0040): the system prompt now carries a task form
   derived from the cognitive mode: `decision` for decision analysis and
   escalation, `research` for evidence research and diagnosis, and `execution`
