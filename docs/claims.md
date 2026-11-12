@@ -89,6 +89,7 @@ file: <路径>              → 文件必须存在
 | skill canary CLI：样本 JSONL；promote 激活候选/rollback 恢复 baseline/pending 不变；行号错误；100k/16 MiB 上限；`run --canary-sample` 追写 success/latency（无任务文本） | cmd: cargo test skill_canary --lib && cargo test --test skill_canary_cli && cargo test --test canary_sample_cli | ✅ | 样本由调用方提供；不持久化 canary 决策；success 仅 Completed |
 | UserModel 2.0 可从记忆重建；自治/声音/同意默认安全，遗忘记录即失效 | cmd: cargo test user_model --lib && cargo test --test user_model_cli | ✅ | 自治与同意是偏好，不是授权；Authority/Policy/Approval 仍决定执行 |
 | 平台能力状态显式；`untested` 不宣称支持 | cmd: cargo test platform --lib && cargo test --test platform_cli | ✅ | Linux 状态图；macOS/Windows/other 全部 `untested`；不是 P-Gate 通过 |
+| CI 矩阵：Linux 完整 verify.sh；Windows/macOS all-targets check + test compile；YAML 结构合法 | file: .github/workflows/ci.yml | ⚠️ | 工作流未在 GitHub 实际运行；Windows/macOS 仅编译级，不是 P-Gate |
 | 独立验证器拒绝自验证、重复/缺失结果和无证据通过；public pass + hidden fail 记为 hacked | cmd: cargo test verification --lib && cargo test --test hack_verifiable | ✅ | 确定性契约夹具；不代表真实模型质量；隐藏测试需与公开测试分开维护 |
 | 可逆副作用无补偿时失败关闭；不可逆/失败需人工；away digest 分区可见 | cmd: cargo test repair --lib && cargo test --test away_digest_cli | ✅ | 只规划补偿，不执行；执行仍需 Authority/Policy/Approval |
 | 价值周报只报可复现结果与每完成结果成本，不编造“省时”；包含 open inbox 计数 | cmd: cargo test value_report --lib && cargo test --test value_report_cli | ✅ | mock journal；真实用户价值需后续测量基线；inbox 与 alerts 未去重 |

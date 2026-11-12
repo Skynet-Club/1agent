@@ -802,6 +802,9 @@ the log. Writers assume a single process and enforce private file modes.
   (ADR-0036). Linux currently reports verified core paths, degraded adapters and
   unsupported computer-use; macOS/Windows/other report every capability as
   `untested` until the P-Gate exercises them.
+- `.github/workflows/ci.yml` runs the full Linux `verify.sh` and a Windows/macOS
+  `cargo check --all-targets` plus `cargo test --no-run`. The latter are compile-level
+  checks, not P-Gate runtime evidence.
 - File access is constrained to canonicalized read roots.
 - Cancellation must propagate through provider calls, tools and cleanup.
 - Structured errors are part of the contract; provider-specific error text is not.

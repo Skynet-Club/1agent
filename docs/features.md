@@ -177,6 +177,7 @@
 - key escrow / restore；
 - Linux 可复现包、SHA256SUMS、provenance、安装脚本；Windows 仅内部构建，不发布；
 - 平台能力注册表：`1agent platform [--json]` 输出 `verified` / `degraded` / `unsupported` / `untested`；macOS/Windows 当前均为 `untested`，不宣称支持；
+- CI 矩阵：`.github/workflows/ci.yml` 在 push/PR/manual 时跑 Linux 完整 `verify.sh`，Windows/macOS 跑 `cargo check --all-targets` + `cargo test --no-run`；只是编译级检查，不是 P-Gate；工作流尚未在 GitHub 实际执行；
 - MIT 许可证和第三方 notices。
 
 ## 3. 明确未实现
