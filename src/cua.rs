@@ -5,7 +5,10 @@
 //! with an untrusted argument is denied. A branch target must exist in the
 //! pre-approved plan; an unplanned target is branch steering and is denied.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::domain::RiskLevel;
 
@@ -52,6 +55,114 @@ impl CuaDecision {
 pub struct CuaVerdict {
     pub decision: CuaDecision,
     pub reason: String,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum CuaPlanError {
+    #[error("CUA plan id must be 1..=64 safe characters")]
+    InvalidPlanId,
+    #[error("CUA plan needs at least one branch")]
+    EmptyBranches,
+    #[error("CUA plan branch is invalid: {0}")]
+    InvalidBranch(String),
+    #[error("CUA plan has a duplicate branch: {0}")]
+    DuplicateBranch(String),
+}
+
+/// A single-shot CUA plan: branches are approved and frozen before any action.
+/// Once frozen, replanning is denied so untrusted screen content cannot steer
+/// execution into a new branch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CuaPlan {
+    plan_id: String,
+    branches: Vec<String>,
+    frozen: bool,
+}
+
+impl CuaPlan {
+    pub fn new(plan_id: &str, branches: Vec<String>) -> Result<Self, CuaPlanError> {
+        if plan_id.is_empty()
+            || plan_id.chars().count() > 64
+            || !plan_id.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+            })
+        {
+            return Err(CuaPlanError::InvalidPlanId);
+        }
+        validate_branches(&branches)?;
+        Ok(Self {
+            plan_id: plan_id.into(),
+            branches,
+            frozen: false,
+        })
+    }
+
+    pub fn plan_id(&self) -> &str {
+        &self.plan_id
+    }
+
+    pub fn branches(&self) -> &[String] {
+        &self.branches
+    }
+
+    pub fn is_frozen(&self) -> bool {
+        self.frozen
+    }
+
+    pub fn freeze(&mut self) {
+        self.frozen = true;
+    }
+
+    pub fn replan(&mut self, branches: Vec<String>) -> CuaVerdict {
+        if self.frozen {
+            return verdict(
+                CuaDecision::Deny,
+                "plan is frozen; replanning after execution is branch steering",
+            );
+        }
+        if let Err(error) = validate_branches(&branches) {
+            return verdict(CuaDecision::Deny, &error.to_string());
+        }
+        self.branches = branches;
+        verdict(CuaDecision::Allow, "plan replaced before freeze")
+    }
+
+    pub fn authorize(&self, action: &CuaAction, target: &str) -> CuaVerdict {
+        if !self.frozen {
+            return verdict(
+                CuaDecision::Deny,
+                "plan must be frozen before an action is authorized",
+            );
+        }
+        let branch = check_branch(target, &self.branches);
+        if branch.decision != CuaDecision::Allow {
+            return branch;
+        }
+        evaluate(action)
+    }
+}
+
+fn validate_branches(branches: &[String]) -> Result<(), CuaPlanError> {
+    if branches.is_empty() {
+        return Err(CuaPlanError::EmptyBranches);
+    }
+    let mut seen = BTreeSet::new();
+    for branch in branches {
+        if branch.is_empty()
+            || branch.chars().count() > 64
+            || !branch.chars().all(|character| {
+                character.is_ascii_alphanumeric()
+                    || matches!(character, '.' | '_' | '-' | ':' | '/' | '@')
+            })
+        {
+            return Err(CuaPlanError::InvalidBranch(branch.clone()));
+        }
+        if !seen.insert(branch) {
+            return Err(CuaPlanError::DuplicateBranch(branch.clone()));
+        }
+    }
+    Ok(())
 }
 
 pub fn evaluate(action: &CuaAction) -> CuaVerdict {
@@ -170,6 +281,51 @@ mod tests {
         let mut empty = action(RiskLevel::Low, true, vec![ArgumentSource::Plan]);
         empty.action.clear();
         assert_eq!(evaluate(&empty).decision, CuaDecision::Deny);
+    }
+
+    #[test]
+    fn single_shot_plan_must_be_frozen_and_rejects_replanning() {
+        let mut plan = CuaPlan::new("plan-1", vec!["confirm".into()]).unwrap();
+        let click = action(RiskLevel::Low, true, vec![ArgumentSource::Plan]);
+        assert_eq!(
+            plan.authorize(&click, "confirm").decision,
+            CuaDecision::Deny,
+            "an unfrozen plan cannot authorize actions"
+        );
+        plan.freeze();
+        assert!(plan.is_frozen());
+        assert_eq!(
+            plan.authorize(&click, "confirm").decision,
+            CuaDecision::Allow
+        );
+        assert_eq!(
+            plan.authorize(&click, "pay").decision,
+            CuaDecision::Deny,
+            "branch steering must stay inside the frozen plan"
+        );
+        let replan = plan.replan(vec!["pay".into()]);
+        assert_eq!(replan.decision, CuaDecision::Deny);
+        assert_eq!(plan.branches(), ["confirm"]);
+    }
+
+    #[test]
+    fn invalid_plans_are_rejected() {
+        assert_eq!(
+            CuaPlan::new("", vec!["confirm".into()]),
+            Err(CuaPlanError::InvalidPlanId)
+        );
+        assert_eq!(
+            CuaPlan::new("plan", vec![]),
+            Err(CuaPlanError::EmptyBranches)
+        );
+        assert_eq!(
+            CuaPlan::new("plan", vec!["confirm".into(), "confirm".into()]),
+            Err(CuaPlanError::DuplicateBranch("confirm".into()))
+        );
+        assert!(matches!(
+            CuaPlan::new("plan", vec!["bad branch".into()]),
+            Err(CuaPlanError::InvalidBranch(_))
+        ));
     }
 
     #[test]

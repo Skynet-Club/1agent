@@ -559,7 +559,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   action with an untrusted argument is denied, other untrusted arguments
   require approval, and irreversible actions above low risk require approval.
   The planner must not see untrusted content, and a branch target must be in
-  the pre-approved plan (branch-steering guard). This is policy only; no
+  the pre-approved plan (branch-steering guard). `CuaPlan` makes the lifecycle
+  single-shot: actions are denied until the plan is frozen, the frozen branch
+  must match, and replanning after freeze is denied. This is policy only; no
   browser execution.
 - `team`: role/action/scope policy. Owner allows all; approver allows
   read+approve; member allows read+write; viewer allows read. Empty scopes mean
