@@ -29,7 +29,7 @@ This page is a measurement review, not a release announcement. A metric marked
 | M1 long-horizon success | not measured | no 8h benchmark |
 | M2 autonomy hours | not measured | only short deterministic runs |
 | M3 interventions/task | not measured | no 8h benchmark |
-| M7 TTFT | not measured | no first-stream-chunk timestamp |
+| M7 TTFT | instrumented, no real-provider samples | `StreamFirstToken` on `--stream` runs; metrics prints p50/p95 |
 | M8 end-to-end p95 | 72.9 s historical snapshot | first/last event time, not a tool-dense benchmark |
 | M9 tool success | 86.17% historical; 50% test-generated repo set | repo set is dominated by failure-injection tests |
 | M10 cost/task | 3,275 micros historical | provider pricing not embedded; usage only |
@@ -58,7 +58,7 @@ This page is a measurement review, not a release announcement. A metric marked
 
 1. 2h crash-recovery soak result.
 2. Real eight-task benchmark and M1/M2/M3 measurements.
-3. M7 TTFT instrumentation and M17 compacted-run evidence.
+3. M7 real-provider TTFT samples and M17 compacted-run evidence.
 4. M19–M23 golden set and blind review.
 5. External A-Gate/W-Gate and security review; P-Gate macOS.
 6. Actual watchdog pause/repair and a warning that M6 is not an external audit.

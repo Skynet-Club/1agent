@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- First-token instrumentation (ADR-0105): a `--stream` attempt journals
+  `StreamFirstToken` with provider/model and elapsed milliseconds; `1agent
+  metrics` reports TTFT p50/p95. Non-streaming runs have no sample, and every
+  retry attempt contributes its own sample. Tests: runtime streaming assertion
+  and a metrics TTFT assertion.
 - 0.97 status and metric review: `docs/status-v0.97.md` records the current
   hard-gate evidence, M1–M23 status, release blockers and next actions. It
   marks unmeasured metrics as unmeasured rather than zero; 0.97 is not

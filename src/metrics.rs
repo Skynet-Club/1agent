@@ -226,6 +226,7 @@ pub struct JournalMetricsReport {
     pub output_tokens: u64,
     pub cost_micros: u64,
     pub run_latency: Option<LatencyDigest>,
+    pub ttft_latency: Option<LatencyDigest>,
 }
 
 /// Summarize already-parsed journals. Each slice is one run attempt.
@@ -234,6 +235,7 @@ pub fn summarize_journal_events<'a>(
 ) -> JournalMetricsReport {
     let mut report = JournalMetricsReport::default();
     let mut latencies = Vec::new();
+    let mut ttft_samples = Vec::new();
     for events in journals {
         if events.is_empty() {
             continue;
@@ -280,6 +282,9 @@ pub fn summarize_journal_events<'a>(
                     report.cost_micros = report
                         .cost_micros
                         .saturating_add(response.usage.cost_micros);
+                }
+                JournalEventKind::StreamFirstToken { elapsed_ms, .. } => {
+                    ttft_samples.push(*elapsed_ms);
                 }
                 JournalEventKind::ContextCompacted { .. } => {
                     compacted = true;
@@ -336,6 +341,7 @@ pub fn summarize_journal_events<'a>(
     report.tool_success_bps = ratio_bps(report.tool_ok, report.tool_calls);
     report.audit_complete_bps = ratio_bps(report.audit_complete, report.audit_total);
     report.run_latency = LatencyDigest::from_samples(&latencies);
+    report.ttft_latency = LatencyDigest::from_samples(&ttft_samples);
     report
 }
 
@@ -621,6 +627,11 @@ mod tests {
             JournalEventKind::ModelResponded {
                 response: response(),
             },
+            JournalEventKind::StreamFirstToken {
+                provider_id: "p".into(),
+                model: "m".into(),
+                elapsed_ms: 7,
+            },
             JournalEventKind::AnswerProduced {
                 answer: valid_answer(),
             },
@@ -646,6 +657,7 @@ mod tests {
         assert_eq!(report.output_tokens, 5);
         assert_eq!(report.cost_micros, 100);
         assert!(report.run_latency.is_some());
+        assert_eq!(report.ttft_latency.unwrap().p95_ms, 7);
     }
 
     #[test]

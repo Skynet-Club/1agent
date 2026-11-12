@@ -112,6 +112,12 @@ pub enum JournalEventKind {
     ModelRequested {
         request: ModelRequest,
     },
+    /// First content fragment observed for a streaming provider attempt.
+    StreamFirstToken {
+        provider_id: String,
+        model: String,
+        elapsed_ms: u64,
+    },
     ModelResponded {
         response: ModelResponse,
     },
@@ -1213,7 +1219,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::ContextCompacted { .. }
             | JournalEventKind::ExperienceInjected { .. }
             | JournalEventKind::ModelRequested { .. }
-            | JournalEventKind::ModelResponded { .. } => {}
+            | JournalEventKind::ModelResponded { .. }
+            | JournalEventKind::StreamFirstToken { .. } => {}
         }
     }
 

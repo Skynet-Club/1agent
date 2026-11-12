@@ -5139,6 +5139,12 @@ async fn main() -> Result<()> {
                         latency.p50_ms, latency.p95_ms, latency.max_ms, latency.count
                     );
                 }
+                if let Some(latency) = report.ttft_latency {
+                    println!(
+                        "ttft ms: p50={} p95={} max={} samples={}",
+                        latency.p50_ms, latency.p95_ms, latency.max_ms, latency.count
+                    );
+                }
             }
         }
         Command::AnswerQuality { input, json } => {

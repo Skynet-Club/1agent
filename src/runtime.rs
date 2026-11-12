@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -1000,8 +1001,26 @@ impl AgentRuntime {
                         path: journal_path.clone(),
                         source,
                     })?;
+                let attempt_started = Instant::now();
+                let first_token_ms = Arc::new(AtomicU64::new(u64::MAX));
                 let sink = if attempt == 0 {
-                    self.stream_sink.clone()
+                    self.stream_sink.clone().map(|sink| {
+                        let first_token_ms = first_token_ms.clone();
+                        Arc::new(move |text: &str| {
+                            let elapsed_ms = attempt_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u128::from(u64::MAX))
+                                as u64;
+                            let _ = first_token_ms.compare_exchange(
+                                u64::MAX,
+                                elapsed_ms,
+                                Ordering::Relaxed,
+                                Ordering::Relaxed,
+                            );
+                            sink(text);
+                        }) as StreamSink
+                    })
                 } else {
                     None
                 };
@@ -1027,6 +1046,19 @@ impl AgentRuntime {
                     };
                     tokio::time::timeout(remaining, provider_future).await
                 };
+                let first_token_ms = first_token_ms.load(Ordering::Relaxed);
+                if first_token_ms != u64::MAX {
+                    journal
+                        .append(JournalEventKind::StreamFirstToken {
+                            provider_id: route.manifest.provider_id.clone(),
+                            model: route.manifest.model.clone(),
+                            elapsed_ms: first_token_ms,
+                        })
+                        .map_err(|source| RuntimeError::Journal {
+                            path: journal_path.clone(),
+                            source,
+                        })?;
+                }
                 match provider_result {
                     Err(_) => {
                         return finish_with_answer(
@@ -3049,6 +3081,12 @@ mod tests {
         assert_eq!(result.answer.conclusion, "streamed answer");
         assert_eq!(*deltas.lock().unwrap(), ["streamed "]);
         let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event.event, JournalEventKind::StreamFirstToken { .. })),
+            "a streaming attempt should journal its first-token timing"
+        );
         let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
     }
