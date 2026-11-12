@@ -205,6 +205,8 @@ pub struct JournalMetricsReport {
     pub completed: u64,
     pub terminal_stops: u64,
     pub interrupted: u64,
+    /// M14 proxy: runs without a missing terminal stop.
+    pub crash_free_bps: Option<u16>,
     pub resumes: u64,
     pub resumed_completed: u64,
     pub recovery_bps: Option<u16>,
@@ -335,6 +337,7 @@ pub fn summarize_journal_events<'a>(
         }
     }
     report.interrupted = report.runs.saturating_sub(report.terminal_stops);
+    report.crash_free_bps = ratio_bps(report.runs.saturating_sub(report.interrupted), report.runs);
     report.recovery_bps = ratio_bps(report.resumed_completed, report.resumes);
     report.replay_bps = ratio_bps(report.replay_ok, report.replay_total);
     report.compacted_replay_bps = ratio_bps(report.compacted_replay_ok, report.compacted_runs);
@@ -645,6 +648,7 @@ mod tests {
         assert_eq!(report.completed, 1);
         assert_eq!(report.terminal_stops, 1);
         assert_eq!(report.interrupted, 0);
+        assert_eq!(report.crash_free_bps, Some(10_000));
         assert_eq!(report.tool_calls, 1);
         assert_eq!(report.tool_ok, 1);
         assert_eq!(report.tool_success_bps, Some(10_000));
@@ -707,6 +711,7 @@ mod tests {
         let report = summarize_journal_events([events.as_slice()]);
         assert_eq!(report.completed, 0);
         assert_eq!(report.interrupted, 1);
+        assert_eq!(report.crash_free_bps, Some(0));
         assert_eq!(report.tool_success_bps, Some(0));
         assert_eq!(report.denied_observations, 1);
         assert_eq!(report.audit_total, 1);

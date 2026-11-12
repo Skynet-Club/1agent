@@ -20,7 +20,7 @@ This page is a measurement review, not a release announcement. A metric marked
 | M13 | Audit completeness 100% | 100% under `AgentAnswer::validate` on local journals | **Local pass** |
 | M15 | TUI frame p95 ≤8 ms | Release 1.26 ms on a 200-entry transcript, `TestBackend` | **Local pass** |
 | M16 | 1M journal incremental p95 ≤50 ms | 4.7 MB journal: full 31.8 ms, incremental p95 9.4–16.1 µs | **Local pass** |
-| M17 | Compacted run replay 100% | No compacted runs in the snapshots; unit/benchmark paths only | **Open** |
+| M17 | Compacted run replay 100% | Forced-compaction runtime fixture replays, audits and reports 100% | **Local pass** |
 
 ## Targets and baselines
 
@@ -35,7 +35,7 @@ This page is a measurement review, not a release announcement. A metric marked
 | M10 cost/task | 3,275 micros historical | provider pricing not embedded; usage only |
 | M11 memory hit rate | not measured | no repeated-task benchmark |
 | M12 skill reuse | not measured | no repeated-workflow benchmark |
-| M14 crash-free sessions | not measured | `interrupted` count is a proxy |
+| M14 crash-free sessions | proxy reported | `crash_free_bps` = runs with a terminal stop / runs |
 | M18 external audit | not started | 0 P0 unknown |
 | M19–M23 | board exists, no golden set | `answer-quality` computes rates from labels |
 

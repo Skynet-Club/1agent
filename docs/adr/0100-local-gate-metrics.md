@@ -18,6 +18,7 @@ tool success or audit completeness. There was no single command that answered
    `summarize_journal_dir` in `metrics.rs`.
 2. Map journal facts to gate-oriented fields:
    - runs, completed, terminal stops, interrupted;
+   - crash-free bps: runs without a missing terminal stop (M14 proxy);
    - resumes, resumed completed, recovery bps (M4 proxy);
    - replay of completed journals, replay bps, compacted replay bps
      (M5/M17, structural replay);
@@ -38,8 +39,12 @@ tool success or audit completeness. There was no single command that answered
 - The numbers are structural. Replay is a journal replay, not a model
   re-run; audit completeness uses the answer validator; denied observations
   are a proxy for M6, not proof of zero security incidents.
-- M7 TTFT is not reported: the journal has no first-stream-chunk timestamp.
-  Streaming deltas are presentation only. M14 crash-free sessions and M19–M23
-  golden-set metrics are also outside this projection.
+- M7 TTFT is not reported by this projection alone; ADR-0105 adds
+  `StreamFirstToken` for streaming runs. M14 is reported as a crash-free proxy
+  (runs with a terminal stop), not as real session stability. M19–M23 are
+  outside this projection and live in ADR-0103.
+- M17 has a forced-compaction fixture: a four-tool-step run with
+  `auto_compact_tokens = 1` emits `ContextCompacted`, replays and audits
+  cleanly, and the metrics report records `compacted_replay_bps = 10000`.
 - A corrupt or unreadable journal fails the whole command instead of silently
   dropping a run.
