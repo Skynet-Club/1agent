@@ -14,17 +14,18 @@ cargo clippy --all-targets -- -D warnings
 ## Expected results
 
 ```text
-running 8 tests
+running 9 tests
 test trust_center::tests::disclosure_counts_capabilities_without_overclaiming_audit ... ok
 test trust_center::tests::disclosure_round_trips_through_json ... ok
 test trust_center::tests::evaluations_are_validated_and_sorted ... ok
 test trust_center::tests::html_escapes_caller_supplied_text ... ok
 test trust_center::tests::incidents_are_validated_sorted_and_rendered ... ok
 test trust_center::tests::markdown_states_the_audit_and_limits ... ok
+test trust_center::tests::markdown_text_escapes_backslashes_before_brackets ... ok
 test trust_center::tests::verification_summary_is_included_when_supplied ... ok
 test http_surface::tests::handler_serves_the_trust_center_without_bearer ... ok
 
-test result: ok. 8 passed; 0 failed
+test result: ok. 9 passed; 0 failed
 
 running 6 tests (tests/trust_center_cli.rs)
 test trust_center_accepts_and_escapes_incident_reports ... ok
