@@ -153,7 +153,7 @@ file: <路径>              → 文件必须存在
 | 1A 可用 web_search 返回真实搜索结果 | file: docs/evidence/web-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；Bing RSS；结果可能本地化/限流 |
 | MCP stdio client 可发现并调用工具 | cmd: cargo test --offline --lib tools::mcp | ✅ | fake server 契约测试；写工具权限门控 |
 | 1A 可通过 `--mcp-config` 调用真实 MCP 工具 | file: docs/evidence/mcp-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；本地 fake echo server |
-| 子 Agent 可隔离运行、回传结论并限制深度；请求的 write/network 只与父权限取交集 | cmd: cargo test --offline --lib tools::subagent | ✅ | fake program；工作区越界、深度上限与权限交集测试 |
+| 子 Agent 可隔离运行、回传结论并限制深度/总扇出；只接受 completed 子运行；存在子 journal 时必须 audit 通过；请求的 write/network 只与父权限取交集 | cmd: cargo test --offline --lib tools::subagent | ✅ | fake program；扇出为单进程实例上限；子 journal 缺失时不审计；跨进程扇出未限制 |
 | 1A 可 spawn 真实子 Agent | file: docs/evidence/subagent-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；两次独立子运行；父读子工作区被拒 |
 | 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
 | schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |

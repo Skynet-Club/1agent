@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Subagent acceptance and fanout (ADR-0106): a child is accepted only when
+  its stop reason is `completed`; a present child journal (≤16 MiB) must pass
+  `audit_events`; and one tool instance may spawn at most 8 children. Depth
+  and permission intersection are unchanged. Tests: two new unit tests.
 - M14/M17 local evidence: `metrics` now reports `crash_free_bps` (runs with a
   terminal stop, a proxy for M14). A forced-compaction runtime test proves
   `ContextCompacted` runs replay and audit cleanly and reports
