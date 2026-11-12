@@ -90,3 +90,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0084 | Skill Capture from a Completed Journal | [0084-skill-capture.md](0084-skill-capture.md) |
 | 0085 | Skill Evaluation CLI Gate | [0085-skill-eval-cli-gate.md](0085-skill-eval-cli-gate.md) |
 | 0086 | Benchmark Gate Metrics | [0086-benchmark-gate-metrics.md](0086-benchmark-gate-metrics.md) |
+| 0087 | Text File Attachments | [0087-text-file-attachments.md](0087-text-file-attachments.md) |
