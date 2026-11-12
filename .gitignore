@@ -6,5 +6,7 @@
 !.journal/.gitkeep
 .experience/
 .env
+__pycache__/
+*.pyc
 
 /.1a/
