@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Python read-only SDK (ADR-0112): `sdk/python/oneagent_client.py` wraps
+  health, agent card, trust center and the surface POST with env/argument
+  bearer auth, a 4 MiB response cap and explicit `ClientError` failures. Tests
+  use a local fake HTTP server (6 passing). This is not a full task-running or
+  streaming SDK.
 - Cascade bench (ADR-0111): `CascadeScenario` JSONL and `1agent cascade-bench
   --input PATH` run many containment scenarios, report max depth/blast radius
   and minimum containment, and exit non-zero when any scenario fails. It is a
