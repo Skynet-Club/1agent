@@ -218,8 +218,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `ToolObservation`: structured status, content, error code and metadata.
 - Clarify gate: `ClarifyQuestion`/`ClarifyGate` validate two to four unique options, add an
   automatic `Other`, put the recommended option first, deduplicate ids and normalized prompts,
-  admit one question per turn by default, and cap a blocking batch at five. `1agent clarify
-  --questions PATH` exposes the gate; it does not render a panel or store answers.
+  admit one question per turn by default, and cap a blocking batch at five. `resolve_round`
+  validates `answered|skipped|unanswered` answers with `submitted|cancelled|timed_out|undelivered`
+  outcomes and keeps the default answer valid. `1agent clarify` exposes both; it does not render a
+  panel or store answers.
 - Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`;
   `pause` and `repair` are recommendations and never signal or restart the daemon. A transition
   log records only action changes plus one recovery. The original `--max-age-ms`

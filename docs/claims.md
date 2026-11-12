@@ -56,7 +56,7 @@ file: <路径>              → 文件必须存在
 | checkpoint 差分：首个全量、后续只写新增消息；resume/replay 顺序合并、base 不匹配失败关闭、audit 标记孤立 delta；100 步 checkpoint 事件 115 KB（全量估算 2.99 MB） | cmd: cargo test checkpoint_delta --lib && cargo test delta_checkpoints_keep_the_journal_linear --lib -- --ignored --nocapture | ✅ | 仅 checkpoint 事件；`ModelRequested` 仍每步全量，总体积仍受其主导；旧二进制不能读含 delta 的新 journal |
 | TUI transcript 投影缓存：内容 revision/宽度不变时复用；新增 entry 或 resize 重建；200 条长 transcript release 帧 p95 1.26 ms（M15 ≤8 ms） | cmd: cargo test transcript_projection --lib && cargo test --release long_transcript_frame_budget --lib -- --ignored --nocapture | ✅ | TestBackend 测量，不含真实终端 I/O；debug p95 11.1 ms；缓存按 revision 全量重建，非增量 diff |
 | watchdog 升级阶梯按心跳年龄输出 ok/warn/pause/repair；干预日志只在动作变化时追加、恢复记一次；pause/repair 仅为建议，不发送信号/不重启/不扩权 | cmd: cargo test watchdog --lib && cargo test --test watchdog_cli | ✅ | 实际暂停/修复执行未实现；日志无轮转；调用方控制检查频率 |
-| Clarify 门控：2–4 个唯一选项、至多一个推荐项、自动 Other、推荐项第一、默认每轮 1 题、总预算/重复过滤、blocking 批量 ≤5；非法问题失败关闭 | cmd: cargo test clarify --lib && cargo test --test clarify_cli | ✅ | 仅门控/序列化；TUI 面板、答案结果状态、跨会话问题历史未实现 |
+| Clarify 门控：2–4 个唯一选项、至多一个推荐项、自动 Other、推荐项第一、默认每轮 1 题、总预算/重复过滤、blocking 批量 ≤5；答案状态 answered/skipped/unanswered、结果 submitted/cancelled/timed_out/undelivered；未回答不使默认答案失效；非法输入失败关闭 | cmd: cargo test clarify --lib && cargo test --test clarify_cli | ✅ | 仅门控/序列化；TUI 面板、持久化问题历史、真实 300s 阻塞未实现 |
 | 写路径重叠的任务被串行化 | test: overlapping_write_roots_are_serialized | ✅ | |
 | 平台分支只允许出现在展示适配器 | cmd: ! grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs | ✅ | 本日修正：原门禁依赖缺失的 rg，被静默跳过 |
 | 技能可从捕获、评测、激活回滚到上一版本，失败候选不替换现役版本 | test: skill_lifecycle_capture_to_rollback_is_replayable | ✅ | 确定性集成场景；基于磁盘 journal、重启回放与审计收据；不代表真实示范语料 |

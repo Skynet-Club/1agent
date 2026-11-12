@@ -34,6 +34,137 @@ pub enum ClarifyError {
     MultipleRecommended,
     #[error("clarify batch has more than five blocking questions")]
     TooManyBlocking,
+    #[error("clarify answer references an unknown question: {0}")]
+    UnknownQuestionId(String),
+    #[error("clarify question has more than one answer: {0}")]
+    DuplicateAnswer(String),
+    #[error("an answered question must carry an option id: {0}")]
+    AnsweredWithoutOption(String),
+    #[error("clarify answer references an unknown option: {0}")]
+    UnknownOptionId(String),
+    #[error("a skipped or unanswered question must not carry an option id: {0}")]
+    UnexpectedOption(String),
+    #[error("submitted round has no answered question")]
+    EmptySubmission,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClarifyAnswerStatus {
+    Answered,
+    Skipped,
+    Unanswered,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClarifyOutcome {
+    Submitted,
+    Cancelled,
+    TimedOut,
+    Undelivered,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ClarifyAnswer {
+    pub question_id: String,
+    #[serde(default)]
+    pub option_id: Option<String>,
+    pub status: ClarifyAnswerStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ClarifyRoundSummary {
+    pub outcome: ClarifyOutcome,
+    pub answered: usize,
+    pub skipped: usize,
+    pub unanswered: usize,
+    pub blocking_unanswered: usize,
+    /// An unanswered question never invalidates the default answer.
+    pub default_answer_valid: bool,
+}
+
+/// Validate a submitted, cancelled, timed-out or undelivered round against
+/// the admitted questions. Unanswered questions leave the default answer
+/// valid; only an answer that names an unknown question/option fails closed.
+pub fn resolve_round(
+    questions: &[ClarifyQuestion],
+    answers: &[ClarifyAnswer],
+    outcome: ClarifyOutcome,
+) -> Result<ClarifyRoundSummary, ClarifyError> {
+    let mut by_id = std::collections::BTreeMap::new();
+    for question in questions {
+        if by_id.insert(question.id.as_str(), question).is_some() {
+            return Err(ClarifyError::InvalidQuestionId(question.id.clone()));
+        }
+    }
+    let mut seen = BTreeSet::new();
+    let mut answered = 0;
+    let mut skipped = 0;
+    let mut unanswered = 0;
+    for answer in answers {
+        let question = by_id
+            .get(answer.question_id.as_str())
+            .ok_or_else(|| ClarifyError::UnknownQuestionId(answer.question_id.clone()))?;
+        if !seen.insert(answer.question_id.as_str()) {
+            return Err(ClarifyError::DuplicateAnswer(answer.question_id.clone()));
+        }
+        match answer.status {
+            ClarifyAnswerStatus::Answered => {
+                let option_id = answer.option_id.as_ref().ok_or_else(|| {
+                    ClarifyError::AnsweredWithoutOption(answer.question_id.clone())
+                })?;
+                if !question
+                    .options
+                    .iter()
+                    .any(|option| option.id == *option_id)
+                {
+                    return Err(ClarifyError::UnknownOptionId(option_id.clone()));
+                }
+                answered += 1;
+            }
+            ClarifyAnswerStatus::Skipped => {
+                if answer.option_id.is_some() {
+                    return Err(ClarifyError::UnexpectedOption(answer.question_id.clone()));
+                }
+                skipped += 1;
+            }
+            ClarifyAnswerStatus::Unanswered => {
+                if answer.option_id.is_some() {
+                    return Err(ClarifyError::UnexpectedOption(answer.question_id.clone()));
+                }
+                unanswered += 1;
+            }
+        }
+    }
+    let missing = questions
+        .iter()
+        .filter(|question| !seen.contains(question.id.as_str()))
+        .count();
+    unanswered += missing;
+    let blocking_unanswered = questions
+        .iter()
+        .filter(|question| {
+            question.blocking
+                && !answers.iter().any(|answer| {
+                    answer.question_id == question.id
+                        && answer.status == ClarifyAnswerStatus::Answered
+                })
+        })
+        .count();
+    if outcome == ClarifyOutcome::Submitted && answered == 0 {
+        return Err(ClarifyError::EmptySubmission);
+    }
+    Ok(ClarifyRoundSummary {
+        outcome,
+        answered,
+        skipped,
+        unanswered,
+        blocking_unanswered,
+        default_answer_valid: true,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -347,5 +478,108 @@ mod tests {
         let mut control = question("q1", "Which\u{7} one?");
         control.prompt = "Which\u{7} one?".into();
         assert_eq!(gate.admit(vec![control]), Err(ClarifyError::InvalidPrompt));
+    }
+
+    fn answer(
+        question_id: &str,
+        option_id: Option<&str>,
+        status: ClarifyAnswerStatus,
+    ) -> ClarifyAnswer {
+        ClarifyAnswer {
+            question_id: question_id.into(),
+            option_id: option_id.map(Into::into),
+            status,
+        }
+    }
+
+    #[test]
+    fn resolve_round_counts_answers_and_keeps_the_default_valid() {
+        let mut first = question("q1", "Which one?");
+        first.blocking = true;
+        let questions = vec![first.normalize(), question("q2", "What next?")];
+        let summary = resolve_round(
+            &questions,
+            &[
+                answer("q1", Some("b"), ClarifyAnswerStatus::Answered),
+                answer("q2", None, ClarifyAnswerStatus::Skipped),
+            ],
+            ClarifyOutcome::Submitted,
+        )
+        .unwrap();
+        assert_eq!(summary.answered, 1);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(summary.unanswered, 0);
+        assert_eq!(summary.blocking_unanswered, 0);
+        assert!(summary.default_answer_valid);
+
+        let missing = resolve_round(
+            &questions,
+            &[answer("q1", Some("b"), ClarifyAnswerStatus::Answered)],
+            ClarifyOutcome::Submitted,
+        )
+        .unwrap();
+        assert_eq!(missing.unanswered, 1);
+
+        let cancelled = resolve_round(&questions, &[], ClarifyOutcome::Cancelled).unwrap();
+        assert_eq!(cancelled.answered, 0);
+        assert_eq!(cancelled.unanswered, 2);
+        assert_eq!(cancelled.blocking_unanswered, 1);
+        assert!(cancelled.default_answer_valid);
+    }
+
+    #[test]
+    fn resolve_round_rejects_bad_answers() {
+        let questions = vec![question("q1", "Which one?").normalize()];
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[answer("q9", Some("a"), ClarifyAnswerStatus::Answered)],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::UnknownQuestionId("q9".into()))
+        );
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[answer("q1", None, ClarifyAnswerStatus::Answered)],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::AnsweredWithoutOption("q1".into()))
+        );
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[answer("q1", Some("nope"), ClarifyAnswerStatus::Answered)],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::UnknownOptionId("nope".into()))
+        );
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[answer("q1", Some("a"), ClarifyAnswerStatus::Skipped)],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::UnexpectedOption("q1".into()))
+        );
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[
+                    answer("q1", Some("a"), ClarifyAnswerStatus::Answered),
+                    answer("q1", Some("b"), ClarifyAnswerStatus::Answered),
+                ],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::DuplicateAnswer("q1".into()))
+        );
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[answer("q1", None, ClarifyAnswerStatus::Skipped)],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::EmptySubmission)
+        );
     }
 }

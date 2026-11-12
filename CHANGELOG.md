@@ -6,9 +6,12 @@
   four unique options, add an automatic `Other`, put the recommended option
   first, deduplicate ids and normalized prompts, admit one question per turn
   by default, enforce an optional total budget, and cap a blocking batch at
-  five. `1agent clarify --questions PATH` exposes the gate and rejects
-  oversized input. Policy and serialization only; no panel or answer storage.
-  Tests: five unit tests and three CLI e2e tests.
+  five. `resolve_round` validates `answered|skipped|unanswered` answers and
+  `submitted|cancelled|timed_out|undelivered` outcomes; missing answers count
+  as unanswered but keep the default answer valid. `1agent clarify --questions
+  PATH [--answers PATH --outcome STATUS]` exposes both and rejects oversized
+  input. Policy and serialization only; no panel or stored round history.
+  Tests: seven unit tests and four CLI e2e tests.
 - Watchdog escalation ladder (ADR-0095): `WatchdogPolicy` maps heartbeat age
   to ok/warn/pause/repair with strictly increasing thresholds. Pause and
   repair are recommendations only: the watchdog never signals, restarts or
