@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Answer-quality board: `AnswerQualitySample` and `summarize_answer_quality` project M19–M23
+  (first-answer usable, pairwise win with ties excluded, over-structure, unnecessary follow-up,
+  follow-up adoption) from caller-supplied JSONL. `1agent answer-quality --input PATH` exposes
+  it; it does not run the blind review or assemble the golden set.
 - TUI text helpers (`sanitize_*`, `fit_row`, `wrap_display`, `truncate_to_width`,
   `split_display_width`) live in `tui_text.rs`; `tui.rs` re-exports them. This is the first
   RFC-0001 split slice, with no behavior change.
