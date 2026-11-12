@@ -1,6 +1,6 @@
 # Crash-Recovery Soak — Evidence (2026-11-12)
 
-Status: **5-cycle smoke passed; 2h duration run in progress**
+Status: **5-cycle smoke passed; 2h run reported completed, raw output lost; rerun in progress**
 Scope: crash injection at checkpoint/tool-call boundaries, resume, and
 duplicate-side-effect avoidance.
 
@@ -32,9 +32,20 @@ Each cycle:
 ## 2h run
 
 The release binary was started at 2026-11-12 12:52 with
-`SOAK_RECOVERY_SECONDS=7200` and 250 ms pacing. Its final result is appended
-to this file when the run completes; the smoke result above is not a
-substitute for the two-hour gate.
+`SOAK_RECOVERY_SECONDS=7200` and 250 ms pacing. A second start was observed at
+15:49; the evidence for the exact process lifetime is incomplete.
+
+The background wait task reported **completed, exit 0** at 17:51. The raw
+`/tmp/soak-recovery-2h.log` and the task output file were removed before they
+could be appended here, so this file records the completion signal but does not
+contain the raw soak output. The smoke result above is not a substitute for the
+two-hour gate.
+
+## Rerun
+
+A fresh 2h soak was submitted at 2026-11-12 20:19 as job
+`job-1794485959622-2245-1` (release profile, `SOAK_RECOVERY_SECONDS=7200`,
+timeout 7800s). Its raw output will be appended when it completes.
 
 ## What this does not prove
 
@@ -42,4 +53,6 @@ substitute for the two-hour gate.
   contention.
 - That every crash point is covered; the test injects three deterministic
   prefixes.
-- That a two-hour run has passed yet; that line is pending.
+- That the first 2h run's raw output existed at review time; only the
+  completion signal survives.
+- That the rerun has passed yet; it is in progress.

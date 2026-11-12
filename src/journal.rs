@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::{
-    AgentAnswer, CognitiveMode, InjectedExperience, ModelRequest, ModelResponse, PROTOCOL_VERSION,
-    RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason, TaskRequest, ToolCall, ToolObservation,
+    AgentAnswer, CognitiveMode, InjectedExperience, ModelMessage, ModelRequest, ModelResponse,
+    PROTOCOL_VERSION, RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason, TaskRequest, ToolCall,
+    ToolObservation, ToolSpec,
 };
 use crate::provider::{ProviderError, ProviderErrorCode};
 use crate::reframe::{ReframeChoice, ReframeProposal};
@@ -112,6 +113,11 @@ pub enum JournalEventKind {
     ModelRequested {
         request: ModelRequest,
     },
+    /// Compact follow-up to the previous `ModelRequested`/`ModelRequestDelta`.
+    /// Only the messages after `prefix_len` and changed tools are stored.
+    ModelRequestDelta {
+        delta: ModelRequestDelta,
+    },
     /// First content fragment observed for a streaming provider attempt.
     StreamFirstToken {
         provider_id: String,
@@ -175,6 +181,118 @@ pub enum JournalEventKind {
     RunStopped {
         reason: StopReason,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelRequestDelta {
+    /// Seq of the previous `ModelRequested` or `ModelRequestDelta` event.
+    pub base_seq: u64,
+    /// Number of leading messages inherited unchanged from the base request.
+    pub prefix_len: usize,
+    /// Messages appended (or replacing the base tail) after `prefix_len`.
+    pub messages: Vec<ModelMessage>,
+    /// Full tool list when it changed; `None` inherits the base tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolSpec>>,
+}
+
+/// Writes full model requests the first time and deltas afterwards.
+#[derive(Debug, Clone, Default)]
+pub struct ModelRequestLog {
+    last: Option<(u64, ModelRequest)>,
+}
+
+impl ModelRequestLog {
+    pub fn append(&mut self, journal: &mut Journal, request: ModelRequest) -> std::io::Result<u64> {
+        let seq = match &self.last {
+            Some((base_seq, previous))
+                if previous.run_id == request.run_id && previous.mode == request.mode =>
+            {
+                let prefix_len = previous
+                    .messages
+                    .iter()
+                    .zip(request.messages.iter())
+                    .take_while(|(left, right)| left == right)
+                    .count();
+                let tools = (previous.tools != request.tools).then(|| request.tools.clone());
+                let delta = ModelRequestDelta {
+                    base_seq: *base_seq,
+                    prefix_len,
+                    messages: request.messages[prefix_len..].to_vec(),
+                    tools,
+                };
+                journal.append(JournalEventKind::ModelRequestDelta { delta })?
+            }
+            _ => journal.append(JournalEventKind::ModelRequested {
+                request: request.clone(),
+            })?,
+        };
+        self.last = Some((seq, request));
+        Ok(seq)
+    }
+}
+
+/// Rebuilds the model-visible request from full events and deltas.
+#[derive(Debug, Clone, Default)]
+pub struct ModelRequestChain {
+    current: Option<ModelRequest>,
+    base_seq: Option<u64>,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ModelRequestChainError {
+    #[error("model request delta has no base request")]
+    MissingBase,
+    #[error("model request delta base does not match the previous request")]
+    InvalidBase,
+    #[error("model request delta prefix exceeds the base request")]
+    InvalidPrefix,
+}
+
+impl ModelRequestChain {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Apply an event; returns the reconstructed request for request events.
+    pub fn apply(
+        &mut self,
+        event: &JournalEvent,
+    ) -> Result<Option<&ModelRequest>, ModelRequestChainError> {
+        match &event.event {
+            JournalEventKind::ModelRequested { request } => {
+                self.current = Some(request.clone());
+                self.base_seq = Some(event.seq);
+            }
+            JournalEventKind::ModelRequestDelta { delta } => {
+                let Some(base_seq) = self.base_seq else {
+                    return Err(ModelRequestChainError::MissingBase);
+                };
+                if delta.base_seq != base_seq {
+                    return Err(ModelRequestChainError::InvalidBase);
+                }
+                let Some(current) = self.current.as_mut() else {
+                    return Err(ModelRequestChainError::MissingBase);
+                };
+                if delta.prefix_len > current.messages.len() {
+                    return Err(ModelRequestChainError::InvalidPrefix);
+                }
+                current.messages.truncate(delta.prefix_len);
+                current.messages.extend(delta.messages.iter().cloned());
+                if let Some(tools) = &delta.tools {
+                    current.tools = tools.clone();
+                }
+                self.base_seq = Some(event.seq);
+            }
+            _ => return Ok(None),
+        }
+        Ok(self.current.as_ref())
+    }
+
+    pub fn current(&self) -> Option<&ModelRequest> {
+        self.current.as_ref()
+    }
 }
 
 pub struct Journal {
@@ -243,6 +361,8 @@ pub enum AuditFindingCode {
     DuplicateToolCall,
     DuplicateToolObservation,
     OrphanCheckpointDelta,
+    OrphanModelRequestDelta,
+    InvalidModelRequestDelta,
     RouteSelectionOutsidePlan,
     DuplicateRunStop,
     DuplicateAnswer,
@@ -658,6 +778,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
     let mut pending_retry: Option<(String, String, usize)> = None;
     let mut last_retry_schedule: Option<(u64, usize)> = None;
     let mut checkpoint_event_seq: Option<u64> = None;
+    let mut model_request_base: Option<(u64, usize)> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
@@ -707,6 +828,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                 if matches!(&event.event, JournalEventKind::ResumeStarted { .. }) {
                     checkpoint_event_seq = Some(event.seq);
                 }
+                model_request_base = None;
             }
             JournalEventKind::Checkpoint { .. } => {
                 checkpoint_event_seq = Some(event.seq);
@@ -724,6 +846,42 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                     );
                 }
                 checkpoint_event_seq = Some(event.seq);
+            }
+            JournalEventKind::ModelRequested { request } => {
+                model_request_base = Some((event.seq, request.messages.len()));
+            }
+            JournalEventKind::ModelRequestDelta { delta } => {
+                match model_request_base {
+                    None => push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::OrphanModelRequestDelta,
+                        Some(index),
+                        format!("event {index}: model request delta has no base request"),
+                    ),
+                    Some((base_seq, _)) if base_seq != delta.base_seq => push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::OrphanModelRequestDelta,
+                        Some(index),
+                        format!(
+                            "event {index}: model request delta base {} does not match the previous request",
+                            delta.base_seq
+                        ),
+                    ),
+                    Some((_, base_len)) if delta.prefix_len > base_len => push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::InvalidModelRequestDelta,
+                        Some(index),
+                        format!(
+                            "event {index}: model request delta prefix {} exceeds base length {base_len}",
+                            delta.prefix_len
+                        ),
+                    ),
+                    Some(_) => {}
+                }
+                model_request_base = Some((
+                    event.seq,
+                    delta.prefix_len.saturating_add(delta.messages.len()),
+                ));
             }
             JournalEventKind::ToolCalled { call } => {
                 if observed_calls.insert(call.id.clone(), index).is_some() {
@@ -1219,6 +1377,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::ContextCompacted { .. }
             | JournalEventKind::ExperienceInjected { .. }
             | JournalEventKind::ModelRequested { .. }
+            | JournalEventKind::ModelRequestDelta { .. }
             | JournalEventKind::ModelResponded { .. }
             | JournalEventKind::StreamFirstToken { .. } => {}
         }
@@ -2681,6 +2840,107 @@ mod reframe_journal_tests {
     fn audit_flags_an_orphan_checkpoint_delta() {
         let events = journal_with(vec![checkpoint_delta(0, Vec::new())]);
         assert!(codes(&events).contains(&AuditFindingCode::OrphanCheckpointDelta));
+    }
+
+    fn model_request(
+        run_id: Uuid,
+        messages: Vec<ModelMessage>,
+        tools: Vec<ToolSpec>,
+    ) -> ModelRequest {
+        ModelRequest {
+            run_id,
+            mode: CognitiveMode::DirectAnswer,
+            messages,
+            tools,
+        }
+    }
+
+    fn model_request_delta(
+        base_seq: u64,
+        prefix_len: usize,
+        messages: Vec<ModelMessage>,
+    ) -> JournalEventKind {
+        JournalEventKind::ModelRequestDelta {
+            delta: ModelRequestDelta {
+                base_seq,
+                prefix_len,
+                messages,
+                tools: None,
+            },
+        }
+    }
+
+    #[test]
+    fn model_request_deltas_reconstruct_the_full_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        let run_id = Uuid::new_v4();
+        let tool = ToolSpec {
+            name: "read".into(),
+            description: "read a file".into(),
+            parameters: serde_json::json!({"type": "object"}),
+        };
+        let first = model_request(run_id, vec![ModelMessage::user("one")], vec![tool.clone()]);
+        let second = model_request(
+            run_id,
+            vec![
+                ModelMessage::user("one"),
+                ModelMessage::assistant("", Vec::new()),
+            ],
+            vec![tool],
+        );
+        let repeated = second.clone();
+        let mut log = ModelRequestLog::default();
+        log.append(&mut journal, first.clone()).unwrap();
+        log.append(&mut journal, second.clone()).unwrap();
+        log.append(&mut journal, repeated.clone()).unwrap();
+        drop(journal);
+
+        let events = read_events(&path).unwrap();
+        assert!(matches!(
+            events[0].event,
+            JournalEventKind::ModelRequested { .. }
+        ));
+        assert!(matches!(
+            events[1].event,
+            JournalEventKind::ModelRequestDelta { .. }
+        ));
+        assert!(matches!(
+            events[2].event,
+            JournalEventKind::ModelRequestDelta { .. }
+        ));
+        let mut chain = ModelRequestChain::new();
+        let reconstructed = events
+            .iter()
+            .filter_map(|event| chain.apply(event).ok().flatten().cloned())
+            .collect::<Vec<_>>();
+        assert_eq!(reconstructed, vec![first, second.clone(), repeated]);
+        assert!(
+            serde_json::to_vec(&events[1]).unwrap().len()
+                < serde_json::to_vec(&second).unwrap().len()
+        );
+    }
+
+    #[test]
+    fn audit_flags_an_orphan_model_request_delta() {
+        let events = journal_with(vec![model_request_delta(
+            0,
+            0,
+            vec![ModelMessage::user("stale")],
+        )]);
+        assert!(codes(&events).contains(&AuditFindingCode::OrphanModelRequestDelta));
+    }
+
+    #[test]
+    fn audit_flags_a_model_request_delta_prefix_overflow() {
+        let events = journal_with(vec![
+            JournalEventKind::ModelRequested {
+                request: model_request(Uuid::new_v4(), vec![ModelMessage::user("one")], Vec::new()),
+            },
+            model_request_delta(1, 5, Vec::new()),
+        ]);
+        assert!(codes(&events).contains(&AuditFindingCode::InvalidModelRequestDelta));
     }
 
     #[test]

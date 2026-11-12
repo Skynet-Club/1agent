@@ -15,16 +15,17 @@ use first_principles_agent::{
     ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
     HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, Journal,
     JournalEventKind, MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
-    ModelProductionPlanGenerator, ModelProvider, OpenAiCompatibleProvider, PlanGenerator,
-    PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
-    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
-    REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason,
-    ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
-    RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent,
-    SessionPreferences, SkillService, StopReason, TaskRequest, TerminalSession, ToolObservation,
-    ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiActivity, TuiActivityKind,
-    TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus,
-    TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter, add_git_worktree,
+    ModelProductionPlanGenerator, ModelProvider, ModelRequestChain, OpenAiCompatibleProvider,
+    PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan,
+    ProductionPlanningContext, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
+    ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal,
+    RegistrySnapshot, RejectedReason, ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel,
+    RouteObjective, RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError,
+    SchedulerLimits, SessionEvent, SessionPreferences, SkillService, StopReason, TaskRequest,
+    TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest,
+    TuiActivity, TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution, TuiPreset,
+    TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
+    WorkshopCliAdapter, add_git_worktree,
     answer_render::{
         answer_impact_label, claim_status_label, render_answer, render_answer_default,
     },
@@ -17826,20 +17827,22 @@ fn tui_run_trace(journal_path: &Path) -> String {
     };
     let mut step = 0usize;
     let mut lines = Vec::new();
+    let mut model_requests = ModelRequestChain::new();
     for event in events {
+        if let Ok(Some(request)) = model_requests.apply(&event) {
+            step += 1;
+            let tokens = first_principles_agent::context::total_request_tokens(
+                &request.messages,
+                &request.tools,
+            );
+            lines.push(format!(
+                "第 {step} 步 · 请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
+                request.messages.len(),
+                request.tools.len()
+            ));
+            continue;
+        }
         match &event.event {
-            JournalEventKind::ModelRequested { request } => {
-                step += 1;
-                let tokens = first_principles_agent::context::total_request_tokens(
-                    &request.messages,
-                    &request.tools,
-                );
-                lines.push(format!(
-                    "第 {step} 步 · 请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
-                    request.messages.len(),
-                    request.tools.len()
-                ));
-            }
             JournalEventKind::ModelResponded { response } => {
                 let turn = match &response.turn {
                     first_principles_agent::ModelTurn::Final { answer } => {
@@ -17965,7 +17968,21 @@ fn tui_journal_snapshot(journal_path: &std::path::Path) -> TuiJournalSnapshot {
         return snapshot;
     };
     let mut step = 0usize;
+    let mut model_requests = ModelRequestChain::new();
     for event in events {
+        if let Ok(Some(request)) = model_requests.apply(&event) {
+            step += 1;
+            snapshot.context_tokens = Some(first_principles_agent::context::total_request_tokens(
+                &request.messages,
+                &request.tools,
+            ));
+            snapshot.activity = Some(TuiActivity::bilingual(
+                TuiActivityKind::Thinking,
+                "等待响应",
+                step,
+            ));
+            continue;
+        }
         match &event.event {
             JournalEventKind::RunStarted { .. } => {
                 snapshot.activity = Some(TuiActivity::bilingual(
@@ -17986,19 +18003,6 @@ fn tui_journal_snapshot(journal_path: &std::path::Path) -> TuiJournalSnapshot {
             JournalEventKind::RoutePlanned { .. } => {
                 snapshot.activity =
                     Some(TuiActivity::bilingual(TuiActivityKind::Planning, "", step));
-            }
-            JournalEventKind::ModelRequested { request } => {
-                step += 1;
-                snapshot.context_tokens =
-                    Some(first_principles_agent::context::total_request_tokens(
-                        &request.messages,
-                        &request.tools,
-                    ));
-                snapshot.activity = Some(TuiActivity::bilingual(
-                    TuiActivityKind::Thinking,
-                    "等待响应",
-                    step,
-                ));
             }
             JournalEventKind::ModelResponded { response } => {
                 snapshot.metrics.input_tokens = snapshot
@@ -18125,11 +18129,29 @@ fn append_work_events(
         return;
     };
     let mut step = 0usize;
+    let mut model_requests = ModelRequestChain::new();
     for event in events {
-        if matches!(event.event, JournalEventKind::ModelRequested { .. }) {
+        let model_request = model_requests.apply(&event).ok().flatten();
+        if model_request.is_some() {
             step += 1;
         }
         if last_seq.is_some_and(|seq| event.seq <= seq) {
+            continue;
+        }
+        if let Some(request) = model_request {
+            state.push_work(TuiActivityKind::Thinking, format!("第 {step} 步"));
+            let tokens = first_principles_agent::context::total_request_tokens(
+                &request.messages,
+                &request.tools,
+            );
+            state.push_work_result(
+                format!(
+                    "请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
+                    request.messages.len(),
+                    request.tools.len()
+                ),
+                TuiTone::Muted,
+            );
             continue;
         }
         match &event.event {
@@ -18138,21 +18160,6 @@ fn append_work_events(
             }
             JournalEventKind::RoutePlanned { .. } => {
                 state.push_work(TuiActivityKind::Planning, "任务计划已生成");
-            }
-            JournalEventKind::ModelRequested { request } => {
-                state.push_work(TuiActivityKind::Thinking, format!("第 {step} 步"));
-                let tokens = first_principles_agent::context::total_request_tokens(
-                    &request.messages,
-                    &request.tools,
-                );
-                state.push_work_result(
-                    format!(
-                        "请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
-                        request.messages.len(),
-                        request.tools.len()
-                    ),
-                    TuiTone::Muted,
-                );
             }
             JournalEventKind::ModelResponded { response } => {
                 let detail = match &response.turn {

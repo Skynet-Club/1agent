@@ -73,7 +73,8 @@
 - 流式输出：`1agent run --stream` 将 OpenAI-compatible provider 的内容增量实时写到 stderr；tool_call 分片按 index 拼装，SSE 行跨网络包重组，取消返回 `Cancelled`；未实现流式的 provider 自动回退 `complete`，重试不再流式以免重复/交错增量；stdout 仍是最终 JSON/答案；
 - 只读工具并行：同一轮模型返回的连续只读调用（read_file/search_files/read_pdf/fetch_url/web_search/browser_read）并发执行；写/终端/技能/子 Agent/MCP 调用保持顺序。`ToolCalled`/`ToolObserved` 均按模型顺序写 journal，重放与审计确定；中断的并发组不会续跑；
 - journal 增量读取：`JournalCursor` + `read_events_incremental` 只解析游标后的完整行；未换行的尾部保留到下次；文件缩小返回 `Truncated`。`read_events` 改为缓冲逐行解析；4.7 MB（约 1.2M token）journal 调试构建 31 ms；TUI/daemon 尚未切换到游标；
-- checkpoint 差分：首个 checkpoint 全量，之后 `CheckpointDelta` 只带新增消息与累计计数；resume/replay 按顺序合并，base 不匹配失败关闭，audit 标记孤立 delta；100 步 echo run 的 checkpoint 事件 115 KB，全量估算约 2.99 MB。`ModelRequested` 仍每步全量写入；
+- checkpoint 差分：首个 checkpoint 全量，之后 `CheckpointDelta` 只带新增消息与累计计数；resume/replay 按顺序合并，base 不匹配失败关闭，audit 标记孤立 delta；100 步 echo run 的 checkpoint 事件 115 KB，全量估算约 2.99 MB；
+- 模型请求差分：每个 journal 的首个请求为全量 `ModelRequested`，之后写 `ModelRequestDelta`（base_seq、未变前缀长度、剩余消息、仅变化时携带工具列表）；`ModelRequestChain` 按序重建，audit 标记孤立 delta 和前缀越界。100 步 echo run 的模型请求事件 74.9 KB，全量估算约 3.03 MB（2.5%）。旧二进制不能读新事件；
 - watchdog 升级阶梯：`watchdog --warn-after-ms/--pause-after-ms/--repair-after-ms` 按心跳年龄输出 ok/warn/pause/repair；`--intervention-log` 只在动作变化时追加记录，恢复 ok 记一次；默认只建议，不发送信号、不重启、不扩权；`--execute pause|resume` 是显式 opt-in：校验 `/proc/<pid>/cmdline` 含 `--expected-command` 后才发 SIGSTOP/SIGCONT，拒绝自身/缺失/不匹配，不 kill/不重启；
 - 回答质量看板：`1agent answer-quality --input JSONL [--json]` 从人工/评审样本计算 M19 首答可用率、M20 成对胜率（平局排除）、M21 过度结构化率、M22 不必要追问率、M23 追问采纳率；零分母为 `null`；不做盲评或 golden set 采集；
 - 子 Agent 验收与扇出：`spawn_agent` 只接受 `stop_reason=completed` 的子运行；子 journal 存在时校验 ≤16 MiB 且 audit 通过；单工具实例总扇出上限 8；深度/权限交集不变；

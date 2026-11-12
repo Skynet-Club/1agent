@@ -2,6 +2,15 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Model request deltas (ADR-0122): after the first full `ModelRequested`,
+  attempts journal `ModelRequestDelta` with the previous request event as
+  `base_seq`, the unchanged prefix length, the remaining messages and changed
+  tools. `ModelRequestChain` reconstructs the request; audit reports orphan
+  deltas and prefix overflows; TUI, metrics, usage and OTel treat both events
+  as request boundaries. On the 100-step echo probe, model-request events are
+  74,911 bytes versus a 3,028,246-byte full-copy estimate (2.5%). Old binaries
+  cannot read the new variant. Tests: one round-trip unit test, two audit
+  rejection tests and the extended 100-step probe.
 - Journal-derived stage latencies (ADR-0114): `1agent metrics` now projects
   route, context, model and tool p50/p95 digests from existing journal event
   timestamps. The four stages are disjoint; retries add model samples but not

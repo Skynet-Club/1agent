@@ -1,7 +1,8 @@
-# 0.97 Status and Metric Review (2026-11-12, 16:16 CST)
+# 0.97 Status and Metric Review (2026-11-12, 21:05 CST)
 
 - Status: **local review; 0.97 is not release-ready**
-- Latest commit at review: `87c51ad`
+- Base commit at review: `7d12f0d`; this snapshot includes the model-request
+  delta slice (ADR-0122)
 - Full suite: 1230 passed / 0 failed / 13 ignored
 - Claims: 219 (197 verified / 14 partial / 8 no evidence)
 - Local release: Linux and Windows GNU binaries are rebuilt per slice; the
@@ -45,6 +46,8 @@ This page is a measurement review, not a release announcement. A metric marked
 - Parallel read-only tools with deterministic journal order.
 - Incremental journal cursor and 1M parse regression.
 - Checkpoint deltas and crash-recovery soak (2h run pending).
+- Model request deltas (ADR-0122): first request full, later attempts compact;
+  100-step echo probe 2.5% of the full-copy estimate.
 - TUI transcript projection cache.
 - Watchdog escalation ladder plus explicit checked `--execute pause/resume`.
 - Clarify gate and round outcome states.
@@ -68,11 +71,10 @@ This page is a measurement review, not a release announcement. A metric marked
 5. External A-Gate/W-Gate and security review; P-Gate macOS.
 6. Automatic watchdog repair remains manual; pause/resume is explicit and
    checked. M6 is not an external audit.
-7. `ModelRequested` remains a full per-step journal copy.
 
 ## Next actions
 
-- Finish the 2h soak and record its result.
+- Finish the 2h soak rerun and record its result with raw output.
 - Add a real-task suite once provider credentials and reviewed tasks are
   available; do not relabel contract fixtures as model quality.
 - Collect blind-review labels for the fixed golden set.
