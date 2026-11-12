@@ -5,7 +5,9 @@
   `825af12`; earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify
   panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas)
 - Full suite: 1261 passed / 0 failed / 13 ignored
-- Claims: 224 (201 verified / 15 partial / 8 no evidence)
+- Claims: 224 (200 verified / 16 partial / 8 no evidence); the live terminal
+  claim is partial because the local session daemon is at its 128-session limit
+  (`session_limit`), not because the terminal tool failed
 - Local release: Linux and Windows GNU binaries are rebuilt per slice; the
   Windows `.exe` is linked, not run on Windows
 
