@@ -10,12 +10,14 @@
   future work. Tests: three unit tests plus two CLI e2e tests.
 - Security fixes from an independent review:
   - skill capture redacts balanced object/array values under secret-named
-    keys, normalizes hyphenated header names, sanitizes JSON object keys,
-    rejects multi-line metadata and duplicate frontmatter keys, uses the last
-    `@` in URL userinfo, preserves trailing email punctuation, and enforces
-    the 64 MiB cap at read time on a regular file.
-  - Trust Center incident Markdown is escaped and HTML renders the incident
-    title.
+    keys, including escaped quotes inside the value, normalizes hyphenated
+    header names, sanitizes JSON object keys (including secret-named display
+    keys), keeps collision suffixes linear, rejects multi-line metadata and
+    duplicate frontmatter keys, uses the last `@` in URL userinfo, preserves
+    trailing email punctuation, and enforces the 64 MiB cap at read time on a
+    regular file.
+  - Trust Center incident Markdown escapes backslashes before brackets and
+    HTML renders the incident title.
   - Agent Card text no longer claims HTTP serves caller-supplied evaluations
     or incident reports.
   - `SkillManifest::validate` rejects unsafe scopes and platform/tool entries.

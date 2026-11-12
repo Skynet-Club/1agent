@@ -194,21 +194,25 @@ fn sanitize_value(value: &Value, redactions: &mut usize, generalizations: &mut u
     match value {
         Value::Object(map) => {
             let mut output = serde_json::Map::new();
+            let mut next_suffix = BTreeMap::<String, usize>::new();
             for (key, value) in map {
-                let (key, value) = if is_secret_key(key) {
+                let display_key = sanitize_key(key, redactions, generalizations);
+                let value = if is_secret_key(key) {
                     *redactions += 1;
-                    (key.clone(), Value::String("<redacted>".into()))
+                    Value::String("<redacted>".into())
                 } else {
-                    (
-                        sanitize_key(key, redactions, generalizations),
-                        sanitize_value(value, redactions, generalizations),
-                    )
+                    sanitize_value(value, redactions, generalizations)
                 };
-                let mut unique = key.clone();
-                let mut suffix = 2;
-                while output.contains_key(&unique) {
-                    unique = format!("{key}#{suffix}");
-                    suffix += 1;
+                let mut unique = display_key.clone();
+                if output.contains_key(&unique) {
+                    let counter = next_suffix.entry(display_key.clone()).or_insert(2);
+                    loop {
+                        unique = format!("{display_key}#{counter}");
+                        *counter += 1;
+                        if !output.contains_key(&unique) {
+                            break;
+                        }
+                    }
                 }
                 output.insert(unique, value);
             }
@@ -226,7 +230,8 @@ fn sanitize_value(value: &Value, redactions: &mut usize, generalizations: &mut u
 }
 
 fn sanitize_key(key: &str, redactions: &mut usize, generalizations: &mut usize) -> String {
-    let key = truncate_chars(&sanitize_text(key, redactions, generalizations), 120);
+    let escaped = key.replace('<', "&lt;").replace('>', "&gt;");
+    let key = truncate_chars(&sanitize_text(&escaped, redactions, generalizations), 120);
     if key.is_empty() { "<key>".into() } else { key }
 }
 
@@ -518,7 +523,16 @@ fn value_end(input: &str, start: usize) -> Option<usize> {
     let first = input[start..].chars().next()?;
     if matches!(first, '"' | '\'') {
         let body_start = start + first.len_utf8();
+        let mut escaped = false;
         for (offset, character) in input[body_start..].char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if character == '\\' {
+                escaped = true;
+                continue;
+            }
             if character == first {
                 return Some(body_start + offset + first.len_utf8());
             }
@@ -528,15 +542,23 @@ fn value_end(input: &str, start: usize) -> Option<usize> {
     if matches!(first, '{' | '[') {
         let mut depth = 0usize;
         let mut quote = None;
+        let mut escaped = false;
         for (offset, character) in input[start..].char_indices() {
             if let Some(open) = quote {
-                if character == open {
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == open {
                     quote = None;
                 }
                 continue;
             }
             match character {
-                '"' | '\'' => quote = Some(character),
+                '"' | '\'' => {
+                    quote = Some(character);
+                    escaped = false;
+                }
                 '{' | '[' => depth += 1,
                 '}' | ']' => {
                     depth = depth.saturating_sub(1);
@@ -959,6 +981,42 @@ mod tests {
             capture_journal(&path, "draft", "1.0.0", "Draft", "global").unwrap_err(),
             SkillCaptureError::NoSuccessfulSteps
         );
+    }
+
+    #[test]
+    fn redacts_escaped_quotes_inside_secret_values() {
+        let mut redactions = 0;
+        let mut generalizations = 0;
+        for raw in [
+            r#"{"api_key":"safe\"LEAK-QUOTED"}"#,
+            r#"{"api_key":{"a":"x\"},"z":"LEAK-NESTED"}}"#,
+        ] {
+            let text = sanitize_text(raw, &mut redactions, &mut generalizations);
+            assert!(!text.contains("LEAK-QUOTED"), "{text}");
+            assert!(!text.contains("LEAK-NESTED"), "{text}");
+        }
+    }
+
+    #[test]
+    fn sanitizes_secret_named_keys_and_avoids_quadratic_collisions() {
+        let mut redactions = 0;
+        let mut generalizations = 0;
+        let value = sanitize_value(
+            &json!({
+                "x-token`<script>alert(1)</script>": "v",
+                "a@example.com": 1,
+                "b@example.com": 2,
+                "c@example.com": 3
+            }),
+            &mut redactions,
+            &mut generalizations,
+        );
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert!(!encoded.contains("<script>"), "{encoded}");
+        assert!(encoded.contains("&lt;script&gt;"), "{encoded}");
+        assert!(encoded.contains("\"<email>\""), "{encoded}");
+        assert!(encoded.contains("\"<email>#2\""), "{encoded}");
+        assert!(encoded.contains("\"<email>#3\""), "{encoded}");
     }
 
     #[test]
