@@ -235,6 +235,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// M19–M23 answer-quality board over caller-supplied JSONL samples.
+    AnswerQuality {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Retention {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -5132,6 +5139,38 @@ async fn main() -> Result<()> {
                         latency.p50_ms, latency.p95_ms, latency.max_ms, latency.count
                     );
                 }
+            }
+        }
+        Command::AnswerQuality { input, json } => {
+            let bytes = std::fs::read(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            if bytes.len() > 16 * 1024 * 1024 {
+                anyhow::bail!("answer-quality input exceeds 16 MiB");
+            }
+            let text = std::str::from_utf8(&bytes).context("answer-quality input must be UTF-8")?;
+            let samples =
+                first_principles_agent::answer_quality::parse_answer_quality_samples(text)
+                    .map_err(anyhow::Error::msg)?;
+            let report = first_principles_agent::answer_quality::summarize_answer_quality(&samples);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let bps = |value: Option<u16>| {
+                    value
+                        .map(|value| format!("{:.2}%", f64::from(value) / 100.0))
+                        .unwrap_or_else(|| "-".into())
+                };
+                println!(
+                    "samples={} M19_usable={} M20_win={} (compared={}) M21_over_structured={} M22_unnecessary_followup={} M23_followup_adopted={} (followups={})",
+                    report.samples,
+                    bps(report.first_answer_usable_bps),
+                    bps(report.pairwise_win_bps),
+                    report.pairwise_compared,
+                    bps(report.over_structured_bps),
+                    bps(report.unnecessary_followup_bps),
+                    bps(report.followup_adoption_bps),
+                    report.followups
+                );
             }
         }
         Command::Schedule { command } => match command {

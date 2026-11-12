@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Answer-quality board (ADR-0103): `AnswerQualitySample` and
+  `summarize_answer_quality` compute M19–M23 rates from caller-supplied JSONL
+  judgments; ties are excluded from the pairwise win rate and all rates are
+  `null` with a zero denominator. `1agent answer-quality --input PATH`
+  exposes it. Tests: five unit tests and two CLI e2e tests.
 - First module-split slice (ADR-0102): pure TUI text helpers move to
   `src/tui_text.rs` and are re-exported from `tui.rs`. No behavior change;
   the TUI PTY interaction check still passes. `tui.rs` loses about 100 lines;

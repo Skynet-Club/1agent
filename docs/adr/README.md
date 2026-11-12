@@ -106,3 +106,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0100 | Local Gate Metrics | [0100-local-gate-metrics.md](0100-local-gate-metrics.md) |
 | 0101 | Epoch-Millisecond Fields Use u64 | [0101-epoch-timestamps-as-u64.md](0101-epoch-timestamps-as-u64.md) |
 | 0102 | Extract TUI Text Helpers | [0102-extract-tui-text-helpers.md](0102-extract-tui-text-helpers.md) |
+| 0103 | Answer-Quality Board (M19–M23) | [0103-answer-quality-board.md](0103-answer-quality-board.md) |
