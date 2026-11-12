@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Actionable error recovery (ADR-0097): `RuntimeError::recovery_hint` maps
+  provider codes and runtime failures to one concrete next step. `run` and
+  `resume` print `hint: ...` to stderr without changing the error, retries,
+  authority or exit status. Tests: one unit test covering provider/cancel/
+  resume/journal hints and one CLI e2e with an unreachable provider.
 - Clarify gate (ADR-0096): `ClarifyQuestion`/`ClarifyGate` validate two to
   four unique options, add an automatic `Other`, put the recommended option
   first, deduplicate ids and normalized prompts, admit one question per turn

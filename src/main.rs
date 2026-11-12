@@ -3764,7 +3764,13 @@ async fn main() -> Result<()> {
                 }
             });
             let started = std::time::Instant::now();
-            let result = runtime.run(request, cancellation).await?;
+            let result = match runtime.run(request, cancellation).await {
+                Ok(result) => result,
+                Err(error) => {
+                    eprintln!("hint: {}", error.recovery_hint());
+                    return Err(error.into());
+                }
+            };
             if streamed.load(std::sync::atomic::Ordering::Relaxed) {
                 eprintln!();
             }
@@ -9527,7 +9533,13 @@ async fn main() -> Result<()> {
                     signal_cancellation.cancel();
                 }
             });
-            let result = runtime.resume(&journal, cancellation).await?;
+            let result = match runtime.resume(&journal, cancellation).await {
+                Ok(result) => result,
+                Err(error) => {
+                    eprintln!("hint: {}", error.recovery_hint());
+                    return Err(error.into());
+                }
+            };
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
