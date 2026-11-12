@@ -77,6 +77,7 @@
 - watchdog 升级阶梯：`watchdog --warn-after-ms/--pause-after-ms/--repair-after-ms` 按心跳年龄输出 ok/warn/pause/repair；`--intervention-log` 只在动作变化时追加记录，恢复 ok 记一次；pause/repair 只是建议，不发送信号、不重启、不扩权；
 - 回答质量看板：`1agent answer-quality --input JSONL [--json]` 从人工/评审样本计算 M19 首答可用率、M20 成对胜率（平局排除）、M21 过度结构化率、M22 不必要追问率、M23 追问采纳率；零分母为 `null`；不做盲评或 golden set 采集；
 - 子 Agent 验收与扇出：`spawn_agent` 只接受 `stop_reason=completed` 的子运行；子 journal 存在时校验 ≤16 MiB 且 audit 通过；单工具实例总扇出上限 8；深度/权限交集不变；
+- 看板门禁指标：`1agent dashboard` 在 usage/latency/health/alerts 之外增加 runs/completed/crash-free/recovery/replay/tool success/audit complete/denied/TTFT p95 卡片；仍为静态转义 HTML；坏 journal 失败关闭；
 - Python SDK（只读 MVP）：`sdk/python/oneagent_client.py` 封装 `/v0/health`、`/v0/agent-card`、`/v0/trust-center`、`POST /v0/surface`；token 来自参数或 `ONEAGENT_API_TOKEN`；4 MiB 响应上限；HTTP/JSON/传输错误抛 `ClientError`，不静默重试；不是完整任务/流式 SDK；
 - Cascade 基准：`1agent cascade-bench --input JSONL [--json]` 对多个 root/edges/contained/policy 场景做确定性遏制模拟，汇总 passed/failed、最大深度/影响面、最小遏制率；任一场景未过策略则非零退出；不是实时故障注入；
 - Trust Center 审计报告：`trust-center --audit-report PATH`（可重复）披露调用方提供的审计机构/范围/状态/起止时间/P0/P1/摘要，渲染 JSON、Markdown 与转义 HTML；校验 id/时间/计数/链接；固定 `audit.status` 仍为 `not_audited`，调用方报告不等于独立审计；

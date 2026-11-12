@@ -5153,12 +5153,21 @@ async fn main() -> Result<()> {
                 Some(path) => first_principles_agent::AlertLog::open(path)?.read()?,
                 None => Vec::new(),
             };
+            let gate = if journal_dir.is_dir() {
+                Some(
+                    first_principles_agent::metrics::summarize_journal_dir(&journal_dir)
+                        .map_err(anyhow::Error::msg)?,
+                )
+            } else {
+                None
+            };
             let html = first_principles_agent::dashboard::render(
                 &first_principles_agent::dashboard::DashboardInputs {
                     usage: &usage,
                     latency: &latency,
                     health: &health,
                     alerts: &alerts,
+                    gate: gate.as_ref(),
                     generated_ms: current_time_ms(),
                 },
             );

@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
+  grid for runs, crash-free, recovery, replay, tool success, audit
+  completeness, denied observations and TTFT p95, computed from the journal
+  directory. The dashboard remains static escaped HTML. Test: one unit test
+  for the gate section plus the existing dashboard tests.
 - Python read-only SDK (ADR-0112): `sdk/python/oneagent_client.py` wraps
   health, agent card, trust center and the surface POST with env/argument
   bearer auth, a 4 MiB response cap and explicit `ClientError` failures. Tests

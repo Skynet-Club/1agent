@@ -3,6 +3,7 @@
 //! page is self-contained.
 
 use crate::alerts::AlertRecord;
+use crate::metrics::JournalMetricsReport;
 use crate::scheduler::JobHealth;
 use crate::usage_ledger::{LatencyGroup, UsageLedger};
 
@@ -11,6 +12,8 @@ pub struct DashboardInputs<'a> {
     pub latency: &'a [LatencyGroup],
     pub health: &'a [JobHealth],
     pub alerts: &'a [AlertRecord],
+    /// Local gate metrics; `None` when the journal directory is absent.
+    pub gate: Option<&'a JournalMetricsReport>,
     pub generated_ms: u128,
 }
 
@@ -63,6 +66,26 @@ pub fn render(inputs: &DashboardInputs<'_>) -> String {
     card(&mut html, "计划任务", &inputs.health.len().to_string());
     card(&mut html, "告警", &inputs.alerts.len().to_string());
     html.push_str("</div>\n");
+
+    if let Some(gate) = inputs.gate {
+        html.push_str("<h2>门禁指标</h2>\n<div class=\"grid\">\n");
+        card(&mut html, "runs", &gate.runs.to_string());
+        card(&mut html, "completed", &gate.completed.to_string());
+        card(&mut html, "crash-free", &bps_label(gate.crash_free_bps));
+        card(&mut html, "recovery", &bps_label(gate.recovery_bps));
+        card(&mut html, "replay", &bps_label(gate.replay_bps));
+        card(&mut html, "tool success", &bps_label(gate.tool_success_bps));
+        card(
+            &mut html,
+            "audit complete",
+            &bps_label(gate.audit_complete_bps),
+        );
+        card(&mut html, "denied", &gate.denied_observations.to_string());
+        if let Some(ttft) = gate.ttft_latency {
+            card(&mut html, "TTFT p95 ms", &ttft.p95_ms.to_string());
+        }
+        html.push_str("</div>\n");
+    }
 
     html.push_str("<h2>模型服务</h2>\n");
     if inputs.usage.providers.is_empty() {
@@ -201,6 +224,12 @@ fn card(html: &mut String, label: &str, value: &str) {
     ));
 }
 
+fn bps_label(value: Option<u16>) -> String {
+    value
+        .map(|value| format!("{:.2}%", f64::from(value) / 100.0))
+        .unwrap_or_else(|| "-".into())
+}
+
 fn empty(html: &mut String) {
     html.push_str("<p class=\"muted\">暂无数据</p>\n");
 }
@@ -283,6 +312,7 @@ mod tests {
             latency: &[],
             health: &health,
             alerts: &alerts,
+            gate: None,
             generated_ms: 99,
         });
         assert!(html.contains("1Agent 运行看板"));
@@ -306,9 +336,62 @@ mod tests {
             latency: &[],
             health: &[],
             alerts: &[],
+            gate: None,
             generated_ms: 1,
         });
         assert!(html.contains("暂无数据"));
         assert!(html.trim_end().ends_with("</html>"));
+    }
+
+    #[test]
+    fn gate_metrics_render_when_present() {
+        let usage = UsageLedger::default();
+        let gate = JournalMetricsReport {
+            journals: 2,
+            runs: 2,
+            completed: 1,
+            terminal_stops: 1,
+            interrupted: 1,
+            crash_free_bps: Some(5_000),
+            resumes: 1,
+            resumed_completed: 1,
+            recovery_bps: Some(10_000),
+            replay_total: 1,
+            replay_ok: 1,
+            replay_bps: Some(10_000),
+            compacted_runs: 0,
+            compacted_replay_ok: 0,
+            compacted_replay_bps: None,
+            tool_calls: 2,
+            tool_ok: 1,
+            tool_success_bps: Some(5_000),
+            denied_observations: 1,
+            audit_total: 1,
+            audit_complete: 1,
+            audit_complete_bps: Some(10_000),
+            context_compactions: 0,
+            input_tokens: 10,
+            output_tokens: 5,
+            cost_micros: 0,
+            run_latency: None,
+            ttft_latency: Some(crate::metrics::LatencyDigest {
+                count: 1,
+                min_ms: 12,
+                p50_ms: 12,
+                p95_ms: 12,
+                max_ms: 12,
+            }),
+        };
+        let html = render(&DashboardInputs {
+            usage: &usage,
+            latency: &[],
+            health: &[],
+            alerts: &[],
+            gate: Some(&gate),
+            generated_ms: 1,
+        });
+        assert!(html.contains("门禁指标"));
+        assert!(html.contains("50.00%"));
+        assert!(html.contains("TTFT p95 ms"));
     }
 }
