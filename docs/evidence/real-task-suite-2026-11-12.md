@@ -21,6 +21,9 @@ cargo test --offline --test eval_validate_cli
   read-only by default.
 - `eval --validate-only` accepts the suite and reports eight cases, and rejects
   an empty model-quality suite without running a model.
+- `eval --suite evals/real-tasks-v1.json` without `--config` fails closed with
+  the model-quality provider requirement, so it cannot silently run the
+  deterministic mock.
 - Duplicate case ids and empty objectives fail closed.
 
 ## What this does not prove

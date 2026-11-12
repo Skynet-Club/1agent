@@ -21,6 +21,22 @@ fn eval_validate_only_accepts_the_real_task_suite() {
 }
 
 #[test]
+fn eval_refuses_model_quality_without_a_provider_config() {
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let input = concat!(env!("CARGO_MANIFEST_DIR"), "/evals/real-tasks-v1.json");
+    let output = Command::new(binary)
+        .args(["eval", "--suite", input])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("model-quality suites require --config"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn eval_validate_only_rejects_an_empty_model_quality_suite() {
     let workspace = tempfile::tempdir().unwrap();
     let path = workspace.path().join("empty.json");

@@ -43,8 +43,10 @@
 - Real-task suite v1 (ADR-0121): `evals/real-tasks-v1.json` defines eight
   model-quality tasks, with per-case `allow_write` (default false). `eval
   --validate-only` checks structure, metadata and unique ids without running a
-  model. The suite is structurally ready; M1/M2/M3 remain unmeasured until a
-  real-provider run and human review. Tests: two unit cases and two CLI e2e.
+  model; without `--config`, a model-quality suite is refused so the
+  deterministic mock cannot be mistaken for quality evidence. The suite is
+  structurally ready; M1/M2/M3 remain unmeasured until a real-provider run and
+  human review. Tests: two unit cases and three CLI e2e.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal
