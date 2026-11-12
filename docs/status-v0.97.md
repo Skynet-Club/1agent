@@ -1,10 +1,10 @@
 # 0.97 Status and Metric Review (2026-11-12)
 
 - Status: **local review; 0.97 is not release-ready**
-- Latest commit at review: `15a8937`
-- Full suite: 1195 passed / 0 failed / 13 ignored
-- Claims: 204 (185 verified / 11 partial / 8 no evidence)
-- Local release: Linux `958f652f…`; Windows GNU `.exe` `17ebe17c…` (linked,
+- Latest commit at review: `8b5c2b2`
+- Full suite: 1201 passed / 0 failed / 13 ignored
+- Claims: 208 (187 verified / 13 partial / 8 no evidence)
+- Local release: Linux `b70578a1…`; Windows GNU `.exe` `a71f666d…` (linked,
   not run on Windows)
 
 This page is a measurement review, not a release announcement. A metric marked
@@ -51,8 +51,10 @@ This page is a measurement review, not a release announcement. A metric marked
 - Actionable error hints and Answer/Audit layering.
 - Local gate metrics and M19–M23 board.
 - Legacy journal timestamp fix.
-- First module-split slice and eight-case core suite.
+- First two module-split slices and eight-case core suite.
 - Architecture RFC and P0/P1 threat model (local review).
+- First-token timing, crash-free proxy, compacted-replay proof, and subagent
+  parent acceptance/fanout.
 
 ## Release blockers
 
