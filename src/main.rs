@@ -766,6 +766,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Clarify {
+        /// JSON array of questions, or an object with a `questions` array.
+        #[arg(long)]
+        questions: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        max_questions: usize,
+        /// Total question budget; 0 means unlimited.
+        #[arg(long, default_value_t = 0)]
+        budget: usize,
+        #[arg(long)]
+        json: bool,
+    },
     CuaCheck {
         #[arg(long, default_value = "click")]
         action: String,
@@ -7664,6 +7676,75 @@ async fn main() -> Result<()> {
                 println!("decision: {:?}", verdict.decision);
                 println!("reason: {}", verdict.reason);
                 println!("false_alarm_rate_bps: {:?}", verdict.false_alarm_rate_bps);
+            }
+        }
+        Command::Clarify {
+            questions,
+            max_questions,
+            budget,
+            json,
+        } => {
+            let bytes = std::fs::read(&questions)
+                .with_context(|| format!("cannot read {}", questions.display()))?;
+            if bytes.len() > 1_048_576 {
+                anyhow::bail!("clarify questions file exceeds 1 MiB");
+            }
+            let value: serde_json::Value =
+                serde_json::from_slice(&bytes).context("invalid clarify questions JSON")?;
+            let list = if value.is_array() {
+                value
+            } else {
+                value
+                    .get("questions")
+                    .cloned()
+                    .context("clarify input must be an array or an object with `questions`")?
+            };
+            let parsed: Vec<first_principles_agent::clarify::ClarifyQuestion> =
+                serde_json::from_value(list).context("invalid clarify questions")?;
+            if parsed.len() > 50 {
+                anyhow::bail!("clarify accepts at most 50 questions");
+            }
+            let mut gate = first_principles_agent::clarify::ClarifyGate::new(budget)
+                .with_per_turn(max_questions);
+            let decision = gate.admit(parsed).map_err(anyhow::Error::msg)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&decision)?);
+            } else {
+                match decision {
+                    first_principles_agent::clarify::ClarifyDecision::Ask {
+                        questions,
+                        timeout_ms,
+                    } => {
+                        for question in questions {
+                            println!(
+                                "{} {}",
+                                if question.blocking {
+                                    "[blocking]"
+                                } else {
+                                    "[optional]"
+                                },
+                                question.prompt
+                            );
+                            for option in question.options {
+                                println!(
+                                    "  {} {}{}",
+                                    if option.recommended { "*" } else { "-" },
+                                    option.label,
+                                    if option.id == first_principles_agent::clarify::OTHER_OPTION_ID
+                                    {
+                                        " (other)"
+                                    } else {
+                                        ""
+                                    }
+                                );
+                            }
+                        }
+                        println!("timeout_ms={timeout_ms}");
+                    }
+                    first_principles_agent::clarify::ClarifyDecision::Skip { reason } => {
+                        println!("skip: {reason}");
+                    }
+                }
             }
         }
         Command::CuaCheck {

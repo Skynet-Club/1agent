@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Clarify gate: `ClarifyQuestion`/`ClarifyGate` validate two to four unique options, add an
+  automatic `Other`, put the recommended option first, deduplicate ids and normalized prompts,
+  admit one question per turn by default, and cap a blocking batch at five. `1agent clarify
+  --questions PATH` exposes the gate; it does not render a panel or store answers.
 - Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`;
   `pause` and `repair` are recommendations and never signal or restart the daemon. A transition
   log records only action changes plus one recovery. The original `--max-age-ms`

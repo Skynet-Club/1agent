@@ -2,6 +2,13 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Clarify gate (ADR-0096): `ClarifyQuestion`/`ClarifyGate` validate two to
+  four unique options, add an automatic `Other`, put the recommended option
+  first, deduplicate ids and normalized prompts, admit one question per turn
+  by default, enforce an optional total budget, and cap a blocking batch at
+  five. `1agent clarify --questions PATH` exposes the gate and rejects
+  oversized input. Policy and serialization only; no panel or answer storage.
+  Tests: five unit tests and three CLI e2e tests.
 - Watchdog escalation ladder (ADR-0095): `WatchdogPolicy` maps heartbeat age
   to ok/warn/pause/repair with strictly increasing thresholds. Pause and
   repair are recommendations only: the watchdog never signals, restarts or
