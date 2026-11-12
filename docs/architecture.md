@@ -525,6 +525,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   and emails. The result is a `SKILL.md` draft that passes `scan_markdown`.
   Capture never registers or activates a skill; held-out evaluation, canary
   and rollback remain the existing lifecycle.
+- `skill register` scans and registers an immutable `SKILL.md`. `skill eval`
+  runs an operator-supplied static held-out suite and reports per-case
+  missing/forbidden markers. `skill activate-if-passed` evaluates first and
+  activates only when the score reaches the suite threshold; a failing report
+  exits non-zero and leaves the active version unchanged. This is a static
+  marker gate, not a runtime canary or a quality guarantee.
 - `cua`: computer-use provenance and branch policy. An action's arguments are
   tagged `plan`, `trusted_observation` or `untrusted_observation`; a high-risk
   action with an untrusted argument is denied, other untrusted arguments

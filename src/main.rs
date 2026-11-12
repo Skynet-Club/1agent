@@ -1981,6 +1981,38 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    Register {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Eval {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        suite: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    ActivateIfPassed {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        suite: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Verify {
         #[arg(long)]
         bundle: PathBuf,
@@ -2730,6 +2762,13 @@ fn default_skill_store() -> PathBuf {
     std::env::var_os("ONEAGENT_SKILL_JOURNAL")
         .map(PathBuf::from)
         .unwrap_or_else(|| default_home().join("skills.jsonl"))
+}
+
+fn read_skill_eval_suite(path: &Path) -> Result<first_principles_agent::SkillEvalSuite> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("read skill eval suite {}", path.display()))?;
+    serde_json::from_str(&raw)
+        .with_context(|| format!("invalid skill eval suite {}", path.display()))
 }
 
 fn read_key_hex(path: &Path, secret: bool) -> Result<String> {
@@ -5038,6 +5077,88 @@ async fn main() -> Result<()> {
                         captured.redactions,
                         captured.generalizations,
                         out.display()
+                    );
+                }
+            }
+            SkillCommand::Register { store, path, json } => {
+                let source = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                let manifest = first_principles_agent::scan_markdown(&source)?;
+                let mut service = SkillService::open(&store)?;
+                service.register(manifest.clone(), current_time_ms())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "name": manifest.name,
+                            "version": manifest.version,
+                            "content_sha256": manifest.content_sha256,
+                            "store": store,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "已注册技能 {}@{}（sha256={}）",
+                        manifest.name, manifest.version, manifest.content_sha256
+                    );
+                }
+            }
+            SkillCommand::Eval {
+                store,
+                name,
+                version,
+                suite,
+                json,
+            } => {
+                let suite = read_skill_eval_suite(&suite)?;
+                let service = SkillService::open(&store)?;
+                let report = service.evaluate(&name, &version, &suite)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "{}@{}: passed={} score_bps={} suite={}",
+                        report.skill,
+                        report.version,
+                        report.passed,
+                        report.score_bps,
+                        report.suite_id
+                    );
+                    for case in &report.cases {
+                        println!(
+                            "- {}: passed={} missing={:?} forbidden={:?}",
+                            case.case_id, case.passed, case.missing_required, case.forbidden_hits
+                        );
+                    }
+                }
+            }
+            SkillCommand::ActivateIfPassed {
+                store,
+                name,
+                version,
+                suite,
+                json,
+            } => {
+                let suite = read_skill_eval_suite(&suite)?;
+                let mut service = SkillService::open(&store)?;
+                let report =
+                    service.activate_if_passed(&name, &version, &suite, current_time_ms())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "activated": true,
+                            "name": name,
+                            "version": version,
+                            "score_bps": report.score_bps,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "已激活技能 {name}@{version}（score_bps={}）",
+                        report.score_bps
                     );
                 }
             }
