@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Watchdog auto-repair RFC (proposed, no behavior change): RFC 0002 recommends
+  opt-in auto-pause containment only for 0.97; restart and external
+  repair-command paths need lease fencing, duplicate-side-effect protection and
+  approval first.
 - Onboarding check: `1agent onboard --check --json` performs a read-only check
   of memory/goal path writability and provider key/base/model environment,
   creates no files, prints next commands and exits non-zero when incomplete.

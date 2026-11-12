@@ -84,8 +84,9 @@ This page is a measurement review, not a release announcement. A metric marked
    scheduled, but a human reviewer must label it.
 4. External A-Gate/W-Gate and security review; a review draft is at
    `docs/audit-package.md`; P-Gate macOS.
-5. Automatic watchdog repair remains manual; pause/resume is explicit and
-   checked. M6 is not an external audit.
+5. Automatic watchdog repair: RFC 0002 proposes opt-in auto-pause containment
+   only; restart/repair-command paths need lease fencing/approval. Pause/resume
+   is explicit and checked. M6 is not an external audit.
 
 ## Next actions
 
@@ -95,6 +96,7 @@ This page is a measurement review, not a release announcement. A metric marked
   contract fixtures as model quality.
 - Label the blind-review packet and run `1agent answer-quality`; the packet
   has 40 prompts and 80 label rows.
+- Decide RFC 0002 and implement opt-in watchdog containment if approved.
 - Run an 8h benchmark for M1/M2/M3 and broaden TTFT samples beyond one provider
   and short prompts.
 - Keep the release check fail-closed on a representative journal directory.
