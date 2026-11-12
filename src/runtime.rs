@@ -12,7 +12,7 @@ use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
     MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
-    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest,
+    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest, ToolCall,
     ToolObservation, ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
@@ -276,6 +276,22 @@ impl AgentRuntime {
             };
         }
         self.tools.execute(call, permissions, cancellation).await
+    }
+
+    /// Run a batch of parallel-safe tool calls concurrently. Results are
+    /// returned in call order, so journal observations stay deterministic.
+    async fn execute_tools_parallel(
+        &self,
+        calls: &[ToolCall],
+        permissions: &crate::domain::PermissionSet,
+        cancellation: &CancellationToken,
+    ) -> Vec<ToolObservation> {
+        futures_util::future::join_all(
+            calls
+                .iter()
+                .map(|call| self.execute_tool(call, permissions, cancellation)),
+        )
+        .await
     }
 
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
@@ -1405,7 +1421,7 @@ impl AgentRuntime {
                     tool_calls = tool_calls.saturating_add(calls.len());
                     messages.push(ModelMessage::assistant("", calls.clone()));
 
-                    for call in calls {
+                    for (start, end) in tool_groups(&calls, &self.tools) {
                         if request.budget.timeout_ms != 0
                             && remaining_budget(
                                 started_at,
@@ -1422,24 +1438,38 @@ impl AgentRuntime {
                                 StopReason::BudgetExhausted,
                             );
                         }
-                        journal
-                            .append(JournalEventKind::ToolCalled { call: call.clone() })
-                            .map_err(|source| RuntimeError::Journal {
-                                path: journal_path.clone(),
-                                source,
-                            })?;
-                        let observation = self
-                            .execute_tool(&call, &request.permissions, &cancellation)
-                            .await;
-                        journal
-                            .append(JournalEventKind::ToolObserved {
-                                observation: observation.clone(),
-                            })
-                            .map_err(|source| RuntimeError::Journal {
-                                path: journal_path.clone(),
-                                source,
-                            })?;
-                        messages.push(ModelMessage::tool(call.id, observation.model_content()));
+                        let group = &calls[start..end];
+                        for call in group {
+                            journal
+                                .append(JournalEventKind::ToolCalled { call: call.clone() })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                        }
+                        let observations = if group.len() > 1 {
+                            self.execute_tools_parallel(group, &request.permissions, &cancellation)
+                                .await
+                        } else {
+                            vec![
+                                self.execute_tool(&group[0], &request.permissions, &cancellation)
+                                    .await,
+                            ]
+                        };
+                        for (call, observation) in group.iter().zip(observations) {
+                            journal
+                                .append(JournalEventKind::ToolObserved {
+                                    observation: observation.clone(),
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            messages.push(ModelMessage::tool(
+                                call.id.clone(),
+                                observation.model_content(),
+                            ));
+                        }
                     }
                     journal
                         .append(JournalEventKind::Checkpoint {
@@ -1789,6 +1819,27 @@ impl AgentRuntime {
             .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
         Ok(proposal)
     }
+}
+
+/// Split a model batch into ordered groups. Consecutive parallel-safe calls
+/// form one concurrent group; every other call is its own ordered group.
+fn tool_groups(calls: &[ToolCall], tools: &ToolRegistry) -> Vec<(usize, usize)> {
+    let mut groups = Vec::new();
+    let mut start = 0;
+    while start < calls.len() {
+        if tools.parallel_safe(&calls[start].name) {
+            let mut end = start + 1;
+            while end < calls.len() && tools.parallel_safe(&calls[end].name) {
+                end += 1;
+            }
+            groups.push((start, end));
+            start = end;
+        } else {
+            groups.push((start, start + 1));
+            start += 1;
+        }
+    }
+    groups
 }
 
 async fn complete_with_stream(
@@ -2807,6 +2858,288 @@ mod tests {
         assert_eq!(result.stop_reason, StopReason::Completed);
         assert_eq!(*deltas.lock().unwrap(), ["partial "]);
         assert_ne!(result.answer.conclusion, "partial ");
+    }
+
+    struct TimedTool {
+        name: &'static str,
+        delay_ms: u64,
+        parallel_safe: bool,
+        requires_write: bool,
+        active: Arc<AtomicUsize>,
+        max_active: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl crate::tools::AgentTool for TimedTool {
+        fn spec(&self) -> crate::domain::ToolSpec {
+            crate::domain::ToolSpec {
+                name: self.name.into(),
+                description: "timed test tool".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": true
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn requires_write(&self) -> bool {
+            self.requires_write
+        }
+
+        fn parallel_safe(&self) -> bool {
+            self.parallel_safe
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &crate::domain::PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolOutcome {
+                summary: self.name.into(),
+                content: self.name.into(),
+                metadata: Default::default(),
+            })
+        }
+    }
+
+    struct ToolBatchProvider {
+        calls: Mutex<Vec<ToolCall>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ToolBatchProvider {
+        fn id(&self) -> &str {
+            "tool-batch"
+        }
+
+        fn model(&self) -> &str {
+            "tool-batch-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let mut calls = self.calls.lock().unwrap();
+            if !calls.is_empty() {
+                let batch = std::mem::take(&mut *calls);
+                return Ok(ModelResponse {
+                    provider_id: self.id().into(),
+                    model: self.model().into(),
+                    turn: ModelTurn::ToolCalls { calls: batch },
+                    usage: Usage::default(),
+                });
+            }
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "tools finished".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    fn tool_call(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn tool_groups_split_parallel_runs_around_ordered_calls() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: active.clone(),
+            max_active: max_active.clone(),
+        }));
+        tools.register(Arc::new(TimedTool {
+            name: "write_one",
+            delay_ms: 0,
+            parallel_safe: false,
+            requires_write: true,
+            active,
+            max_active,
+        }));
+        let calls = vec![
+            tool_call("call-1", "read_one"),
+            tool_call("call-2", "read_one"),
+            tool_call("call-3", "write_one"),
+            tool_call("call-4", "read_one"),
+        ];
+        assert_eq!(tool_groups(&calls, &tools), vec![(0, 2), (2, 3), (3, 4)]);
+    }
+
+    #[tokio::test]
+    async fn parallel_safe_tool_calls_overlap_and_journal_in_model_order() {
+        let workspace = tempfile::tempdir().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 120,
+            parallel_safe: true,
+            requires_write: false,
+            active: active.clone(),
+            max_active: max_active.clone(),
+        }));
+        tools.register(Arc::new(TimedTool {
+            name: "read_two",
+            delay_ms: 10,
+            parallel_safe: true,
+            requires_write: false,
+            active,
+            max_active: max_active.clone(),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "read_two"),
+                    ]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("read two things", workspace.path().into());
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(
+            max_active.load(Ordering::SeqCst),
+            2,
+            "parallel-safe reads did not overlap"
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let called = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolCalled { call } => Some(call.id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let observed = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation.call_id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(called, ["call-1", "call-2"]);
+        assert_eq!(
+            observed,
+            ["call-1", "call-2"],
+            "observations must keep model order even when the second call finishes first"
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn write_tools_do_not_overlap_with_reads() {
+        let workspace = tempfile::tempdir().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 60,
+            parallel_safe: true,
+            requires_write: false,
+            active: active.clone(),
+            max_active: max_active.clone(),
+        }));
+        tools.register(Arc::new(TimedTool {
+            name: "write_one",
+            delay_ms: 60,
+            parallel_safe: false,
+            requires_write: true,
+            active,
+            max_active: max_active.clone(),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "write_one"),
+                        tool_call("call-3", "read_one"),
+                    ]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("read then write", workspace.path().into());
+        request.permissions.allow_write = true;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(
+            max_active.load(Ordering::SeqCst),
+            1,
+            "write tools must not overlap with reads"
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let observed = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation.call_id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observed, ["call-1", "call-2", "call-3"]);
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
     }
 
     #[tokio::test]

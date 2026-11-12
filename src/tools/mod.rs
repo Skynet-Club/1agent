@@ -143,6 +143,11 @@ pub trait AgentTool: Send + Sync {
     fn requires_write(&self) -> bool {
         false
     }
+    /// True only for tools with no side effects and no shared mutable state.
+    /// The runtime may run these concurrently; everything else stays ordered.
+    fn parallel_safe(&self) -> bool {
+        false
+    }
     fn timeout(&self) -> Duration {
         Duration::from_secs(30)
     }
@@ -184,6 +189,13 @@ impl ToolRegistry {
             .collect();
         specs.sort_by(|left, right| left.name.cmp(&right.name));
         specs
+    }
+
+    /// Whether the tool may run concurrently with other tools in one batch.
+    pub fn parallel_safe(&self, name: &str) -> bool {
+        self.tools
+            .get(name)
+            .is_some_and(|tool| tool.parallel_safe())
     }
 
     pub fn capabilities(&self) -> Vec<ToolCapability> {
@@ -579,6 +591,10 @@ fn default_max_bytes() -> usize {
 
 #[async_trait]
 impl AgentTool for ReadFileTool {
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read_file".into(),
@@ -762,6 +778,10 @@ fn default_search_depth() -> usize {
 
 #[async_trait]
 impl AgentTool for SearchFilesTool {
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "search_files".into(),
@@ -1542,5 +1562,33 @@ mod tests {
             ..PermissionSet::default()
         });
         assert!(writable.iter().any(|spec| spec.name == "terminal_create"));
+    }
+
+    #[test]
+    fn only_side_effect_free_tools_are_parallel_safe() {
+        let registry = default_registry();
+        for name in [
+            "read_file",
+            "search_files",
+            "read_pdf",
+            "fetch_url",
+            "web_search",
+            "browser_read",
+        ] {
+            assert!(
+                registry.parallel_safe(name),
+                "{name} should be parallel-safe"
+            );
+        }
+        for name in [
+            "write_file",
+            "edit_file",
+            "terminal_exec",
+            "terminal_create",
+            "spawn_agent",
+        ] {
+            assert!(!registry.parallel_safe(name), "{name} must stay ordered");
+        }
+        assert!(!registry.parallel_safe("no_such_tool"));
     }
 }

@@ -353,6 +353,10 @@ pub struct FetchUrlTool;
 
 #[async_trait]
 impl AgentTool for FetchUrlTool {
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "fetch_url".into(),
@@ -510,6 +514,10 @@ pub struct WebSearchTool;
 
 #[async_trait]
 impl AgentTool for WebSearchTool {
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "web_search".into(),

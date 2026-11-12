@@ -55,6 +55,10 @@ impl BrowserReadTool {
 
 #[async_trait]
 impl AgentTool for BrowserReadTool {
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "browser_read".into(),
