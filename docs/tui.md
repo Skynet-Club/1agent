@@ -102,8 +102,10 @@ Keys:
 The panel polls expiry every 500 ms. A timed-out round leaves missing
 questions unanswered and keeps the default answer valid. The result is shown
 once in the transcript and written to `/details` as JSON. Line mode reports
-that the panel needs an interactive terminal. Model-initiated runtime-tool
-wiring and persistent question history are not implemented yet.
+that the panel needs an interactive terminal. The interactive TUI also
+registers a model-initiated `clarify` tool; the tool validates 1–5 questions,
+waits up to 310 seconds and returns the summary and answers as a JSON tool
+observation. Persistent question history is not implemented yet.
 
 ## First-principles commands
 

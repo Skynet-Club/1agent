@@ -321,6 +321,10 @@ impl AgentRuntime {
         .await
     }
 
+    pub fn register_tool(&mut self, tool: Arc<dyn crate::tools::AgentTool>) {
+        self.tools.register(tool);
+    }
+
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.experience_dir = Some(dir.into());
         self

@@ -3,10 +3,20 @@
 //! The domain panel owns validation and round resolution. This module only
 //! turns key events into panel transitions and returns a finished result.
 
+use std::collections::BTreeMap;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use serde_json::{Value, json};
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
+
 use crate::clarify::{
     ClarifyOutcome, ClarifyPanel, ClarifyPanelAnswer, ClarifyQuestion, ClarifyRoundSummary,
     OTHER_OPTION_ID,
 };
+use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
+use crate::tools::{AgentTool, ToolError, ToolOutcome};
 use crate::tui_terminal::TuiInput;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +40,133 @@ pub enum TuiClarifyStep {
     None,
     Redraw,
     Finished(TuiClarifyResult),
+}
+
+/// A model-initiated clarify request waiting for the TUI panel.
+pub struct ClarifyToolRequest {
+    pub questions: Vec<ClarifyQuestion>,
+    pub response: oneshot::Sender<Result<TuiClarifyResult, String>>,
+}
+
+/// Runtime tool that forwards a structured question batch to the TUI panel.
+#[derive(Clone)]
+pub struct ClarifyTool {
+    requests: mpsc::UnboundedSender<ClarifyToolRequest>,
+}
+
+impl ClarifyTool {
+    pub fn new(requests: mpsc::UnboundedSender<ClarifyToolRequest>) -> Self {
+        Self { requests }
+    }
+}
+
+#[async_trait]
+impl AgentTool for ClarifyTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "clarify".into(),
+            description: "Ask the user a blocking structured clarification (1-5 questions, 2-4 options each, an automatic Other and at most one recommended option). Use only when the answer cannot be inferred from the conversation, the journal or memory. Returns answered/skipped/unanswered questions and keeps the default answer valid.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Stable question id"},
+                                "prompt": {"type": "string", "description": "Question text"},
+                                "options": {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 4,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {"type": "string"},
+                                            "label": {"type": "string"},
+                                            "recommended": {"type": "boolean"}
+                                        },
+                                        "required": ["id", "label"],
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "blocking": {"type": "boolean", "description": "At least one question must be blocking"}
+                            },
+                            "required": ["id", "prompt", "options"],
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "required": ["questions"],
+                "additionalProperties": false
+            }),
+        }
+    }
+
+    fn risk(&self) -> RiskLevel {
+        RiskLevel::Low
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(310)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        _permissions: &PermissionSet,
+        cancellation: &CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        let questions_value = arguments
+            .get("questions")
+            .cloned()
+            .ok_or_else(|| ToolError::InvalidArguments("missing questions".into()))?;
+        let questions: Vec<ClarifyQuestion> = serde_json::from_value(questions_value)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        if questions.is_empty() || questions.len() > 5 {
+            return Err(ToolError::InvalidArguments(
+                "questions must contain 1..=5 items".into(),
+            ));
+        }
+        for question in &questions {
+            question
+                .validate()
+                .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        }
+        let (response, receiver) = oneshot::channel();
+        self.requests
+            .send(ClarifyToolRequest {
+                questions,
+                response,
+            })
+            .map_err(|_| ToolError::Failed("clarify UI is unavailable".into()))?;
+        let result = tokio::select! {
+            _ = cancellation.cancelled() => return Err(ToolError::Cancelled),
+            result = receiver => result.map_err(|_| {
+                ToolError::Failed("clarify UI closed without a response".into())
+            })?,
+        };
+        let result = result.map_err(ToolError::Failed)?;
+        let content = serde_json::to_string_pretty(&json!({
+            "summary": &result.summary,
+            "answers": &result.answers,
+        }))
+        .map_err(|error| ToolError::Failed(error.to_string()))?;
+        Ok(ToolOutcome {
+            summary: format!(
+                "clarify {}: answered {} skipped {} unanswered {}",
+                outcome_label(result.summary.outcome),
+                result.summary.answered,
+                result.summary.skipped,
+                result.summary.unanswered
+            ),
+            content,
+            metadata: BTreeMap::new(),
+        })
+    }
 }
 
 impl TuiClarifyState {
@@ -482,5 +619,52 @@ mod tests {
         let long = "x".repeat(700);
         state.handle_input(TuiInput::Paste(long), 4);
         assert_eq!(state.other_text().chars().count(), 500);
+    }
+
+    #[tokio::test]
+    async fn clarify_tool_forwards_questions_and_returns_the_round() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let tool = ClarifyTool::new(sender);
+        let arguments = json!({
+            "questions": [{
+                "id": "q1",
+                "prompt": "Which?",
+                "options": [
+                    {"id": "a", "label": "Alpha", "recommended": true},
+                    {"id": "b", "label": "Beta"}
+                ],
+                "blocking": true
+            }]
+        });
+        let permissions = PermissionSet::default();
+        let cancellation = CancellationToken::new();
+        let future = tool.execute(arguments, &permissions, &cancellation);
+        tokio::pin!(future);
+        let request = tokio::select! {
+            request = receiver.recv() => request.expect("clarify request"),
+            result = &mut future => panic!("tool finished early: {result:?}"),
+        };
+        request
+            .response
+            .send(Ok(TuiClarifyResult {
+                summary: ClarifyRoundSummary {
+                    outcome: ClarifyOutcome::Submitted,
+                    answered: 1,
+                    skipped: 0,
+                    unanswered: 0,
+                    blocking_unanswered: 0,
+                    default_answer_valid: true,
+                },
+                answers: vec![ClarifyPanelAnswer {
+                    question_id: "q1".into(),
+                    option_id: Some("a".into()),
+                    status: ClarifyAnswerStatus::Answered,
+                    other_text: None,
+                }],
+            }))
+            .unwrap();
+        let outcome = future.await.unwrap();
+        assert!(outcome.content.contains("\"outcome\": \"submitted\""));
+        assert!(outcome.summary.contains("已回答") || outcome.summary.contains("已提交"));
     }
 }

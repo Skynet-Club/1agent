@@ -305,8 +305,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   gate and round resolution. The TUI `/clarify <questions.json>` command renders a
   blocking 1–5 question modal with per-question lock, an inline `Other` editor, one
   confirm, cancel and a 500 ms expiry poll; the resolved round is shown in the
-  transcript and written to `/details`. Model-initiated runtime-tool wiring and
-  persistent question history are still absent.
+  transcript and written to `/details`. The interactive TUI registers a
+  `clarify` runtime tool, so the model can open the panel and receives the
+  resolved round as a tool observation; line and headless runs do not register
+  it. Persistent question history is still absent.
 - Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`.
   `pause`/`repair` are recommendations by default; `--execute pause/resume` is an explicit,
   checked SIGSTOP/SIGCONT path and never kills or restarts. A transition log records only action

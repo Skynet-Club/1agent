@@ -20,6 +20,12 @@
   published 0.96.1 binary cannot read a 0.97 journal (first failure at
   `RunStarted`/`max_cost_micros`; it also does not know `model_request_delta`).
   Finish or archive new journals before downgrading.
+- Model-initiated clarify: the interactive TUI registers a `clarify` runtime
+  tool. The model can send 1–5 validated questions; the panel result is
+  returned as a JSON tool observation, with a 310 s tool timeout and the
+  panel's 300 s expiry. Line and headless modes do not register the tool.
+  Tests: tool/broker unit test and a real PTY run that asked the model to call
+  `clarify` and then continued to a final answer.
 - Clarify TUI panel (ADR-0123): `/clarify <questions.json>` opens a full-screen
   blocking batch of 1–5 questions with the recommended option first and an
   automatic `Other`. `↑/↓` moves options, `←/→`/`Tab` moves questions, `Enter`
