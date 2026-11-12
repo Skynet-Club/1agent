@@ -214,6 +214,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Journal incremental read: `JournalCursor` plus `read_events_incremental` consume only
+  newline-terminated events after a byte offset; a trailing partial line stays unread, and a
+  shrunk journal fails closed with `Truncated`. `read_events` still parses the whole file but
+  uses a buffered `read_until` path. Existing projections keep using `read_events` until they
+  adopt a cursor.
 - Parallel read-only tools: `AgentTool::parallel_safe` opts side-effect-free tools
   (`read_file`, `search_files`, `read_pdf`, `fetch_url`, `web_search`, `browser_read`)
   into concurrent execution. Contiguous safe calls run as one group; write/terminal calls
