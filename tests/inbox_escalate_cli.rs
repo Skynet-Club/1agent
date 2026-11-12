@@ -410,3 +410,74 @@ fn inbox_escalate_dry_run_does_not_send_or_write_state() {
     assert_eq!(report["notification"]["notified"], 1);
     assert!(!state.exists(), "dry-run must not write state");
 }
+
+#[test]
+fn acknowledged_items_stop_escalating_without_being_resolved() {
+    let workspace = tempfile::tempdir().unwrap();
+    let store = workspace.path().join("inbox.jsonl");
+    let state = workspace.path().join("escalation.json");
+    let item = add_item(&store, "ack me");
+    let item_id = item["item_id"].as_str().unwrap();
+
+    let first = run(&[
+        "inbox",
+        "ack",
+        "--state",
+        state.to_str().unwrap(),
+        "--item-id",
+        item_id,
+        "--json",
+    ]);
+    assert!(
+        first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(first["new"], true);
+    let second = run(&[
+        "inbox",
+        "ack",
+        "--state",
+        state.to_str().unwrap(),
+        "--item-id",
+        item_id,
+        "--json",
+    ]);
+    let second: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second["new"], false);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 60_000;
+    let output = run(&[
+        "inbox",
+        "escalate",
+        "--store",
+        store.to_str().unwrap(),
+        "--step",
+        "1000=inbox",
+        "--step",
+        "5000=notify",
+        "--now-ms",
+        &now.to_string(),
+        "--webhook",
+        "http://127.0.0.1:9/",
+        "--state",
+        state.to_str().unwrap(),
+        "--dry-run",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let rows = report["items"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0]["level"].is_null(), "{rows:?}");
+    assert!(rows[0]["reason"].as_str().unwrap().contains("acknowledged"));
+}

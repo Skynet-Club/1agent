@@ -3,7 +3,7 @@
 //! The ladder is a pure policy: the caller supplies the item age and the
 //! ordered steps. It does not send messages or change an item's status.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -135,9 +135,20 @@ pub enum EscalationStateError {
 pub struct EscalationState {
     #[serde(default)]
     pub delivered: BTreeMap<String, EscalationAction>,
+    /// Items the operator acknowledged; they stay visible but stop escalating.
+    #[serde(default)]
+    pub acknowledged: BTreeSet<String>,
 }
 
 impl EscalationState {
+    pub fn acknowledge(&mut self, item_id: &str) -> bool {
+        self.acknowledged.insert(item_id.into())
+    }
+
+    pub fn is_acknowledged(&self, item_id: &str) -> bool {
+        self.acknowledged.contains(item_id)
+    }
+
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, EscalationStateError> {
         match std::fs::read(path.into()) {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
@@ -217,6 +228,19 @@ mod tests {
             plan(&ladder, 1_000, 6_000, false).level,
             Some(EscalationAction::Notify)
         );
+    }
+
+    #[test]
+    fn acknowledgement_round_trips_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("escalation.json");
+        let mut state = EscalationState::default();
+        assert!(state.acknowledge("i1"));
+        assert!(!state.acknowledge("i1"));
+        state.save(&path).unwrap();
+        let reopened = EscalationState::open(&path).unwrap();
+        assert!(reopened.is_acknowledged("i1"));
+        assert!(!reopened.is_acknowledged("i2"));
     }
 
     #[test]

@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Inbox escalation acknowledgement: `1agent inbox ack --state PATH --item-id
+  ID` idempotently records an acknowledgement in the escalation state. The
+  item stays visible with no level and reason `item is acknowledged`, and
+  delivery skips it; inbox status is unchanged. Tests: one escalation-state
+  test, one async projection test and one CLI e2e test.
 - CUA red-team fixture: screen-text payee substitution, untrusted/irreversible
   approval and branch-steering cases fail closed; planner quarantine keeps
   untrusted observations out. This is policy only, with no browser execution.
