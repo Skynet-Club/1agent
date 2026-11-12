@@ -81,7 +81,8 @@ This page is a measurement review, not a release announcement. A metric marked
    8-task suite v1.1 passes 16/16 but is a short sample.
 2. M7 broader TTFT samples (provider/long-task); a 3-sample baseline exists.
 3. M19–M23 blind-review labels; the prompt inventory exists, labels do not.
-4. External A-Gate/W-Gate and security review; P-Gate macOS.
+4. External A-Gate/W-Gate and security review; a review draft is at
+   `docs/audit-package.md`; P-Gate macOS.
 5. Automatic watchdog repair remains manual; pause/resume is explicit and
    checked. M6 is not an external audit.
 
