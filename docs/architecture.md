@@ -214,6 +214,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Checkpoint deltas: after the first full `Checkpoint`, the runtime journals `CheckpointDelta`
+  with only appended messages and a `base_seq`. Resume and replay apply deltas in order and
+  reject a mismatched base; audit reports orphan deltas. `ResumeStarted` still embeds a full
+  reconstructed checkpoint, and old full-checkpoint journals remain resumable. `ModelRequested`
+  is still journaled in full per attempt.
 - Journal incremental read: `JournalCursor` plus `read_events_incremental` consume only
   newline-terminated events after a byte offset; a trailing partial line stays unread, and a
   shrunk journal fails closed with `Truncated`. `read_events` still parses the whole file but

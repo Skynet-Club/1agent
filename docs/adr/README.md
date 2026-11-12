@@ -96,3 +96,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0090 | Streaming Provider Deltas | [0090-streaming-provider.md](0090-streaming-provider.md) |
 | 0091 | Parallel Read-Only Tools | [0091-parallel-read-only-tools.md](0091-parallel-read-only-tools.md) |
 | 0092 | Journal Incremental Read | [0092-journal-incremental-read.md](0092-journal-incremental-read.md) |
+| 0093 | Checkpoint Deltas | [0093-checkpoint-deltas.md](0093-checkpoint-deltas.md) |

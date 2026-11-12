@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     AgentAnswer, CognitiveMode, InjectedExperience, ModelRequest, ModelResponse, PROTOCOL_VERSION,
-    RuntimeCheckpoint, StopReason, TaskRequest, ToolCall, ToolObservation,
+    RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason, TaskRequest, ToolCall, ToolObservation,
 };
 use crate::provider::{ProviderError, ProviderErrorCode};
 use crate::reframe::{ReframeChoice, ReframeProposal};
@@ -146,6 +146,9 @@ pub enum JournalEventKind {
     Checkpoint {
         checkpoint: RuntimeCheckpoint,
     },
+    CheckpointDelta {
+        checkpoint: RuntimeCheckpointDelta,
+    },
     ExperienceInjected {
         injected: Vec<InjectedExperience>,
     },
@@ -233,6 +236,7 @@ pub enum AuditFindingCode {
     DuplicateRunStart,
     DuplicateToolCall,
     DuplicateToolObservation,
+    OrphanCheckpointDelta,
     RouteSelectionOutsidePlan,
     DuplicateRunStop,
     DuplicateAnswer,
@@ -647,6 +651,7 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
     let mut responded_route: Option<(String, String)> = None;
     let mut pending_retry: Option<(String, String, usize)> = None;
     let mut last_retry_schedule: Option<(u64, usize)> = None;
+    let mut checkpoint_event_seq: Option<u64> = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.schema_version != PROTOCOL_VERSION {
@@ -693,6 +698,26 @@ pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
                         format!("event {index}: duplicate run start"),
                     );
                 }
+                if matches!(&event.event, JournalEventKind::ResumeStarted { .. }) {
+                    checkpoint_event_seq = Some(event.seq);
+                }
+            }
+            JournalEventKind::Checkpoint { .. } => {
+                checkpoint_event_seq = Some(event.seq);
+            }
+            JournalEventKind::CheckpointDelta { checkpoint } => {
+                if checkpoint_event_seq != Some(checkpoint.base_seq) {
+                    push_audit_finding(
+                        &mut findings,
+                        AuditFindingCode::OrphanCheckpointDelta,
+                        Some(index),
+                        format!(
+                            "event {index}: checkpoint delta base {} does not match the previous checkpoint",
+                            checkpoint.base_seq
+                        ),
+                    );
+                }
+                checkpoint_event_seq = Some(event.seq);
             }
             JournalEventKind::ToolCalled { call } => {
                 if observed_calls.insert(call.id.clone(), index).is_some() {
@@ -1113,6 +1138,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         reframe_actor: None,
         reframe_decided_at_unix_ms: None,
     };
+    let mut checkpoint_seq = 0u64;
 
     for event in events {
         match &event.event {
@@ -1143,6 +1169,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
                 state.request = Some(request.clone());
                 state.mode = Some(checkpoint.mode);
                 state.checkpoint = Some(checkpoint.clone());
+                checkpoint_seq = event.seq;
             }
             JournalEventKind::RouteSelected {
                 provider_id, model, ..
@@ -1171,7 +1198,15 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
                 state.observations.push(observation.clone())
             }
             JournalEventKind::Checkpoint { checkpoint } => {
-                state.checkpoint = Some(checkpoint.clone())
+                state.checkpoint = Some(checkpoint.clone());
+                checkpoint_seq = event.seq;
+            }
+            JournalEventKind::CheckpointDelta { checkpoint: delta } => {
+                let Some(current) = state.checkpoint.as_mut() else {
+                    return Err(ResumeError::MissingCheckpointBase.to_string());
+                };
+                apply_checkpoint_delta(current, delta, event.seq, &mut checkpoint_seq)
+                    .map_err(|error| error.to_string())?;
             }
             JournalEventKind::AnswerProduced { answer } => state.answer = Some(answer.clone()),
             JournalEventKind::RunStopped { reason } => state.stop_reason = Some(*reason),
@@ -1192,6 +1227,29 @@ pub struct ResumablePrefix {
     pub checkpoint_seq: u64,
     pub request: TaskRequest,
     pub checkpoint: RuntimeCheckpoint,
+}
+
+fn apply_checkpoint_delta(
+    checkpoint: &mut RuntimeCheckpoint,
+    delta: &RuntimeCheckpointDelta,
+    event_seq: u64,
+    checkpoint_seq: &mut u64,
+) -> Result<(), ResumeError> {
+    if delta.base_seq != *checkpoint_seq {
+        return Err(ResumeError::InvalidCheckpointDelta);
+    }
+    checkpoint.messages.extend(delta.messages.iter().cloned());
+    checkpoint.tool_calls_used = delta.tool_calls_used;
+    checkpoint.provider_attempts_used = delta.provider_attempts_used;
+    checkpoint.unavailable_routes = delta.unavailable_routes.clone();
+    checkpoint.next_step = delta.next_step;
+    checkpoint.elapsed_ms = delta.elapsed_ms;
+    checkpoint.route_plan_sha256 = delta.route_plan_sha256.clone();
+    checkpoint.route_policy_sources = delta.route_policy_sources.clone();
+    checkpoint.route_objective = delta.route_objective;
+    checkpoint.tool_capabilities_sha256 = delta.tool_capabilities_sha256.clone();
+    *checkpoint_seq = event_seq;
+    Ok(())
 }
 
 pub fn find_resumable_prefix(events: &[JournalEvent]) -> Result<ResumablePrefix, ResumeError> {
@@ -1242,6 +1300,12 @@ pub fn find_resumable_prefix(events: &[JournalEvent]) -> Result<ResumablePrefix,
                 checkpoint = Some(value.clone());
                 checkpoint_seq = event.seq;
             }
+            JournalEventKind::CheckpointDelta { checkpoint: delta } => {
+                let Some(current) = checkpoint.as_mut() else {
+                    return Err(ResumeError::MissingCheckpointBase);
+                };
+                apply_checkpoint_delta(current, delta, event.seq, &mut checkpoint_seq)?;
+            }
             JournalEventKind::RunStopped { .. } | JournalEventKind::AnswerProduced { .. } => {
                 return Err(ResumeError::AlreadyTerminal);
             }
@@ -1287,6 +1351,10 @@ pub enum ResumeError {
     MissingRunStart,
     #[error("no checkpoint is available")]
     NoCheckpoint,
+    #[error("a checkpoint delta has no base checkpoint")]
+    MissingCheckpointBase,
+    #[error("a checkpoint delta does not extend the previous checkpoint")]
+    InvalidCheckpointDelta,
     #[error("execute-mode run is not safely resumable")]
     UnsafeExecuteMode,
 }
@@ -2417,6 +2485,97 @@ mod reframe_journal_tests {
             full < std::time::Duration::from_millis(50),
             "full parse took {full:?}"
         );
+    }
+
+    fn journal_prefix(extras: Vec<JournalEventKind>) -> Vec<JournalEvent> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("answer", PathBuf::from(".")),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        for extra in extras {
+            journal.append(extra).unwrap();
+        }
+        drop(journal);
+        read_events(&path).unwrap()
+    }
+
+    fn checkpoint() -> RuntimeCheckpoint {
+        RuntimeCheckpoint {
+            mode: CognitiveMode::DirectAnswer,
+            messages: vec![crate::domain::ModelMessage::user("hello")],
+            tool_calls_used: 0,
+            provider_attempts_used: 0,
+            unavailable_routes: Vec::new(),
+            next_step: 1,
+            elapsed_ms: 1,
+            route_plan_sha256: None,
+            route_policy_sources: None,
+            route_objective: None,
+            tool_capabilities_sha256: None,
+        }
+    }
+
+    fn checkpoint_delta(
+        base_seq: u64,
+        messages: Vec<crate::domain::ModelMessage>,
+    ) -> JournalEventKind {
+        JournalEventKind::CheckpointDelta {
+            checkpoint: RuntimeCheckpointDelta {
+                base_seq,
+                messages,
+                tool_calls_used: 0,
+                provider_attempts_used: 0,
+                unavailable_routes: Vec::new(),
+                next_step: 2,
+                elapsed_ms: 2,
+                route_plan_sha256: None,
+                route_policy_sources: None,
+                route_objective: None,
+                tool_capabilities_sha256: None,
+            },
+        }
+    }
+
+    #[test]
+    fn checkpoint_delta_extends_the_previous_checkpoint() {
+        let events = journal_prefix(vec![
+            JournalEventKind::Checkpoint {
+                checkpoint: checkpoint(),
+            },
+            checkpoint_delta(
+                1,
+                vec![crate::domain::ModelMessage::assistant("", Vec::new())],
+            ),
+        ]);
+        let prefix = find_resumable_prefix(&events).unwrap();
+        assert_eq!(prefix.checkpoint_seq, 2);
+        assert_eq!(prefix.checkpoint.messages.len(), 2);
+        assert_eq!(prefix.checkpoint.next_step, 2);
+    }
+
+    #[test]
+    fn checkpoint_delta_with_a_wrong_base_is_rejected() {
+        let events = journal_prefix(vec![
+            JournalEventKind::Checkpoint {
+                checkpoint: checkpoint(),
+            },
+            checkpoint_delta(0, vec![crate::domain::ModelMessage::user("stale")]),
+        ]);
+        assert!(matches!(
+            find_resumable_prefix(&events),
+            Err(ResumeError::InvalidCheckpointDelta)
+        ));
+    }
+
+    #[test]
+    fn audit_flags_an_orphan_checkpoint_delta() {
+        let events = journal_with(vec![checkpoint_delta(0, Vec::new())]);
+        assert!(codes(&events).contains(&AuditFindingCode::OrphanCheckpointDelta));
     }
 
     #[test]
