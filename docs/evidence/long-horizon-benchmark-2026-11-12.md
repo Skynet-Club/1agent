@@ -2,6 +2,8 @@
 
 Status: **running**
 Job: `job-1794496736687-2245-2`
+Collector job: `job-1794497802956-2245-4` (copies the final JSON into this
+directory when the benchmark finishes)
 Plan: `/home/skynet/.cache/1agent-soak/plan-bench-8h-2026-11-12.json`
 Started: 2026-11-12 23:58 CST (approx.)
 Expected finish: 2026-11-13 08:00–09:00 CST (depending on per-run latency)
