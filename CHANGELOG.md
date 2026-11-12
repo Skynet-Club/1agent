@@ -24,6 +24,11 @@
   SIGSTOP/SIGCONT. It refuses pid 0, itself, missing processes and command
   mismatches; it never kills, restarts or clears locks. Tests: real child
   pause/resume, refusal cases and the CLI e2e.
+- Runtime kill switch (ADR-0118): `AgentRuntime::with_kill_switch(path)` denies
+  write-capable tools with `kill_switch_active` while the file exists; read
+  tools remain available. The CLI installs `~/.1a/KILL` (or legacy
+  `.1a/KILL`) in run, resume, surface and TUI runtimes. Test: one runtime unit
+  test covering write denial and read availability.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal

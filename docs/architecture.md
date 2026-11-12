@@ -364,6 +364,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   deferred. `decide_for_proactive` reads the domain level and persisted quiet
   hours from a `UserModel`; `1agent autonomy-for` exposes it. This is a preference policy; Authority/Policy/ExecutionGate still
   enforce execution.
+- Runtime kill switch: `AgentRuntime::with_kill_switch(path)` checks the file before
+  every tool call. When present, write-capable tools return `PermissionDenied` with
+  `kill_switch_active`; read-only tools remain available. The CLI uses
+  `~/.1a/KILL` (or legacy `.1a/KILL`) and installs it in run, resume, surface and TUI
+  runtimes. It does not signal, restart or clear locks, and it is not an OS sandbox.
 - `alarm_budget`: given the delivery window counts, an ordinary alert is
   delivered while the budget and false-alarm ceiling hold, otherwise moved to
   a digest. Alerts at or above `critical_urgency` bypass both. This module

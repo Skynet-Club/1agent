@@ -112,6 +112,7 @@ file: <路径>              → 文件必须存在
 | Agent Card Ed25519 签名与信任公钥验签；私钥可写 0600 文件并从文件签名；篡改/错钥/未签名拒绝 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test --test card_trust_cli | ✅ | 本地签名，非 A2A registry 发现/签名条目；`--sign-key` 仍会进 argv |
 | 持久幂等记录：key+fingerprint→response append-only JSONL，sync 后确认，跨重启重放；冲突/半条记录处理 | cmd: cargo test idempotency --lib && cargo test --test idempotency_cli | ✅ | 去重原语；未接入所有外部写 |
 | 带外 watchdog：daemon 每轮写心跳；缺失/过期/损坏非零退出；`--execute` 可显式暂停/恢复匹配进程 | cmd: cargo test watchdog --lib && cargo test --test watchdog_cli | ✅ | 默认只观察；不重启/不清理锁；Unix only |
+| 运行时 kill switch：`~/.1a/KILL` 存在时写工具 PermissionDenied/kill_switch_active，只读工具可用；run/resume/surface/TUI 接线 | cmd: cargo test kill_switch --lib | ✅ | 本地文件；同 UID 可创建/删除；检查与执行有竞态；非 OS 沙箱 |
 | daemon 安静时段：窗口内跳过 due 任务、保持 due、窗口后运行 | cmd: cargo test --test daemon_quiet_cli | ✅ | 固定 UTC offset；DST 由调用方处理 |
 | daemon 安静时段边界唤醒：静默期睡眠取 `min(poll, 窗口剩余毫秒)`，窗口结束后立即重查 due | cmd: cargo test autonomy --lib | ✅ | 计算级单测（跨午夜/固定 offset/边界）；未做长驻 daemon 时钟实测 |
 | A-Gate 本地 soak：5 cycles 均通过（300 task events / 200 memories / skills） | cmd: for i in 1 2 3 4 5; do cargo test --offline --test a_gate_soak -- --ignored; done | ✅ | 本地软件 soak，非外部 A-Gate 清单/24h 真实多 Agent |

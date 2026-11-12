@@ -3826,6 +3826,7 @@ async fn main() -> Result<()> {
                 .with_route_objective(objective)
                 .with_voice_mode(voice_mode)
                 .with_attachments(attachments)
+                .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
                 .with_route_policy_sources(RoutePolicySources {
                     objective: objective_source,
                     latency_budget: latency_budget_source,
@@ -9168,7 +9169,8 @@ async fn main() -> Result<()> {
             if max_concurrency == 0 || max_concurrency > 32 {
                 bail!("--max-concurrency must be between 1 and 32");
             }
-            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
+                .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"));
             if provider_health || alert_log.is_some() || alert_webhook.is_some() {
                 runtime = runtime.with_provider_health(Arc::new(std::sync::Mutex::new(
                     first_principles_agent::ProviderHealth::new(
@@ -10043,7 +10045,8 @@ async fn main() -> Result<()> {
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
             };
-            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir);
+            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
+                .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"));
             if let Some(route_objective) = route_objective {
                 runtime = runtime
                     .with_route_objective(parse_route_objective(&route_objective)?)
@@ -12112,6 +12115,7 @@ async fn run_tui(
     let (objective, objective_source) = resolve_route_objective(route_objective.as_deref())?;
     let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
         .with_route_objective(objective)
+        .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
         .with_route_policy_sources(RoutePolicySources {
             objective: objective_source,
             latency_budget: PolicyValueSource::Unset,
