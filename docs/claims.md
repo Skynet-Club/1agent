@@ -71,7 +71,7 @@ file: <路径>              → 文件必须存在
 | Agent Card 列出能力状态与限制（含 verification store/team handoff/inbox notify 多目标/inbox escalation/repair runbook+mark/org audit/MCP HTTP/chat bridge/daemon maintenance/trust center 事故披露/skill lifecycle/skill capture/voice forms）；unsupported/untested 不标为 verified；HTTP 公开只读提供 | cmd: cargo test agent_card --lib && cargo test --test agent_card_cli && cargo test http_surface --lib | ✅ | 签名可选；非 A2A registry-signed 卡 |
 | skill scan 预检 frontmatter/控制字符/密钥/指令覆盖；不注册不执行 | cmd: cargo test skill --lib && cargo test --test skill_scan_cli | ✅ | 启发式扫描，不是 malware sandbox；签名/权限另算 |
 | skill verify 与 import 共用 verify_bundle；校验 SHA/schema/签名/重复/manifest/扫描，不导入 | cmd: cargo test skill_bundle --lib && cargo test --test skill_verify_cli | ✅ | 证明完整性，不证明运行安全 |
-| CUA 策略：untrusted high-risk deny；untrusted require_approval；planner 不看 untrusted；未规划 branch deny | cmd: cargo test cua --lib && cargo test --test cua_check_cli | ✅ | 仅策略，无浏览器执行/截图 |
+| CUA 策略：untrusted high-risk deny；untrusted require_approval；planner 不看 untrusted；未规划 branch deny；红队夹具覆盖屏幕注入改收款人/分支劫持 | cmd: cargo test cua --lib && cargo test --test cua_check_cli | ✅ | 仅策略，无浏览器执行/截图 |
 | Cascade 模拟计算 affected/contained/propagated、containment_bps/depth/blast radius 并按策略门禁 | cmd: cargo test cascade --lib && cargo test --test cascade_check_cli | ✅ | 确定性模拟，不是真实多 Agent 运行 |
 | Budget 硬上限：超限失败、80% 警告；每验证结果成本；超限非零退出；run 运行时累计并停止 | cmd: cargo test budget --lib && cargo test --test budget_check_cli && cargo test cost_budget_stops --lib | ✅ | 运行时按 provider-reported usage 累计；未覆盖所有 provider 计费差异 |
 | OTel 投影生成 invoke_agent/chat/execute_tool spans，带 gen_ai 属性且确定性 | cmd: cargo test otel --lib && cargo test --test otel_cli | ✅ | JSON 投影，非完整 OTel SDK/exporter |
