@@ -58,6 +58,7 @@ file: <路径>              → 文件必须存在
 | watchdog 升级阶梯按心跳年龄输出 ok/warn/pause/repair；干预日志只在动作变化时追加、恢复记一次；pause/repair 仅为建议，不发送信号/不重启/不扩权 | cmd: cargo test watchdog --lib && cargo test --test watchdog_cli | ✅ | 实际暂停/修复执行未实现；日志无轮转；调用方控制检查频率 |
 | Clarify 门控：2–4 个唯一选项、至多一个推荐项、自动 Other、推荐项第一、默认每轮 1 题、总预算/重复过滤、blocking 批量 ≤5；答案状态 answered/skipped/unanswered、结果 submitted/cancelled/timed_out/undelivered；未回答不使默认答案失效；非法输入失败关闭 | cmd: cargo test clarify --lib && cargo test --test clarify_cli | ✅ | 仅门控/序列化；TUI 面板、持久化问题历史、真实 300s 阻塞未实现 |
 | 错误恢复建议：provider 鉴权/限流/超时/网络/非法响应、journal、取消、resume、路由等失败在 CLI 输出一条 `hint:`，不改变错误/重试/权限/退出码 | cmd: cargo test runtime_errors_carry_actionable_hints --lib && cargo test --test cli_e2e provider_network_failure_prints_a_recovery_hint | ✅ | 仅 CLI；TUI 未渲染；建议是静态文案，不保证一次修复 |
+| 答案分层：默认只显示状态/结论/信任摘要；conditional、needs_evidence 或高影响未知时内联 ≤3 条依据与全部翻转条件；`--details` 恢复完整字段与路由轨迹 | cmd: cargo test --test cli_e2e default_run_output_is_concise_and_details_expands_it | ✅ | 高风险判定是启发式；低风险答案默认隐藏证据（摘要行给出计数）；TUI 已有 `/details` 与 `/why` |
 | 写路径重叠的任务被串行化 | test: overlapping_write_roots_are_serialized | ✅ | |
 | 平台分支只允许出现在展示适配器 | cmd: ! grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs | ✅ | 本日修正：原门禁依赖缺失的 rg，被静默跳过 |
 | 技能可从捕获、评测、激活回滚到上一版本，失败候选不替换现役版本 | test: skill_lifecycle_capture_to_rollback_is_replayable | ✅ | 确定性集成场景；基于磁盘 journal、重启回放与审计收据；不代表真实示范语料 |

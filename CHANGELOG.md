@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Answer/audit layering (ADR-0098): default human `run`/`resume` output is
+  status, conclusion and one trust-summary line. Conditional/needs-evidence
+  answers or high-impact unknowns inline up to three evidence entries and all
+  flip conditions. `--details` restores the full structured answer and route
+  trace; JSON and internal callers are unchanged. Test: one CLI e2e comparing
+  default and `--details` output.
 - Actionable error recovery (ADR-0097): `RuntimeError::recovery_hint` maps
   provider codes and runtime failures to one concrete next step. `run` and
   `resume` print `hint: ...` to stderr without changing the error, retries,

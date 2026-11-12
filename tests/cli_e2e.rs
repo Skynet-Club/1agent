@@ -3313,3 +3313,47 @@ fn provider_network_failure_prints_a_recovery_hint() {
         "stderr: {stderr}"
     );
 }
+
+#[test]
+fn default_run_output_is_concise_and_details_expands_it() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let journal = workspace.path().join("journal").display().to_string();
+    let default = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "Compare A and B",
+            "--journal-dir",
+            &journal,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        default.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&default.stdout);
+    assert!(stdout.contains("信任摘要："), "stdout: {stdout}");
+    assert!(stdout.contains("使用 --details"), "stdout: {stdout}");
+    assert!(stdout.contains("翻转条件："), "stdout: {stdout}");
+    assert!(!stdout.contains("路由："), "stdout: {stdout}");
+    assert!(!stdout.contains("终止原因："), "stdout: {stdout}");
+
+    let detailed = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "Compare A and B",
+            "--journal-dir",
+            &journal,
+            "--details",
+        ])
+        .output()
+        .unwrap();
+    assert!(detailed.status.success());
+    let stdout = String::from_utf8_lossy(&detailed.stdout);
+    assert!(stdout.contains("终止原因："), "stdout: {stdout}");
+    assert!(stdout.contains("路由："), "stdout: {stdout}");
+}
