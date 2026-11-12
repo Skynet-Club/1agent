@@ -29,6 +29,12 @@
   tools remain available. The CLI installs `~/.1a/KILL` (or legacy
   `.1a/KILL`) in run, resume, surface and TUI runtimes. Test: one runtime unit
   test covering write denial and read availability.
+- Clarify panel state machine (ADR-0119): `ClarifyPanel` holds one to five
+  blocking questions, locks one option per question, requires `Other` text,
+  confirms once, cancels, and expires at 300 seconds. An all-skipped confirm is
+  a cancellation; missing questions stay unanswered with a valid default. This
+  is the state machine only; TUI rendering and persistent history remain open.
+  Tests: four unit cases plus the existing clarify CLI suite.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal

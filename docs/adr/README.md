@@ -122,3 +122,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0116 | Golden-Set Prompt Inventory v1 | [0116-golden-set-v1.md](0116-golden-set-v1.md) |
 | 0117 | Watchdog Pause/Resume Execution | [0117-watchdog-execution.md](0117-watchdog-execution.md) |
 | 0118 | Runtime Kill Switch | [0118-runtime-kill-switch.md](0118-runtime-kill-switch.md) |
+| 0119 | Clarify Batch Panel State Machine | [0119-clarify-panel-state-machine.md](0119-clarify-panel-state-machine.md) |

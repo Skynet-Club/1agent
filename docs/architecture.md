@@ -294,12 +294,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   automatic `Other`, put the recommended option first, deduplicate ids and normalized prompts,
   admit one question per turn by default, and cap a blocking batch at five. `resolve_round`
   validates `answered|skipped|unanswered` answers with `submitted|cancelled|timed_out|undelivered`
-  outcomes and keeps the default answer valid. `1agent clarify` exposes both; it does not render a
-  panel or store answers.
-- Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`;
-  `pause` and `repair` are recommendations and never signal or restart the daemon. A transition
-  log records only action changes plus one recovery. The original `--max-age-ms`
-  healthy/unhealthy output is preserved when no policy is set.
+  outcomes and keeps the default answer valid. `ClarifyPanel` adds the blocking panel state
+  machine: one to five questions, per-question lock, required `Other` text, one confirm, cancel,
+  and a 300-second expiry; an all-skipped confirm is a cancellation. `1agent clarify` exposes the
+  gate and round resolution; panel rendering and persistent history are still absent.
+- Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`.
+  `pause`/`repair` are recommendations by default; `--execute pause/resume` is an explicit,
+  checked SIGSTOP/SIGCONT path and never kills or restarts. A transition log records only action
+  changes plus one recovery. The original `--max-age-ms` healthy/unhealthy output is preserved
+  when no policy is set.
 - Checkpoint deltas: after the first full `Checkpoint`, the runtime journals `CheckpointDelta`
   with only appended messages and a `base_seq`. Resume and replay apply deltas in order and
   reject a mismatched base; audit reports orphan deltas. `ResumeStarted` still embeds a full
