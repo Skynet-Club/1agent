@@ -186,6 +186,15 @@ pub fn agent_system_prompt_for(mode: crate::user_model::VoiceMode) -> String {
     crate::voice::with_voice(agent_system_prompt(), mode)
 }
 
+/// Base prompt plus a voice mode and a task form. The form is derived from the
+/// cognitive mode; evidence and authority rules are unchanged.
+pub fn agent_system_prompt_for_form(
+    mode: crate::user_model::VoiceMode,
+    form: crate::voice::VoiceForm,
+) -> String {
+    crate::voice::with_voice_form(agent_system_prompt(), mode, form)
+}
+
 pub async fn probe_provider(
     provider: &dyn ModelProvider,
     manifest: &ProviderManifest,

@@ -392,8 +392,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Voice modes: `voice::with_voice` appends an `operator` / `advisor` /
   `companion` block to the base system prompt. `AgentRuntime` defaults to
   `operator`; `with_voice_mode` selects another mode and `1agent run
-  --voice-mode` exposes it. The block changes how the answer speaks, not the
-  evidence, authority or action rules.
+  --voice-mode` exposes it. A task form is derived from the cognitive mode:
+  decision analysis/escalation use the decision form, evidence research and
+  diagnosis use the research form, and direct answer/execute use the execution
+  form. `agent_system_prompt_for_form` appends both blocks. They change how
+  the answer speaks, not the evidence, authority or action rules. The TUI
+  `/why` command renders the last structured answer's conclusion, claims,
+  evidence, assumptions, unknowns, flip conditions and action receipts.
 - `inbox`: an append-only JSONL queue of `notify` / `question` / `review`
   items. Each mutation writes a full snapshot; replay keeps the latest state.
   `open_sorted` returns open or due-snoozed items ordered review → question →

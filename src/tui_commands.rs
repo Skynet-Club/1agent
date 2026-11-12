@@ -59,6 +59,7 @@ pub enum TuiCommandId {
     Cost,
     Inbox,
     Receipt,
+    Why,
     Config,
     Mission,
     Reframe,
@@ -99,6 +100,7 @@ impl TuiCommandId {
                 | Self::Cost
                 | Self::Inbox
                 | Self::Receipt
+                | Self::Why
                 | Self::Copy
         )
     }
@@ -355,6 +357,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         TuiCommandId::Receipt,
         "/receipt",
         "显示最近一次重构决策收据",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        false,
+        true,
+    ),
+    command(
+        TuiCommandId::Why,
+        "/why",
+        "展开最近回答的结论、证据、假设、未知和翻转条件",
         TuiCommandScope::Core,
         CommandStage::Any,
         false,
@@ -686,7 +697,7 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
         | TuiCommandId::Decide
         | TuiCommandId::Postmortem
         | TuiCommandId::Reframe => CommandGroup::Reasoning,
-        TuiCommandId::Evidence | TuiCommandId::Audit | TuiCommandId::Report => {
+        TuiCommandId::Evidence | TuiCommandId::Audit | TuiCommandId::Report | TuiCommandId::Why => {
             CommandGroup::Evidence
         }
         TuiCommandId::Mode
@@ -1362,23 +1373,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 28);
+        assert_eq!(standalone.len(), 29);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            30
+            31
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            32
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             33
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            34
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            38
+            39
         );
     }
 
@@ -1422,6 +1433,7 @@ mod tests {
                 "/cost",
                 "/inbox",
                 "/receipt",
+                "/why",
                 "/config",
                 "/reframe",
                 "/mission",
@@ -1460,6 +1472,19 @@ mod tests {
             .find(|command| command.id == TuiCommandId::Receipt)
             .expect("receipt command");
         assert_eq!(spec.name, "/receipt");
+        assert!(!spec.id.uses_command_panel());
+        assert!(!spec.supports_inline_args);
+        assert!(spec.available_during_run);
+        assert_eq!(spec.scope, TuiCommandScope::Core);
+    }
+
+    #[test]
+    fn why_is_a_registered_transcript_command() {
+        let spec = COMMANDS
+            .iter()
+            .find(|command| command.id == TuiCommandId::Why)
+            .expect("why command");
+        assert_eq!(spec.name, "/why");
         assert!(!spec.id.uses_command_panel());
         assert!(!spec.supports_inline_args);
         assert!(spec.available_during_run);

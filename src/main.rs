@@ -11270,6 +11270,10 @@ async fn run_tui_line_mode(
                         display_receipt(state, session);
                         continue;
                     }
+                    TuiCommandId::Why => {
+                        display_why(state, session);
+                        continue;
+                    }
                     TuiCommandId::Preset => {
                         if let Some(request) = handle_preset_command(state, session, settings, args)
                         {
@@ -11434,6 +11438,7 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
             command_menu_action("成本", "查看 Token 与成本汇总", "/cost", false),
         ],
         TuiCommandId::Clear | TuiCommandId::Quit => Vec::new(),
+        TuiCommandId::Why => Vec::new(),
         TuiCommandId::Frame => Vec::new(),
         TuiCommandId::Challenge => Vec::new(),
         TuiCommandId::Decide => Vec::new(),
@@ -15653,6 +15658,73 @@ fn display_receipt(state: &mut TuiState, session: &TuiSession) {
     state.info("当前会话还没有重构决策收据。");
 }
 
+fn display_why(state: &mut TuiState, _session: &TuiSession) {
+    let Ok((_journal, replay)) = load_latest_replay(state) else {
+        state.info("当前会话还没有可读取的 run journal。");
+        return;
+    };
+    let Some(answer) = &replay.answer else {
+        state.info("最近一次运行还没有结构化回答。");
+        return;
+    };
+    state.info(bound_tui_command_output(render_why_text(answer)));
+}
+
+fn render_why_text(answer: &AgentAnswer) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "状态：{:?}\n结论：{}\n",
+        answer.status, answer.conclusion
+    ));
+    if !answer.claims.is_empty() {
+        out.push_str("\n声明\n");
+        for claim in &answer.claims {
+            out.push_str(&format!("- [{:?}] {}", claim.status, claim.text));
+            if !claim.sources.is_empty() {
+                out.push_str(&format!("（来源：{}）", claim.sources.join(", ")));
+            }
+            out.push('\n');
+        }
+    }
+    if !answer.evidence.is_empty() {
+        out.push_str("\n证据\n");
+        for evidence in &answer.evidence {
+            out.push_str(&format!("- {}：{}\n", evidence.source, evidence.statement));
+        }
+    }
+    if !answer.assumptions.is_empty() {
+        out.push_str("\n假设\n");
+        for assumption in &answer.assumptions {
+            out.push_str(&format!(
+                "- {}（影响：{:?}）\n",
+                assumption.description, assumption.impact
+            ));
+        }
+    }
+    if !answer.unknowns.is_empty() {
+        out.push_str("\n未知\n");
+        for unknown in &answer.unknowns {
+            out.push_str(&format!(
+                "- {}（影响：{:?}）\n",
+                unknown.description, unknown.impact
+            ));
+        }
+    }
+    if !answer.flip_conditions.is_empty() {
+        out.push_str("\n翻转条件\n");
+        for flip in &answer.flip_conditions {
+            out.push_str(&format!("- 若 {}，则 {}\n", flip.if_observed, flip.then));
+        }
+    }
+    if !answer.action_receipts.is_empty() {
+        out.push_str("\n行动收据\n");
+        for receipt in &answer.action_receipts {
+            out.push_str(&format!("- {receipt}\n"));
+        }
+    }
+    out
+}
+
 fn handle_cost_command(state: &mut TuiState, session: &TuiSession) {
     match build_usage_ledger(session.journals().iter().cloned()) {
         Ok(ledger) => state.info(bound_tui_command_output(render_usage_ledger(&ledger))),
@@ -16137,6 +16209,9 @@ async fn run_tui_interactive(
                             }
                             TuiCommandId::Receipt => {
                                 display_receipt(&mut state, &session);
+                            }
+                            TuiCommandId::Why => {
+                                display_why(&mut state, &session);
                             }
                             TuiCommandId::Preset => {
                                 if let Some(request) =
@@ -19470,5 +19545,90 @@ mod next_action_panel_tests {
         let mut state = TuiState::new("mock", 6, 120);
         assert!(!display_tui_next_actions(&mut state));
         assert!(!state.command_panel_open());
+    }
+}
+
+#[cfg(test)]
+mod why_tests {
+    use super::*;
+    use first_principles_agent::{
+        AssumptionItem, Claim, ClaimStatus, Evidence, FlipCondition, ImpactLevel, UnknownItem,
+    };
+
+    fn answer() -> AgentAnswer {
+        AgentAnswer {
+            schema_version: 2,
+            status: AnswerStatus::Conditional,
+            conclusion: "Use the smaller plan.".into(),
+            claims: vec![Claim {
+                id: "c1".into(),
+                text: "cost is lower".into(),
+                status: ClaimStatus::Derived,
+                sources: vec!["ledger".into()],
+                scope: None,
+            }],
+            evidence: vec![Evidence {
+                source: "ledger".into(),
+                statement: "cost 10".into(),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids: vec!["c1".into()],
+            }],
+            assumptions: vec![AssumptionItem {
+                description: "usage stays flat".into(),
+                impact: ImpactLevel::Medium,
+                verification_method: None,
+            }],
+            constraints: Vec::new(),
+            unknowns: vec![UnknownItem {
+                id: "u1".into(),
+                description: "renewal price".into(),
+                impact: ImpactLevel::High,
+                why_it_matters: None,
+                reduction_method: None,
+            }],
+            conflicts: Vec::new(),
+            flip_conditions: vec![FlipCondition {
+                if_observed: "usage doubles".into(),
+                then: "switch plan".into(),
+                target_ids: vec!["c1".into()],
+            }],
+            action_receipts: vec!["receipt-1".into()],
+        }
+    }
+
+    #[test]
+    fn why_text_separates_claims_evidence_and_flip_conditions() {
+        let text = render_why_text(&answer());
+        assert!(text.contains("结论：Use the smaller plan."));
+        assert!(text.contains("[Derived] cost is lower"));
+        assert!(text.contains("来源：ledger"));
+        assert!(text.contains("证据"));
+        assert!(text.contains("ledger：cost 10"));
+        assert!(text.contains("假设"));
+        assert!(text.contains("未知"));
+        assert!(text.contains("翻转条件"));
+        assert!(text.contains("若 usage doubles，则 switch plan"));
+        assert!(text.contains("行动收据"));
+        assert!(text.contains("receipt-1"));
+    }
+
+    #[test]
+    fn why_text_omits_empty_sections() {
+        let mut answer = answer();
+        answer.claims.clear();
+        answer.evidence.clear();
+        answer.assumptions.clear();
+        answer.unknowns.clear();
+        answer.flip_conditions.clear();
+        answer.action_receipts.clear();
+        let text = render_why_text(&answer);
+        assert!(text.contains("结论：Use the smaller plan."));
+        assert!(!text.contains("声明"));
+        assert!(!text.contains("证据"));
+        assert!(!text.contains("假设"));
+        assert!(!text.contains("未知"));
+        assert!(!text.contains("翻转条件"));
+        assert!(!text.contains("行动收据"));
     }
 }
