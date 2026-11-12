@@ -385,10 +385,14 @@ impl AgentRuntime {
         repair_messages.push(ModelMessage::user(format!(
             "{failure}. Return exactly one corrected AgentAnswer JSON object with no prose or \
              outer Markdown fence. Markdown and code fences requested by the user may appear only \
-             inside the JSON conclusion string. Preserve the intended answer. Every \
-             evidence.source must exactly equal one entry in the sources array of every referenced \
-             claim. Use null for unknown evidence timestamps. Read-only action_receipts must be \
-             empty. model_prior claims must have empty sources."
+             inside the JSON conclusion string. Preserve the intended answer. Required invariants: \
+             every evidence.source must exactly equal one entry in the sources array of every \
+             referenced claim; evidence must reference an existing claim exactly once; a verified \
+             claim needs a source; a derived or assumed claim needs a non-empty scope; a \
+             conflicting claim needs at least two distinct sources; a model_prior claim needs \
+             empty sources; every conflict claim id must reference an existing claim and the pair \
+             must be distinct. Use null for unknown evidence timestamps. Read-only \
+             action_receipts must be empty."
         )));
         let repair_request = ModelRequest {
             run_id: model_request.run_id,
