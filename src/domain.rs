@@ -1055,6 +1055,32 @@ pub struct RuntimeCheckpoint {
     pub tool_capabilities_sha256: Option<String>,
 }
 
+/// Checkpoint contents appended since the previous checkpoint.
+///
+/// `base_seq` must be the seq of the event that established the base
+/// checkpoint (a full `Checkpoint`, `CheckpointDelta`, or `ResumeStarted`).
+/// Resume reconstructs the full message history by applying deltas in order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeCheckpointDelta {
+    pub base_seq: u64,
+    pub messages: Vec<ModelMessage>,
+    pub tool_calls_used: usize,
+    #[serde(default)]
+    pub provider_attempts_used: usize,
+    pub unavailable_routes: Vec<ProviderRouteKey>,
+    pub next_step: usize,
+    pub elapsed_ms: u64,
+    #[serde(default)]
+    pub route_plan_sha256: Option<String>,
+    #[serde(default)]
+    pub route_policy_sources: Option<crate::router::RoutePolicySources>,
+    #[serde(default)]
+    pub route_objective: Option<crate::router::RouteObjective>,
+    #[serde(default)]
+    pub tool_capabilities_sha256: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct InjectedExperience {

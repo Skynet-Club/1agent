@@ -2,6 +2,14 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Checkpoint deltas (ADR-0093): the first checkpoint stays full; later ones
+  journal only appended messages plus cumulative counters and a `base_seq`.
+  Resume and replay apply deltas in order and fail closed on a mismatched
+  base; audit reports orphan deltas; `ResumeStarted` still embeds a full
+  reconstructed checkpoint and old journals remain resumable. Tests: one
+  delta-merge test, one wrong-base test, one audit test and one delta-resume
+  runtime test plus an ignored size probe (115 KB vs ~2.99 MB full estimate on
+  100 steps). `ModelRequested` remains a full per-attempt copy.
 - Journal incremental read (ADR-0092): `JournalCursor` and
   `read_events_incremental` parse only complete newline-terminated events after
   a byte offset; a trailing partial line stays unread, and a shrunk journal

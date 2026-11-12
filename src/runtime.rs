@@ -12,8 +12,8 @@ use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
     MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
-    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, StopReason, TaskRequest, ToolCall,
-    ToolObservation, ToolStatus, UnknownItem,
+    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason,
+    TaskRequest, ToolCall, ToolObservation, ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
@@ -895,6 +895,8 @@ impl AgentRuntime {
         };
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
+        // (event seq of the last checkpoint, messages already covered by it)
+        let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
             if cancellation.is_cancelled() {
                 journal
@@ -1471,30 +1473,65 @@ impl AgentRuntime {
                             ));
                         }
                     }
-                    journal
-                        .append(JournalEventKind::Checkpoint {
-                            checkpoint: RuntimeCheckpoint {
-                                mode,
-                                messages: messages.clone(),
-                                tool_calls_used: tool_calls,
-                                provider_attempts_used,
-                                unavailable_routes: unavailable_routes.iter().cloned().collect(),
-                                next_step: step + 1,
-                                elapsed_ms: initial_elapsed
-                                    .saturating_add(started_at.elapsed())
-                                    .as_millis()
-                                    .min(u128::from(u64::MAX))
-                                    as u64,
-                                route_plan_sha256: Some(route_plan_digest.clone()),
-                                route_policy_sources: Some(route_policy_sources.clone()),
-                                route_objective: Some(route_request.objective),
-                                tool_capabilities_sha256: Some(tool_capabilities.sha256.clone()),
-                            },
-                        })
-                        .map_err(|source| RuntimeError::Journal {
-                            path: journal_path.clone(),
-                            source,
-                        })?;
+                    let elapsed_ms = initial_elapsed
+                        .saturating_add(started_at.elapsed())
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    let checkpoint_event_seq = match checkpoint_state {
+                        Some((base_seq, message_count)) if message_count <= messages.len() => {
+                            journal
+                                .append(JournalEventKind::CheckpointDelta {
+                                    checkpoint: RuntimeCheckpointDelta {
+                                        base_seq,
+                                        messages: messages[message_count..].to_vec(),
+                                        tool_calls_used: tool_calls,
+                                        provider_attempts_used,
+                                        unavailable_routes: unavailable_routes
+                                            .iter()
+                                            .cloned()
+                                            .collect(),
+                                        next_step: step + 1,
+                                        elapsed_ms,
+                                        route_plan_sha256: Some(route_plan_digest.clone()),
+                                        route_policy_sources: Some(route_policy_sources.clone()),
+                                        route_objective: Some(route_request.objective),
+                                        tool_capabilities_sha256: Some(
+                                            tool_capabilities.sha256.clone(),
+                                        ),
+                                    },
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?
+                        }
+                        _ => journal
+                            .append(JournalEventKind::Checkpoint {
+                                checkpoint: RuntimeCheckpoint {
+                                    mode,
+                                    messages: messages.clone(),
+                                    tool_calls_used: tool_calls,
+                                    provider_attempts_used,
+                                    unavailable_routes: unavailable_routes
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    next_step: step + 1,
+                                    elapsed_ms,
+                                    route_plan_sha256: Some(route_plan_digest.clone()),
+                                    route_policy_sources: Some(route_policy_sources.clone()),
+                                    route_objective: Some(route_request.objective),
+                                    tool_capabilities_sha256: Some(
+                                        tool_capabilities.sha256.clone(),
+                                    ),
+                                },
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?,
+                    };
+                    checkpoint_state = Some((checkpoint_event_seq, messages.len()));
                 }
             }
         }
@@ -2658,6 +2695,184 @@ mod tests {
                 usage: Usage::default(),
             })
         }
+    }
+
+    struct HistoryAwareToolProvider {
+        tool_steps: usize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for HistoryAwareToolProvider {
+        fn id(&self) -> &str {
+            "history-tool"
+        }
+
+        fn model(&self) -> &str {
+            "history-tool-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let observed = request
+                .messages
+                .iter()
+                .filter(|message| message.role == crate::domain::MessageRole::Tool)
+                .count();
+            let turn = if observed < self.tool_steps {
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: format!("call-{observed}"),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "tick"}),
+                    }],
+                }
+            } else {
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "delta resume complete".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn checkpoint_deltas_resume_to_the_same_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "history-tool".into();
+        manifest.model = "history-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(HistoryAwareToolProvider { tool_steps: 3 }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("keep working", workspace.path().into());
+
+        let complete = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(complete.stop_reason, StopReason::Completed);
+        let events = read_events(&complete.journal_path).unwrap();
+        let full_checkpoints = events
+            .iter()
+            .filter(|event| matches!(event.event, JournalEventKind::Checkpoint { .. }))
+            .count();
+        let deltas = events
+            .iter()
+            .filter(|event| matches!(event.event, JournalEventKind::CheckpointDelta { .. }))
+            .count();
+        assert_eq!(full_checkpoints, 1, "the first checkpoint is full");
+        assert_eq!(deltas, 2, "later checkpoints should be deltas");
+
+        let last_checkpoint = events
+            .iter()
+            .rposition(|event| {
+                matches!(
+                    event.event,
+                    JournalEventKind::Checkpoint { .. } | JournalEventKind::CheckpointDelta { .. }
+                )
+            })
+            .unwrap();
+        let interrupted_path = workspace.path().join("interrupted.jsonl");
+        let mut interrupted = Journal::create(&interrupted_path, Uuid::new_v4()).unwrap();
+        for event in &events[..=last_checkpoint] {
+            interrupted.append(event.event.clone()).unwrap();
+        }
+        drop(interrupted);
+
+        let resumed = runtime
+            .resume(&interrupted_path, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(resumed.stop_reason, complete.stop_reason);
+        assert_eq!(resumed.answer.conclusion, complete.answer.conclusion);
+        assert_eq!(resumed.answer.evidence, complete.answer.evidence);
+        let resumed_events = read_events(&resumed.journal_path).unwrap();
+        let audit = audit_events(&resumed_events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    #[ignore = "size probe; run with --ignored --nocapture"]
+    async fn delta_checkpoints_keep_the_journal_linear() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "history-tool".into();
+        manifest.model = "history-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(HistoryAwareToolProvider { tool_steps: 100 }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("keep working", workspace.path().into());
+        request.budget.max_steps = 0;
+        request.budget.max_tool_calls = 0;
+        request.budget.max_provider_attempts = 0;
+        let complete = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(complete.stop_reason, StopReason::Completed);
+
+        let events = read_events(&complete.journal_path).unwrap();
+        let mut messages = Vec::new();
+        let mut full_checkpoint_bytes = 0usize;
+        let mut actual_checkpoint_bytes = 0usize;
+        for event in &events {
+            match &event.event {
+                JournalEventKind::Checkpoint { checkpoint } => {
+                    messages = checkpoint.messages.clone();
+                    full_checkpoint_bytes += serde_json::to_vec(&messages).unwrap().len();
+                    actual_checkpoint_bytes += serde_json::to_vec(event).unwrap().len();
+                }
+                JournalEventKind::CheckpointDelta { checkpoint } => {
+                    messages.extend(checkpoint.messages.iter().cloned());
+                    full_checkpoint_bytes += serde_json::to_vec(&messages).unwrap().len();
+                    actual_checkpoint_bytes += serde_json::to_vec(event).unwrap().len();
+                }
+                _ => {}
+            }
+        }
+        let total = std::fs::metadata(&complete.journal_path).unwrap().len() as usize;
+        eprintln!(
+            "journal total={total} checkpoint actual={actual_checkpoint_bytes} full-checkpoint estimate={full_checkpoint_bytes} ratio={:.3}",
+            actual_checkpoint_bytes as f64 / full_checkpoint_bytes.max(1) as f64
+        );
+        assert!(
+            actual_checkpoint_bytes * 2 < full_checkpoint_bytes,
+            "delta checkpoints should be much smaller than full checkpoints"
+        );
     }
 
     #[tokio::test]
