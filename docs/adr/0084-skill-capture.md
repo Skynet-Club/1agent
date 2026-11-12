@@ -34,9 +34,12 @@ machine-specific paths into them.
      (`https://user:pass@host`).
    JSON arguments are walked recursively; values under secret-named keys are
    replaced with `<redacted>` wholesale, including objects, arrays and nested
-   environment maps. Hyphenated header names are normalized before matching.
-   Object keys are themselves sanitized and generalized; collisions after
-   sanitization get a `#N` suffix.
+   environment maps. Quoted spans inside text are escape-aware (`\"` does not
+   close the value). Hyphenated header names are normalized before matching.
+   Object keys are themselves sanitized and generalized, including
+   secret-named keys and display characters such as `<`/`>`/backticks;
+   collisions after sanitization get a `#N` suffix from a per-base counter, so
+   many colliding keys stay linear rather than quadratic.
 4. Generalize machine-specific values:
    - `/home/<user>`, `/Users/<user>` and `C:\Users\<user>` become `$HOME`;
    - `/tmp/` and `/var/tmp/` become `$TMPDIR/`;

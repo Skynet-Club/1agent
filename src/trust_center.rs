@@ -452,6 +452,7 @@ fn one_line(value: &str) -> String {
 
 fn markdown_text(value: &str) -> String {
     one_line(value)
+        .replace('\\', "\\\\")
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -788,6 +789,12 @@ mod tests {
             build_disclosure_with_incidents("0.97.0", 10, None, None, None, vec![], vec![bad_id]),
             Err(TrustCenterError::InvalidIncident(_))
         ));
+    }
+
+    #[test]
+    fn markdown_text_escapes_backslashes_before_brackets() {
+        assert_eq!(markdown_text(r"\[click\]"), r"\\\[click\\\]");
+        assert_eq!(markdown_text("<script>"), "&lt;script&gt;");
     }
 
     #[test]
