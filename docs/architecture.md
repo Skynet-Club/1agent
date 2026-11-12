@@ -216,6 +216,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Answer rendering lives in `answer_render.rs` (full and layered default views plus label
+  mappings); `main.rs` imports it. This is the second RFC-0001/SA97-25 slice.
 - Subagent acceptance: `spawn_agent` accepts only `stop_reason=completed`,
   audits a present child journal (16 MiB cap), and enforces a per-instance
   total fanout of 8. Depth and permission intersection are unchanged.
