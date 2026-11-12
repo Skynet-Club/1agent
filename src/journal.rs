@@ -164,7 +164,7 @@ pub enum JournalEventKind {
     ReframeDecided {
         choice: ReframeChoice,
         actor: String,
-        decided_at_unix_ms: u128,
+        decided_at_unix_ms: u64,
     },
     RunStopped {
         reason: StopReason,
@@ -308,7 +308,7 @@ pub struct ReplayState {
     #[serde(default)]
     pub reframe_actor: Option<String>,
     #[serde(default)]
-    pub reframe_decided_at_unix_ms: Option<u128>,
+    pub reframe_decided_at_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1362,7 +1362,7 @@ pub enum ResumeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{AnswerStatus, ToolStatus};
+    use crate::domain::{AnswerStatus, Evidence, ModelResponse, ModelTurn, ToolStatus, Usage};
     use crate::router::{
         PolicyValueSource, RouteObjective, RoutePlan, RoutePolicySources, RouteRequest,
     };
@@ -1383,6 +1383,70 @@ mod tests {
             flip_conditions: Vec::new(),
             action_receipts: Vec::new(),
         }
+    }
+
+    #[test]
+    fn tagged_events_with_evidence_timestamps_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("answer", PathBuf::from(".")),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        let mut answer = answer();
+        answer.evidence = vec![Evidence {
+            source: "fixture".into(),
+            statement: "timestamped evidence".into(),
+            observed_unix_ms: Some(0),
+            expires_unix_ms: Some(1),
+            claim_ids: Vec::new(),
+        }];
+        journal
+            .append(JournalEventKind::ModelResponded {
+                response: ModelResponse {
+                    provider_id: "provider".into(),
+                    model: "model".into(),
+                    turn: ModelTurn::Final { answer },
+                    usage: Usage::default(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(JournalEventKind::ReframeDecided {
+                choice: ReframeChoice::Deferred,
+                actor: "user".into(),
+                decided_at_unix_ms: 1_793_000_000_000,
+            })
+            .unwrap();
+        drop(journal);
+
+        let events = read_events(&path).unwrap();
+        assert_eq!(events.len(), 3);
+        match &events[1].event {
+            JournalEventKind::ModelResponded { response } => match &response.turn {
+                ModelTurn::Final { answer } => {
+                    assert_eq!(
+                        (
+                            answer.evidence[0].observed_unix_ms,
+                            answer.evidence[0].expires_unix_ms
+                        ),
+                        (Some(0), Some(1))
+                    );
+                }
+                other => panic!("expected a final turn, got {other:?}"),
+            },
+            other => panic!("expected model_responded, got {other:?}"),
+        }
+        assert!(matches!(
+            events[2].event,
+            JournalEventKind::ReframeDecided {
+                decided_at_unix_ms: 1_793_000_000_000,
+                ..
+            }
+        ));
     }
 
     #[test]

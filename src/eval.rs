@@ -989,7 +989,7 @@ async fn run_case(
             .iter()
             .filter(|evidence| {
                 evidence.expires_unix_ms.is_some_and(|expires| {
-                    expires
+                    u128::from(expires)
                         <= std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()

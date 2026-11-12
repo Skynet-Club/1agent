@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Epoch-millisecond fields (`Evidence` timestamps, `ReframeDecided`) are `u64`, not `u128`,
+  because serde's tagged-enum content buffer does not support `u128`. The JSON wire format is
+  unchanged, so legacy journals with those events remain readable.
 - Local gate metrics: `1agent metrics --journal-dir DIR` projects runs/completed/interrupted,
   recovery bps, structural replay and compacted replay bps, tool success, audit completeness
   (via `AgentAnswer::validate`), denied observations, tokens/cost and run latency from

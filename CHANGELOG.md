@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Legacy journal read fix (ADR-0101): `Evidence.observed_unix_ms`/
+  `expires_unix_ms` and `ReframeDecided.decided_at_unix_ms` use `u64` instead
+  of `u128`. serde's tagged-enum content buffer does not support `u128`, so
+  journals with those events failed to read; the JSON wire format is
+  unchanged and no migration is needed. Regression test:
+  `tagged_events_with_evidence_timestamps_round_trip`.
 - Local gate metrics (ADR-0100): `JournalMetricsReport` and
   `summarize_journal_events`/`summarize_journal_dir` project runs, recovery,
   structural replay, compacted replay, tool success, audit completeness,
