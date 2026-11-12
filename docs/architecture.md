@@ -506,6 +506,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `verify_bundle` used by import: size, SHA-256, schema, signature (signed
   bundles require a trusted key; unsigned with a key is rejected), duplicate
   names and manifest hashes, and the registry scan. It does not import.
+- `skill capture` reads the last run segment of a journal, requires a
+  `Completed` stop, and keeps only tool calls whose observation is `Ok`. It
+  redacts secret-like tokens, `Bearer` values, secret assignments, URL
+  userinfo and secret-named JSON keys; it generalizes home/temp paths, UUIDs
+  and emails. The result is a `SKILL.md` draft that passes `scan_markdown`.
+  Capture never registers or activates a skill; held-out evaluation, canary
+  and rollback remain the existing lifecycle.
 - `cua`: computer-use provenance and branch policy. An action's arguments are
   tagged `plan`, `trusted_observation` or `untrusted_observation`; a high-risk
   action with an untrusted argument is denied, other untrusted arguments
