@@ -36,6 +36,9 @@ pub struct ProviderCandidate {
     pub manifest: ProviderManifest,
 }
 
+/// Receives content fragments from a streaming provider as they arrive.
+pub type StreamSink = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Clone)]
 struct ToolGateContext {
     gate: ExecutionGate,
@@ -63,6 +66,7 @@ pub struct AgentRuntime {
     voice_mode: crate::user_model::VoiceMode,
     tool_query: Option<String>,
     attachments: Vec<crate::attachment::Attachment>,
+    stream_sink: Option<StreamSink>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -115,11 +119,20 @@ impl AgentRuntime {
             voice_mode: crate::user_model::VoiceMode::Operator,
             tool_query: None,
             attachments: Vec::new(),
+            stream_sink: None,
         }
     }
 
     pub fn with_attachments(mut self, attachments: Vec<crate::attachment::Attachment>) -> Self {
         self.attachments = attachments;
+        self
+    }
+
+    /// Report content fragments from the first provider attempt as they
+    /// arrive. Retries stay non-streaming so a failed attempt cannot duplicate
+    /// or interleave partial text with the fallback answer.
+    pub fn with_stream_sink(mut self, sink: StreamSink) -> Self {
+        self.stream_sink = Some(sink);
         self
     }
 
@@ -967,11 +980,19 @@ impl AgentRuntime {
                         path: journal_path.clone(),
                         source,
                     })?;
+                let sink = if attempt == 0 {
+                    self.stream_sink.clone()
+                } else {
+                    None
+                };
+                let provider_future = complete_with_stream(
+                    candidate.provider.clone(),
+                    model_request.clone(),
+                    &cancellation,
+                    sink,
+                );
                 let provider_result = if request.budget.timeout_ms == 0 {
-                    Ok(candidate
-                        .provider
-                        .complete(model_request.clone(), &cancellation)
-                        .await)
+                    Ok(provider_future.await)
                 } else {
                     let Some(remaining) =
                         remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
@@ -984,13 +1005,7 @@ impl AgentRuntime {
                             StopReason::BudgetExhausted,
                         );
                     };
-                    tokio::time::timeout(
-                        remaining,
-                        candidate
-                            .provider
-                            .complete(model_request.clone(), &cancellation),
-                    )
-                    .await
+                    tokio::time::timeout(remaining, provider_future).await
                 };
                 match provider_result {
                     Err(_) => {
@@ -1773,6 +1788,23 @@ impl AgentRuntime {
             .validate()
             .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
         Ok(proposal)
+    }
+}
+
+async fn complete_with_stream(
+    provider: Arc<dyn ModelProvider>,
+    request: ModelRequest,
+    cancellation: &CancellationToken,
+    sink: Option<StreamSink>,
+) -> Result<ModelResponse, ProviderError> {
+    match sink {
+        Some(sink) => {
+            let mut on_text = move |text: &str| sink(text);
+            provider
+                .complete_streaming(request, cancellation, &mut on_text)
+                .await
+        }
+        None => provider.complete(request, cancellation).await,
     }
 }
 
@@ -2611,6 +2643,170 @@ mod tests {
             .unwrap();
         assert_eq!(result.stop_reason, StopReason::Completed);
         assert_eq!(result.answer.conclusion, "长任务完成");
+    }
+
+    struct StreamingProvider;
+
+    #[async_trait]
+    impl ModelProvider for StreamingProvider {
+        fn id(&self) -> &str {
+            "streaming"
+        }
+
+        fn model(&self) -> &str {
+            "streaming-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            panic!("streaming provider must be called through complete_streaming")
+        }
+
+        async fn complete_streaming(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+            on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        ) -> Result<ModelResponse, ProviderError> {
+            on_text("streamed ");
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "streamed answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_sink_receives_deltas_before_the_final_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "streaming".into();
+        manifest.model = "streaming-v1".into();
+        let deltas = Arc::new(Mutex::new(Vec::new()));
+        let collected = deltas.clone();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(StreamingProvider),
+                manifest,
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_stream_sink(Arc::new(move |text: &str| {
+            collected.lock().unwrap().push(text.to_string());
+        }));
+        let request = TaskRequest::from_objective("stream a final answer", workspace.path().into());
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.conclusion, "streamed answer");
+        assert_eq!(*deltas.lock().unwrap(), ["streamed "]);
+        let events = read_events(&result.journal_path).unwrap();
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    struct PartialStreamFailureProvider;
+
+    #[async_trait]
+    impl ModelProvider for PartialStreamFailureProvider {
+        fn id(&self) -> &str {
+            "partial-stream"
+        }
+
+        fn model(&self) -> &str {
+            "partial-stream-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            panic!("first attempt must use complete_streaming")
+        }
+
+        async fn complete_streaming(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+            on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        ) -> Result<ModelResponse, ProviderError> {
+            on_text("partial ");
+            Err(ProviderError {
+                code: ProviderErrorCode::ProviderUnavailable,
+                message: "stream failed".into(),
+                retryable: true,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_after_partial_stream_does_not_replay_or_stream_the_fallback() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "partial-stream".into();
+        failing_manifest.model = "partial-stream-v1".into();
+        failing_manifest.quality_score = 100;
+        let deltas = Arc::new(Mutex::new(Vec::new()));
+        let collected = deltas.clone();
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(PartialStreamFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_stream_sink(Arc::new(move |text: &str| {
+            collected.lock().unwrap().push(text.to_string());
+        }));
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified evidence").unwrap();
+        let mut request = TaskRequest::from_objective(
+            format!(
+                "Compare options using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            workspace.path().into(),
+        );
+        request.budget.provider_retry_backoff_ms = 0;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(*deltas.lock().unwrap(), ["partial "]);
+        assert_ne!(result.answer.conclusion, "partial ");
     }
 
     #[tokio::test]

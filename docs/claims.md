@@ -50,6 +50,7 @@ file: <路径>              → 文件必须存在
 | 工具调用与结果在 journal 中成对 | test: audit_detects_unpaired_tool_call | ✅ | |
 | 远端凭据必须走 HTTPS | test: remote_bearer_credentials_require_https | ✅ | |
 | 检查 provider 时不打印密钥 | test: provider_inspection_never_prints_secret_values | ✅ | |
+| 流式 provider：`run --stream` 实时输出内容增量，tool_call 分片按 index 拼装，SSE 行跨包重组，取消返回 Cancelled，未实现流式的 provider 回退 complete，重试不流式 | cmd: cargo test stream --lib && cargo test --test stream_cli && cargo test --test openai_adapter -- --ignored | ✅ | 仅 CLI stderr 可见，TUI 未接；多行 `data:` 事件不支持；增量是展示层，不是证据；provider 不上报 usage 时预算会少计 |
 | 写路径重叠的任务被串行化 | test: overlapping_write_roots_are_serialized | ✅ | |
 | 平台分支只允许出现在展示适配器 | cmd: ! grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs | ✅ | 本日修正：原门禁依赖缺失的 rg，被静默跳过 |
 | 技能可从捕获、评测、激活回滚到上一版本，失败候选不替换现役版本 | test: skill_lifecycle_capture_to_rollback_is_replayable | ✅ | 确定性集成场景；基于磁盘 journal、重启回放与审计收据；不代表真实示范语料 |

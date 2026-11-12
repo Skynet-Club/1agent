@@ -205,6 +205,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   flip conditions and action receipts.
 - `JournalEvent`: protocol version, run id, contiguous sequence, timestamp and typed event.
 - `ModelRequest` and `ModelResponse`: canonical provider-neutral messages and tool calls.
+- `ModelProvider::complete_streaming`: reports content fragments as they arrive and still
+  returns one complete response. The OpenAI-compatible adapter parses server-sent events,
+  assembles tool-call fragments by index and honors cancellation; providers without streaming
+  fall back to `complete`. Only the first runtime attempt streams, so retries cannot duplicate
+  partial text. `1agent run --stream` prints fragments to stderr; deltas are presentation only
+  and the journaled final response remains the evidence source.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
