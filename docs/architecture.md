@@ -316,6 +316,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   supplies revenue, variable cost, fixed cost and an optional verified-outcome
   count; it reports contribution, net, gross-margin basis points, per-outcome
   revenue/cost and break-even outcomes. It does not set prices.
+- `benchmark`: a pure gate over caller-supplied samples. It computes
+  completion, crash-free and replay basis points; a crashed sample is never
+  counted as completed or replay-verified. `parse_samples` reads one JSON
+  object per line and reports the source line on malformed input. Empty,
+  oversized or invalid-threshold input fails closed. It is a calculator, not
+  an 8-hour runner.
 - `trust_center`: `build_disclosure` derives capability counts and limits from
   the Agent Card, states the data policy, and includes caller-supplied
   evaluation disclosures. The audit section is always `not_audited` with

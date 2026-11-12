@@ -89,3 +89,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0083 | MCP OAuth Token Exchange | [0083-mcp-token-exchange.md](0083-mcp-token-exchange.md) |
 | 0084 | Skill Capture from a Completed Journal | [0084-skill-capture.md](0084-skill-capture.md) |
 | 0085 | Skill Evaluation CLI Gate | [0085-skill-eval-cli-gate.md](0085-skill-eval-cli-gate.md) |
+| 0086 | Benchmark Gate Metrics | [0086-benchmark-gate-metrics.md](0086-benchmark-gate-metrics.md) |
