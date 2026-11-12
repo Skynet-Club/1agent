@@ -517,7 +517,7 @@ pub fn decision_receipts(journal_dir: &std::path::Path) -> Vec<ReframeReceiptEnt
                 stated_request: proposal.stated_request,
                 choice,
                 actor: state.reframe_actor.unwrap_or_default(),
-                decided_at_unix_ms: state.reframe_decided_at_unix_ms.unwrap_or(0),
+                decided_at_unix_ms: u128::from(state.reframe_decided_at_unix_ms.unwrap_or(0)),
             })
         })
         .collect::<Vec<_>>();

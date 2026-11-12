@@ -340,9 +340,9 @@ pub struct Evidence {
     pub source: String,
     pub statement: String,
     #[serde(default)]
-    pub observed_unix_ms: Option<u128>,
+    pub observed_unix_ms: Option<u64>,
     #[serde(default)]
-    pub expires_unix_ms: Option<u128>,
+    pub expires_unix_ms: Option<u64>,
     #[serde(default)]
     pub claim_ids: Vec<String>,
 }
@@ -759,7 +759,7 @@ impl AgentAnswer {
                 if claim.status == ClaimStatus::Verified {
                     if evidence
                         .expires_unix_ms
-                        .is_some_and(|expires| expires <= now_unix_ms())
+                        .is_some_and(|expires| u128::from(expires) <= now_unix_ms())
                     {
                         return Err(AnswerValidationError::ExpiredVerifiedEvidence(
                             evidence.source.clone(),
@@ -771,7 +771,7 @@ impl AgentAnswer {
                                 evidence.source.clone(),
                             ));
                         };
-                        let age_ms = now_unix_ms().saturating_sub(observed);
+                        let age_ms = now_unix_ms().saturating_sub(u128::from(observed));
                         if age_ms > u128::from(max_age_ms) {
                             return Err(AnswerValidationError::StaleEvidenceForPolicy(
                                 evidence.source.clone(),
@@ -1657,21 +1657,22 @@ mod tests {
             Err(AnswerValidationError::MissingEvidenceTimestamp(_))
         ));
 
-        answer.evidence[0].observed_unix_ms = Some(now.saturating_sub(2_000));
-        answer.evidence[0].expires_unix_ms = Some(now + 10_000);
+        answer.evidence[0].observed_unix_ms =
+            Some(u64::try_from(now.saturating_sub(2_000)).unwrap());
+        answer.evidence[0].expires_unix_ms = Some(u64::try_from(now + 10_000).unwrap());
         assert!(matches!(
             answer.validate(&request),
             Err(AnswerValidationError::StaleEvidenceForPolicy(_))
         ));
 
-        answer.evidence[0].observed_unix_ms = Some(now.saturating_sub(100));
-        answer.evidence[0].expires_unix_ms = Some(now.saturating_sub(1));
+        answer.evidence[0].observed_unix_ms = Some(u64::try_from(now.saturating_sub(100)).unwrap());
+        answer.evidence[0].expires_unix_ms = Some(u64::try_from(now.saturating_sub(1)).unwrap());
         assert!(matches!(
             answer.validate(&request),
             Err(AnswerValidationError::ExpiredVerifiedEvidence(_))
         ));
 
-        answer.evidence[0].expires_unix_ms = Some(now + 10_000);
+        answer.evidence[0].expires_unix_ms = Some(u64::try_from(now + 10_000).unwrap());
         answer.validate(&request).unwrap();
     }
 }

@@ -9371,7 +9371,7 @@ async fn main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("journal contains no reframe decision"))?;
             let actor = state.reframe_actor.unwrap_or_default();
             let decided_at = state.reframe_decided_at_unix_ms.unwrap_or(0);
-            let receipt = render_receipt(&proposal, &choice, &actor, decided_at);
+            let receipt = render_receipt(&proposal, &choice, &actor, u128::from(decided_at));
             if json {
                 println!(
                     "{}",
@@ -11365,7 +11365,7 @@ fn record_reframe_decision(
     journal.append(JournalEventKind::ReframeDecided {
         choice: choice.clone(),
         actor: "user".into(),
-        decided_at_unix_ms,
+        decided_at_unix_ms: u64::try_from(decided_at_unix_ms).unwrap_or(u64::MAX),
     })?;
     journal.append(JournalEventKind::AnswerProduced {
         answer: AgentAnswer {
@@ -16292,7 +16292,10 @@ fn display_receipt(state: &mut TuiState, session: &TuiSession) {
         let actor = replay.reframe_actor.unwrap_or_default();
         let decided_at = replay.reframe_decided_at_unix_ms.unwrap_or(0);
         state.info(bound_tui_command_output(render_receipt(
-            &proposal, &choice, &actor, decided_at,
+            &proposal,
+            &choice,
+            &actor,
+            u128::from(decided_at),
         )));
         return;
     }
