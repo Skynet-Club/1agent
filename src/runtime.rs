@@ -63,6 +63,7 @@ pub struct AgentRuntime {
     route_policy_sources: RoutePolicySources,
     selected_route: Option<ProviderRouteKey>,
     tool_gate: Option<ToolGateContext>,
+    kill_switch: Option<PathBuf>,
     provider_health: Option<Arc<Mutex<ProviderHealth>>>,
     alerts: Option<Arc<Mutex<AlertLog>>>,
     alert_webhook: Option<Arc<AlertWebhook>>,
@@ -116,6 +117,7 @@ impl AgentRuntime {
             },
             selected_route: None,
             tool_gate: None,
+            kill_switch: None,
             provider_health: None,
             alerts: None,
             alert_webhook: None,
@@ -161,6 +163,13 @@ impl AgentRuntime {
 
     pub fn with_alert_webhook(mut self, webhook: Arc<AlertWebhook>) -> Self {
         self.alert_webhook = Some(webhook);
+        self
+    }
+
+    /// Refuse write-capable tools while this file exists. Read-only tools stay
+    /// available so an operator can inspect the run without side effects.
+    pub fn with_kill_switch(mut self, path: impl Into<PathBuf>) -> Self {
+        self.kill_switch = Some(path.into());
         self
     }
 
@@ -256,6 +265,24 @@ impl AgentRuntime {
         permissions: &crate::domain::PermissionSet,
         cancellation: &CancellationToken,
     ) -> ToolObservation {
+        if let Some(path) = &self.kill_switch
+            && path.exists()
+            && self
+                .tools
+                .capabilities()
+                .iter()
+                .any(|capability| capability.name == call.name && capability.requires_write)
+        {
+            return ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status: ToolStatus::PermissionDenied,
+                summary: "kill switch is active; write tools are disabled".into(),
+                content: String::new(),
+                error_code: Some("kill_switch_active".into()),
+                metadata: Default::default(),
+            };
+        }
         if let Some(context) = &self.tool_gate
             && let Err(error) = context.gate.authorize(
                 &ToolCallRequest {
@@ -4073,5 +4100,54 @@ mod tests {
         .await;
         assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
         assert!(result.answer.conclusion.contains("token budget"));
+    }
+
+    #[tokio::test]
+    async fn kill_switch_blocks_writes_but_keeps_reads_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let kill = dir.path().join("KILL");
+        let evidence = dir.path().join("evidence.txt");
+        std::fs::write(&evidence, "evidence").unwrap();
+        let target = dir.path().join("out.txt");
+        let runtime =
+            AgentRuntime::new(Vec::new(), default_registry(), dir.path().join("journals"))
+                .with_kill_switch(&kill);
+        let permissions = PermissionSet {
+            read_roots: vec![dir.path().to_path_buf()],
+            allow_network: false,
+            allow_write: true,
+        };
+        let cancellation = CancellationToken::new();
+        let read_call = || ToolCall {
+            id: "read-1".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": evidence}),
+        };
+        let write_call = || ToolCall {
+            id: "write-1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": target, "content": "x"}),
+        };
+
+        let read = runtime
+            .execute_tool(&read_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(read.status, ToolStatus::Ok);
+        let write = runtime
+            .execute_tool(&write_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(write.status, ToolStatus::Ok);
+        std::fs::remove_file(&target).unwrap();
+
+        std::fs::write(&kill, b"stop").unwrap();
+        let write = runtime
+            .execute_tool(&write_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(write.status, ToolStatus::PermissionDenied);
+        assert_eq!(write.error_code.as_deref(), Some("kill_switch_active"));
+        let read = runtime
+            .execute_tool(&read_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(read.status, ToolStatus::Ok);
     }
 }
