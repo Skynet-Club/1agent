@@ -3315,6 +3315,52 @@ fn provider_network_failure_prints_a_recovery_hint() {
 }
 
 #[test]
+fn onboard_check_reports_paths_and_provider_without_writing() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let memory = workspace.path().join("memory.jsonl");
+    let payloads = workspace.path().join("payloads");
+    let key = workspace.path().join("keys/memory.key");
+    let goals = workspace.path().join("goals.jsonl");
+    let output = Command::new(binary)
+        .args([
+            "onboard",
+            "--check",
+            "--json",
+            "--memory-journal",
+            &memory.display().to_string(),
+            "--memory-payloads",
+            &payloads.display().to_string(),
+            "--memory-key",
+            &key.display().to_string(),
+            "--goal-journal",
+            &goals.display().to_string(),
+        ])
+        .env("AGENT_API_KEY", "test-key")
+        .env("AGENT_BASE_URL", "https://example.invalid/v1")
+        .env("AGENT_MODEL", "test-model")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    let names = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|check| check["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"memory_journal"));
+    assert!(names.contains(&"provider_key"));
+    assert!(!memory.exists());
+    assert!(!payloads.exists());
+}
+
+#[test]
 fn tui_line_mode_prints_a_recovery_hint() {
     let workspace = tempfile::tempdir().unwrap();
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
