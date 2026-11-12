@@ -2477,13 +2477,47 @@ mod reframe_journal_tests {
         let events = read_events(&path).unwrap();
         let full = started.elapsed();
         assert_eq!(events.len() as u64, total);
+        let started = std::time::Instant::now();
+        let replay = replay_events(&events).unwrap();
+        let replay_time = started.elapsed();
+        assert_eq!(replay.run_id, run_id);
+
+        let mut cursor = JournalCursor::new();
+        let consumed = read_events_incremental(&path, &mut cursor).unwrap();
+        assert_eq!(consumed.len() as u64, total);
+        let mut samples = Vec::new();
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        for offset in 0..20u64 {
+            let seq = total + offset;
+            let event = JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ClientRequestLinked {
+                    client_request_id: format!("new-{seq}"),
+                },
+            };
+            writeln!(file, "{}", serde_json::to_string(&event).unwrap()).unwrap();
+            file.flush().unwrap();
+            let started = std::time::Instant::now();
+            let new = read_events_incremental(&path, &mut cursor).unwrap();
+            samples.push(started.elapsed());
+            assert_eq!(new.len(), 1);
+        }
+        samples.sort();
+        let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
         eprintln!(
-            "journal bytes={} events={total} full={full:?}",
+            "journal bytes={} events={total} full={full:?} replay={replay_time:?} incremental_p95={p95:?}",
             std::fs::metadata(&path).unwrap().len()
         );
         assert!(
             full < std::time::Duration::from_millis(50),
             "full parse took {full:?}"
+        );
+        assert!(
+            p95 < std::time::Duration::from_millis(50),
+            "incremental p95 took {p95:?}"
         );
     }
 
