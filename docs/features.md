@@ -75,6 +75,7 @@
 - journal 增量读取：`JournalCursor` + `read_events_incremental` 只解析游标后的完整行；未换行的尾部保留到下次；文件缩小返回 `Truncated`。`read_events` 改为缓冲逐行解析；4.7 MB（约 1.2M token）journal 调试构建 31 ms；TUI/daemon 尚未切换到游标；
 - checkpoint 差分：首个 checkpoint 全量，之后 `CheckpointDelta` 只带新增消息与累计计数；resume/replay 按顺序合并，base 不匹配失败关闭，audit 标记孤立 delta；100 步 echo run 的 checkpoint 事件 115 KB，全量估算约 2.99 MB。`ModelRequested` 仍每步全量写入；
 - watchdog 升级阶梯：`watchdog --warn-after-ms/--pause-after-ms/--repair-after-ms` 按心跳年龄输出 ok/warn/pause/repair；`--intervention-log` 只在动作变化时追加记录，恢复 ok 记一次；pause/repair 只是建议，不发送信号、不重启、不扩权；
+- 本地门禁指标：`1agent metrics --journal-dir DIR [--json]` 从 journal 投影 runs/completed/interrupted、恢复率、结构回放率、压缩后回放率、工具成功率、审计完整率、拒绝观测、token/成本与 run 延迟 p50/p95；零分母为 `null`，坏 journal 失败关闭；M7 TTFT/M14/M19–M23 不在本投影；
 - 答案分层：默认 `run`/`resume` 人类输出只显示状态、结论和一行信任摘要（主张/证据/假设/未知/翻转计数）；`conditional`/`needs_evidence` 或含高影响未知时内联最多 3 条依据与全部翻转条件；`--details` 恢复完整字段与路由轨迹；JSON 和内部调用不变；
 - 错误恢复建议：`run`/`resume` 失败时在 stderr 打印一条 `hint:`（鉴权→检查密钥/账号、限流→等待或切换、超时/网络→检查连通性或提高 `--timeout-seconds`、journal→检查目录写权限/空间、取消→resume 续跑等）；不改变错误、重试次数、权限或退出码；TUI 未接；
 - Clarify 门控：`1agent clarify --questions PATH [--answers PATH --outcome STATUS]` 校验结构化问题（2–4 个唯一选项、至多一个推荐项、prompt/选项有界），自动补 `Other` 并把推荐项放首位；默认每轮 1 题、可按总预算限流、重复 id/prompt 过滤；blocking 批量最多 5 题；`resolve_round` 校验 `answered|skipped|unanswered` 与 `submitted|cancelled|timed_out|undelivered`，未回答不使默认答案失效；TUI 面板与持久化问题历史未做；

@@ -2,6 +2,13 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Local gate metrics (ADR-0100): `JournalMetricsReport` and
+  `summarize_journal_events`/`summarize_journal_dir` project runs, recovery,
+  structural replay, compacted replay, tool success, audit completeness,
+  denied observations, tokens/cost and run latency from journals. `1agent
+  metrics --journal-dir DIR [--json]` exposes it; zero denominators are
+  `null` and a corrupt journal fails closed. Tests: five unit tests and one
+  CLI e2e.
 - Architecture boundary RFC and threat model: `docs/rfc/0001-module-boundaries.md`
   defines the session/harness/sandbox contracts and the migration order for
   splitting `main.rs` and `tui.rs`; `docs/threat-model.md` records P0/P1

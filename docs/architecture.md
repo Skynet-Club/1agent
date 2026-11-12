@@ -216,6 +216,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Local gate metrics: `1agent metrics --journal-dir DIR` projects runs/completed/interrupted,
+  recovery bps, structural replay and compacted replay bps, tool success, audit completeness
+  (via `AgentAnswer::validate`), denied observations, tokens/cost and run latency from
+  `*.jsonl` journals. Zero-denominator percentages are `null`; a corrupt journal fails the
+  command. It is a local structural projection, not M1–M23 proof.
 - Crash-recovery soak: a deterministic write task is interrupted at the first checkpoint, at
   `ToolCalled` and at `ToolObserved`; resume from the checkpoint must finish without replaying
   the completed side effect, while the two later prefixes must fail closed. Duration mode

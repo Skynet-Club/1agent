@@ -103,3 +103,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0097 | Actionable Error Recovery Hints | [0097-actionable-error-recovery.md](0097-actionable-error-recovery.md) |
 | 0098 | Answer/Audit Layering | [0098-answer-audit-layering.md](0098-answer-audit-layering.md) |
 | 0099 | Crash-Recovery Soak | [0099-crash-recovery-soak.md](0099-crash-recovery-soak.md) |
+| 0100 | Local Gate Metrics | [0100-local-gate-metrics.md](0100-local-gate-metrics.md) |
