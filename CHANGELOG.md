@@ -5,11 +5,11 @@
 - TUI recovery hint: a failed interactive or line-mode run now appends
   `提示：<hint>` after the error, using the same `RuntimeError::recovery_hint`
   as the CLI. The new CLI e2e drives line mode with an unreachable provider.
-- Real-provider eval baseline: three post-calibration runs of the eight-task
-  suite on DeepSeek `deepseek-flash` passed 17/24 cases (70.83%) with rubric
-  52/52 and decision completeness above the 8000 bps floor; one hard-gate
-  failure (`checksum-file`, run 2) and repeated `conditional` answers for
-  `research-compare`/`checksum-file` remain. Required
+- Real-provider eval baseline: suite v1.1 passed 16/16 task runs across two
+  DeepSeek `deepseek-flash` runs (rubric 36/36, decision completeness 100%).
+  The earlier v1.0 calibration passed 17/24 with one hard-gate failure; v1.1
+  clarifies the `checksum-file` payload and accepts a conditional
+  `research-compare` answer. Required
   evidence sources now accept workspace absolute paths and failures list the
   actual sources. Human review/calibration is still required; this is not an
   8h M1 benchmark.

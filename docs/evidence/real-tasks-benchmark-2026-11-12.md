@@ -113,6 +113,41 @@ Per task:
 Run 1 is excluded from the aggregate because the suite still had the
 checkpoint and path-matching defects.
 
+## Suite v1.1 calibration (2026-11-12)
+
+Two task-definition ambiguities explained the remaining stable failures:
+
+1. `research-compare`: the two files contain no shared metric, so the model
+   cannot produce a completed ranking without an assumption. The expectation
+   is now `conditional`; a conditional answer with bound flip conditions is the
+   correct shape. The reproduced answer ranked B by migration-risk asymmetry
+   and named the cost gap that would flip it to A.
+2. `checksum-file`: "containing the exact text evidence" did not define the
+   payload. The objective now names the literal ASCII payload `evidence` with
+   no trailing newline.
+
+`suite_version` is now `1.1`.
+
+## Runs 5 and 6 (suite v1.1)
+
+```text
+run 5: total=8 passed=8 failed=0 hard_gate_failures=0 rubric=18/18
+       decision_completeness=10000 bps
+run 6: total=8 passed=8 failed=0 hard_gate_failures=0 rubric=18/18
+       decision_completeness=10000 bps
+```
+
+Raw reports:
+
+```text
+docs/evidence/real-tasks-benchmark-2026-11-12-run5.json
+docs/evidence/real-tasks-benchmark-2026-11-12-run6.json
+```
+
+Current-suite aggregate: **16/16 task runs (100%) across two runs**, 0
+hard-gate failures, rubric 36/36. The sample is still 8 tasks, one
+provider/model and two repetitions; human calibration is still required.
+
 ## Reliability follow-up (2026-11-12)
 
 The `checksum-file` hard-gate failure was a runtime validation failure, not a

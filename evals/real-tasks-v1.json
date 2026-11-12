@@ -1,6 +1,6 @@
 {
   "name": "real-tasks-v1",
-  "suite_version": "1",
+  "suite_version": "1.1",
   "kind": "model_quality",
   "execution_status": "ready",
   "provider_requirements": [
@@ -124,7 +124,7 @@
       },
       "expect": {
         "stop_reason": "completed",
-        "answer_status": "completed",
+        "answer_status": "conditional",
         "min_evidence": 2,
         "min_claims": 2,
         "min_flip_conditions": 1,
@@ -186,7 +186,7 @@
     },
     {
       "id": "checksum-file",
-      "objective": "Create ${workspace}/checksum.txt containing the exact text evidence, compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "objective": "Create ${workspace}/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
       "setup_files": [],
       "rubric": {
         "required_sources": [
