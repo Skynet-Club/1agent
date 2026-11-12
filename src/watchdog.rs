@@ -55,8 +55,8 @@ impl WatchdogAction {
     }
 }
 
-/// Escalation thresholds. `Pause` and `Repair` are recommendations: this
-/// module never signals a process or expands authority.
+/// Escalation thresholds. `decide` and `append_intervention` only recommend;
+/// `execute` is the explicit opt-in path for a checked pause/resume signal.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct WatchdogPolicy {
@@ -104,6 +104,92 @@ pub struct WatchdogIntervention {
     pub pid: Option<u32>,
     pub age_ms: Option<u128>,
     pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchdogExecution {
+    Pause,
+    Resume,
+}
+
+impl WatchdogExecution {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pause => "pause",
+            Self::Resume => "resume",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WatchdogExecutionReceipt {
+    pub action: WatchdogExecution,
+    pub pid: u32,
+    pub executed_at_ms: u128,
+    pub expected_command: String,
+}
+
+/// Execute an explicit, reversible process signal after a Pause/Repair
+/// decision. The target must be a live process whose `/proc/<pid>/cmdline`
+/// contains `expected_command`; the watchdog refuses to signal itself, pid 0,
+/// a missing process, or a command mismatch. This never kills or restarts a
+/// process and never expands authority.
+pub fn execute(
+    action: WatchdogExecution,
+    pid: u32,
+    expected_command: &str,
+    now_ms: u128,
+) -> Result<WatchdogExecutionReceipt, WatchdogError> {
+    if pid == 0 {
+        return Err(WatchdogError::Invalid("pid 0 is not a target".into()));
+    }
+    if pid == std::process::id() {
+        return Err(WatchdogError::Invalid(
+            "refusing to signal the watchdog process itself".into(),
+        ));
+    }
+    let expected_command = expected_command.trim();
+    if expected_command.is_empty() {
+        return Err(WatchdogError::Invalid(
+            "expected command must not be empty".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).map_err(|error| {
+            WatchdogError::Invalid(format!("cannot read /proc/{pid}/cmdline: {error}"))
+        })?;
+        let cmdline = String::from_utf8_lossy(&cmdline).replace('\0', " ");
+        if !cmdline.contains(expected_command) {
+            return Err(WatchdogError::Invalid(format!(
+                "pid {pid} command does not contain `{expected_command}`"
+            )));
+        }
+        let pid_t = libc::pid_t::try_from(pid)
+            .map_err(|_| WatchdogError::Invalid("pid is out of range".into()))?;
+        let signal = match action {
+            WatchdogExecution::Pause => libc::SIGSTOP,
+            WatchdogExecution::Resume => libc::SIGCONT,
+        };
+        if unsafe { libc::kill(pid_t, signal) } != 0 {
+            return Err(WatchdogError::Io(std::io::Error::last_os_error()));
+        }
+        Ok(WatchdogExecutionReceipt {
+            action,
+            pid,
+            executed_at_ms: now_ms,
+            expected_command: expected_command.into(),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (action, now_ms);
+        Err(WatchdogError::Invalid(
+            "process signaling is not supported on this platform".into(),
+        ))
+    }
 }
 
 pub fn touch(path: &Path, pid: u32, now_ms: u128) -> Result<(), WatchdogError> {
@@ -383,5 +469,97 @@ mod tests {
                 .as_nanos()
         ));
         assert_eq!(read(&path).unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    struct ChildGuard(std::process::Child);
+
+    #[cfg(unix)]
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[cfg(unix)]
+    fn process_state(pid: u32) -> Option<char> {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        status.lines().find_map(|line| {
+            line.strip_prefix("State:")
+                .and_then(|rest| rest.trim().chars().next())
+        })
+    }
+
+    #[cfg(unix)]
+    fn wait_for_cmdline(pid: u32, needle: &str) {
+        for _ in 0..100 {
+            let matches = std::fs::read(format!("/proc/{pid}/cmdline"))
+                .map(|bytes| String::from_utf8_lossy(&bytes).contains(needle))
+                .unwrap_or(false);
+            if matches {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("child {pid} did not exec `{needle}`");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn execution_refuses_self_missing_and_mismatched_targets() {
+        assert!(execute(WatchdogExecution::Pause, 0, "sleep", 0).is_err());
+        assert!(execute(WatchdogExecution::Pause, std::process::id(), "sleep", 0).is_err());
+        assert!(execute(WatchdogExecution::Pause, 999_999, "sleep", 0).is_err());
+        let child = ChildGuard(
+            std::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .unwrap(),
+        );
+        wait_for_cmdline(child.0.id(), "sleep");
+        let error = execute(
+            WatchdogExecution::Pause,
+            child.0.id(),
+            "first-principles-agent",
+            0,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("does not contain"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn execution_pauses_and_resumes_a_matching_process() {
+        let child = ChildGuard(
+            std::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
+        wait_for_cmdline(pid, "sleep");
+        let receipt = execute(WatchdogExecution::Pause, pid, "sleep", 1).unwrap();
+        assert_eq!(receipt.action, WatchdogExecution::Pause);
+        let mut stopped = false;
+        for _ in 0..100 {
+            if process_state(pid) == Some('T') {
+                stopped = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(stopped, "child did not stop");
+
+        execute(WatchdogExecution::Resume, pid, "sleep", 2).unwrap();
+        let mut resumed = false;
+        for _ in 0..100 {
+            if process_state(pid).is_some_and(|state| state != 'T') {
+                resumed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(resumed, "child did not resume");
     }
 }
