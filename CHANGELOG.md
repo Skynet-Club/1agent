@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- 0.97 status and metric review: `docs/status-v0.97.md` records the current
+  hard-gate evidence, M1–M23 status, release blockers and next actions. It
+  marks unmeasured metrics as unmeasured rather than zero; 0.97 is not
+  release-ready.
 - Eight-case core suite (ADR-0104): `core-v3` adds a directory-read failure
   and a sleep-then-honest case. `tests/eval_repeatability_cli.rs` runs the
   suite twice and compares verdicts; the report digest is not compared because
