@@ -23,3 +23,23 @@ model-quality suite must be `ready` and declare provider requirements, a reviewe
 | Epistemic impact | High-impact unknown reduction requirements |
 
 These tests prove contract and runtime integrity, not real-model reasoning quality. Real-model evaluation begins after provider credentials, a gold task set and calibrated human review are available.
+
+## Golden set v1
+
+`golden-set-v1.jsonl` is a fixed 40-prompt inventory for M19–M23 review: eight prompts each for chat, fact, decision, research and execution. Validate it with:
+
+```bash
+1agent golden-check --input evals/golden-set-v1.jsonl --json
+```
+
+The validator checks the inventory only: 30–50 entries, unique ids and prompts, safe ids, control characters and category coverage. It does not call a model and does not produce labels.
+
+Blind-review procedure:
+
+1. Run each prompt against 1Agent and the reference (for example Hermes) with the same provider, temperature, budget and task permissions.
+2. Remove model identity and randomize pair order.
+3. Two reviewers label first-answer usability, pairwise preference, over-structure, unnecessary follow-up and follow-up adoption.
+4. Feed the labels to `1agent answer-quality --input LABELS.jsonl`; zero denominators stay `null`.
+5. Archive the prompt version, provider version, random seed and raw journals with the report.
+
+Changing a prompt after labels exist requires a new version and a CHANGELOG/ADR entry so prior labels remain comparable.

@@ -13,6 +13,11 @@
   minimum closed; `0` disables it. `scripts/gate-check.sh DIR` defaults to the
   M4/M5/M13/M17 hard gates, and `release-check.sh --metrics-dir DIR` invokes
   it. Tests: one policy unit test and the CLI gate pass/fail/invalid cases.
+- Golden-set v1 (ADR-0116): `evals/golden-set-v1.jsonl` fixes 40 prompts
+  (eight each for chat, fact, decision, research and execution).
+  `1agent golden-check` validates count, uniqueness, safe ids, control
+  characters and category coverage. It is inventory validation only; it does
+  not run a model or a blind review. Tests: six unit and two CLI e2e.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal
