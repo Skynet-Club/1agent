@@ -1165,6 +1165,10 @@ fn aggregate_decision_completeness(results: &[EvalCaseResult]) -> DecisionComple
     }
 }
 
+fn source_matches(actual: &str, required: &str) -> bool {
+    actual == required || actual.ends_with(&format!("/{required}"))
+}
+
 fn score_rubric(
     rubric: Option<&EvalRubric>,
     answer: &crate::domain::AgentAnswer,
@@ -1197,11 +1201,19 @@ fn score_rubric(
         if answer
             .evidence
             .iter()
-            .any(|evidence| &evidence.source == source)
+            .any(|evidence| source_matches(&evidence.source, source))
         {
             passed += 1;
         } else {
-            issues.push(format!("rubric: evidence source '{source}' is missing"));
+            let actual = answer
+                .evidence
+                .iter()
+                .map(|evidence| evidence.source.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            issues.push(format!(
+                "rubric: evidence source '{source}' is missing (actual: {actual})"
+            ));
         }
     }
     for status in &rubric.required_claim_statuses {
@@ -2359,5 +2371,12 @@ mod tests {
             validate_suite(&suite),
             Err(EvalError::InvalidSuite(_))
         ));
+    }
+
+    #[test]
+    fn required_sources_match_workspace_absolute_paths() {
+        assert!(source_matches("/tmp/ws/sales.jsonl", "sales.jsonl"));
+        assert!(source_matches("a.md", "a.md"));
+        assert!(!source_matches("/tmp/ws/other.md", "a.md"));
     }
 }
