@@ -262,6 +262,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   (via `AgentAnswer::validate`), denied observations, tokens/cost and run latency from
   `*.jsonl` journals. Zero-denominator percentages are `null`; a corrupt journal fails the
   command. It is a local structural projection, not M1–M23 proof.
+- Stage latencies: the same report projects disjoint route (run start to first
+  `RouteSelected`), context (route selection or previous `ModelResponded`/`ToolObserved` to
+  `ModelRequested`), model (`ModelRequested` to `ModelResponded`/`ProviderFailed`) and tool
+  (`ToolCalled` to matching `ToolObserved`) digests from event timestamps. Retries add model
+  samples but not context samples. Journal-write and TUI-render durations are not inferred
+  from event gaps.
 - Crash-recovery soak: a deterministic write task is interrupted at the first checkpoint, at
   `ToolCalled` and at `ToolObserved`; resume from the checkpoint must finish without replaying
   the completed side effect, while the two later prefixes must fail closed. Duration mode

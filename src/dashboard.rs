@@ -381,6 +381,10 @@ mod tests {
                 p95_ms: 12,
                 max_ms: 12,
             }),
+            route_latency: None,
+            context_latency: None,
+            model_latency: None,
+            tool_latency: None,
         };
         let html = render(&DashboardInputs {
             usage: &usage,

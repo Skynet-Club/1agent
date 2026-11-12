@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Journal-derived stage latencies (ADR-0114): `1agent metrics` now projects
+  route, context, model and tool p50/p95 digests from existing journal event
+  timestamps. The four stages are disjoint; retries add model samples but not
+  context samples. Journal-write and TUI-render durations remain probes. Test:
+  one timed-journal unit test plus the metrics CLI e2e.
 - Dashboard gate metrics (ADR-0113): `1agent dashboard` adds an optional card
   grid for runs, crash-free, recovery, replay, tool success, audit
   completeness, denied observations and TTFT p95, computed from the journal

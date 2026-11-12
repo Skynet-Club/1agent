@@ -67,6 +67,10 @@ fn metrics_summarize_completed_and_interrupted_journals() {
     assert_eq!(report["tool_success_bps"], 10_000);
     assert_eq!(report["audit_complete_bps"], 10_000);
     assert!(report["run_latency"]["p50_ms"].is_number());
+    assert!(report["route_latency"]["p50_ms"].is_number());
+    assert!(report["context_latency"]["p50_ms"].is_number());
+    assert!(report["model_latency"]["p50_ms"].is_number());
+    assert!(report["tool_latency"]["p50_ms"].is_number());
 
     let human = Command::new(binary)
         .args([
@@ -80,4 +84,8 @@ fn metrics_summarize_completed_and_interrupted_journals() {
     let stdout = String::from_utf8_lossy(&human.stdout);
     assert!(stdout.contains("journals=2"), "stdout: {stdout}");
     assert!(stdout.contains("recovery="), "stdout: {stdout}");
+    assert!(stdout.contains("route latency ms:"), "stdout: {stdout}");
+    assert!(stdout.contains("context latency ms:"), "stdout: {stdout}");
+    assert!(stdout.contains("model latency ms:"), "stdout: {stdout}");
+    assert!(stdout.contains("tool latency ms:"), "stdout: {stdout}");
 }
