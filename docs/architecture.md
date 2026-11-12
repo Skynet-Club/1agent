@@ -302,7 +302,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   outcomes and keeps the default answer valid. `ClarifyPanel` adds the blocking panel state
   machine: one to five questions, per-question lock, required `Other` text, one confirm, cancel,
   and a 300-second expiry; an all-skipped confirm is a cancellation. `1agent clarify` exposes the
-  gate and round resolution; panel rendering and persistent history are still absent.
+  gate and round resolution. The TUI `/clarify <questions.json>` command renders a
+  blocking 1–5 question modal with per-question lock, an inline `Other` editor, one
+  confirm, cancel and a 500 ms expiry poll; the resolved round is shown in the
+  transcript and written to `/details`. Model-initiated runtime-tool wiring and
+  persistent question history are still absent.
 - Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`.
   `pause`/`repair` are recommendations by default; `--execute pause/resume` is an explicit,
   checked SIGSTOP/SIGCONT path and never kills or restarts. A transition log records only action

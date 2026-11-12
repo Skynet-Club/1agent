@@ -12306,6 +12306,12 @@ async fn run_tui_line_mode(
                             .await?;
                         continue;
                     }
+                    TuiCommandId::Clarify => {
+                        state.info(
+                            "澄清面板需要交互式终端；请使用 1agent clarify CLI 或交互式 TUI。",
+                        );
+                        continue;
+                    }
                     TuiCommandId::Mission => {
                         handle_mission_command(state, session, settings, args);
                         continue;
@@ -12587,6 +12593,7 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
         ],
         TuiCommandId::Clear | TuiCommandId::Quit => Vec::new(),
         TuiCommandId::Why => Vec::new(),
+        TuiCommandId::Clarify => Vec::new(),
         TuiCommandId::Frame => Vec::new(),
         TuiCommandId::Challenge => Vec::new(),
         TuiCommandId::Decide => Vec::new(),
@@ -15407,6 +15414,51 @@ fn safe_command_component(value: &str) -> String {
         .collect()
 }
 
+fn open_tui_clarify(state: &mut TuiState, args: &str) {
+    let path = args.trim();
+    if path.is_empty() {
+        state.info("用法：/clarify <questions.json>（1–5 题，至少 1 题 blocking）");
+        return;
+    }
+    match load_tui_clarify_questions(Path::new(path)) {
+        Ok(questions) => {
+            match first_principles_agent::clarify::ClarifyPanel::new(questions, now_unix_ms()) {
+                Ok(panel) => state.open_clarify(panel),
+                Err(error) => state.info(format!("无法打开澄清面板：{error}")),
+            }
+        }
+        Err(error) => state.info(format!("无法读取澄清问题：{error}")),
+    }
+}
+
+fn load_tui_clarify_questions(
+    path: &Path,
+) -> Result<Vec<first_principles_agent::clarify::ClarifyQuestion>> {
+    let bytes = std::fs::read(path).with_context(|| format!("读取 {} 失败", path.display()))?;
+    if bytes.len() > 1024 * 1024 {
+        bail!("clarify questions file exceeds 1 MiB");
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).context("invalid clarify questions JSON")?;
+    let list = value
+        .as_array()
+        .cloned()
+        .or_else(|| {
+            value
+                .get("questions")
+                .and_then(|value| value.as_array())
+                .cloned()
+        })
+        .context("clarify input must be an array or an object with `questions`")?;
+    let questions: Vec<first_principles_agent::clarify::ClarifyQuestion> =
+        serde_json::from_value(serde_json::Value::Array(list))
+            .context("invalid clarify questions")?;
+    if questions.len() > 50 {
+        bail!("clarify accepts at most 50 questions");
+    }
+    Ok(questions)
+}
+
 fn display_evidence(state: &mut TuiState, session: &TuiSession, args: &str) {
     if state.host_binding().is_workshop_master()
         && session
@@ -16931,6 +16983,11 @@ async fn run_tui_interactive(
                 }
                 continue;
             }
+            _ = tokio::time::sleep(Duration::from_millis(500)), if state.clarify_open() => {
+                state.expire_clarify(now_unix_ms());
+                draw_tui_frame(&mut terminal, &mut state)?;
+                continue;
+            }
         };
         let Some(mut input) = input else { break };
         if !matches!(&input, TuiInput::MouseUp { .. }) {
@@ -16960,6 +17017,11 @@ async fn run_tui_interactive(
             )
         {
             state.cancel_quit();
+        }
+        if state.clarify_open() && !state.quit_requested() {
+            state.handle_clarify_input(input, now_unix_ms());
+            draw_tui_frame(&mut terminal, &mut state)?;
+            continue;
         }
         if state.mode_menu_open() {
             match input {
@@ -17285,6 +17347,9 @@ async fn run_tui_interactive(
                             }
                             TuiCommandId::Tools => {
                                 display_tools(&runtime, &mut state, args);
+                            }
+                            TuiCommandId::Clarify => {
+                                open_tui_clarify(&mut state, args);
                             }
                             TuiCommandId::Agents => {
                                 display_agents(&mut state, &session, &settings, args);

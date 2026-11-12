@@ -2,6 +2,16 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Clarify TUI panel (ADR-0123): `/clarify <questions.json>` opens a full-screen
+  blocking batch of 1–5 questions with the recommended option first and an
+  automatic `Other`. `↑/↓` moves options, `←/→`/`Tab` moves questions, `Enter`
+  locks or submits, `S`/space skips, `Esc`/`Ctrl+C` cancels, and `Other` has an
+  inline editor. A 500 ms poll expires the panel after 300 seconds; missing
+  questions stay unanswered and the default answer stays valid. The resolved
+  round is shown in the transcript and written to `/details` as JSON. Line mode
+  reports that the panel needs an interactive terminal. Model-initiated
+  runtime-tool wiring and persistent question history remain future work.
+  Tests: 8 state/input unit tests, 4 TUI panel/render tests and four PTY frames.
 - TUI unslop pass: one green accent/link role replaces blue-plus-green; body
   and work-log green `#5E9E5E` reaches 6.0:1 on the backdrop and border
   `#4A7855` reaches 3.8:1, while local-file links use `#3FB950` (7.6:1). The

@@ -126,3 +126,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0120 | CI Matrix | [0120-ci-matrix.md](0120-ci-matrix.md) |
 | 0121 | Real-Task Suite and Validate-Only Eval | [0121-real-task-suite.md](0121-real-task-suite.md) |
 | 0122 | Model Request Deltas | [0122-model-request-deltas.md](0122-model-request-deltas.md) |
+| 0123 | Clarify TUI Batch Panel | [0123-clarify-tui-panel.md](0123-clarify-tui-panel.md) |

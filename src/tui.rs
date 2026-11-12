@@ -1,11 +1,14 @@
+use crate::clarify::{ClarifyAnswerStatus, ClarifyPanel, OTHER_OPTION_ID};
 use crate::domain::{CognitiveMode, RiskLevel};
 use crate::safety::is_disallowed_control;
+use crate::tui_clarify::{TuiClarifyResult, TuiClarifyState, TuiClarifyStep, outcome_label};
 use crate::tui_commands::{
     CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, TuiCommandSpec, command_usage,
     drawer_rows, prompt_drawer_rows, visible_commands,
 };
 use crate::tui_host::HostBinding;
 use crate::tui_prompts::{PromptLanguage, prompt_view};
+use crate::tui_terminal::TuiInput;
 pub use crate::tui_text::{
     fit_row, sanitize_inline, sanitize_input, sanitize_multiline, split_display_width,
     truncate_to_width, wrap_display,
@@ -423,6 +426,8 @@ pub struct TuiState {
     scroll_from_bottom: usize,
     selected_command: usize,
     activity_frame: usize,
+    clarify: Option<TuiClarifyState>,
+    last_clarify: Option<TuiClarifyResult>,
 }
 
 impl TuiState {
@@ -489,6 +494,8 @@ impl TuiState {
             scroll_from_bottom: 0,
             selected_command: 0,
             activity_frame: 0,
+            clarify: None,
+            last_clarify: None,
         }
     }
 
@@ -1432,6 +1439,77 @@ impl TuiState {
         self.details_open
     }
 
+    pub fn open_clarify(&mut self, panel: ClarifyPanel) {
+        self.clarify = Some(TuiClarifyState::new(panel));
+        self.last_clarify = None;
+    }
+
+    pub fn clarify_open(&self) -> bool {
+        self.clarify.is_some()
+    }
+
+    pub fn clarify(&self) -> Option<&TuiClarifyState> {
+        self.clarify.as_ref()
+    }
+
+    pub fn last_clarify(&self) -> Option<&TuiClarifyResult> {
+        self.last_clarify.as_ref()
+    }
+
+    pub fn handle_clarify_input(&mut self, input: TuiInput, now_ms: u128) -> bool {
+        let step = match self.clarify.as_mut() {
+            Some(clarify) => clarify.handle_input(input, now_ms),
+            None => return false,
+        };
+        self.apply_clarify_step(step)
+    }
+
+    pub fn expire_clarify(&mut self, now_ms: u128) -> bool {
+        let step = match self.clarify.as_mut() {
+            Some(clarify) => clarify.expire(now_ms),
+            None => return false,
+        };
+        match step {
+            Some(step) => self.apply_clarify_step(step),
+            None => false,
+        }
+    }
+
+    fn apply_clarify_step(&mut self, step: TuiClarifyStep) -> bool {
+        match step {
+            TuiClarifyStep::None => false,
+            TuiClarifyStep::Redraw => true,
+            TuiClarifyStep::Finished(result) => {
+                self.finish_clarify(result);
+                true
+            }
+        }
+    }
+
+    fn finish_clarify(&mut self, result: TuiClarifyResult) {
+        self.clarify = None;
+        let summary = &result.summary;
+        self.info(format!(
+            "澄清结果：{} · 已回答 {} · 跳过 {} · 未回答 {} · 默认答案有效 {}",
+            outcome_label(summary.outcome),
+            summary.answered,
+            summary.skipped,
+            summary.unanswered,
+            if summary.default_answer_valid {
+                "是"
+            } else {
+                "否"
+            }
+        ));
+        if let Ok(json) = serde_json::to_string_pretty(&serde_json::json!({
+            "summary": &result.summary,
+            "answers": &result.answers,
+        })) {
+            self.set_last_details(format!("澄清结果\n{json}"));
+        }
+        self.last_clarify = Some(result);
+    }
+
     pub fn scroll_details_up(&mut self, lines: usize) {
         self.details_scroll = self.details_scroll.saturating_add(lines);
     }
@@ -1976,6 +2054,9 @@ impl TuiState {
         }
         if self.details_open {
             self.draw_details(frame, frame.area());
+        }
+        if let Some(clarify) = &self.clarify {
+            draw_clarify_panel(frame, clarify);
         }
     }
 
@@ -5076,8 +5157,134 @@ fn looks_like_code_line(line: &str) -> bool {
             .all(|character| character.is_alphanumeric() || "_$.:".contains(character))
 }
 
-/// The mark is drawn with two colours: a grey field of `╋` cells and the strokes
-/// in accent blue.
+fn draw_clarify_panel(frame: &mut Frame, clarify: &TuiClarifyState) {
+    let area = frame.area();
+    if area.is_empty() {
+        return;
+    }
+    frame.render_widget(Clear, area);
+    let remaining = clarify.remaining_seconds(now_unix_ms());
+    let title = Line::from(vec![
+        Span::styled(
+            " 澄清 Clarify ",
+            Style::default().fg(MENU_LABEL).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("· 剩余 {:02}:{:02} ", remaining / 60, remaining % 60),
+            Style::default().fg(if remaining <= 60 {
+                Color::Yellow
+            } else {
+                PANEL_TEXT_GREEN
+            }),
+        ),
+    ]);
+    let hint = if clarify.all_resolved() {
+        " Enter 提交 · Esc 取消 "
+    } else if clarify.editing_other() {
+        " 输入 Other · Enter 确认 · Esc 返回 "
+    } else {
+        " ↑↓ 选项 · ←→ 问题 · Enter 选择 · S 跳过 · Esc 取消 "
+    };
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(PANEL_GREEN).bg(MENU_BG))
+        .title(title)
+        .title_bottom(
+            Line::styled(hint, Style::default().fg(PANEL_TEXT_GREEN).bg(MENU_BG))
+                .alignment(Alignment::Center),
+        );
+    let body = block.inner(area);
+    frame.render_widget(block, area);
+    if body.is_empty() {
+        return;
+    }
+    let width = usize::from(body.width.saturating_sub(2).max(1));
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut focus_line = 0usize;
+    for (question_index, question) in clarify.panel().questions.iter().enumerate() {
+        let focused_question = question_index == clarify.question_index();
+        let answer = clarify
+            .panel()
+            .answers
+            .iter()
+            .find(|answer| answer.question_id == question.id);
+        let marker = if focused_question { "▌ " } else { "  " };
+        let status = match answer {
+            Some(answer) if answer.status == ClarifyAnswerStatus::Answered => " · 已锁定",
+            Some(_) => " · 已跳过",
+            None if question.blocking => " · 必答",
+            None => "",
+        };
+        let header = format!(
+            "{marker}{}. {}{status}",
+            question_index + 1,
+            question.prompt
+        );
+        let header_style = if focused_question {
+            Style::default().fg(MENU_LABEL).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(PANEL_TEXT_GREEN)
+        };
+        for part in wrap_display(&header, width) {
+            lines.push(Line::styled(part, header_style));
+        }
+        if focused_question {
+            focus_line = lines.len().saturating_sub(1);
+        }
+        for (option_index, option) in question.options.iter().enumerate() {
+            let focused_option = focused_question && option_index == clarify.option_index();
+            let selected =
+                answer.and_then(|answer| answer.option_id.as_deref()) == Some(option.id.as_str());
+            let mark = if focused_option { "› " } else { "  " };
+            let check = if selected { "[x]" } else { "[ ]" };
+            let text = if option.id == OTHER_OPTION_ID {
+                if clarify.editing_other() && focused_option {
+                    format!("{mark}{check} Other: {}▌", clarify.other_text())
+                } else {
+                    format!("{mark}{check} Other…")
+                }
+            } else {
+                let recommended = if option.recommended { " · 推荐" } else { "" };
+                format!("{mark}{check} {}{recommended}", option.label)
+            };
+            let style = if focused_option {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else if selected {
+                Style::default().fg(MARK_GREEN)
+            } else {
+                Style::default().fg(PANEL_TEXT_GREEN)
+            };
+            for part in wrap_display(&text, width) {
+                lines.push(Line::styled(part, style));
+            }
+            if focused_option {
+                focus_line = lines.len().saturating_sub(1);
+            }
+        }
+        lines.push(Line::raw(""));
+    }
+    if let Some(error) = clarify.error() {
+        lines.push(Line::styled(
+            format!("错误：{error}"),
+            Style::default().fg(Color::LightRed),
+        ));
+    }
+    let visible = usize::from(body.height.max(1));
+    let offset = focus_line
+        .saturating_sub(visible / 2)
+        .min(lines.len().saturating_sub(visible));
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(Style::default().bg(MENU_BG))
+            .scroll((u16::try_from(offset).unwrap_or(u16::MAX), 0)),
+        body,
+    );
+}
+
+/// The mark is drawn in two greens: the leading `1` in the accent and the rest
+/// of the word in the body green.
 fn welcome_mark_lines() -> Vec<Line<'static>> {
     WELCOME_LOGO
         .iter()
@@ -7858,5 +8065,109 @@ int main(int argc, char **argv) {
         // is slower, so it gets a looser smoke bound.
         let limit = if cfg!(debug_assertions) { 25 } else { 8 };
         assert!(p95 < std::time::Duration::from_millis(limit));
+    }
+
+    fn clarify_panel_for_tui() -> ClarifyPanel {
+        crate::clarify::ClarifyPanel::new(
+            vec![crate::clarify::ClarifyQuestion {
+                id: "q1".into(),
+                prompt: "Which option?".into(),
+                options: vec![
+                    crate::clarify::ClarifyOption {
+                        id: "a".into(),
+                        label: "Alpha".into(),
+                        recommended: true,
+                    },
+                    crate::clarify::ClarifyOption {
+                        id: "b".into(),
+                        label: "Beta".into(),
+                        recommended: false,
+                    },
+                ],
+                blocking: true,
+            }],
+            now_unix_ms(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn clarify_input_records_a_submitted_round() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_clarify(clarify_panel_for_tui());
+        assert!(state.clarify_open());
+        assert!(state.handle_clarify_input(TuiInput::Enter, now_unix_ms()));
+        assert!(state.clarify_open());
+        assert!(state.handle_clarify_input(TuiInput::Enter, now_unix_ms()));
+        assert!(!state.clarify_open());
+        let result = state.last_clarify().expect("clarify result");
+        assert_eq!(
+            result.summary.outcome,
+            crate::clarify::ClarifyOutcome::Submitted
+        );
+        assert_eq!(result.answers.len(), 1);
+        assert!(state.last_details().unwrap().contains("澄清结果"));
+    }
+
+    #[test]
+    fn clarify_panel_renders_question_options_and_footer() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_clarify(clarify_panel_for_tui());
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(content.contains("澄清Clarify"));
+        assert!(content.contains("Whichoption?"));
+        assert!(content.contains("Alpha"));
+        assert!(content.contains("其他") || content.contains("Other"));
+        assert!(content.contains("Enter提交") || content.contains("Enter选择"));
+    }
+
+    #[test]
+    fn clarify_panel_renders_the_other_editor() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_clarify(clarify_panel_for_tui());
+        let now = now_unix_ms();
+        state.handle_clarify_input(TuiInput::Up, now);
+        state.handle_clarify_input(TuiInput::Enter, now);
+        for character in "自定义".chars() {
+            state.handle_clarify_input(TuiInput::Char(character), now);
+        }
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(content.contains("Other:自定义"));
+        assert!(content.contains("输入Other"));
+    }
+
+    #[test]
+    fn clarify_deadline_expires_and_records_the_default() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_clarify(clarify_panel_for_tui());
+        let deadline = state.clarify().unwrap().deadline_ms();
+        assert!(state.expire_clarify(deadline + 1));
+        assert!(!state.clarify_open());
+        let result = state.last_clarify().expect("clarify result");
+        assert_eq!(
+            result.summary.outcome,
+            crate::clarify::ClarifyOutcome::TimedOut
+        );
+        assert!(result.summary.default_answer_valid);
     }
 }

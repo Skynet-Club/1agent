@@ -61,13 +61,14 @@ inside the Workshop Master console. Standalone mode never shows them.
 
 ## Current command inventory
 
-Standalone 1A and Workshop Worker expose 24 Core commands:
+Standalone 1A and Workshop Worker expose 30 Core commands:
 
 ```text
 /help /status /details /journal /clear /quit
-/frame /challenge /evidence /audit /decide /report /postmortem
-/model /permissions
-/session /workspace /context /preset /tools /export /copy /cost /config
+/frame /challenge /evidence /audit /decide /report /postmortem /clarify
+/mode /model /permissions
+/session /workspace /context /preset /tools /export /copy /cost
+/inbox /receipt /why /reframe /config
 ```
 
 Workshop Master additionally exposes 15 production-control commands:
@@ -77,8 +78,32 @@ Workshop Master additionally exposes 15 production-control commands:
 /board /watch /attention /respond /control /artifacts /verify /timeline
 ```
 
-The Master drawer is stage-aware: no mission shows 26 commands, framing 28, approval 29 and
-running 34. Worker mode never exposes Master commands.
+The Master drawer is stage-aware: no mission shows 27 commands, framing 29, approval 30 and
+running 35. Worker mode never exposes Master commands.
+
+## Clarify panel
+
+`/clarify <questions.json>` opens a full-screen blocking panel. The file is an
+array or an object with `questions` (≤1 MiB); the panel admits 1–5 questions
+and requires at least one blocking question. The recommended option is first
+and an `Other` option is added automatically.
+
+Keys:
+
+- `↑/↓`: move between options;
+- `←/→` or `Tab`: move between questions;
+- `Enter`: lock the selected option; once every question is locked, `Enter`
+  submits the batch;
+- `S` or space: skip the current question;
+- `Esc` or `Ctrl+C`: cancel the round;
+- selecting `Other` opens an inline editor; `Enter` validates and locks it,
+  `Esc` leaves the editor; paste is single-line and capped at 500 characters.
+
+The panel polls expiry every 500 ms. A timed-out round leaves missing
+questions unanswered and keeps the default answer valid. The result is shown
+once in the transcript and written to `/details` as JSON. Line mode reports
+that the panel needs an interactive terminal. Model-initiated runtime-tool
+wiring and persistent question history are not implemented yet.
 
 ## First-principles commands
 
