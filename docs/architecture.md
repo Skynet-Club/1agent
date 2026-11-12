@@ -216,6 +216,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Subagent acceptance: `spawn_agent` accepts only `stop_reason=completed`,
+  audits a present child journal (16 MiB cap), and enforces a per-instance
+  total fanout of 8. Depth and permission intersection are unchanged.
 - First-token timing: a streaming attempt journals `StreamFirstToken` with the
   provider/model and elapsed milliseconds from just before the call to the first
   fragment. `1agent metrics` reports TTFT p50/p95; non-streaming runs have no sample.

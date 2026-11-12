@@ -109,3 +109,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0103 | Answer-Quality Board (M19–M23) | [0103-answer-quality-board.md](0103-answer-quality-board.md) |
 | 0104 | Eight-Case Repeatable Core Suite | [0104-repeatable-core-suite.md](0104-repeatable-core-suite.md) |
 | 0105 | First-Token Instrumentation | [0105-first-token-instrumentation.md](0105-first-token-instrumentation.md) |
+| 0106 | Subagent Parent Acceptance and Fanout | [0106-subagent-acceptance-and-fanout.md](0106-subagent-acceptance-and-fanout.md) |

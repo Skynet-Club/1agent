@@ -4,6 +4,7 @@
 //! and budget. Depth is capped so an agent cannot spawn an unbounded tree.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -16,6 +17,8 @@ use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
 
 const MAX_TASK_CHARS: usize = 8 * 1024;
 const MAX_DEPTH: u8 = 2;
+const MAX_FANOUT: usize = 8;
+const MAX_CHILD_JOURNAL_BYTES: u64 = 16 * 1024 * 1024;
 const DEPTH_ENV: &str = "ONEAGENT_SUBAGENT_DEPTH";
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const MAX_TIMEOUT_SECS: u64 = 300;
@@ -114,6 +117,7 @@ fn provider_arguments() -> Result<Vec<String>, ToolError> {
 pub struct SpawnAgentTool {
     program: PathBuf,
     depth: u8,
+    spawned: AtomicUsize,
 }
 
 impl SpawnAgentTool {
@@ -121,6 +125,7 @@ impl SpawnAgentTool {
         Self {
             program: program.into(),
             depth: depth_from_env(),
+            spawned: AtomicUsize::new(0),
         }
     }
 
@@ -192,6 +197,12 @@ impl AgentTool for SpawnAgentTool {
         if self.depth >= MAX_DEPTH {
             return Err(ToolError::Failed(format!(
                 "subagent depth limit ({MAX_DEPTH}) reached"
+            )));
+        }
+        let previous = self.spawned.fetch_add(1, Ordering::SeqCst);
+        if previous >= MAX_FANOUT {
+            return Err(ToolError::Failed(format!(
+                "subagent fanout limit ({MAX_FANOUT}) reached"
             )));
         }
         let task = arguments
@@ -298,6 +309,33 @@ impl AgentTool for SpawnAgentTool {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        if stop_reason != "completed" {
+            return Err(ToolError::Failed(format!(
+                "subagent stopped with {stop_reason}: {}",
+                bounded(conclusion.lines().next().unwrap_or("no conclusion"), 500)
+            )));
+        }
+        if !child_journal.is_empty() {
+            let path = std::path::Path::new(&child_journal);
+            if path.is_file() {
+                let metadata = std::fs::metadata(path)
+                    .map_err(|error| ToolError::Failed(format!("subagent journal: {error}")))?;
+                if metadata.len() > MAX_CHILD_JOURNAL_BYTES {
+                    return Err(ToolError::Failed(format!(
+                        "subagent journal exceeds {MAX_CHILD_JOURNAL_BYTES} bytes"
+                    )));
+                }
+                let events = crate::journal::read_events(path)
+                    .map_err(|error| ToolError::Failed(format!("subagent journal: {error}")))?;
+                let audit = crate::journal::audit_events(&events);
+                if !audit.ok {
+                    return Err(ToolError::Failed(format!(
+                        "subagent journal audit failed: {}",
+                        audit.issues.join("; ")
+                    )));
+                }
+            }
+        }
         let content = json!({
             "task": task,
             "stop_reason": stop_reason,
@@ -340,17 +378,22 @@ mod tests {
 
     use super::*;
 
-    fn fake_program(dir: &Path) -> PathBuf {
+    fn fake_program_with_stop(dir: &Path, stop_reason: &str) -> PathBuf {
         let path = dir.join("fake-1agent");
         let script = r#"#!/bin/sh
 printf '%s\n' "$@" > "$0.args"
-printf '{"run_id":"child","journal_path":"/tmp/child.jsonl","answer":{"schema_version":2,"status":"completed","conclusion":"child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed"}\n'
-"#;
+printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"STOP_REASON"}\n'
+"#
+        .replace("STOP_REASON", stop_reason);
         std::fs::write(&path, script).unwrap();
         let mut permissions = std::fs::metadata(&path).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(&path, permissions).unwrap();
         path
+    }
+
+    fn fake_program(dir: &Path) -> PathBuf {
+        fake_program_with_stop(dir, "completed")
     }
 
     fn permissions(root: &Path, allow_write: bool) -> PermissionSet {
@@ -456,5 +499,57 @@ printf '{"run_id":"child","journal_path":"/tmp/child.jsonl","answer":{"schema_ve
             .await
             .unwrap_err();
         assert!(matches!(error, ToolError::Failed(_)));
+    }
+
+    #[tokio::test]
+    async fn parent_rejects_a_child_that_did_not_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_with_stop(dir.path(), "needs_authorization");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let error = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ToolError::Failed(ref message) if message.contains("needs_authorization")),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fanout_limit_is_enforced() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let permissions = permissions(dir.path(), false);
+        for _ in 0..MAX_FANOUT {
+            tool.execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        }
+        let error = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ToolError::Failed(ref message) if message.contains("fanout")),
+            "unexpected error: {error:?}"
+        );
     }
 }
