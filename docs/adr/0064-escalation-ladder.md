@@ -39,16 +39,21 @@ escalation ladder so a forgotten approval does not stay silent forever.
    tick using one shared implementation. Delivery failures are logged and
    retried on the next tick; quiet hours suppress delivery because the daemon
    takes the quiet branch before it.
-8. Delivery does not change item status or stop after acknowledgement.
-   `digest --escalation-step` counts every rung, including `digest`, but
-   `digest`-rung delivery and per-channel ladders remain separate.
+8. `EscalationState` also stores an `acknowledged` set. `1agent inbox ack
+   --state PATH --item-id ID` marks an item acknowledged; it does not change
+   the inbox item's status. The projection keeps an acknowledged item visible
+   with no level and the reason `item is acknowledged`, and delivery skips it.
+   Acknowledgement is idempotent.
+9. Delivery does not change item status. `digest --escalation-step` counts
+   every rung, including `digest`, but `digest`-rung delivery and per-channel
+   ladders remain separate.
 
 ## Consequences
 
 - A single ordered definition covers reminders and urgent escalation.
 - Strictly increasing thresholds prevent ambiguous ties.
-- The ladder cannot know whether an item was already delivered on another
-  channel; the caller must pass a resolved/acknowledged flag.
+- Delivery state is per escalation-state file, not per channel; targets sharing
+  that file share the delivered/acknowledged view.
 - The action names are abstract. Mapping them to chat, email, phone or a
   desktop notification is a transport concern.
 - Delivery state persists only the highest delivered rung per item, not the
@@ -65,5 +70,6 @@ cargo test --test daemon_escalation_cli
 
 The tests cover each rung, resolution, a grace period, invalid/empty ladders,
 CLI parsing of repeated steps, the inbox projection over open versus resolved
-items, one delivery per reached rung including a raised level, and the daemon
-path including quiet-hours suppression.
+items, one delivery per reached rung including a raised level, acknowledged
+items staying visible without a level, idempotent acknowledgement, and the
+daemon path including quiet-hours suppression.

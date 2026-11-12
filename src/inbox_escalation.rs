@@ -74,10 +74,19 @@ pub async fn run(
     let rows = items
         .iter()
         .map(|item| {
-            (
-                item,
-                escalation::plan(ladder, item.created_ms, now_ms, false),
-            )
+            let acknowledged = state
+                .as_ref()
+                .is_some_and(|state| state.is_acknowledged(&item.item_id));
+            let plan = if acknowledged {
+                escalation::EscalationPlan {
+                    level: None,
+                    elapsed_ms: now_ms.saturating_sub(item.created_ms),
+                    reason: "item is acknowledged".into(),
+                }
+            } else {
+                escalation::plan(ladder, item.created_ms, now_ms, false)
+            };
+            (item, plan)
         })
         .collect::<Vec<_>>();
 
@@ -162,4 +171,47 @@ pub async fn run(
             dry_run,
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::escalation::{EscalationAction, EscalationLadder, EscalationState, EscalationStep};
+    use crate::inbox::{InboxItem, InboxKind};
+    use crate::notify::InboxNotifier;
+
+    #[tokio::test]
+    async fn acknowledged_items_stay_visible_but_do_not_escalate() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_path = dir.path().join("escalation.json");
+        let mut state = EscalationState::default();
+        state.acknowledge("i1");
+        state.save(&state_path).unwrap();
+        let item = InboxItem::new("i1", InboxKind::Notify, "title", "why", "test", 1_000);
+        let ladder = EscalationLadder::new(vec![
+            EscalationStep {
+                after_ms: 0,
+                action: EscalationAction::Inbox,
+            },
+            EscalationStep {
+                after_ms: 60_000,
+                action: EscalationAction::Notify,
+            },
+        ])
+        .unwrap();
+        let notifier = InboxNotifier::new("http://127.0.0.1:9/").unwrap();
+        let report = run(
+            &[item],
+            &ladder,
+            100_000,
+            &[notifier],
+            Some(&state_path),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.items.len(), 1);
+        assert_eq!(report.items[0].level, None);
+        assert!(report.items[0].reason.contains("acknowledged"));
+    }
 }

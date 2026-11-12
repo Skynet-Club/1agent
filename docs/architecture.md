@@ -269,9 +269,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `--webhook` and `--state`, it delivers at most 50 items whose level is newly
   `notify` or `urgent` (higher than the state's recorded rung), then advances
   the per-item watermark; a crash between send and save can duplicate one
-  batch. Resolved items are pruned from the state. `digest
-  --escalation-step` includes per-level counts, including the `digest` rung;
-  digest-rung delivery is not implemented.
+  batch. Resolved items are pruned from the state. `inbox ack --state PATH
+  --item-id ID` records an acknowledgement in the same state; the projection
+  keeps the item visible with no level and reason `item is acknowledged`, and
+  delivery skips it. Inbox status is unchanged. `digest --escalation-step`
+  includes per-level counts, including the `digest` rung; digest-rung
+  delivery is not implemented.
 - `org_audit`: append-only organization index. Each entry carries seq,
   actor/action/scope/decision, the previous hash and its own SHA-256 hash over
   a canonical field body. `append` writes and syncs one JSON line; `verify`

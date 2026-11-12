@@ -1654,6 +1654,15 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Stop escalation for an item without resolving it.
+    Ack {
+        #[arg(long)]
+        state: PathBuf,
+        #[arg(long)]
+        item_id: String,
+        #[arg(long)]
+        json: bool,
+    },
     Reconcile {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -6617,6 +6626,33 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&item)?);
                 } else {
                     println!("{} -> {}", item.item_id, item.status.as_str());
+                }
+            }
+            InboxCommand::Ack {
+                state,
+                item_id,
+                json,
+            } => {
+                if item_id.trim().is_empty() {
+                    anyhow::bail!("item id must not be empty");
+                }
+                let mut escalation_state =
+                    first_principles_agent::escalation::EscalationState::open(&state)?;
+                let inserted = escalation_state.acknowledge(item_id.trim());
+                escalation_state.save(&state)?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "item_id": item_id,
+                            "acknowledged": true,
+                            "new": inserted,
+                        }))?
+                    );
+                } else if inserted {
+                    println!("{} acknowledged; escalation stopped", item_id.trim());
+                } else {
+                    println!("{} was already acknowledged", item_id.trim());
                 }
             }
             InboxCommand::Reconcile {
