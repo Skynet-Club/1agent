@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Memory recall explainability (ADR-0109): `1agent memory recall --query TEXT
+  [--bot-id ID] [--limit N] [--json]` returns scoped hits with score,
+  layer/kind/content, source event, taint, confidence, validity and scope.
+  Empty queries fail closed; output may contain decrypted memory content.
+  Test: one CLI e2e covering scoped hits, isolation and an empty query.
 - Benchmark runner (ADR-0108): `1agent benchmark-run --suite PATH --runs N`
   executes a suite repeatedly and feeds completion, crash-free and structural
   replay samples to the existing gate; a failing gate exits non-zero. A

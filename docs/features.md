@@ -77,6 +77,7 @@
 - watchdog 升级阶梯：`watchdog --warn-after-ms/--pause-after-ms/--repair-after-ms` 按心跳年龄输出 ok/warn/pause/repair；`--intervention-log` 只在动作变化时追加记录，恢复 ok 记一次；pause/repair 只是建议，不发送信号、不重启、不扩权；
 - 回答质量看板：`1agent answer-quality --input JSONL [--json]` 从人工/评审样本计算 M19 首答可用率、M20 成对胜率（平局排除）、M21 过度结构化率、M22 不必要追问率、M23 追问采纳率；零分母为 `null`；不做盲评或 golden set 采集；
 - 子 Agent 验收与扇出：`spawn_agent` 只接受 `stop_reason=completed` 的子运行；子 journal 存在时校验 ≤16 MiB 且 audit 通过；单工具实例总扇出上限 8；深度/权限交集不变；
+- 记忆召回解释：`1agent memory recall --query TEXT [--bot-id ID] [--limit N] [--json]` 输出命中分数、层/类型/内容、来源事件、taint、置信度、有效期与 scope；按 bot scope 隔离；空 query 失败关闭；输出可能含解密后的记忆内容，勿写入共享日志；
 - 基准运行器：`1agent benchmark-run --suite PATH --runs N [--config PATH] [--allow-network]` 重复执行 eval suite，将完成率/crash-free/结构回放样本喂给现有 benchmark 门禁；失败非零退出；进程崩溃不会变成样本；契约夹具不是模型质量；
 - 首 token 计时：`--stream` 的首次 provider 尝试记录 `StreamFirstToken`（provider/model/elapsed_ms）；`1agent metrics` 输出 TTFT p50/p95；非流式运行无样本，每次重试单独计数；
 - 本地门禁指标：`1agent metrics --journal-dir DIR [--json]` 从 journal 投影 runs/completed/interrupted、恢复率、结构回放率、压缩后回放率、工具成功率、审计完整率、拒绝观测、token/成本与 run 延迟 p50/p95；零分母为 `null`，坏 journal 失败关闭；M7 TTFT/M14/M19–M23 不在本投影；
