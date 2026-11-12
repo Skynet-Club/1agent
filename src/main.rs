@@ -533,6 +533,16 @@ enum Command {
         heartbeat: PathBuf,
         #[arg(long, default_value_t = 120_000)]
         max_age_ms: u128,
+        /// Escalation thresholds; all three must be set together.
+        #[arg(long, requires_all = ["pause_after_ms", "repair_after_ms"])]
+        warn_after_ms: Option<u128>,
+        #[arg(long, requires_all = ["warn_after_ms", "repair_after_ms"])]
+        pause_after_ms: Option<u128>,
+        #[arg(long, requires_all = ["warn_after_ms", "pause_after_ms"])]
+        repair_after_ms: Option<u128>,
+        /// Append an intervention record when the action changes.
+        #[arg(long)]
+        intervention_log: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -5637,31 +5647,81 @@ async fn main() -> Result<()> {
         Command::Watchdog {
             heartbeat,
             max_age_ms,
+            warn_after_ms,
+            pause_after_ms,
+            repair_after_ms,
+            intervention_log,
             json,
         } => {
             let recorded = first_principles_agent::watchdog::read(&heartbeat)?;
-            let status = first_principles_agent::watchdog::evaluate(
-                recorded.as_ref(),
-                current_time_ms(),
-                max_age_ms,
-            );
-            if json {
-                println!("{}", serde_json::to_string_pretty(&status)?);
+            let now_ms = current_time_ms();
+            let decision = match (warn_after_ms, pause_after_ms, repair_after_ms) {
+                (Some(warn), Some(pause), Some(repair)) => {
+                    let policy =
+                        first_principles_agent::watchdog::WatchdogPolicy::new(warn, pause, repair)?;
+                    Some(first_principles_agent::watchdog::decide(
+                        recorded.as_ref(),
+                        now_ms,
+                        policy,
+                    ))
+                }
+                _ => None,
+            };
+            if let Some(decision) = &decision {
+                if let Some(path) = &intervention_log {
+                    first_principles_agent::watchdog::append_intervention(path, decision, now_ms)?;
+                }
+                if json {
+                    println!("{}", serde_json::to_string_pretty(decision)?);
+                } else {
+                    println!(
+                        "{}: {} (pid={:?} age_ms={:?})",
+                        decision.action.as_str(),
+                        decision.reason,
+                        decision.pid,
+                        decision.age_ms
+                    );
+                }
+                if decision.action != first_principles_agent::watchdog::WatchdogAction::Ok {
+                    anyhow::bail!("watchdog: {}", decision.reason);
+                }
             } else {
-                println!(
-                    "{}: {} (pid={:?} age_ms={:?})",
-                    if status.healthy {
-                        "healthy"
-                    } else {
-                        "unhealthy"
-                    },
-                    status.reason,
-                    status.pid,
-                    status.age_ms
+                let status = first_principles_agent::watchdog::evaluate(
+                    recorded.as_ref(),
+                    now_ms,
+                    max_age_ms,
                 );
-            }
-            if !status.healthy {
-                anyhow::bail!("watchdog: {}", status.reason);
+                if let Some(path) = &intervention_log {
+                    let decision = first_principles_agent::watchdog::WatchdogDecision {
+                        action: if status.healthy {
+                            first_principles_agent::watchdog::WatchdogAction::Ok
+                        } else {
+                            first_principles_agent::watchdog::WatchdogAction::Warn
+                        },
+                        reason: status.reason.clone(),
+                        pid: status.pid,
+                        age_ms: status.age_ms,
+                    };
+                    first_principles_agent::watchdog::append_intervention(path, &decision, now_ms)?;
+                }
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                } else {
+                    println!(
+                        "{}: {} (pid={:?} age_ms={:?})",
+                        if status.healthy {
+                            "healthy"
+                        } else {
+                            "unhealthy"
+                        },
+                        status.reason,
+                        status.pid,
+                        status.age_ms
+                    );
+                }
+                if !status.healthy {
+                    anyhow::bail!("watchdog: {}", status.reason);
+                }
             }
         }
         Command::Master { command } => match command {
