@@ -50,9 +50,13 @@ be checked structurally would fail late, after provider spend.
   not state the `saturating_sub` rubric term, and required evidence sources
   used exact matching instead of accepting workspace absolute paths. All three
   were fixed before the recorded baseline.
-- Three post-calibration runs: 17/24 task runs passed (70.83%), rubric 52/52,
-  one hard-gate failure (`checksum-file`, run 2), decision completeness above
-  the 8000 bps floor. The repair prompt now restates claim/evidence/conflict
-  invariants and the system prompt prefers concrete file paths as evidence
-  sources. Human review and calibration are still required.
+- Three v1.0 post-calibration runs: 17/24 task runs passed (70.83%), rubric
+  52/52, one hard-gate failure (`checksum-file`, run 2), decision completeness
+  above the 8000 bps floor.
+- Suite v1.1 clarified two task definitions: `research-compare` now expects a
+  conditional answer (the files share no metric), and `checksum-file` names the
+  literal payload. Two v1.1 runs passed 16/16 with rubric 36/36. The repair
+  prompt now restates claim/evidence/conflict invariants and the system prompt
+  prefers concrete file paths as evidence sources. Human review and calibration
+  are still required.
 - See `docs/evidence/real-tasks-benchmark-2026-11-12.md`.

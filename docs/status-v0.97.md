@@ -28,7 +28,7 @@ This page is a measurement review, not a release announcement. A metric marked
 
 | Metric | Current | Note |
 |---|---|---|
-| M1 long-horizon success | 17/24 task runs (70.83%) across three post-calibration runs of the 8-task real suite | not an 8h benchmark; `research-compare` and `checksum-file` stable failures |
+| M1 long-horizon success | current suite v1.1: 16/16 (100%) across two runs; earlier v1.0 baseline 17/24 (70.83%) | not an 8h benchmark; 8 tasks, one provider/model, two repetitions |
 | M2 autonomy hours | not measured | only short benchmark and deterministic runs |
 | M3 interventions/task | not measured | no real 8h benchmark |
 | M7 TTFT | DeepSeek `deepseek-flash`, n=3 short streaming runs: p50 1.08 s, p95 2.48 s (min 0.72, max 2.48) | `StreamFirstToken` + `metrics`; small sample, one provider, short prompts |
@@ -56,8 +56,8 @@ This page is a measurement review, not a release announcement. A metric marked
   lock, inline `Other`, one confirm, cancel, 300s expiry, result in transcript
   and `/details`. Model-initiated runtime-tool wiring and persistent history
   are still absent.
-- Real-provider 8-task baseline: 17/24 post-calibration (70.83%), rubric 52/52,
-  one hard-gate failure; 8h M1/M2/M3 remain unmeasured.
+- Real-provider 8-task baseline: suite v1.1 passes 16/16 across two runs;
+  the earlier v1.0 baseline was 17/24. 8h M1/M2/M3 remain unmeasured.
 - Real TTFT baseline: three DeepSeek streaming runs, p50 1.08 s / p95 2.48 s.
 - Rollback drill: 0.96.1 cannot read a 0.97 journal; the current binary reads
   0.96.1 journals.
@@ -77,8 +77,8 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Release blockers
 
-1. M1 8h long-horizon, M2 autonomy hours and M3 interventions; the 8-task
-   real suite now has an 11/16 baseline.
+1. M1 8h long-horizon, M2 autonomy hours and M3 interventions; the current
+   8-task suite v1.1 passes 16/16 but is a short sample.
 2. M7 broader TTFT samples (provider/long-task); a 3-sample baseline exists.
 3. M19–M23 blind-review labels; the prompt inventory exists, labels do not.
 4. External A-Gate/W-Gate and security review; P-Gate macOS.
@@ -89,8 +89,8 @@ This page is a measurement review, not a release announcement. A metric marked
 
 - M4 soak raw output is recorded; collect a real-crash aggregate if the gate
   requires one.
-- Calibrate and human-review the 8-task real suite; the current post-calibration
-  baseline is 11/16. Do not relabel contract fixtures as model quality.
+- Human-review the 8-task suite v1.1 (16/16 automated); do not relabel
+  contract fixtures as model quality.
 - Collect blind-review labels for the fixed golden set.
 - Run an 8h benchmark for M1/M2/M3 and broaden TTFT samples beyond one provider
   and short prompts.
