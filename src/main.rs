@@ -268,6 +268,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Validate the golden-set prompt inventory (not a blind review).
+    GoldenCheck {
+        #[arg(long, default_value = "evals/golden-set-v1.jsonl")]
+        input: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     Retention {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -5422,6 +5429,29 @@ async fn main() -> Result<()> {
                     bps(report.followup_adoption_bps),
                     report.followups
                 );
+            }
+        }
+        Command::GoldenCheck { input, json } => {
+            let bytes = std::fs::read(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            if bytes.len() > 2 * 1024 * 1024 {
+                anyhow::bail!("golden set input exceeds 2 MiB");
+            }
+            let text = std::str::from_utf8(&bytes).context("golden set input must be UTF-8")?;
+            let prompts = first_principles_agent::golden_set::parse_golden_set(text)
+                .map_err(anyhow::Error::msg)?;
+            let report = first_principles_agent::golden_set::summarize_golden_set(&prompts);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("prompts={}", report.count);
+                for (category, count) in &report.categories {
+                    println!("category {category}: {count}");
+                }
+                for (form, count) in &report.forms {
+                    println!("form {form}: {count}");
+                }
+                println!("golden set is valid");
             }
         }
         Command::Schedule { command } => match command {

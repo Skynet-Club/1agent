@@ -274,6 +274,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   minimum closed; `0` disables it. `scripts/gate-check.sh DIR` defaults to M4 ≥ 95%,
   M5/M13/M17 = 100%, and `release-check.sh --metrics-dir DIR` invokes it. M6 remains a
   separate security-suite gate.
+- Golden set v1: `evals/golden-set-v1.jsonl` fixes 40 prompts (eight each for chat, fact,
+  decision, research and execution). `GoldenPrompt` validates safe ids, unique ids/prompts,
+  control characters, 30–50 entries and category coverage. `1agent golden-check` validates
+  the inventory only; blind review and M19–M23 labels remain external evidence.
 - Crash-recovery soak: a deterministic write task is interrupted at the first checkpoint, at
   `ToolCalled` and at `ToolObserved`; resume from the checkpoint must finish without replaying
   the completed side effect, while the two later prefixes must fail closed. Duration mode

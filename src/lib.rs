@@ -36,6 +36,7 @@ pub mod execution_gate;
 pub mod experience;
 pub mod gate;
 pub mod goal;
+pub mod golden_set;
 pub mod governed_task_graph;
 pub mod handoff;
 pub mod host;
