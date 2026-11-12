@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Watchdog escalation ladder (ADR-0095): `WatchdogPolicy` maps heartbeat age
+  to ok/warn/pause/repair with strictly increasing thresholds. Pause and
+  repair are recommendations only: the watchdog never signals, restarts or
+  expands authority. `--intervention-log` appends a JSONL record only when the
+  action changes and logs one recovery. The existing `--max-age-ms` output
+  remains when no policy is set. Tests: three unit tests and two CLI e2e tests.
 - TUI transcript projection cache (ADR-0094): wrapped transcript lines are
   cached by content revision and width, so idle and animation frames no longer
   re-wrap the transcript. A new entry or resize rebuilds it. Tests: two cache

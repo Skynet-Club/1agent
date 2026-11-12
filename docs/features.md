@@ -74,6 +74,7 @@
 - 只读工具并行：同一轮模型返回的连续只读调用（read_file/search_files/read_pdf/fetch_url/web_search/browser_read）并发执行；写/终端/技能/子 Agent/MCP 调用保持顺序。`ToolCalled`/`ToolObserved` 均按模型顺序写 journal，重放与审计确定；中断的并发组不会续跑；
 - journal 增量读取：`JournalCursor` + `read_events_incremental` 只解析游标后的完整行；未换行的尾部保留到下次；文件缩小返回 `Truncated`。`read_events` 改为缓冲逐行解析；4.7 MB（约 1.2M token）journal 调试构建 31 ms；TUI/daemon 尚未切换到游标；
 - checkpoint 差分：首个 checkpoint 全量，之后 `CheckpointDelta` 只带新增消息与累计计数；resume/replay 按顺序合并，base 不匹配失败关闭，audit 标记孤立 delta；100 步 echo run 的 checkpoint 事件 115 KB，全量估算约 2.99 MB。`ModelRequested` 仍每步全量写入；
+- watchdog 升级阶梯：`watchdog --warn-after-ms/--pause-after-ms/--repair-after-ms` 按心跳年龄输出 ok/warn/pause/repair；`--intervention-log` 只在动作变化时追加记录，恢复 ok 记一次；pause/repair 只是建议，不发送信号、不重启、不扩权；
 - CUA 策略：`1agent cua-check` 按参数来源（plan/trusted/untrusted）、风险、可逆性与 planned branch 输出 allow/require_approval/deny；高风险 + untrusted → deny；planner 不看 untrusted；未规划 branch → deny；`CuaPlan` 要求 plan→freeze→authorize，冻结后 replan 一律 deny。仅策略，无浏览器执行；
 - Cascade 遏制：`1agent cascade-check --root NODE --edge PARENT>CHILD --contain NODE` 计算 affected/contained/propagated、containment_rate_bps、cascade_depth、blast_radius，并按策略门禁；确定性模拟，不是真实多 Agent 运行；
 - 预算策略：`1agent budget-check` 对 cost/tokens/tool calls 做硬上限（超限失败，80% 警告）；`--verified-outcomes` 输出每验证结果成本；超限非零退出。`1agent run --max-cost-micros/--max-tokens` 在运行时累计 provider usage，超限以 `BudgetExhausted` 停止；

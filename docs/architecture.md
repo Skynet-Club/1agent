@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`;
+  `pause` and `repair` are recommendations and never signal or restart the daemon. A transition
+  log records only action changes plus one recovery. The original `--max-age-ms`
+  healthy/unhealthy output is preserved when no policy is set.
 - Checkpoint deltas: after the first full `Checkpoint`, the runtime journals `CheckpointDelta`
   with only appended messages and a `base_seq`. Resume and replay apply deltas in order and
   reject a mismatched base; audit reports orphan deltas. `ResumeStarted` still embeds a full
