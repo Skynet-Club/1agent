@@ -299,6 +299,9 @@ enum Command {
         security_contact: Option<String>,
         #[arg(long)]
         incident_url: Option<String>,
+        /// Repeatable incident report JSON file.
+        #[arg(long)]
+        incident_report: Vec<PathBuf>,
         #[arg(long)]
         out: Option<PathBuf>,
         /// Write a human-readable Markdown disclosure.
@@ -4075,6 +4078,7 @@ async fn main() -> Result<()> {
             verification_store,
             security_contact,
             incident_url,
+            incident_report,
             out,
             markdown_out,
             html_out,
@@ -4091,6 +4095,17 @@ async fn main() -> Result<()> {
                     .with_context(|| format!("invalid evaluation disclosure {}", path.display()))?,
                 );
             }
+            let mut incidents = Vec::with_capacity(incident_report.len());
+            for path in incident_report {
+                let raw = std::fs::read_to_string(&path)
+                    .with_context(|| format!("cannot read {}", path.display()))?;
+                incidents.push(
+                    serde_json::from_str::<
+                        first_principles_agent::trust_center::IncidentDisclosure,
+                    >(&raw)
+                    .with_context(|| format!("invalid incident report {}", path.display()))?,
+                );
+            }
             let verification = match verification_store {
                 Some(path) => {
                     let store =
@@ -4099,13 +4114,14 @@ async fn main() -> Result<()> {
                 }
                 None => None,
             };
-            let disclosure = first_principles_agent::trust_center::build_disclosure(
+            let disclosure = first_principles_agent::trust_center::build_disclosure_with_incidents(
                 env!("CARGO_PKG_VERSION"),
                 current_time_ms(),
                 security_contact,
                 incident_url,
                 verification,
                 evaluations,
+                incidents,
             )?;
             if let Some(out) = &out {
                 std::fs::write(

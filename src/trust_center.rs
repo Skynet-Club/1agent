@@ -5,6 +5,8 @@
 //! supplied by the caller, and the current audit status without inventing
 //! certifications.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -18,6 +20,8 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub enum TrustCenterError {
     #[error("evaluation disclosure is invalid: {0}")]
     InvalidEvaluation(String),
+    #[error("incident disclosure is invalid: {0}")]
+    InvalidIncident(String),
     #[error("trust disclosure JSON failed: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -62,6 +66,27 @@ pub struct DataPolicy {
     pub network_default: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IncidentStatus {
+    Open,
+    Resolved,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct IncidentDisclosure {
+    pub id: String,
+    pub title: String,
+    pub status: IncidentStatus,
+    pub opened_at_ms: u128,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_at_ms: Option<u128>,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TrustDisclosure {
@@ -81,6 +106,8 @@ pub struct TrustDisclosure {
     pub security_contact: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub incident_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub incidents: Vec<IncidentDisclosure>,
 }
 
 pub fn build_disclosure(
@@ -89,7 +116,27 @@ pub fn build_disclosure(
     security_contact: Option<String>,
     incident_url: Option<String>,
     verification: Option<HackSuiteSummary>,
+    evaluations: Vec<EvaluationDisclosure>,
+) -> Result<TrustDisclosure, TrustCenterError> {
+    build_disclosure_with_incidents(
+        version,
+        now_ms,
+        security_contact,
+        incident_url,
+        verification,
+        evaluations,
+        Vec::new(),
+    )
+}
+
+pub fn build_disclosure_with_incidents(
+    version: &str,
+    now_ms: u128,
+    security_contact: Option<String>,
+    incident_url: Option<String>,
+    verification: Option<HackSuiteSummary>,
     mut evaluations: Vec<EvaluationDisclosure>,
+    mut incidents: Vec<IncidentDisclosure>,
 ) -> Result<TrustDisclosure, TrustCenterError> {
     for evaluation in &evaluations {
         validate_evaluation(evaluation)?;
@@ -98,6 +145,13 @@ pub fn build_disclosure(
         left.name
             .cmp(&right.name)
             .then_with(|| left.version.cmp(&right.version))
+    });
+    validate_incidents(&incidents)?;
+    incidents.sort_by(|left, right| {
+        right
+            .opened_at_ms
+            .cmp(&left.opened_at_ms)
+            .then_with(|| left.id.cmp(&right.id))
     });
     let card = agent_card::build_card(version);
     let mut capabilities = CapabilitySummary {
@@ -139,6 +193,7 @@ pub fn build_disclosure(
         evaluations,
         security_contact,
         incident_url,
+        incidents,
     })
 }
 
@@ -215,6 +270,30 @@ pub fn render_markdown(disclosure: &TrustDisclosure) -> String {
                     .map(|digest| format!(" (sha256 {digest})"))
                     .unwrap_or_default()
             ));
+        }
+        out.push('\n');
+    }
+    if !disclosure.incidents.is_empty() {
+        out.push_str("## Incidents\n\n");
+        for incident in &disclosure.incidents {
+            let status = match incident.status {
+                IncidentStatus::Open => "open",
+                IncidentStatus::Resolved => "resolved",
+            };
+            let resolved = incident
+                .resolved_at_ms
+                .map(|ms| format!(", resolved {ms} ms"))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "- [{status}] {} — {} (opened {} ms{resolved})\n  {}\n",
+                one_line(&incident.id),
+                one_line(&incident.title),
+                incident.opened_at_ms,
+                one_line(&incident.summary)
+            ));
+            if let Some(link) = &incident.link {
+                out.push_str(&format!("  Link: {}\n", one_line(link)));
+            }
         }
         out.push('\n');
     }
@@ -307,6 +386,32 @@ pub fn render_html(disclosure: &TrustDisclosure) -> String {
         }
         out.push_str("</table>");
     }
+    if !disclosure.incidents.is_empty() {
+        out.push_str(
+            "<h2>Incidents</h2><table><tr><th>ID</th><th>Status</th><th>Opened</th>\
+             <th>Resolved</th><th>Summary</th></tr>",
+        );
+        for incident in &disclosure.incidents {
+            let status = match incident.status {
+                IncidentStatus::Open => "open",
+                IncidentStatus::Resolved => "resolved",
+            };
+            let resolved = incident
+                .resolved_at_ms
+                .map(|ms| ms.to_string())
+                .unwrap_or_default();
+            let mut summary = escape_html(&one_line(&incident.summary));
+            if let Some(link) = &incident.link {
+                summary.push_str(&format!("<br>{}", escape_html(&one_line(link))));
+            }
+            out.push_str(&format!(
+                "<tr><td>{}</td><td>{status}</td><td>{}</td><td>{resolved}</td><td>{summary}</td></tr>",
+                escape_html(&one_line(&incident.id)),
+                incident.opened_at_ms
+            ));
+        }
+        out.push_str("</table>");
+    }
     if disclosure.security_contact.is_some() || disclosure.incident_url.is_some() {
         out.push_str("<h2>Contact</h2><ul>");
         if let Some(contact) = &disclosure.security_contact {
@@ -361,6 +466,81 @@ fn validate_evaluation(evaluation: &EvaluationDisclosure) -> Result<(), TrustCen
         return Err(TrustCenterError::InvalidEvaluation(
             "evidence_sha256 must be 64 hex characters".into(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_incidents(incidents: &[IncidentDisclosure]) -> Result<(), TrustCenterError> {
+    let mut ids = BTreeSet::new();
+    for incident in incidents {
+        if incident.id.trim().is_empty()
+            || incident.id.chars().count() > 64
+            || !incident.id.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            })
+        {
+            return Err(TrustCenterError::InvalidIncident(
+                "id must be 1..=64 safe characters".into(),
+            ));
+        }
+        if !ids.insert(&incident.id) {
+            return Err(TrustCenterError::InvalidIncident(format!(
+                "duplicate id {}",
+                incident.id
+            )));
+        }
+        if incident.title.trim().is_empty() || incident.title.chars().count() > 120 {
+            return Err(TrustCenterError::InvalidIncident(
+                "title must be 1..=120 characters".into(),
+            ));
+        }
+        if incident.summary.trim().is_empty() || incident.summary.chars().count() > 2000 {
+            return Err(TrustCenterError::InvalidIncident(
+                "summary must be 1..=2000 characters".into(),
+            ));
+        }
+        for (label, value) in [
+            ("title", incident.title.as_str()),
+            ("summary", incident.summary.as_str()),
+        ] {
+            if value
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+            {
+                return Err(TrustCenterError::InvalidIncident(format!(
+                    "{label} contains control characters"
+                )));
+            }
+        }
+        match incident.status {
+            IncidentStatus::Open if incident.resolved_at_ms.is_some() => {
+                return Err(TrustCenterError::InvalidIncident(
+                    "an open incident cannot have resolved_at_ms".into(),
+                ));
+            }
+            IncidentStatus::Resolved
+                if incident
+                    .resolved_at_ms
+                    .is_none_or(|resolved| resolved < incident.opened_at_ms) =>
+            {
+                return Err(TrustCenterError::InvalidIncident(
+                    "a resolved incident needs resolved_at_ms >= opened_at_ms".into(),
+                ));
+            }
+            _ => {}
+        }
+        if let Some(link) = &incident.link {
+            let lower = link.to_ascii_lowercase();
+            if !(lower.starts_with("https://") || lower.starts_with("http://"))
+                || link
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control())
+            {
+                return Err(TrustCenterError::InvalidIncident(
+                    "link must be a single http(s) URL".into(),
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -476,6 +656,124 @@ mod tests {
         assert!(markdown.contains("External audit: false"));
         assert!(markdown.contains("core-v2 1: 6/6"));
         assert!(markdown.contains("security@example.com"));
+    }
+
+    fn incident(
+        id: &str,
+        status: IncidentStatus,
+        opened_at_ms: u128,
+        resolved_at_ms: Option<u128>,
+    ) -> IncidentDisclosure {
+        IncidentDisclosure {
+            id: id.into(),
+            title: format!("Incident {id}"),
+            status,
+            opened_at_ms,
+            resolved_at_ms,
+            summary: "summary <script>alert(1)</script>".into(),
+            link: Some("https://example.com/incidents/1".into()),
+        }
+    }
+
+    #[test]
+    fn incidents_are_validated_sorted_and_rendered() {
+        let disclosure = build_disclosure_with_incidents(
+            "0.97.0",
+            10,
+            None,
+            None,
+            None,
+            vec![evaluation()],
+            vec![
+                incident("old", IncidentStatus::Open, 10, None),
+                incident("new", IncidentStatus::Resolved, 20, Some(30)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(disclosure.incidents[0].id, "new");
+        assert_eq!(disclosure.incidents[1].id, "old");
+        let markdown = render_markdown(&disclosure);
+        assert!(markdown.contains("## Incidents"));
+        assert!(markdown.contains("[resolved] new"));
+        assert!(markdown.contains("resolved 30 ms"));
+        assert!(markdown.contains("[open] old"));
+        let html = render_html(&disclosure);
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("href=\"https://example.com/incidents/1\""));
+
+        let duplicate = build_disclosure_with_incidents(
+            "0.97.0",
+            10,
+            None,
+            None,
+            None,
+            vec![],
+            vec![
+                incident("same", IncidentStatus::Open, 10, None),
+                incident("same", IncidentStatus::Open, 20, None),
+            ],
+        );
+        assert!(matches!(
+            duplicate,
+            Err(TrustCenterError::InvalidIncident(_))
+        ));
+
+        let open_with_resolution = build_disclosure_with_incidents(
+            "0.97.0",
+            10,
+            None,
+            None,
+            None,
+            vec![],
+            vec![incident("open", IncidentStatus::Open, 10, Some(20))],
+        );
+        assert!(matches!(
+            open_with_resolution,
+            Err(TrustCenterError::InvalidIncident(_))
+        ));
+
+        let resolved_missing_time = build_disclosure_with_incidents(
+            "0.97.0",
+            10,
+            None,
+            None,
+            None,
+            vec![],
+            vec![incident("resolved", IncidentStatus::Resolved, 10, None)],
+        );
+        assert!(matches!(
+            resolved_missing_time,
+            Err(TrustCenterError::InvalidIncident(_))
+        ));
+
+        let resolved_before_open = build_disclosure_with_incidents(
+            "0.97.0",
+            10,
+            None,
+            None,
+            None,
+            vec![],
+            vec![incident("early", IncidentStatus::Resolved, 20, Some(10))],
+        );
+        assert!(matches!(
+            resolved_before_open,
+            Err(TrustCenterError::InvalidIncident(_))
+        ));
+
+        let mut bad_link = incident("link", IncidentStatus::Open, 10, None);
+        bad_link.link = Some("javascript:alert(1)".into());
+        assert!(matches!(
+            build_disclosure_with_incidents("0.97.0", 10, None, None, None, vec![], vec![bad_link]),
+            Err(TrustCenterError::InvalidIncident(_))
+        ));
+
+        let mut bad_id = incident("id", IncidentStatus::Open, 10, None);
+        bad_id.id = "bad id".into();
+        assert!(matches!(
+            build_disclosure_with_incidents("0.97.0", 10, None, None, None, vec![], vec![bad_id]),
+            Err(TrustCenterError::InvalidIncident(_))
+        ));
     }
 
     #[test]
