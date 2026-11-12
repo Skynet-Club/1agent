@@ -101,3 +101,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0095 | Watchdog Escalation Ladder | [0095-watchdog-escalation-ladder.md](0095-watchdog-escalation-ladder.md) |
 | 0096 | Clarify Gate | [0096-clarify-gate.md](0096-clarify-gate.md) |
 | 0097 | Actionable Error Recovery Hints | [0097-actionable-error-recovery.md](0097-actionable-error-recovery.md) |
+| 0098 | Answer/Audit Layering | [0098-answer-audit-layering.md](0098-answer-audit-layering.md) |

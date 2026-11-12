@@ -216,6 +216,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Malformed final model text is retained as `InvalidFinal` so the runtime can repair it without
   losing the original response or exhausting provider failures before the repair attempt.
 - `ToolObservation`: structured status, content, error code and metadata.
+- Answer/audit layering: the default human `run`/`resume` output is status, conclusion and one
+  trust-summary line; conditional/needs-evidence answers or high-impact unknowns inline up to
+  three evidence entries and all flip conditions. `--details` restores the full structured
+  answer and route trace. JSON and internal callers are unchanged.
 - Error recovery hints: `RuntimeError::recovery_hint` maps provider codes and runtime errors to
   one actionable next step. `1agent run` and `1agent resume` print `hint: ...` to stderr; the
   original error, exit status, retries and authority are unchanged. The TUI does not render the

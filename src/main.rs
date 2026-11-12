@@ -152,6 +152,9 @@ enum Command {
         /// Print answer content fragments to stderr as the provider streams them.
         #[arg(long)]
         stream: bool,
+        /// Print every structured field and the route trace.
+        #[arg(long)]
+        details: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1074,6 +1077,9 @@ enum Command {
         timeout_seconds: u64,
         #[arg(long)]
         route_objective: Option<String>,
+        /// Print every structured field and the route trace.
+        #[arg(long)]
+        details: bool,
         #[arg(long)]
         json: bool,
     },
@@ -3603,6 +3609,7 @@ async fn main() -> Result<()> {
             alert_log,
             alert_webhook,
             stream,
+            details,
             json,
         } => {
             let max_context_tokens =
@@ -3785,10 +3792,13 @@ async fn main() -> Result<()> {
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
-            } else {
+            } else if details {
                 println!("{}", render_answer(&result));
                 print_route_trace(&result.journal_path)?;
                 println!("\n运行日志：{}", result.journal_path.display());
+            } else {
+                println!("{}", render_answer_default(&result));
+                println!("运行日志：{}", result.journal_path.display());
             }
         }
         Command::Tui {
@@ -9507,6 +9517,7 @@ async fn main() -> Result<()> {
             journal_dir,
             timeout_seconds,
             route_objective,
+            details,
             json,
         } => {
             let timeout = Duration::from_secs(timeout_seconds.max(1));
@@ -9542,10 +9553,13 @@ async fn main() -> Result<()> {
             };
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
-            } else {
+            } else if details {
                 println!("{}", render_answer(&result));
                 print_route_trace(&result.journal_path)?;
                 println!("\n运行日志：{}", result.journal_path.display());
+            } else {
+                println!("{}", render_answer_default(&result));
+                println!("运行日志：{}", result.journal_path.display());
             }
         }
         Command::ResumeStatus { journal, json } => {
@@ -19992,6 +20006,54 @@ fn render_answer(result: &first_principles_agent::RunResult) -> String {
             ));
         }
     }
+    output
+}
+
+/// Default human output: the conclusion, one trust-summary line and only the
+/// high-risk details that change a decision. Full fields and the route trace
+/// require `--details`.
+fn render_answer_default(result: &first_principles_agent::RunResult) -> String {
+    let answer = &result.answer;
+    let mut output = format!(
+        "状态：{}\n结论：{}\n",
+        answer_status_label(answer.status),
+        answer.conclusion
+    );
+    output.push_str(&format!(
+        "信任摘要：主张 {} · 证据 {} · 假设 {} · 未知 {} · 翻转 {}\n",
+        answer.claims.len(),
+        answer.evidence.len(),
+        answer.assumptions.len(),
+        answer.unknowns.len(),
+        answer.flip_conditions.len()
+    ));
+    let high_risk = matches!(
+        answer.status,
+        first_principles_agent::AnswerStatus::Conditional
+            | first_principles_agent::AnswerStatus::NeedsEvidence
+    ) || answer
+        .unknowns
+        .iter()
+        .any(|unknown| unknown.impact == first_principles_agent::ImpactLevel::High);
+    if high_risk {
+        let evidence = answer.evidence.iter().take(3).collect::<Vec<_>>();
+        if !evidence.is_empty() {
+            output.push_str("依据：\n");
+            for evidence in evidence {
+                output.push_str(&format!("- [{}] {}\n", evidence.source, evidence.statement));
+            }
+        }
+        if !answer.flip_conditions.is_empty() {
+            output.push_str("翻转条件：\n");
+            for condition in &answer.flip_conditions {
+                output.push_str(&format!(
+                    "- 若 {}，则 {}\n",
+                    condition.if_observed, condition.then
+                ));
+            }
+        }
+    }
+    output.push_str("使用 --details 查看完整字段与路由轨迹\n");
     output
 }
 
