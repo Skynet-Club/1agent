@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- TUI transcript projection cache (ADR-0094): wrapped transcript lines are
+  cached by content revision and width, so idle and animation frames no longer
+  re-wrap the transcript. A new entry or resize rebuilds it. Tests: two cache
+  invalidation tests plus an ignored frame probe (release p95 1.26 ms on a
+  200-entry transcript, M15).
 - Checkpoint deltas (ADR-0093): the first checkpoint stays full; later ones
   journal only appended messages plus cumulative counters and a `base_seq`.
   Resume and replay apply deltas in order and fail closed on a mismatched
