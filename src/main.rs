@@ -340,6 +340,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Benchmark {
+        /// JSONL: one {"completed":bool,"crashed":bool,"replay_verified":bool} per line.
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long, default_value_t = 7000)]
+        min_completion_bps: u16,
+        #[arg(long, default_value_t = 9950)]
+        min_crash_free_bps: u16,
+        #[arg(long, default_value_t = 10000)]
+        min_replay_bps: u16,
+        #[arg(long)]
+        json: bool,
+    },
     RepairPlan {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -4355,6 +4368,54 @@ async fn main() -> Result<()> {
                     report.alerts,
                     report.pending_decisions
                 );
+            }
+        }
+        Command::Benchmark {
+            input,
+            min_completion_bps,
+            min_crash_free_bps,
+            min_replay_bps,
+            json,
+        } => {
+            let metadata = std::fs::metadata(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            if metadata.len() > first_principles_agent::benchmark::MAX_BENCHMARK_INPUT_BYTES {
+                anyhow::bail!(
+                    "benchmark input exceeds {} bytes",
+                    first_principles_agent::benchmark::MAX_BENCHMARK_INPUT_BYTES
+                );
+            }
+            let raw = std::fs::read_to_string(&input)
+                .with_context(|| format!("cannot read {}", input.display()))?;
+            let samples = first_principles_agent::parse_samples(&raw)?;
+            let report = first_principles_agent::summarize(
+                &samples,
+                first_principles_agent::BenchmarkPolicy {
+                    min_completion_bps,
+                    min_crash_free_bps,
+                    min_replay_bps,
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "iterations: {} completed: {} crashed: {} replay_verified: {}",
+                    report.iterations, report.completed, report.crashed, report.replay_verified
+                );
+                println!(
+                    "completion: {} bps (min {}); crash-free: {} bps (min {}); replay: {} bps (min {})",
+                    report.completion_bps,
+                    min_completion_bps,
+                    report.crash_free_bps,
+                    min_crash_free_bps,
+                    report.replay_bps,
+                    min_replay_bps
+                );
+                println!("passed: {}", report.passed);
+            }
+            if !report.passed {
+                anyhow::bail!("benchmark gate failed");
             }
         }
         Command::RepairPlan {

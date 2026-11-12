@@ -217,9 +217,12 @@ fn trust_center_accepts_and_escapes_incident_reports() {
     let markdown = std::fs::read_to_string(&markdown_path).unwrap();
     assert!(markdown.contains("## Incidents"));
     assert!(markdown.contains("[resolved] INC-1"));
+    assert!(markdown.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!markdown.contains("<script>alert(1)</script>"));
     let html = std::fs::read_to_string(&html_path).unwrap();
     assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     assert!(!html.contains("<script>alert(1)</script>"));
+    assert!(html.contains("Test incident"));
     assert!(!html.contains("href=\"https://example.com/incidents/1\""));
 }
 

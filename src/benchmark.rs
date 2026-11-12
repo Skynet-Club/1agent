@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const MAX_BENCHMARK_SAMPLES: usize = 1_000_000;
+pub const MAX_BENCHMARK_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BenchmarkError {

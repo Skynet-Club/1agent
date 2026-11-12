@@ -118,6 +118,8 @@ Suitable for scripts, CI and batch work. It uses the same runtime, journal, prov
 | DelegationProfile | Available (module) | observe/suggest/draft/ask/act-and-report; runtime wiring and real action domains limited |
 | Self-summary / evolution | Basic | Reflection/Lesson, EvolutionProposal, Ledger, human approval/rollback; automatic candidates R&D |
 
+- Benchmark gate: `1agent benchmark --input JSONL [--min-completion-bps N] [--min-crash-free-bps N] [--min-replay-bps N] [--json]` computes completion, crash-free and replay bps from samples; a crash is not counted as completed or replay-verified, and a failed gate exits non-zero. It is a calculator over caller-supplied samples, not an 8-hour runner;
+
 ### 2.7 Model routing (available, RC)
 
 - deterministic provider and OpenAI-compatible provider;

@@ -53,7 +53,7 @@ file: <路径>              → 文件必须存在
 | 写路径重叠的任务被串行化 | test: overlapping_write_roots_are_serialized | ✅ | |
 | 平台分支只允许出现在展示适配器 | cmd: ! grep -rnF 'cfg(target_os' src --exclude=tui_terminal.rs | ✅ | 本日修正：原门禁依赖缺失的 rg，被静默跳过 |
 | 技能可从捕获、评测、激活回滚到上一版本，失败候选不替换现役版本 | test: skill_lifecycle_capture_to_rollback_is_replayable | ✅ | 确定性集成场景；基于磁盘 journal、重启回放与审计收据；不代表真实示范语料 |
-| skill capture 只接受 Completed run，提取成功工具步骤并生成可扫描的 SKILL.md 草稿；密钥/凭据脱敏、路径/UUID/邮箱泛化；不自动注册/激活 | cmd: cargo test skill_capture --lib && cargo test --test skill_capture_cli | ✅ | 启发式脱敏，不是完整 DLP；只捕获成功工具步骤；草稿需人工评测/激活 |
+| skill capture 只接受 Completed run，提取成功工具步骤并生成可扫描的 SKILL.md 草稿；密钥/凭据（含嵌套对象/数组与连字符键）脱敏、对象键与路径/UUID/邮箱泛化、重复 frontmatter/多行元数据拒绝、read-time 64 MiB 上限；不自动注册/激活 | cmd: cargo test skill_capture --lib && cargo test --test skill_capture_cli | ✅ | 启发式脱敏，不是完整 DLP；只捕获成功工具步骤；草稿需人工评测/激活 |
 | skill CLI 注册→静态 held-out 评测→仅通过后激活；失败评测非零且不改现役版本 | cmd: cargo test --test skill_register_eval_cli && cargo test skill --lib | ✅ | 标记匹配不是质量保证；suite 由操作者提供；canary 另算 |
 | UserModel 2.0 可从记忆重建；自治/声音/同意默认安全，遗忘记录即失效 | cmd: cargo test user_model --lib && cargo test --test user_model_cli | ✅ | 自治与同意是偏好，不是授权；Authority/Policy/Approval 仍决定执行 |
 | 平台能力状态显式；`untested` 不宣称支持 | cmd: cargo test platform --lib && cargo test --test platform_cli | ✅ | Linux 状态图；macOS/Windows/other 全部 `untested`；不是 P-Gate 通过 |
@@ -108,7 +108,7 @@ file: <路径>              → 文件必须存在
 | 事故披露：唯一安全 id、open/resolved 时间一致、http(s) link 校验；按开启时间倒序渲染，HTML 转义 | cmd: cargo test trust_center --lib && cargo test --test trust_center_cli | ✅ | 调用方提供事故 JSON；不独立验证事故真实性；不是托管事故页 |
 | eval 生成评测披露：suite/version/passed/total + 报告 SHA-256，可被 trust-center 读取 | cmd: cargo test --test eval_disclosure_cli | ✅ | 披露绑定本地报告；不证明评测真实/外部复现 |
 | 单位经济：contribution/net/gross margin bps/每结果成本/break-even | cmd: cargo test unit_economics --lib && cargo test --test unit_economics_cli | ✅ | 调用方提供价格/成本；不内置定价 |
-| 基准门禁：完成率/crash-free/replay bps；crash 不计入完成或 replay；空/超限/非法阈值失败关闭；JSONL 行号错误 | cmd: cargo test benchmark --lib | ✅ | 只计算调用方样本，不是 8h runner；默认阈值为计划目标，不是证据 |
+| 基准门禁：完成率/crash-free/replay bps；crash 不计入完成或 replay；空/超限/非法阈值失败关闭；JSONL 行号错误；CLI 失败非零 | cmd: cargo test benchmark --lib && cargo test --test benchmark_cli | ✅ | 只计算调用方样本，不是 8h runner；默认阈值为计划目标，不是证据 |
 | Agent Card well-known 公开发现路由与 /v0/agent-card 同 payload | cmd: cargo test http_surface --lib | ✅ | 发现入口；非 A2A registry 发现/签名条目 |
 | 安静时段持久化：onboard --quiet-hours 写入 preference，UserModel 读取并回显；autonomy-for 读取域档位+安静时段 | cmd: cargo test user_model --lib && cargo test --test onboard_cli && cargo test --test autonomy_cli | ✅ | 偏好视图；无窗口结束唤醒/调度 |
 | Agent Card 信任锚：受信/吊销公钥库；未受信/已吊销/篡改拒绝 | cmd: cargo test card_trust --lib && cargo test --test card_trust_cli | ✅ | 本地信任锚，非远程密钥发现 |

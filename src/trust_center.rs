@@ -286,13 +286,13 @@ pub fn render_markdown(disclosure: &TrustDisclosure) -> String {
                 .unwrap_or_default();
             out.push_str(&format!(
                 "- [{status}] {} — {} (opened {} ms{resolved})\n  {}\n",
-                one_line(&incident.id),
-                one_line(&incident.title),
+                markdown_text(&incident.id),
+                markdown_text(&incident.title),
                 incident.opened_at_ms,
-                one_line(&incident.summary)
+                markdown_text(&incident.summary)
             ));
             if let Some(link) = &incident.link {
-                out.push_str(&format!("  Link: {}\n", one_line(link)));
+                out.push_str(&format!("  Link: {}\n", markdown_text(link)));
             }
         }
         out.push('\n');
@@ -388,7 +388,7 @@ pub fn render_html(disclosure: &TrustDisclosure) -> String {
     }
     if !disclosure.incidents.is_empty() {
         out.push_str(
-            "<h2>Incidents</h2><table><tr><th>ID</th><th>Status</th><th>Opened</th>\
+            "<h2>Incidents</h2><table><tr><th>ID</th><th>Title</th><th>Status</th><th>Opened</th>\
              <th>Resolved</th><th>Summary</th></tr>",
         );
         for incident in &disclosure.incidents {
@@ -405,8 +405,9 @@ pub fn render_html(disclosure: &TrustDisclosure) -> String {
                 summary.push_str(&format!("<br>{}", escape_html(&one_line(link))));
             }
             out.push_str(&format!(
-                "<tr><td>{}</td><td>{status}</td><td>{}</td><td>{resolved}</td><td>{summary}</td></tr>",
+                "<tr><td>{}</td><td>{}</td><td>{status}</td><td>{}</td><td>{resolved}</td><td>{summary}</td></tr>",
                 escape_html(&one_line(&incident.id)),
+                escape_html(&one_line(&incident.title)),
                 incident.opened_at_ms
             ));
         }
@@ -447,6 +448,16 @@ fn escape_html(value: &str) -> String {
 
 fn one_line(value: &str) -> String {
     value.replace(['\r', '\n'], " ")
+}
+
+fn markdown_text(value: &str) -> String {
+    one_line(value)
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('`', "\\`")
+        .replace('[', "\\[")
+        .replace(']', "\\]")
 }
 
 fn validate_evaluation(evaluation: &EvaluationDisclosure) -> Result<(), TrustCenterError> {
@@ -697,9 +708,12 @@ mod tests {
         assert!(markdown.contains("[resolved] new"));
         assert!(markdown.contains("resolved 30 ms"));
         assert!(markdown.contains("[open] old"));
+        assert!(markdown.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!markdown.contains("<script>alert(1)</script>"));
         let html = render_html(&disclosure);
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("Incident new"));
         assert!(!html.contains("href=\"https://example.com/incidents/1\""));
 
         let duplicate = build_disclosure_with_incidents(
