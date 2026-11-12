@@ -62,6 +62,7 @@ file: <路径>              → 文件必须存在
 | 本地门禁指标：journal 投影 runs/completed/interrupted、恢复率、结构回放率、压缩回放率、工具成功率、审计完整率、拒绝观测、token/成本、run 延迟；零分母为 null，坏 journal 失败关闭 | cmd: cargo test journal_metrics --lib && cargo test metrics --lib && cargo test --test metrics_cli | ✅ | 结构回放非模型重跑；M6 拒绝观测只是代理；M7 TTFT/M14/M19–M23 未计算 |
 | 旧 journal 兼容：Evidence 时间戳与 ReframeDecided 使用 u64，含时间戳的 tagged event 可读；JSON 数字格式不变 | test: tagged_events_with_evidence_timestamps_round_trip | ✅ | 修复 serde tagged-enum 的 u128 缓冲限制；其它应用层 u128 字段若进入 tagged payload 仍需转换 |
 | TUI 纯文本函数已拆到 `tui_text`（sanitize/fit/wrap/truncate/split），`tui.rs` 重新导出；行为不变 | cmd: cargo test tui_text --lib && ./scripts/tui-interaction-check.sh | ✅ | 仅第一批拆分；transcript/input/command panel/state 与 main.rs 未拆 |
+| 答案渲染已拆到 `answer_render`（完整/分层/标签），`main.rs` 导入；输出不变 | cmd: cargo test answer_render --lib && cargo test --test cli_e2e default_run_output_is_concise_and_details_expands_it | ✅ | 仅渲染函数；main.rs 命令组/路由轨迹未拆 |
 | 回答质量看板：从 JSONL 样本计算 M19–M23；M20 平局排除、零分母 null、非法行报行号、追问采纳必须有追问 | cmd: cargo test answer_quality --lib && cargo test --test answer_quality_cli | ✅ | 只计算调用方标签；不执行盲评/不采集 golden set；标签质量不受控 |
 | core-v3 八例契约套件 8/8 且两次运行判定一致；报告 digest 含 duration，不逐字节比较 | cmd: cargo test --test eval_repeatability_cli && cargo run --offline --quiet -- eval --suite evals/core.json | ✅ | 契约夹具，不是真实任务/模型质量；历史 6/6 文档不回写 |
 | 0.97 指标复核：硬门/M1–M23 现状、证据与阻塞项已记录；未测项明确标为未测而非 0 | file: docs/status-v0.97.md | ⚠️ | 本地复核，无外部 A-Gate/W-Gate/审计；2h soak 结果与真实任务指标仍缺 |

@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Answer rendering split (ADR-0107): `render_answer`, `render_answer_default`
+  and the status labels move to `answer_render.rs`; `main.rs` imports them and
+  the output is unchanged. Unit tests cover concise, high-risk and label
+  behavior; the CLI default/`--details` e2e still passes.
 - Subagent acceptance and fanout (ADR-0106): a child is accepted only when
   its stop reason is `completed`; a present child journal (≤16 MiB) must pass
   `audit_events`; and one tool instance may spawn at most 8 children. Depth

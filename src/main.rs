@@ -25,6 +25,9 @@ use first_principles_agent::{
     ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiActivity, TuiActivityKind,
     TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus,
     TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter, add_git_worktree,
+    answer_render::{
+        answer_impact_label, claim_status_label, render_answer, render_answer_default,
+    },
     artifact_expectation, artifacts_summary, audit_events, audit_summary,
     build_release_verification_report, build_usage_ledger, build_user_message, collect_provenance,
     collect_release_manifest, commands_for_surface, copy_to_clipboard, create_goldset_manifest,
@@ -32,18 +35,20 @@ use first_principles_agent::{
     epistemic_command_prompt, evaluate_experience_suite, evidence_summary, export,
     filter_capability_manifest_by_runtime, find_resumable_prefix, git_diff, git_worktrees,
     home_or_legacy, infer_mode, init, init_agents_file, inspect_artifacts,
-    interactive_terminal_available, is_destructive_input, key_escrow::escrow as escrow_keys,
-    key_escrow::restore as restore_keys, list_presets, load_agent_profiles, load_eval_report,
-    load_preset, load_suite, local_manifest, master_audit_summary, master_evidence_summary,
-    master_report, next_actions, parse_model_output, print_session_banner, probe_provider,
-    probe_provider_tools, prompt_sha256, read_clipboard, read_events, read_master_journal_events,
-    rebuild_and_compare, remote_manifest, render_capability_report, render_receipt,
-    render_usage_ledger, replay_events, replay_master_journal, resolve_input, restore,
-    risk_for_mode, run_capability_suite, run_report, run_suite_with_providers, save_preset,
-    scan_history, schedule_ready, spawn_input_reader, stage_next_actions, summarize_route_trace,
-    terminal_dimensions, trash_preset, triage_goal, uninstall, upgrade, verify_goldset_manifest,
-    verify_provenance, verify_release_approval, verify_release_manifest, verify_snapshot_chain,
-    verify_snapshot_chain_with_anchor, write_capability_report,
+    interactive_terminal_available, is_destructive_input,
+    key_escrow::escrow as escrow_keys,
+    key_escrow::restore as restore_keys,
+    list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
+    master_audit_summary, master_evidence_summary, master_report, next_actions, parse_model_output,
+    print_session_banner, probe_provider, probe_provider_tools, prompt_sha256, read_clipboard,
+    read_events, read_master_journal_events, rebuild_and_compare, remote_manifest,
+    render_capability_report, render_receipt, render_usage_ledger, replay_events,
+    replay_master_journal, resolve_input, restore, risk_for_mode, run_capability_suite, run_report,
+    run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
+    stage_next_actions, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
+    uninstall, upgrade, verify_goldset_manifest, verify_provenance, verify_release_approval,
+    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
+    write_capability_report,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -20050,151 +20055,12 @@ async fn write_host_response(
     Ok(())
 }
 
-fn render_answer(result: &first_principles_agent::RunResult) -> String {
-    let answer = &result.answer;
-    let mut output = format!(
-        "状态：{}\n结论：{}\n终止原因：{:?}",
-        answer_status_label(answer.status),
-        answer.conclusion,
-        result.stop_reason
-    );
-    if !answer.claims.is_empty() {
-        output.push_str("\n主张：");
-        for claim in &answer.claims {
-            output.push_str(&format!(
-                "\n- [{}] {}",
-                claim_status_label(claim.status),
-                claim.text
-            ));
-        }
-    }
-    if !answer.evidence.is_empty() {
-        output.push_str("\n依据：");
-        for evidence in &answer.evidence {
-            output.push_str(&format!("\n- [{}] {}", evidence.source, evidence.statement));
-        }
-    }
-    if !answer.assumptions.is_empty() {
-        output.push_str("\n假设：");
-        for assumption in &answer.assumptions {
-            output.push_str(&format!(
-                "\n- [{}] {}",
-                answer_impact_label(assumption.impact),
-                assumption.description
-            ));
-        }
-    }
-    if !answer.constraints.is_empty() {
-        output.push_str("\n约束：");
-        for constraint in &answer.constraints {
-            output.push_str(&format!("\n- {constraint}"));
-        }
-    }
-    if !answer.unknowns.is_empty() {
-        output.push_str("\n未知：");
-        for unknown in &answer.unknowns {
-            output.push_str(&format!("\n- {}", unknown.description));
-        }
-    }
-    if !answer.flip_conditions.is_empty() {
-        output.push_str("\n翻转条件：");
-        for condition in &answer.flip_conditions {
-            output.push_str(&format!(
-                "\n- 若 {}，则 {}",
-                condition.if_observed, condition.then
-            ));
-        }
-    }
-    output
-}
-
-/// Default human output: the conclusion, one trust-summary line and only the
-/// high-risk details that change a decision. Full fields and the route trace
-/// require `--details`.
-fn render_answer_default(result: &first_principles_agent::RunResult) -> String {
-    let answer = &result.answer;
-    let mut output = format!(
-        "状态：{}\n结论：{}\n",
-        answer_status_label(answer.status),
-        answer.conclusion
-    );
-    output.push_str(&format!(
-        "信任摘要：主张 {} · 证据 {} · 假设 {} · 未知 {} · 翻转 {}\n",
-        answer.claims.len(),
-        answer.evidence.len(),
-        answer.assumptions.len(),
-        answer.unknowns.len(),
-        answer.flip_conditions.len()
-    ));
-    let high_risk = matches!(
-        answer.status,
-        first_principles_agent::AnswerStatus::Conditional
-            | first_principles_agent::AnswerStatus::NeedsEvidence
-    ) || answer
-        .unknowns
-        .iter()
-        .any(|unknown| unknown.impact == first_principles_agent::ImpactLevel::High);
-    if high_risk {
-        let evidence = answer.evidence.iter().take(3).collect::<Vec<_>>();
-        if !evidence.is_empty() {
-            output.push_str("依据：\n");
-            for evidence in evidence {
-                output.push_str(&format!("- [{}] {}\n", evidence.source, evidence.statement));
-            }
-        }
-        if !answer.flip_conditions.is_empty() {
-            output.push_str("翻转条件：\n");
-            for condition in &answer.flip_conditions {
-                output.push_str(&format!(
-                    "- 若 {}，则 {}\n",
-                    condition.if_observed, condition.then
-                ));
-            }
-        }
-    }
-    output.push_str("使用 --details 查看完整字段与路由轨迹\n");
-    output
-}
-
-fn answer_impact_label(impact: first_principles_agent::ImpactLevel) -> &'static str {
-    use first_principles_agent::ImpactLevel;
-    match impact {
-        ImpactLevel::Low => "低",
-        ImpactLevel::Medium => "中",
-        ImpactLevel::High => "高",
-    }
-}
-
 fn print_route_trace(journal_path: &std::path::Path) -> Result<()> {
     let events = read_events(journal_path)?;
     if let Some(summary) = summarize_route_trace(&events) {
         println!("\n{}", summary.render());
     }
     Ok(())
-}
-
-fn answer_status_label(status: first_principles_agent::AnswerStatus) -> &'static str {
-    use first_principles_agent::AnswerStatus;
-    match status {
-        AnswerStatus::Completed => "完成",
-        AnswerStatus::Conditional => "有条件完成",
-        AnswerStatus::NeedsEvidence => "需证据",
-        AnswerStatus::NeedsAuthorization => "需授权",
-        AnswerStatus::Failed => "无法完成",
-    }
-}
-
-fn claim_status_label(status: first_principles_agent::ClaimStatus) -> &'static str {
-    use first_principles_agent::ClaimStatus;
-    match status {
-        ClaimStatus::Verified => "已证实",
-        ClaimStatus::UserAsserted => "用户提供",
-        ClaimStatus::Derived => "推导",
-        ClaimStatus::Assumed => "假设",
-        ClaimStatus::ModelPrior => "模型先验",
-        ClaimStatus::Conflicting => "冲突",
-        ClaimStatus::Unknown => "未知",
-    }
 }
 
 #[cfg(test)]

@@ -110,3 +110,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0104 | Eight-Case Repeatable Core Suite | [0104-repeatable-core-suite.md](0104-repeatable-core-suite.md) |
 | 0105 | First-Token Instrumentation | [0105-first-token-instrumentation.md](0105-first-token-instrumentation.md) |
 | 0106 | Subagent Parent Acceptance and Fanout | [0106-subagent-acceptance-and-fanout.md](0106-subagent-acceptance-and-fanout.md) |
+| 0107 | Extract Answer Rendering | [0107-extract-answer-rendering.md](0107-extract-answer-rendering.md) |
