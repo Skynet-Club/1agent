@@ -529,19 +529,107 @@ fn read_history_markers(path: &Path) -> Result<HistoryMarkers, std::io::Error> {
 
 pub fn read_events(path: impl AsRef<Path>) -> Result<Vec<JournalEvent>, JournalReadError> {
     let file = File::open(path).map_err(JournalReadError::Io)?;
+    let mut reader = BufReader::new(file);
     let mut events = Vec::new();
-    for (index, line) in BufReader::new(file).lines().enumerate() {
-        let line = line.map_err(JournalReadError::Io)?;
-        if line.trim().is_empty() {
-            continue;
+    let mut buffer = Vec::new();
+    let mut line_number = 1;
+    loop {
+        buffer.clear();
+        if reader.read_until(b'\n', &mut buffer)? == 0 {
+            break;
         }
-        let event = serde_json::from_str(&line).map_err(|source| JournalReadError::Json {
-            line: index + 1,
-            source,
-        })?;
-        events.push(event);
+        let line = buffer.strip_suffix(b"\n").unwrap_or(buffer.as_slice());
+        if !line.iter().all(u8::is_ascii_whitespace) {
+            let event = serde_json::from_slice(line).map_err(|source| JournalReadError::Json {
+                line: line_number,
+                source,
+            })?;
+            events.push(event);
+        }
+        line_number += 1;
     }
     Ok(events)
+}
+
+/// Byte-offset cursor for reading only events appended since the last read.
+///
+/// The cursor never consumes a line without a trailing newline, so a reader
+/// that races a writer cannot parse half an event. `Journal::append` always
+/// writes a newline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JournalCursor {
+    offset: u64,
+    line: usize,
+}
+
+impl Default for JournalCursor {
+    fn default() -> Self {
+        Self { offset: 0, line: 1 }
+    }
+}
+
+impl JournalCursor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+}
+
+/// Parse complete, newline-terminated events starting at `cursor`.
+///
+/// Only the bytes consumed are advanced. A trailing partial line stays unread
+/// and is parsed after the writer finishes it.
+pub fn read_events_incremental(
+    path: impl AsRef<Path>,
+    cursor: &mut JournalCursor,
+) -> Result<Vec<JournalEvent>, JournalReadError> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    if length < cursor.offset {
+        return Err(JournalReadError::Truncated);
+    }
+    file.seek(SeekFrom::Start(cursor.offset))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let (events, consumed, lines) = parse_event_lines(&bytes, cursor.line, true)?;
+    cursor.offset += consumed as u64;
+    cursor.line += lines;
+    Ok(events)
+}
+
+fn parse_event_lines(
+    bytes: &[u8],
+    first_line: usize,
+    require_newline: bool,
+) -> Result<(Vec<JournalEvent>, usize, usize), JournalReadError> {
+    let mut events = Vec::new();
+    let mut line_number = first_line;
+    let mut lines = 0;
+    let mut start = 0;
+    while start < bytes.len() {
+        let (line_end, has_newline) = match bytes[start..].iter().position(|byte| *byte == b'\n') {
+            Some(offset) => (start + offset, true),
+            None => (bytes.len(), false),
+        };
+        if !has_newline && require_newline {
+            break;
+        }
+        let line = &bytes[start..line_end];
+        if !line.iter().all(u8::is_ascii_whitespace) {
+            let event = serde_json::from_slice(line).map_err(|source| JournalReadError::Json {
+                line: line_number,
+                source,
+            })?;
+            events.push(event);
+        }
+        line_number += 1;
+        lines += 1;
+        start = if has_newline { line_end + 1 } else { line_end };
+    }
+    Ok((events, start, lines))
 }
 
 pub fn audit_events(events: &[JournalEvent]) -> JournalAudit {
@@ -1181,6 +1269,8 @@ pub enum JournalReadError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("journal shrank below the read cursor")]
+    Truncated,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -2154,5 +2244,239 @@ mod reframe_journal_tests {
         ]);
         let audit = audit_events(&events);
         assert!(audit.ok, "unexpected findings: {:?}", audit.issues);
+    }
+
+    #[test]
+    fn incremental_reads_only_new_events() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("run.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("answer", PathBuf::from(".")),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        let mut cursor = JournalCursor::new();
+        let first = read_events_incremental(&path, &mut cursor).unwrap();
+        assert_eq!(first.len(), 2);
+        assert_eq!(
+            cursor.offset(),
+            std::fs::metadata(&path).unwrap().len(),
+            "cursor should consume every complete line"
+        );
+
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "req-1".into(),
+            })
+            .unwrap();
+        let second = read_events_incremental(&path, &mut cursor).unwrap();
+        assert_eq!(second.len(), 1);
+        assert!(matches!(
+            second[0].event,
+            JournalEventKind::ClientRequestLinked { .. }
+        ));
+        assert!(
+            read_events_incremental(&path, &mut cursor)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(read_events(&path).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn incremental_read_holds_a_partial_trailing_line() {
+        let workspace = tempfile::tempdir().unwrap();
+        let complete_path = workspace.path().join("complete.jsonl");
+        let mut journal = Journal::create(&complete_path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "first".into(),
+            })
+            .unwrap();
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "second".into(),
+            })
+            .unwrap();
+        drop(journal);
+        let events = read_events(&complete_path).unwrap();
+        let content = std::fs::read_to_string(&complete_path).unwrap();
+        let mut lines = content.lines();
+        let first_line = lines.next().unwrap();
+        let second_line = lines.next().unwrap();
+        let split = second_line.len() / 2;
+
+        let partial_path = workspace.path().join("partial.jsonl");
+        std::fs::write(
+            &partial_path,
+            format!("{first_line}\n{}", &second_line[..split]),
+        )
+        .unwrap();
+        let mut cursor = JournalCursor::new();
+        let before = read_events_incremental(&partial_path, &mut cursor).unwrap();
+        assert_eq!(before.len(), 1);
+        assert_eq!(cursor.offset(), first_line.len() as u64 + 1);
+
+        let mut file = OpenOptions::new().append(true).open(&partial_path).unwrap();
+        writeln!(file, "{}", &second_line[split..]).unwrap();
+        file.flush().unwrap();
+        let after = read_events_incremental(&partial_path, &mut cursor).unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].seq, events[1].seq);
+    }
+
+    #[test]
+    fn incremental_read_reports_the_global_line_number() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("broken.jsonl");
+        let event = JournalEvent {
+            schema_version: PROTOCOL_VERSION,
+            run_id: Uuid::new_v4(),
+            seq: 0,
+            timestamp_unix_ms: 0,
+            event: JournalEventKind::ClientRequestLinked {
+                client_request_id: "first".into(),
+            },
+        };
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{{\"broken\":true}}\n",
+                serde_json::to_string(&event).unwrap()
+            ),
+        )
+        .unwrap();
+        let mut cursor = JournalCursor::new();
+        let error = read_events_incremental(&path, &mut cursor).unwrap_err();
+        match error {
+            JournalReadError::Json { line, .. } => assert_eq!(line, 2),
+            other => panic!("expected a JSON error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn incremental_read_rejects_a_shrunk_journal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("run.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "first".into(),
+            })
+            .unwrap();
+        let mut cursor = JournalCursor::new();
+        read_events_incremental(&path, &mut cursor).unwrap();
+        drop(journal);
+        std::fs::write(&path, "").unwrap();
+        assert!(matches!(
+            read_events_incremental(&path, &mut cursor),
+            Err(JournalReadError::Truncated)
+        ));
+    }
+
+    #[test]
+    #[ignore = "timing probe; run with --ignored --nocapture"]
+    fn journal_full_parse_at_one_million_tokens() {
+        // ~4 MiB of ASCII is about 1M tokens at the runtime's 4-chars/token
+        // estimate, which makes this the SA97-10 acceptance size.
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("one-million-tokens.jsonl");
+        let run_id = Uuid::new_v4();
+        let total = 4_000u64;
+        let mut body = String::new();
+        for seq in 0..total {
+            let event = JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ClientRequestLinked {
+                    client_request_id: format!("{seq:08}-{}", "x".repeat(1000)),
+                },
+            };
+            body.push_str(&serde_json::to_string(&event).unwrap());
+            body.push('\n');
+        }
+        std::fs::write(&path, body).unwrap();
+        let started = std::time::Instant::now();
+        let events = read_events(&path).unwrap();
+        let full = started.elapsed();
+        assert_eq!(events.len() as u64, total);
+        eprintln!(
+            "journal bytes={} events={total} full={full:?}",
+            std::fs::metadata(&path).unwrap().len()
+        );
+        assert!(
+            full < std::time::Duration::from_millis(50),
+            "full parse took {full:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "timing probe; run with --ignored --nocapture"]
+    fn incremental_read_benchmark_on_a_large_journal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("large.jsonl");
+        let run_id = Uuid::new_v4();
+        let total = 20_000u64;
+        let mut body = String::new();
+        for seq in 0..total {
+            let event = JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq,
+                timestamp_unix_ms: 0,
+                event: JournalEventKind::ClientRequestLinked {
+                    client_request_id: format!("{seq:08}-{}", "x".repeat(1000)),
+                },
+            };
+            body.push_str(&serde_json::to_string(&event).unwrap());
+            body.push('\n');
+        }
+        std::fs::write(&path, body).unwrap();
+
+        let started = std::time::Instant::now();
+        let all = read_events(&path).unwrap();
+        let full = started.elapsed();
+        assert_eq!(all.len() as u64, total);
+
+        let mut cursor = JournalCursor::new();
+        let started = std::time::Instant::now();
+        let first = read_events_incremental(&path, &mut cursor).unwrap();
+        let first_read = started.elapsed();
+        assert_eq!(first.len() as u64, total);
+
+        let extra = JournalEvent {
+            schema_version: PROTOCOL_VERSION,
+            run_id,
+            seq: total,
+            timestamp_unix_ms: 0,
+            event: JournalEventKind::ClientRequestLinked {
+                client_request_id: "new".into(),
+            },
+        };
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{}", serde_json::to_string(&extra).unwrap()).unwrap();
+        file.flush().unwrap();
+
+        let started = std::time::Instant::now();
+        let new = read_events_incremental(&path, &mut cursor).unwrap();
+        let incremental = started.elapsed();
+        assert_eq!(new.len(), 1);
+        eprintln!(
+            "journal bytes={} full={full:?} first={first_read:?} incremental={incremental:?}",
+            std::fs::metadata(&path).unwrap().len()
+        );
+        assert!(
+            incremental < first_read,
+            "incremental read should be cheaper than the first full read"
+        );
     }
 }

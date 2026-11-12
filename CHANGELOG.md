@@ -2,6 +2,13 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Journal incremental read (ADR-0092): `JournalCursor` and
+  `read_events_incremental` parse only complete newline-terminated events after
+  a byte offset; a trailing partial line stays unread, and a shrunk journal
+  fails closed with `Truncated`. `read_events` keeps its full-file contract but
+  uses a buffered `read_until` parser. Tests: four cursor tests plus two
+  ignored timing probes (4.7 MB full parse 31 ms; 23.7 MB incremental read
+  20 µs).
 - Parallel read-only tools (ADR-0091): `AgentTool::parallel_safe` opts
   side-effect-free tools (`read_file`, `search_files`, `read_pdf`,
   `fetch_url`, `web_search`, `browser_read`) into concurrent execution.
