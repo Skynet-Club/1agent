@@ -26,6 +26,10 @@ test failures_roll_back_to_the_baseline ... ok
 test healthy_samples_promote_the_candidate ... ok
 test malformed_samples_fail_with_the_line_number ... ok
 test too_few_samples_stay_pending_and_do_not_apply ... ok
+
+running 2 tests (tests/canary_sample_cli.rs)
+test a_run_appends_a_canary_sample ... ok
+test repeated_runs_append_without_overwriting ... ok
 ```
 
 ## What this proves
@@ -39,6 +43,10 @@ test too_few_samples_stay_pending_and_do_not_apply ... ok
   `decision.kind: pending`; no activation is appended.
 - A malformed sample reports its line number and exits non-zero.
 - `parse_canary_samples` rejects unknown fields and bounds the sample count.
+- `run --canary-sample` appends one JSON line with `success` and `latency_ms`;
+  the line contains no task text. With the offline mock provider the sample is
+  `success: false` because the run stops `needs_evidence`.
+- Repeated runs append rather than overwrite (two lines after two runs).
 
 ## What this does not prove
 

@@ -106,7 +106,7 @@
 - 候选捕获与示范捕获接口（演示数据仅保留哈希）；
 - `1agent skill capture --journal PATH --name NAME --version VERSION --description TEXT [--scope SCOPE] --out PATH [--force] [--json]`：只接受 `Completed` 的 run，提取成功工具步骤为 SKILL.md 草稿；脱敏密钥/Bearer/赋值/URL 凭证，泛化 `$HOME`/`$TMPDIR`/UUID/邮箱；不注册、不评测、不激活；
 - `1agent skill register --path SKILL.md`、`skill eval --suite PATH`、`skill activate-if-passed --suite PATH`：CLI 内完成注册→静态 held-out 评测→仅通过后激活；失败评测返回非零且不改现役版本；
-- `1agent skill canary --samples JSONL [--min-samples N] [--max-failure-bps N] [--max-p95-latency-ms N] [--apply]`：按调用方样本做运行时 canary 决策；promote 激活候选，rollback 恢复 baseline，pending 不改变现役版本；不采集实时流量、不持久化 canary 状态；
+- `1agent skill canary --samples JSONL [--min-samples N] [--max-failure-bps N] [--max-p95-latency-ms N] [--apply]`：按调用方样本做运行时 canary 决策；promote 激活候选，rollback 恢复 baseline，pending 不改变现役版本；`run --canary-sample PATH` 每次运行追加一条 success/latency 样本（不含任务文本），便于把真实运行喂给 canary；不持久化 canary 决策；
 - 恶意技能/越权技能拒绝；
 - `1agent skill scan --path SKILL.md [--json]`：注册前预检 frontmatter、控制字符、密钥/secret 标记与指令覆盖标记；不注册、不执行；
 - `1agent skill verify --bundle PATH --sha256 HEX [--public-key PATH] [--json]`：与 import 共用 `verify_bundle`，校验 SHA-256、schema、签名、重复项、manifest hash 与扫描；不导入。

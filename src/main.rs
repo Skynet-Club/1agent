@@ -95,6 +95,9 @@ enum Command {
         /// Attach a UTF-8 text file as untrusted data; repeatable.
         #[arg(long)]
         attach: Vec<PathBuf>,
+        /// Append one canary sample for this run; feed the file to `skill canary`.
+        #[arg(long)]
+        canary_sample: Option<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long)]
@@ -2818,6 +2821,29 @@ fn read_skill_eval_suite(path: &Path) -> Result<first_principles_agent::SkillEva
         .with_context(|| format!("invalid skill eval suite {}", path.display()))
 }
 
+fn append_canary_sample(path: &Path, success: bool, latency_ms: u64) -> Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let sample = first_principles_agent::CanarySample {
+        success,
+        latency_ms,
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    writeln!(file, "{}", serde_json::to_string(&sample)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    file.sync_data()
+        .with_context(|| format!("sync {}", path.display()))?;
+    Ok(())
+}
+
 fn read_key_hex(path: &Path, secret: bool) -> Result<String> {
     let metadata = std::fs::symlink_metadata(path)
         .with_context(|| format!("cannot read key file {}", path.display()))?;
@@ -3520,6 +3546,7 @@ async fn main() -> Result<()> {
             allow_write: _allow_write,
             read_root,
             attach,
+            canary_sample,
             journal_dir,
             experience_dir,
             experience_scope,
@@ -3693,7 +3720,17 @@ async fn main() -> Result<()> {
                     signal_cancellation.cancel();
                 }
             });
+            let started = std::time::Instant::now();
             let result = runtime.run(request, cancellation).await?;
+            if let Some(path) = canary_sample
+                && let Err(error) = append_canary_sample(
+                    &path,
+                    result.stop_reason == StopReason::Completed,
+                    started.elapsed().as_millis() as u64,
+                )
+            {
+                eprintln!("warning: cannot write canary sample: {error}");
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
