@@ -18652,15 +18652,8 @@ fn append_work_events(
     });
     let mut request_started_ms: Option<u128> = None;
     let mut step = 0usize;
-    let mut route: Option<(String, String)> = None;
     let mut model_requests = ModelRequestChain::new();
     for event in events {
-        if let JournalEventKind::RouteSelected {
-            provider_id, model, ..
-        } = &event.event
-        {
-            route = Some((provider_id.clone(), model.clone()));
-        }
         let model_request = model_requests.apply(&event).ok().flatten();
         if model_request.is_some() {
             step += 1;
@@ -18674,18 +18667,13 @@ fn append_work_events(
                 &request.messages,
                 &request.tools,
             );
-            let model = route
-                .as_ref()
-                .map(|(_, model)| model.as_str())
-                .filter(|model| !model.is_empty())
-                .unwrap_or("路由未知");
             let detail = if context_tokens > 0 {
                 format!(
-                    "第 {step} 步 · {model} · 上下文 {}",
+                    "第 {step} 步 · 上下文 {}",
                     format_token_count(context_tokens as u64)
                 )
             } else {
-                format!("第 {step} 步 · {model}")
+                format!("第 {step} 步")
             };
             state.push_work(TuiActivityKind::Requesting, detail);
             // Mark the request event consumed before `continue`; otherwise the
@@ -20849,7 +20837,7 @@ mod tui_rendering_tests {
         append_work_events(&mut state, &path, &mut last_seq);
         let screen = tui_screen_text(&mut state).replace(' ', "");
         assert_eq!(screen.matches("模型请求").count(), 1);
-        assert!(screen.contains("deepseek-flash"), "{screen}");
+        assert!(!screen.contains("deepseek-flash"), "{screen}");
         assert!(!screen.contains("deepseek-primary/"), "{screen}");
         assert!(!screen.contains("共2条"), "{screen}");
         assert!(!screen.contains("系统1"), "{screen}");
@@ -20942,7 +20930,8 @@ mod tui_rendering_tests {
         let mut last_seq = None;
         append_work_events(&mut state, &path, &mut last_seq);
         let screen = tui_screen_text(&mut state).replace(' ', "");
-        assert!(screen.contains("第1步·deepseek-flash"), "{screen}");
+        assert!(screen.contains("第1步·上下文"), "{screen}");
+        assert!(!screen.contains("deepseek-flash"), "{screen}");
         assert!(!screen.contains("openai-compatible/"), "{screen}");
         assert!(!screen.contains("系统1"), "{screen}");
         assert!(screen.contains("✗网络解析失败"), "{screen}");
