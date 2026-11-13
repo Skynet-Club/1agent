@@ -88,7 +88,8 @@ P-Gate 不在本版本。
 - 首 token 真实基线：3 次短流式任务 p50 1.08 s / p95 2.48 s；扩展样本
   17/20（p50 1.31 s / p95 2.26 s），3 个因首次响应是工具调用而缺少
   content token，需要重跑。
-- `release-check.sh` 在 clean tree `509061c` 上 exit 0：fmt、clippy、
+- `release-check.sh` 在 clean tree `39ea96e`（由 `509061c` 去除工具署名后
+  重写）上 exit 0：fmt、clippy、
   1261 passed / 0 failed / 13 ignored、HTTP e2e、CI status 0、claims 证据
   执行、TUI PTY 交互。指标门因未传 `--metrics-dir` 跳过。
 

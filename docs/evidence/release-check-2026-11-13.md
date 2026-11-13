@@ -2,7 +2,8 @@
 
 Status: **local software gates pass; release blockers remain external/evidence**
 
-Commit: `509061c` (clean tree)
+Commit: `39ea96e` (clean tree; hash rewritten from `509061c` when tool bylines
+were removed; tree unchanged)
 Command: `./scripts/release-check.sh`
 Exit: 0
 Raw log: `docs/evidence/release-check-2026-11-13.log`
@@ -14,7 +15,8 @@ Raw log sha256: `d5e8adbfbc51185522b87198e20b41ae390a71c92a80134e924a81300513c35
 - `cargo clippy --offline --all-targets -- -D warnings`: pass.
 - Full test suite: 1261 passed / 0 failed / 13 ignored.
 - HTTP surface e2e: 1 passed.
-- Local CI: status 0, commit `509061c` (clean), binary sha256
+- Local CI: status 0, commit `39ea96e` (clean; the raw log records the
+  pre-rewrite `509061c`), binary sha256
   `10d6a84ef47abb1cf9b01f819d47eeb15fec9a646ea99c923fd24fd5413a4b49`.
 - Claims: 224 (200 verified / 16 partial / 8 no evidence); every ✅ evidence
   executed. The live terminal claim is partial because the local session
