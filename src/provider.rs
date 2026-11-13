@@ -190,6 +190,7 @@ Rules:
 - A conditional answer must include at least one observable flip condition.
 - Every flip condition must name the claim or unknown it can overturn.
 - A completed answer cannot depend on a high-impact assumption.
+- Fill `task_need` before answering. `freshness`, `locality`, `action`, `ambiguity` and `budget` are `none|low|medium|high`; `risk` is `low|medium|high`. If freshness, locality or action is medium or high, a completed answer needs evidence or an action receipt; otherwise return `needs_evidence` or `needs_authorization`. If ambiguity is high, declare the unknown instead of guessing.
 
 Return only one JSON object matching this shape:
 {
@@ -203,7 +204,8 @@ Return only one JSON object matching this shape:
   "unknowns": [{"id":"string","description":"string","impact":"low|medium|high","why_it_matters":"string|null","reduction_method":"string|null"}],
   "conflicts": [{"id":"string","claim_ids":["string","string"],"status":"unresolved|resolved","resolution":"string|null","resolution_sources":["string"],"resolution_claim_ids":["string"]}],
   "flip_conditions": [{"if_observed":"string","then":"string","target_ids":["string"]}],
-  "action_receipts": ["string"]
+  "action_receipts": ["string"],
+  "task_need": {"freshness":"none|low|medium|high","locality":"none|low|medium|high","action":"none|low|medium|high","risk":"low|medium|high","ambiguity":"none|low|medium|high","budget":"none|low|medium|high"}
 }
 "#
 }
@@ -697,6 +699,7 @@ impl ModelProvider for DeterministicProvider {
                 Vec::new()
             };
             let answer = AgentAnswer {
+                task_need: None,
                 schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                 status,
                 conclusion: if observation.status == ToolStatus::Ok {
@@ -797,6 +800,7 @@ impl ModelProvider for DeterministicProvider {
         }
 
         let answer = AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::NeedsEvidence,
             conclusion: "当前离线 Provider 不对自然语言任务作可靠性判断；请配置推理 Provider，或使用 @read-file:<path> 验证只读证据链路。".into(),
@@ -1762,6 +1766,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "fallback answer".into(),
@@ -2005,6 +2010,7 @@ mod tests {
             } else {
                 ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "tool conformance complete".into(),

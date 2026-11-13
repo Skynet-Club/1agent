@@ -102,6 +102,7 @@ impl ModelProvider for WriteOnceProvider {
         let turn = if observed {
             ModelTurn::Final {
                 answer: first_principles_agent::AgentAnswer {
+                    task_need: None,
                     schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
                     status: first_principles_agent::AnswerStatus::Completed,
                     conclusion: "recovery soak complete".into(),

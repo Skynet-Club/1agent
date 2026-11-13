@@ -443,6 +443,46 @@ impl From<String> for AssumptionItem {
     }
 }
 
+/// How much a task depends on facts that can change, local state or an action.
+/// The model fills this in; the runtime uses it for evidence verification and
+/// for deciding whether the tool-free chat path was the wrong choice.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum NeedLevel {
+    #[default]
+    None,
+    Low,
+    Medium,
+    High,
+}
+
+impl NeedLevel {
+    pub fn requires_evidence(self) -> bool {
+        self >= Self::Medium
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskNeed {
+    #[serde(default)]
+    pub freshness: NeedLevel,
+    #[serde(default)]
+    pub locality: NeedLevel,
+    #[serde(default)]
+    pub action: NeedLevel,
+    #[serde(default = "default_risk_level")]
+    pub risk: RiskLevel,
+    #[serde(default)]
+    pub ambiguity: NeedLevel,
+    #[serde(default)]
+    pub budget: NeedLevel,
+}
+
+fn default_risk_level() -> RiskLevel {
+    RiskLevel::Low
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentAnswer {
@@ -466,6 +506,8 @@ pub struct AgentAnswer {
     pub flip_conditions: Vec<FlipCondition>,
     #[serde(default)]
     pub action_receipts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_need: Option<TaskNeed>,
 }
 
 impl AgentAnswer {
@@ -1756,6 +1798,7 @@ mod tests {
     fn read_only_answer_rejects_action_receipts() {
         let request = TaskRequest::from_objective("answer", PathBuf::from("."));
         let answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "done".into(),
@@ -1779,6 +1822,7 @@ mod tests {
     fn evidence_must_reference_a_declared_claim() {
         let request = TaskRequest::from_objective("answer", PathBuf::from("."));
         let answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "done".into(),
@@ -1833,6 +1877,7 @@ mod tests {
             scope: None,
         };
         let mut answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
@@ -1892,6 +1937,7 @@ mod tests {
             scope: None,
         };
         let mut answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
@@ -1932,6 +1978,7 @@ mod tests {
     fn high_impact_unknown_requires_reduction_method() {
         let request = TaskRequest::from_objective("answer", PathBuf::from("."));
         let mut answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::NeedsEvidence,
             conclusion: "need evidence".into(),
@@ -2021,6 +2068,7 @@ mod tests {
             },
         ];
         let mut answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Conditional,
             conclusion: "conflict".into(),
@@ -2072,6 +2120,7 @@ mod tests {
         let mut request = TaskRequest::from_objective("answer", PathBuf::from("."));
         request.evidence_max_age_ms = Some(1_000);
         let mut answer = AgentAnswer {
+            task_need: None,
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
