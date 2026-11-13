@@ -11,7 +11,10 @@ cd "$project_dir"
 status=0
 pattern='co-authored-by:.*claude|generated with .*claude|noreply@anthropic\.com|claude code|claude-code|claude_code'
 
-if git log HEAD --format='%B' | grep -Eiq "$pattern"; then
+# Capture first: `git log ... | grep -q` can make git exit on SIGPIPE, and
+# `set -o pipefail` would then hide a real match as a successful check.
+history="$(git log HEAD --format='%B')"
+if grep -Eiq "$pattern" <<<"$history"; then
   echo "attribution: commit history contains a forbidden Claude marker" >&2
   status=1
 fi
