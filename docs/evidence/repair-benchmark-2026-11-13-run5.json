@@ -1,0 +1,19 @@
+{
+  "completed": 2,
+  "completed_cases": 40,
+  "completed_replay_bps": 10000,
+  "completed_replay_ok": 40,
+  "completion_bps": 4000,
+  "crash_free_bps": 10000,
+  "crashed": 0,
+  "iterations": 5,
+  "min_completed_replay_bps": 10000,
+  "min_task_completion_bps": 5000,
+  "passed": true,
+  "replay_bps": 10000,
+  "replay_verified": 5,
+  "suite_passed": true,
+  "task_completion_bps": 9250,
+  "tasks_passed": 37,
+  "tasks_total": 40
+}
