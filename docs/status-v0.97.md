@@ -1,12 +1,11 @@
-# 0.97 Status and Metric Review (2026-11-13, 16:00 CST)
+# 0.97 Status and Metric Review (2026-11-13, evening CST)
 
-- Status: **local review; 0.97 is not release-ready — the M1 gate failed and AG-23 is not implemented**
-- Latest feature commit: `f670f13` (TUI request-row refinement), after
-  `46864c1` (route/role work log), `68db238` (work-log pairing), `a2ad66c`
-  (repair contract and M1/M5 metrics) and `41cb333` (watchdog containment);
-  earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify panel),
-  `16ce37f` (TUI unslop), `ace343e` (model request deltas)
-- Full suite: 1300 passed / 0 failed / 13 ignored
+- Status: **local review; 0.97 is not release-ready — the M1 gate failed.
+  AG-23 is implemented; the 100-question evidence is being finalized.**
+- Latest feature commit: `a04686a` (100-question eval harness), after
+  `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan), `c76a2d4`
+  (live self model and dynamic tools) and `5726381` (0.97 WIP checkpoint)
+- Full suite: 1311 passed / 0 failed / 13 ignored
 - Claims: 226 (202 verified / 16 partial / 8 no evidence); the live terminal
   claim is partial because the local session daemon is at its 128-session limit
   (`session_limit`), not because the terminal tool failed
@@ -47,6 +46,12 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## What the 0.97 work added
 
+- AG-23 intelligent loop (ADR-0130): live `describe_self`, mid-loop
+  `request_tools` with permission checks, `task_need` assessment, at most two
+  evidence re-plans before `needs_evidence`, inert strategy drafts in the
+  existing `ExperienceStore`, and the fixed 100-question `agent-loop-v1`
+  suite. `eval` and `benchmark-run --artifacts-dir` now keep per-case journals
+  and a `cases.jsonl` index.
 - Streaming provider deltas and `run --stream`.
 - Parallel read-only tools with deterministic journal order.
 - Incremental journal cursor and 1M parse regression.
@@ -154,13 +159,14 @@ release blocker; cost governance cannot mask a quality failure.
    release. First capture per-case benchmark results and diagnose the 13.28%
    failure distribution; then fix, short-regress, and rerun the long gate with
    the current binary.
-2. **AG-23 intelligent loop**: 0.97 now includes the AG-23 release gate.
-   The current agent still uses `looks_like_chat`/`infer_mode` as the primary
-   router, a static `CAPABILITY_CATALOG`, no model-callable `describe_self`,
-   no mid-loop `request_tools`, and no evidence-driven re-plan. The release
-   gate requires all six AG-23 items and the 100-task evaluation; see
-   `III-01-1Agent-开发计划` 4.4/4.5 and the Obsidian 0.97 plan. Do not ship
-   before this passes.
+2. **AG-23 intelligent loop**: the implementation landed in `c76a2d4`,
+   `5465c2a`, `55ccb22` and `a04686a`: live `describe_self`, dynamic
+   `request_tools`, `task_need`, bounded evidence re-plan, strategy drafts and
+   the 100-question suite. The first full run scored 69/100 (chat 20/20,
+   intro 10/20, current/local 14/20, follow-up 13/20, risk 12/20). The intro
+   routing, known-facts prompt, irreparable-output fallback and per-case
+   budgets were then fixed; a focused regression is running, the full rerun
+   and human review are still required. Do not ship before the final report.
 3. M7 TTFT now has 20 mixed short/long samples; a second provider still needs
    credentials, and tool-dense/retry-heavy latency is not sampled.
 4. M19–M23 blind-review labels: the current 39-prompt/78-row packet is
@@ -180,16 +186,17 @@ release blocker; cost governance cannot mask a quality failure.
   `job-1794537863409-2245-6` finished 11:52 and failed at 13.28% task
   completion. Add per-case benchmark capture, diagnose the failure
   distribution, then short-regress before another long run.
-- Implement AG-23 before release: `describe_self`, `request_tools` with dynamic
-  schema loading, bounded evidence re-plan, model-driven task-need assessment,
-  strategy-memory wiring, and the 100-task evaluation. Delete the static
-  capability catalog; keep keyword routing only as a fallback.
+- Finalize AG-23 evidence: rerun the 100-question suite after the routing,
+  prompt, repair-fallback and budget fixes; archive the report, `cases.jsonl`
+  and per-case journals; then obtain human review. Keep keyword detection only
+  as a cost/safety fallback; never as the primary tool router.
 - Cost governance P0 is implemented except TUI per-turn cost visibility, which
   was deferred at the user's request: benchmark preflight/checkpoints/circuit
   breaker, chat fast path, DirectAnswer no-tools, and real prices.
-- Decide whether an irreparable model output should become a valid
-  `NeedsEvidence` answer (auditable journal) instead of a hard runtime error;
-  this would improve replay without claiming task success.
+- Irreparable model output is now converted to an auditable `NeedsEvidence`
+  answer instead of a hard runtime error; the invalid response and repair
+  attempt remain in the journal. Replay is preserved and no task success is
+  claimed.
 - TTFT n=20 is recorded; a second provider/tool-dense sample remains optional.
 - Re-collect the 1Agent blind-review side with the current binary, repacket,
   then obtain human labels and run `1agent answer-quality`.

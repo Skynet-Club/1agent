@@ -197,6 +197,13 @@ file: <路径>              → 文件必须存在
 | 本地提示词库可解析 Felix / 卡帕西等作者 | test: prompt_library_facts_resolve_felix_and_karpathy | ✅ | Felix→Felix Rieseberg；卡帕西→Karpathy；命中条目注入会话上下文 |
 | 追问请求注入上一轮上下文与短回复提示 | test: follow_up_request_gets_library_and_short_reply_context | ✅ | `known_facts` 含 Felix Rieseberg 与 `Short reply`；运行时以 `CONVERSATION CONTEXT` 系统消息注入 |
 | 上下文预算按 token 计量，默认 1M，自动压缩阈值 786,432 | test: legacy_character_context_budgets_migrate_to_tokens | ✅ | `RunBudget`/SessionPreferences 迁移旧字符配置；provider usage 校准；token 估算测试 `token_estimates_handle_ascii_and_cjk` |
+| 模型读取实时工具、参数、权限、模型和预算，不再使用静态能力目录 | test: describe_self_reports_the_live_registry | ✅ | `describe_self` 读取权限过滤后的 `ToolRegistry`；能力问题跳过无工具快聊；执行模式下的能力问题不会被只读授权短路 |
+| 模型可在循环中请求缺失工具；写/网络权限不足时明确拒绝 | cmd: cargo test --offline --lib request_tools_ | ✅ | `request_tools` 校验未知工具、写权限和网络权限；只把允许的 schema 加入下一轮请求；`ToolsRequested` 写入 journal |
+| 已完成答案若与自身任务需求矛盾，最多再规划 2 次，仍不足降级为 `needs_evidence` | test: evidence_replan_is_bounded_and_downgrades_to_needs_evidence | ✅ | 每轮写 `AnswerVerificationFailed/Exhausted`；无死循环；快聊路径同样按自身评估升级 |
+| 不可修复的模型答案转为可审计 `needs_evidence`，不声称完成 | test: irreparable_answer_output_becomes_needs_evidence | ✅ | 原始无效响应与修复请求留在 journal；不执行动作、不声称成功 |
+| 策略记忆只写 Draft，不自动注入；内容不含用户原文 | test: strategy_draft_records_tool_sequence_without_user_text | ✅ | 复用 `ExperienceStore` 的 review/activate/rollback；只记录模式、目标哈希、工具序列、结果；相同草案去重 |
+| 100 题智能闭环评测清单固定 | test: agent_loop_suite_has_one_hundred_fixed_cases | ✅ | 自我介绍、最新/本地、追问、简单聊天、高风险各 20；真实模型报告与原始 journal 另见 evidence |
+| 空查询的 `search_files` 列出文件名，不读取内容 | test: empty_query_lists_files_without_reading_contents | ✅ | 只返回 read root 内的路径，跳过符号链接、生成目录和控制字符；不读二进制内容 |
 | 交互式 TUI 默认不限制步数、工具调用、模型尝试和运行时长 | test: zero_budgets_do_not_stop_a_long_run | ✅ | `0`=不限；17 次工具调用后仍完成；后台 run/daemon/子 Agent 仍有界；`zero_budgets_are_valid_and_mean_unlimited` 覆盖会话配置校验；单次模型 HTTP 调用 300 秒上限 |
 | token 压缩在达到阈值时触发 | test: token_compaction_triggers_before_the_hard_limit | ✅ | 旧 `compact_messages_at` 字符接口保留兼容；journal 同时记录 token/字符 |
 | Master 状态卡覆盖理解/规划/批准/分配/启动/Worker/收集/验收/汇报 | test: activity_taxonomy_is_bilingual_and_color_coded | ✅ | 持久卡片；下一步命令写在 footer |

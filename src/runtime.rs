@@ -802,7 +802,7 @@ impl AgentRuntime {
             )
             .await?;
         if fast_result.answer.status == AnswerStatus::NeedsEvidence
-            || answer_needs_evidence_replan(&fast_result.answer).is_some()
+            || answer_needs_evidence_replan(&fast_result.answer, &request.objective).is_some()
         {
             // The cheap path admitted that it needed evidence, or its own task
             // assessment says it does. Give the full agent one chance.
@@ -975,7 +975,11 @@ impl AgentRuntime {
             return Err(RuntimeError::Cancelled { path: journal_path });
         }
 
-        if resume.is_none() && mode == CognitiveMode::Execute && !request.permissions.allow_write {
+        if resume.is_none()
+            && mode == CognitiveMode::Execute
+            && !request.permissions.allow_write
+            && !crate::domain::asks_about_capabilities(&request.objective)
+        {
             let answer = authorization_answer();
             journal
                 .append(JournalEventKind::AnswerProduced {
@@ -1142,7 +1146,7 @@ impl AgentRuntime {
             let mut initial_messages = vec![ModelMessage::system(system_prompt)];
             if !request.known_facts.is_empty() {
                 initial_messages.push(ModelMessage::system(format!(
-                    "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
+                    "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Treat these facts as user-asserted context for this task: do not search the workspace or web merely to re-verify them. Search only when the task explicitly needs a fresher or external fact. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
                     request.known_facts.join("\n")
                 )));
             }
@@ -1737,7 +1741,7 @@ impl AgentRuntime {
                                 ),
                             }
                         })?;
-                        let repaired = self
+                        let repaired = match self
                             .repair_answer(
                                 AnswerRepairContext {
                                     journal: &mut journal,
@@ -1757,7 +1761,20 @@ impl AgentRuntime {
                                 started_at,
                                 &cancellation,
                             )
-                            .await?;
+                            .await
+                        {
+                            Ok(repaired) => repaired,
+                            Err(RuntimeError::InvalidOutput { .. }) => {
+                                return finish_with_answer(
+                                    &mut journal,
+                                    run_id,
+                                    journal_path,
+                                    unrepairable_answer(),
+                                    StopReason::NeedsEvidence,
+                                );
+                            }
+                            Err(error) => return Err(error),
+                        };
                         answer = repaired.answer;
                         if let Some(stop_reason) = repaired.stop_reason {
                             return finish_with_answer(
@@ -1769,7 +1786,8 @@ impl AgentRuntime {
                             );
                         }
                     }
-                    if let Some(reason) = answer_needs_evidence_replan(&answer) {
+                    if let Some(reason) = answer_needs_evidence_replan(&answer, &request.objective)
+                    {
                         if evidence_replans < MAX_EVIDENCE_REPLANS {
                             evidence_replans += 1;
                             journal
@@ -1836,7 +1854,7 @@ impl AgentRuntime {
                             StopReason::Completed,
                         );
                     }
-                    let repaired = self
+                    let repaired = match self
                         .repair_answer(
                             AnswerRepairContext {
                                 journal: &mut journal,
@@ -1857,7 +1875,20 @@ impl AgentRuntime {
                             started_at,
                             &cancellation,
                         )
-                        .await?;
+                        .await
+                    {
+                        Ok(repaired) => repaired,
+                        Err(RuntimeError::InvalidOutput { .. }) => {
+                            return finish_with_answer(
+                                &mut journal,
+                                run_id,
+                                journal_path,
+                                unrepairable_answer(),
+                                StopReason::NeedsEvidence,
+                            );
+                        }
+                        Err(error) => return Err(error),
+                    };
                     let stop_reason = repaired
                         .stop_reason
                         .unwrap_or_else(|| stop_reason_for_answer(repaired.answer.status));
@@ -2165,22 +2196,27 @@ pub fn risk_for_mode(mode: CognitiveMode) -> RiskLevel {
 /// the evidence its own `task_need` assessment calls for. `None` means the
 /// answer can be returned as-is. Answers without an assessment keep the
 /// pre-AG-23 behavior.
-fn answer_needs_evidence_replan(answer: &AgentAnswer) -> Option<String> {
+fn answer_needs_evidence_replan(answer: &AgentAnswer, objective: &str) -> Option<String> {
     if answer.status != AnswerStatus::Completed {
         return None;
     }
-    let need = answer.task_need?;
-    if need.freshness.requires_evidence() && answer.evidence.is_empty() {
-        return Some("the task needs current facts but the answer has no evidence".into());
-    }
-    if need.locality.requires_evidence() && answer.evidence.is_empty() {
-        return Some("the task needs local facts but the answer has no evidence".into());
-    }
-    if need.action.requires_evidence() && answer.action_receipts.is_empty() {
-        return Some("the task asks for an action but the answer has no action receipt".into());
-    }
-    if need.ambiguity == crate::domain::NeedLevel::High && answer.unknowns.is_empty() {
-        return Some("the task is ambiguous but the answer does not declare an unknown".into());
+    if let Some(need) = answer.task_need {
+        if need.freshness.requires_evidence() && answer.evidence.is_empty() {
+            return Some("the task needs current facts but the answer has no evidence".into());
+        }
+        if need.locality.requires_evidence() && answer.evidence.is_empty() {
+            return Some("the task needs local facts but the answer has no evidence".into());
+        }
+        if need.action.requires_evidence() && answer.action_receipts.is_empty() {
+            return Some("the task asks for an action but the answer has no action receipt".into());
+        }
+        if need.ambiguity == crate::domain::NeedLevel::High && answer.unknowns.is_empty() {
+            return Some("the task is ambiguous but the answer does not declare an unknown".into());
+        }
+    } else if crate::domain::looks_like_current_facts(objective) && answer.evidence.is_empty() {
+        return Some(
+            "the task looks like it needs current facts but the answer has no evidence".into(),
+        );
     }
     if answer.evidence.is_empty()
         && answer
@@ -2293,6 +2329,35 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
             target_ids: vec!["budget-verification".into()],
         }],
         action_receipts: Vec::new(),
+    }
+}
+
+/// An answer-repair attempt can fail because the model keeps returning an
+/// invalid answer shape. Convert that dead end into an auditable
+/// `needs_evidence` answer instead of a runtime error; no action is claimed
+/// and the original invalid response remains in the journal.
+fn unrepairable_answer() -> crate::domain::AgentAnswer {
+    crate::domain::AgentAnswer {
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::NeedsEvidence,
+        conclusion:
+            "模型返回的答案结构无法修复，已降级为需要证据；本轮没有执行任何外部动作。请重试或缩小任务范围。"
+                .into(),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: vec!["answer repair failed".into()],
+        unknowns: vec![UnknownItem {
+            id: "repair-failed".into(),
+            description: "模型输出未通过答案结构校验".into(),
+            impact: ImpactLevel::Low,
+            why_it_matters: Some("结构无效的答案不能当作完成".into()),
+            reduction_method: Some("重试或缩小任务范围".into()),
+        }],
+        conflicts: Vec::new(),
+        flip_conditions: Vec::new(),
+        action_receipts: Vec::new(),
+        task_need: None,
     }
 }
 
@@ -5278,7 +5343,7 @@ mod tests {
         let runtime = scripted_runtime(workspace.path(), provider, default_registry())
             .with_tool_query("read");
         let mut request =
-            TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf());
+            TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf());
         request.permissions.allow_network = true;
         let result = runtime
             .run(request, CancellationToken::new())
@@ -5472,6 +5537,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn request_tools_denies_write_tools_without_write_permission() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-tools".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["write_file"],
+                            "reason": "need to write a file"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_tool_query("read");
+        let mut request = TaskRequest::from_objective("写一个文件", workspace.path().to_path_buf());
+        request.permissions.allow_write = false;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(
+            !requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "write_file")
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation }
+                    if observation.tool == crate::dynamic_tools::REQUEST_TOOLS =>
+                {
+                    Some(observation)
+                }
+                _ => None,
+            })
+            .expect("request_tools observation");
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert!(observation.content.contains("write_not_allowed"));
+    }
+
+    #[tokio::test]
     async fn strategy_draft_records_tool_sequence_without_user_text() {
         let workspace = tempfile::tempdir().unwrap();
         let experience_dir = workspace.path().join("experience");
@@ -5525,6 +5644,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn irreparable_answer_output_becomes_needs_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: completed_answer(""),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer(""),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        assert!(result.answer.conclusion.contains("无法修复"));
+        assert_eq!(requests.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn capability_question_in_execute_mode_does_not_short_circuit() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("ok"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("你能执行终端命令吗？", workspace.path().to_path_buf());
+        request.permissions.allow_write = false;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.conclusion, "ok");
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn destructive_task_without_write_permission_still_short_circuits() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("should not run"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("删除工作区所有文件", workspace.path().to_path_buf());
+        request.permissions.allow_write = false;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsAuthorization);
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn request_tools_denies_network_tools_without_network_permission() {
         let workspace = tempfile::tempdir().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -5549,7 +5744,7 @@ mod tests {
         let runtime = scripted_runtime(workspace.path(), provider, default_registry())
             .with_tool_query("read");
         let mut request =
-            TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf());
+            TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf());
         request.permissions.allow_network = false;
         let result = runtime
             .run(request, CancellationToken::new())

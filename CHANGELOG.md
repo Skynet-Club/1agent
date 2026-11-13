@@ -2,6 +2,21 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Intelligent loop release gate (AG-23, ADR-0130): `describe_self` renders the
+  live permission-filtered tool registry, selected provider/model and run
+  budgets; the static capability catalog is gone. `request_tools` lets the
+  model add tool schemas mid-loop after runtime permission checks, with
+  `ToolsRequested` journal evidence. `AgentAnswer.task_need` records
+  freshness/locality/action/risk/ambiguity/budget; a completed answer that
+  contradicts its own assessment gets at most two evidence re-plans, then
+  downgrades to `needs_evidence`. Successful tool-using runs with
+  `--experience-dir` write inert `Strategy` drafts into the existing
+  `ExperienceStore`. `evals/agent-loop-v1.json` adds the fixed 100-question
+  release suite, and `eval`/`benchmark-run --artifacts-dir` keep per-case
+  journals plus a `cases.jsonl` index. Tests: live self-model rendering,
+  dynamic tool permission checks, bounded re-plan, fast-path escalation,
+  strategy drafting, and suite inventory.
+
 - TUI quit: press `Ctrl+Q` twice to exit; the first press arms, `Enter`, `Esc`
   or other input cancels. `Enter` no longer confirms quit. Applies while idle,
   during a run and during a reframe request.
