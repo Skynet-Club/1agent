@@ -36,7 +36,12 @@ continue command; `Ctrl+Q` requires Enter confirmation; Direct Answer mode keeps
 only the conclusion in the transcript; and the running line reports elapsed time,
 input/output tokens and provider cache hit rate when reported. The transcript projection is
 cached by content revision and width: an unchanged frame reuses the wrapped lines, while a new
-entry or a resize rebuilds them. The transcript keeps at most 200 entries.
+entry or a resize rebuilds them. The transcript keeps at most 200 entries. The
+work log emits one `Model Request` row per step with message/context counts;
+tool results carry their `call_id` and are inserted directly under the matching
+call, so parallel calls keep pairs adjacent. Common tool failures are localized
+with the URL retained, raw errors remain in `/details`, and operations that
+would truncate a Markdown table fall back to stacked label/field rows.
 
 The TUI session store uses version 2 metadata with a version 1 compatibility path and a
 separate append-only `events.jsonl` for host binding, command decisions, task submission

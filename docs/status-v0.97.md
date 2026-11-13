@@ -5,8 +5,8 @@
   `e1291b1` when tool bylines were removed), based on
   `825af12`; earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify
   panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas)
-- Full suite: 1265 passed / 0 failed / 13 ignored
-- Claims: 225 (201 verified / 16 partial / 8 no evidence); the live terminal
+- Full suite: 1269 passed / 0 failed / 13 ignored
+- Claims: 226 (202 verified / 16 partial / 8 no evidence); the live terminal
   claim is partial because the local session daemon is at its 128-session limit
   (`session_limit`), not because the terminal tool failed
 - Local release: Linux and Windows GNU binaries are rebuilt per slice; the
@@ -55,6 +55,11 @@ This page is a measurement review, not a release announcement. A metric marked
 - TUI unslop pass: body contrast 6.0:1, border 3.8:1, one green accent/link
   role, compact wordmark on short terminals, quieter idle status and metrics,
   help position indicator, empty-composer hint.
+- TUI work-log information flow: duplicate model-request rows removed; one
+  `Model Request` row per step; tool results inserted under their `call_id`;
+  failures localized with URL; stop reasons localized; truncated tables stack
+  as label/field rows. The answer prompt now asks only when the next action
+  depends on the user and limits tables to 3+ items across 2+ dimensions.
 - Clarify TUI batch panel (`/clarify`): 1–5 blocking questions, per-question
   lock, inline `Other`, one confirm, cancel, 300s expiry, result in transcript
   and `/details`. The interactive TUI also registers a model-initiated
