@@ -56,10 +56,12 @@ This page is a measurement review, not a release announcement. A metric marked
   role, compact wordmark on short terminals, quieter idle status and metrics,
   help position indicator, empty-composer hint.
 - TUI work-log information flow: duplicate model-request rows removed; one
-  `Model Request` row per step; tool results inserted under their `call_id`;
-  failures localized with URL; stop reasons localized; truncated tables stack
-  as label/field rows. The answer prompt now asks only when the next action
-  depends on the user and limits tables to 3+ items across 2+ dimensions.
+  `Model Request` row per step naming provider/model and new/total messages by
+  role (no context-token or available-tool counts); tool results inserted under
+  their `call_id`; failures localized with URL; stop reasons localized;
+  truncated tables stack as label/field rows. The answer prompt now asks only
+  when the next action depends on the user and limits tables to 3+ items across
+  2+ dimensions.
 - Clarify TUI batch panel (`/clarify`): 1–5 blocking questions, per-question
   lock, inline `Other`, one confirm, cancel, 300s expiry, result in transcript
   and `/details`. The interactive TUI also registers a model-initiated

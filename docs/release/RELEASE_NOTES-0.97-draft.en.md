@@ -84,9 +84,11 @@ the cross-platform P-Gate remain 0.98–1.0 work.
 - Unslop audit: body contrast 6.0:1, border 3.8:1; one green accent/link role;
   compact wordmark on short terminals; quieter idle status and metrics; a help
   position indicator; an empty-composer hint.
-- One `Model Request` row per step; tool results stay under their call id;
-  common failures are localized with the URL; stop reasons are localized; a
-  table that would truncate renders as stacked rows.
+- One `Model Request` row per step naming provider/model and the new/total
+  message breakdown by role, with no context-token or available-tool counts;
+  tool results stay under their call id; common failures are localized with the
+  URL; stop reasons are localized; a table that would truncate renders as
+  stacked rows.
 - Full-screen Clarify panel, recovery hints and a transcript projection cache
   (release frame p95 1.26 ms on a 200-entry transcript).
 - Line and interactive modes share the same recovery hint; failures append

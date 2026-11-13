@@ -4,8 +4,10 @@
 
 - TUI work-log information flow (ADR-0127): a model-request event advances the
   journal cursor before continuing, so the next event no longer appends the
-  same “Thinking” row twice. Each step is one `Model Request` row with
-  message/context counts; tool results carry their `call_id` and are inserted
+  same “Thinking” row twice. Each step is one `Model Request` row naming the
+  provider/model and showing new/total messages by role, without the
+  meaningless context-token or available-tool counts; tool results carry their
+  `call_id` and are inserted
   under the matching call, so parallel calls keep pairs adjacent. Common
   network/timeout/HTTP failures become short labels with the URL retained,
   stop reasons are localized, and Markdown tables that would truncate render
