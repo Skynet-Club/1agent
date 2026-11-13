@@ -68,6 +68,13 @@ pub struct EvalCase {
     pub experience_scope: Option<String>,
     #[serde(default)]
     pub known_facts: Vec<String>,
+    /// Optional run budgets for this case. `None` keeps the task defaults.
+    #[serde(default)]
+    pub max_steps: Option<usize>,
+    #[serde(default)]
+    pub max_tool_calls: Option<usize>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub rubric: Option<EvalRubric>,
     /// Real tasks may need to modify the workspace. Default false preserves
@@ -857,6 +864,15 @@ async fn run_case(
     request.permissions.allow_write = case.allow_write;
     request.experience_scope = case.experience_scope.clone();
     request.known_facts = case.known_facts.clone();
+    if let Some(max_steps) = case.max_steps {
+        request.budget.max_steps = max_steps;
+    }
+    if let Some(max_tool_calls) = case.max_tool_calls {
+        request.budget.max_tool_calls = max_tool_calls;
+    }
+    if let Some(timeout_ms) = case.timeout_ms {
+        request.budget.timeout_ms = timeout_ms;
+    }
     let mut runtime = AgentRuntime::new(providers, default_registry(), journal_dir);
     if !shadow_experience.is_empty() {
         runtime = runtime.with_shadow_experience_candidates(shadow_experience);
@@ -1783,6 +1799,9 @@ mod tests {
             min_decision_completeness_bps: None,
             cases: vec![EvalCase {
                 known_facts: Vec::new(),
+                max_steps: None,
+                max_tool_calls: None,
+                timeout_ms: None,
                 id: "read".into(),
                 objective: "Research @read-file:\"${workspace}/evidence.txt\"".into(),
                 setup_files: vec![SetupFile {
@@ -2102,6 +2121,9 @@ mod tests {
             cases: vec![
                 EvalCase {
                     known_facts: Vec::new(),
+                    max_steps: None,
+                    max_tool_calls: None,
+                    timeout_ms: None,
                     id: "source-conflict".into(),
                     objective: "Research conflict-marker sources".into(),
                     setup_files: Vec::new(),
@@ -2140,6 +2162,9 @@ mod tests {
                 },
                 EvalCase {
                     known_facts: Vec::new(),
+                    max_steps: None,
+                    max_tool_calls: None,
+                    timeout_ms: None,
                     id: "decision-flip".into(),
                     objective: "Choose flip-marker option".into(),
                     setup_files: Vec::new(),
@@ -2173,6 +2198,9 @@ mod tests {
                 },
                 EvalCase {
                     known_facts: Vec::new(),
+                    max_steps: None,
+                    max_tool_calls: None,
+                    timeout_ms: None,
                     id: "external-correction".into(),
                     objective: "Research observe-marker @read-file:\"${workspace}/evidence.txt\""
                         .into(),
@@ -2504,6 +2532,9 @@ mod tests {
                 min_decision_completeness_bps: None,
                 cases: vec![EvalCase {
                     known_facts: Vec::new(),
+                    max_steps: None,
+                    max_tool_calls: None,
+                    timeout_ms: None,
                     id: "heldout-1".into(),
                     objective: "Choose the repository option".into(),
                     setup_files: Vec::new(),

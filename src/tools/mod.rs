@@ -767,6 +767,7 @@ pub struct SearchFilesTool;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SearchFilesArgs {
+    #[serde(default)]
     query: String,
     #[serde(default = "default_search_path")]
     path: String,
@@ -805,13 +806,12 @@ impl AgentTool for SearchFilesTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "search_files".into(),
-            description: "Search UTF-8 text files under an allowed read root, skipping symlinks and generated directories.".into(),
+            description: "Search UTF-8 text files under an allowed read root, skipping symlinks and generated directories. An empty query lists file paths instead of searching contents.".into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["query"],
                 "properties": {
-                    "query": {"type": "string", "minLength": 1},
+                    "query": {"type": "string", "default": ""},
                     "path": {"type": "string", "default": "."},
                     "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
                     "max_file_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 262144},
@@ -838,11 +838,6 @@ impl AgentTool for SearchFilesTool {
     ) -> Result<ToolOutcome, ToolError> {
         let args: SearchFilesArgs = serde_json::from_value(arguments)
             .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
-        if args.query.is_empty() {
-            return Err(ToolError::InvalidArguments(
-                "query must not be empty".into(),
-            ));
-        }
         if args.max_results == 0 || args.max_results > 100 {
             return Err(ToolError::InvalidArguments(
                 "max_results must be between 1 and 100".into(),
@@ -885,6 +880,7 @@ impl AgentTool for SearchFilesTool {
             ToolError::PermissionDenied("search path is outside configured read roots".into())
         })?;
         let cancellation = cancellation.clone();
+        let list_only = args.query.trim().is_empty();
         let search = SearchPolicy {
             query: args.query,
             case_sensitive: args.case_sensitive,
@@ -901,16 +897,28 @@ impl AgentTool for SearchFilesTool {
             ToolError::Failed(format!("cannot serialize search result: {error}"))
         })?;
         Ok(ToolOutcome {
-            summary: format!(
-                "found {} matches in {} files{}",
-                summary.hits.len(),
-                summary.files_scanned,
-                if summary.truncated {
-                    " (truncated)"
-                } else {
-                    ""
-                }
-            ),
+            summary: if list_only {
+                format!(
+                    "listed {} files{}",
+                    summary.hits.len(),
+                    if summary.truncated {
+                        " (truncated)"
+                    } else {
+                        ""
+                    }
+                )
+            } else {
+                format!(
+                    "found {} matches in {} files{}",
+                    summary.hits.len(),
+                    summary.files_scanned,
+                    if summary.truncated {
+                        " (truncated)"
+                    } else {
+                        ""
+                    }
+                )
+            },
             content,
             metadata: BTreeMap::from([
                 ("files_scanned".into(), summary.files_scanned.to_string()),
@@ -972,7 +980,34 @@ fn search_path(
             }
             continue;
         }
-        if !metadata.is_file() || metadata.len() > search.max_file_bytes as u64 {
+        if !metadata.is_file() {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        if search.query.is_empty() {
+            files_visited += 1;
+            if files_visited > 2_000 {
+                summary.truncated = true;
+                break;
+            }
+            if contains_disallowed_control(&relative) {
+                summary.skipped_unsafe += 1;
+                continue;
+            }
+            summary.files_scanned += 1;
+            summary.hits.push(SearchHit {
+                path: relative,
+                line: 0,
+                column: 0,
+                excerpt: String::new(),
+            });
+            continue;
+        }
+        if metadata.len() > search.max_file_bytes as u64 {
             continue;
         }
         files_visited += 1;
@@ -992,11 +1027,6 @@ fn search_path(
             continue;
         }
         summary.files_scanned += 1;
-        let relative = path
-            .strip_prefix(root)
-            .unwrap_or(path.as_path())
-            .to_string_lossy()
-            .replace('\\', "/");
         for (line_index, line) in content.lines().enumerate() {
             if summary.hits.len() >= search.max_results {
                 summary.truncated = true;
@@ -1423,6 +1453,46 @@ mod tests {
         assert_eq!(summary.hits.len(), 1);
         assert_eq!(summary.hits[0].path, "evidence.txt");
         assert_eq!(summary.hits[0].line, 2);
+    }
+
+    #[tokio::test]
+    async fn empty_query_lists_files_without_reading_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("data.jsonl"), "{\"id\":1}\n").unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(dir.path().join("nested/notes.txt"), "notes\n").unwrap();
+        std::fs::write(dir.path().join("blob.bin"), [0u8, 159, 146, 150]).unwrap();
+        let permissions = PermissionSet {
+            read_roots: vec![dir.path().to_path_buf()],
+            allow_network: false,
+            allow_write: false,
+        };
+        let observation = default_registry()
+            .execute(
+                &ToolCall {
+                    id: "search-list".into(),
+                    name: "search_files".into(),
+                    arguments: serde_json::json!({"path": dir.path()}),
+                },
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok, "{observation:?}");
+        assert!(observation.summary.starts_with("listed 3 files"));
+        let summary: SearchSummary = serde_json::from_str(&observation.content).unwrap();
+        let paths = summary
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            paths,
+            ["blob.bin", "data.jsonl", "nested/notes.txt"]
+                .into_iter()
+                .collect()
+        );
+        assert!(summary.hits.iter().all(|hit| hit.line == 0));
     }
 
     #[tokio::test]

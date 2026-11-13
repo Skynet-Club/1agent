@@ -35,8 +35,9 @@ continue acting instead of repairing the answer.
 
 - The model cannot satisfy a repair by calling another tool; it must return a
   corrected JSON answer.
-- An irreparable output still fails closed as `RuntimeError::InvalidOutput`.
-  Converting that case into an auditable `needs_evidence` answer remains a
-  separate decision.
+- An irreparable output no longer aborts the run: ADR-0130 converts it into an
+  auditable `needs_evidence` answer. The invalid response and the repair attempt
+  remain in the journal, no action is claimed, and it is not counted as task
+  success.
 - The prompt changes reduce, but do not prove, rubric source mismatches; a
   benchmark rerun is required before any release claim.

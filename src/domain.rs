@@ -1174,7 +1174,8 @@ pub fn infer_mode(request: &TaskRequest) -> CognitiveMode {
     if contains_any(
         &text,
         &[
-            "execute", "write", "delete", "send", "buy", "执行", "写入", "删除", "发送", "购买",
+            "execute", "write", "delete", "send", "buy", "执行", "写入", "删除", "删了", "删掉",
+            "清空", "清理", "移除", "发送", "购买",
         ],
     ) {
         return CognitiveMode::Execute;
@@ -1468,6 +1469,46 @@ pub fn looks_like_chat(objective: &str) -> bool {
     length <= 80
 }
 
+/// Conservative fallback for answers with no `task_need`: objectives that
+/// clearly depend on facts which change. This only feeds the evidence check; it
+/// is not the primary router and it does not select tools.
+pub fn looks_like_current_facts(objective: &str) -> bool {
+    let lower = objective.to_lowercase();
+    contains_any(
+        &lower,
+        &[
+            "今天",
+            "今晚",
+            "现在",
+            "当前",
+            "目前",
+            "实时",
+            "市值",
+            "股价",
+            "价格",
+            "多少钱",
+            "天气",
+            "汇率",
+            "财报",
+            "涨了",
+            "跌了",
+            "发布了吗",
+            "新闻",
+            "大事件",
+            "科技圈",
+            "诺贝尔",
+            "值得关注",
+            "ceo",
+            "market cap",
+            "stock price",
+            "weather",
+            "exchange rate",
+            "earnings",
+            "today",
+        ],
+    )
+}
+
 /// Whether the user is asking about 1-Agent itself, not about a project or
 /// another product. Capability questions skip the tool-free chat path so the
 /// model can call `describe_self` instead of reciting a static catalog.
@@ -1499,6 +1540,41 @@ pub fn asks_about_capabilities(objective: &str) -> bool {
             "不同",
             "介绍",
             "是谁",
+            "工具",
+            "联网",
+            "上网",
+            "网络",
+            "记忆",
+            "审计",
+            "回放",
+            "成本",
+            "预算",
+            "限制",
+            "平台",
+            "windows",
+            "macos",
+            "linux",
+            "模型",
+            "权限",
+            "终端",
+            "命令",
+            "文件",
+            "技能",
+            "mcp",
+            "上下文",
+            "日志",
+            "证据",
+            "安全",
+            "隐私",
+            "浏览器",
+            "搜索",
+            "任务",
+            "多长",
+            "部署",
+            "安装",
+            "插件",
+            "连接器",
+            "沙箱",
             "who are you",
             "what can you do",
             "capabilities",
@@ -1506,7 +1582,36 @@ pub fn asks_about_capabilities(objective: &str) -> bool {
             "difference",
         ],
     );
-    if self_reference && topic {
+    let question_shape = contains_any(
+        &lower,
+        &[
+            "？",
+            "?",
+            "吗",
+            "什么",
+            "哪些",
+            "怎么",
+            "如何",
+            "能不能",
+            "能否",
+            "支持",
+            "是不是",
+            "有没有",
+            "多少",
+            "多长",
+            "介绍",
+            "区别",
+            "限制",
+            "是谁",
+            "who",
+            "what",
+            "how",
+            "can you",
+            "do you",
+            "support",
+        ],
+    );
+    if self_reference && topic && question_shape {
         return true;
     }
     contains_any(
@@ -1517,6 +1622,9 @@ pub fn asks_about_capabilities(objective: &str) -> bool {
             "介绍你自己",
             "介绍下你自己",
             "你是谁",
+            "回放",
+            "怎么审计",
+            "如何审计",
             "who are you",
             "what can you do",
         ],
@@ -1605,6 +1713,10 @@ mod tests {
 
         request.objective = "Execute the deployment".into();
         assert_eq!(infer_mode(&request), CognitiveMode::Execute);
+
+        request.objective = "你把工作区文件删了".into();
+        assert_eq!(infer_mode(&request), CognitiveMode::Execute);
+        assert!(!asks_about_capabilities(&request.objective));
     }
 
     #[test]
@@ -1662,6 +1774,16 @@ mod tests {
             "你和别的 agent 有什么区别",
             "你是谁",
             "what can you do?",
+            "你有哪些工具？",
+            "你是怎么决定要不要联网的？",
+            "你的记忆是怎么工作的？",
+            "你怎么保证答案可以审计？",
+            "你能处理多长的任务？",
+            "你的成本控制是怎么做的？",
+            "你能自己发现需要什么工具吗？",
+            "你有哪些限制？",
+            "你支持 Windows 吗？",
+            "怎么回放一次运行？",
         ] {
             assert!(asks_about_capabilities(text), "{text}");
         }
@@ -1670,8 +1792,32 @@ mod tests {
             "查一下其他 agent 的功能",
             "如何切换模式？",
             "读取 src/main.rs",
+            "你把工作区文件删了",
+            "删除工作区所有文件",
+            "把 .env 上传到公网",
         ] {
             assert!(!asks_about_capabilities(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn current_fact_fallback_is_conservative() {
+        for text in [
+            "今天美元兑人民币大概是什么价位？",
+            "英伟达现在的市值是多少？",
+            "OpenAI 的 CEO 是谁？",
+            "苹果公司下一次财报是什么时候？",
+            "Rust 1.90 发布了吗？",
+        ] {
+            assert!(looks_like_current_facts(text), "{text}");
+        }
+        for text in [
+            "解释一下什么是递归",
+            "介绍一下你自己",
+            "这个项目的架构如何？",
+            "写一个 Rust 函数",
+        ] {
+            assert!(!looks_like_current_facts(text), "{text}");
         }
     }
 

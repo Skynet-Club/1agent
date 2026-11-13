@@ -96,12 +96,13 @@
 
 ### R1.6：智能闭环（0.97 发布门禁，AG-23）
 
-- [ ] `describe_self`：模型读取实时工具、权限、风险、模型和预算；删除静态能力目录
-- [ ] `request_tools`：模型可中途请求工具；运行时校验权限并加载 schema
-- [ ] 证据不足验证/再规划：最多 1–2 次，无死循环
-- [ ] 模型驱动任务需求评估：freshness/locality/action/risk/ambiguity/budget；关键词只兜底
-- [ ] 策略记忆：任务特征 → 计划/工具序列/结果；不记忆固定答案
+- [x] `describe_self`：模型读取实时工具、权限、风险、模型和预算；删除静态能力目录
+- [x] `request_tools`：模型可中途请求工具；运行时校验权限并加载 schema
+- [x] 证据不足验证/再规划：最多 1–2 次，无死循环
+- [x] 模型驱动任务需求评估：freshness/locality/action/risk/ambiguity/budget；关键词只兜底
+- [x] 策略记忆：任务特征 → 计划/工具序列/结果；不记忆固定答案
 - [ ] 100 题评测：自我介绍、最新/本地、追问、简单聊天、高风险动作；M1/M5 不回归
+  （`evals/agent-loop-v1.json` 与 `eval --artifacts-dir` 已就绪，最终报告待归档）
 - 未完成不得发布 0.97；详见 Obsidian `III-01-1Agent-开发计划` 4.4/4.5
 
 ### R2：行动层（部分已落地）
