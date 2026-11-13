@@ -25,8 +25,10 @@ appended the same request row.
 
 1. Advance `last_seq` before the model-request branch continues. A request row
    is emitted once per journal event.
-2. Use a distinct `Model Request` work kind and one row per step:
-   `第 N 步 · M 条消息 · T tokens`. Do not emit a second metrics row.
+2. Use a distinct `Model Request` work kind and one row per step. The row names
+   the provider/model and shows what was sent: `新增 X 条，共 M 条（系统 · 用户
+   · 助手 · 工具）`. Do not show context-token or available-tool counts in the
+   work log; those belong in the status bar or `/details`.
 3. Store the tool `call_id` on the work entry. When the observation arrives,
    insert its result immediately after that call entry, so parallel calls keep
    call/result pairs adjacent.

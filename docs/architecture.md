@@ -37,7 +37,8 @@ only the conclusion in the transcript; and the running line reports elapsed time
 input/output tokens and provider cache hit rate when reported. The transcript projection is
 cached by content revision and width: an unchanged frame reuses the wrapped lines, while a new
 entry or a resize rebuilds them. The transcript keeps at most 200 entries. The
-work log emits one `Model Request` row per step with message/context counts;
+work log emits one `Model Request` row per step with the provider/model and a
+new/total message breakdown by role (no context-token or available-tool counts);
 tool results carry their `call_id` and are inserted directly under the matching
 call, so parallel calls keep pairs adjacent. Common tool failures are localized
 with the URL retained, raw errors remain in `/details`, and operations that

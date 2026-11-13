@@ -18626,8 +18626,15 @@ fn append_work_events(
         return;
     };
     let mut step = 0usize;
+    let mut route: Option<(String, String)> = None;
     let mut model_requests = ModelRequestChain::new();
     for event in events {
+        if let JournalEventKind::RouteSelected {
+            provider_id, model, ..
+        } = &event.event
+        {
+            route = Some((provider_id.clone(), model.clone()));
+        }
         let model_request = model_requests.apply(&event).ok().flatten();
         if model_request.is_some() {
             step += 1;
@@ -18636,15 +18643,32 @@ fn append_work_events(
             continue;
         }
         if let Some(request) = model_request {
-            let tokens = first_principles_agent::context::total_request_tokens(
-                &request.messages,
-                &request.tools,
-            );
+            let new_messages = match &event.event {
+                JournalEventKind::ModelRequestDelta { delta } => {
+                    request.messages.len().saturating_sub(delta.prefix_len)
+                }
+                _ => request.messages.len(),
+            };
+            let role_count = |role: first_principles_agent::MessageRole| {
+                request
+                    .messages
+                    .iter()
+                    .filter(|message| message.role == role)
+                    .count()
+            };
+            let route = route
+                .as_ref()
+                .map(|(provider, model)| format!("{provider}/{model}"))
+                .unwrap_or_else(|| "路由未知".into());
             state.push_work(
                 TuiActivityKind::Requesting,
                 format!(
-                    "第 {step} 步 · {} 条消息 · {tokens} tokens",
-                    request.messages.len()
+                    "第 {step} 步 · {route} · 新增 {new_messages} 条，共 {} 条（系统 {} · 用户 {} · 助手 {} · 工具 {}）",
+                    request.messages.len(),
+                    role_count(first_principles_agent::MessageRole::System),
+                    role_count(first_principles_agent::MessageRole::User),
+                    role_count(first_principles_agent::MessageRole::Assistant),
+                    role_count(first_principles_agent::MessageRole::Tool),
                 ),
             );
             // Mark the request event consumed before `continue`; otherwise the
@@ -20669,11 +20693,21 @@ mod tui_rendering_tests {
             })
             .unwrap();
         journal
+            .append(first_principles_agent::JournalEventKind::RouteSelected {
+                provider_id: "deepseek-primary".into(),
+                model: "deepseek-flash".into(),
+                reason: "test route".into(),
+            })
+            .unwrap();
+        journal
             .append(first_principles_agent::JournalEventKind::ModelRequested {
                 request: first_principles_agent::ModelRequest {
                     run_id,
                     mode: CognitiveMode::DirectAnswer,
-                    messages: Vec::new(),
+                    messages: vec![
+                        first_principles_agent::ModelMessage::system("system"),
+                        first_principles_agent::ModelMessage::user("hello"),
+                    ],
                     tools: Vec::new(),
                 },
             })
@@ -20682,13 +20716,15 @@ mod tui_rendering_tests {
         let mut state = TuiState::new("mock", 6, 120);
         let mut last_seq = None;
         append_work_events(&mut state, &path, &mut last_seq);
-        assert_eq!(
-            tui_screen_text(&mut state)
-                .replace(' ', "")
-                .matches("模型请求")
-                .count(),
-            1
+        let screen = tui_screen_text(&mut state).replace(' ', "");
+        assert_eq!(screen.matches("模型请求").count(), 1);
+        assert!(
+            screen.contains("deepseek-primary/deepseek-flash"),
+            "{screen}"
         );
+        assert!(screen.contains("新增2条"), "{screen}");
+        assert!(screen.contains("系统1"), "{screen}");
+        assert!(screen.contains("用户1"), "{screen}");
 
         journal
             .append(first_principles_agent::JournalEventKind::ModelResponded {
