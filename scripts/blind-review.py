@@ -8,7 +8,9 @@
         --mapping ~/.1a/blind-review/mapping.json
     scripts/blind-review.py finalize --labels labels.jsonl --out answer-quality.jsonl
 
-`collect` invokes the local `1agent` launcher or `hermes -z`. `packet`
+`collect` invokes the local `1agent` launcher or
+`hermes --safe-mode --provider <provider> --model <model> -z`. Safe mode
+ignores the user profile, so the provider and model must be explicit. `packet`
 anonymizes A/B with a deterministic seed and writes a reviewer packet; the
 sealed mapping is written outside the packet directory. `finalize` strips the
 reviewer ids and writes the bare sample shape accepted by
@@ -58,9 +60,18 @@ def run_1agent(prompt, timeout):
     return answer
 
 
-def run_hermes(prompt, timeout):
+def run_hermes(prompt, timeout, provider, model):
     result = subprocess.run(
-        ["hermes", "--safe-mode", "-z", prompt],
+        [
+            "hermes",
+            "--safe-mode",
+            "--provider",
+            provider,
+            "--model",
+            model,
+            "-z",
+            prompt,
+        ],
         capture_output=True,
         text=True,
         timeout=timeout + 30,
@@ -85,7 +96,12 @@ def collect(args):
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     limit = len(golden) if args.limit is None else min(args.limit, len(golden))
-    runner = run_1agent if args.runner == "1agent" else run_hermes
+    if args.runner == "1agent":
+        runner = run_1agent
+    else:
+        runner = lambda prompt, timeout: run_hermes(  # noqa: E731
+            prompt, timeout, args.hermes_provider, args.hermes_model
+        )
     written = 0
     with out.open("w") as handle:
         for row in golden[:limit]:
@@ -230,6 +246,8 @@ def main():
     collect_parser.add_argument("--out", required=True)
     collect_parser.add_argument("--limit", type=int)
     collect_parser.add_argument("--timeout", type=int, default=180)
+    collect_parser.add_argument("--hermes-provider", default="deepseek")
+    collect_parser.add_argument("--hermes-model", default="deepseek-flash")
     collect_parser.set_defaults(func=collect)
 
     packet_parser = sub.add_parser("packet")

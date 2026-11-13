@@ -1,12 +1,12 @@
 # Long-Horizon Real Benchmark — Evidence (2026-11-12)
 
-Status: **running**
+Status: **FAILED — release gate not met**
 Job: `job-1794496736687-2245-2`
-Collector job: `job-1794497802956-2245-4` (copies the final JSON into this
-directory when the benchmark finishes)
+Collector job: `job-1794497802956-2245-4`
 Plan: `/home/skynet/.cache/1agent-soak/plan-bench-8h-2026-11-12.json`
 Started: 2026-11-12 23:20 CST
-Expected finish: 2026-11-13 07:30–08:30 CST (depending on per-run latency)
+Finished: 2026-11-13 06:32 CST
+Wall clock: 26,029.1 s (7 h 13 m 49 s)
 
 ## Design
 
@@ -20,14 +20,58 @@ Expected finish: 2026-11-13 07:30–08:30 CST (depending on per-run latency)
 
 ## Results
 
-Append the final JSON and wall-clock duration when the job finishes:
-
-```bash
-job=job-1794496736687-2245-2
-d=$HOME/.local/state/skynet-term/jobs/$job
-python3 -I -c "import json;print(json.load(open('$d/state.json')))"
-find "$d/runs" -name 'bench-8h.output' -exec cat {} \;
+```json
+{
+  "iterations": 280,
+  "completed": 136,
+  "crashed": 0,
+  "replay_verified": 238,
+  "completion_bps": 4857,
+  "crash_free_bps": 10000,
+  "replay_bps": 8500,
+  "passed": false
+}
 ```
+
+Gate: completion ≥7000 bps, crash-free ≥9950 bps, replay 10000 bps.
+
+- Completion **4857 bps (48.57%)** — failed (min 7000).
+- Replay **8500 bps (85.00%)** — failed (min 10000).
+- Crash-free **10000 bps (100%)** — passed.
+- Crashed 0 / 280.
+
+Raw JSON: `docs/evidence/long-horizon-benchmark-2026-11-12.json`
+(sha256 `ea06c3df541b7b32e6579e7dc5d1c8a586e0deb82be5c32c54452b5da59a4449`).
+The collector copied the benchmark stdout including the trailing
+`Error: benchmark gate failed`; the JSON block was extracted and the artifact
+is otherwise unchanged.
+
+## Diagnosis
+
+A 3-run diagnostic sample (24 task executions) passed 21/24 tasks (87.5%) but
+only 1/3 all-8 suites. Failures were model-contract violations, not crashes:
+
+- automatic answer repair returned tool calls instead of final JSON;
+- a completed answer relied on a high-impact assumption and the automatic
+  repair did not produce a valid answer;
+- a checksum task returned `Conditional` where the rubric expects `Completed`;
+- an earlier diagnostic run cited a prose tool-result description instead of
+  the exact path `checksum.txt`, so the rubric source check failed.
+
+The benchmark's all-task completion metric compounds per-task failures; at
+about 87.5% per-task reliability, an 8-task suite passes only about half the
+time. The 42 non-replay-verified iterations are the same invalid-output cases:
+a failed case has no auditable terminal answer, so `replay_verified` is false.
+This is a reliability/product-quality gap, not evidence of journal corruption.
+
+## What this means
+
+- 0.97.0 must not be released with these numbers.
+- M1 (long-horizon success) is not met; M2 autonomy duration is 7 h 13 m 49 s
+  unattended, but the run failed its quality gate; M3 interventions were 0.
+- The next iteration should target the repair contract (disable tools during
+  answer repair, handle high-impact assumptions, exact evidence paths), then
+  rerun a shorter benchmark to measure improvement before another 8h run.
 
 ## What this will measure
 

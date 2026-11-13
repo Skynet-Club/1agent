@@ -32,8 +32,8 @@ claim that the review has happened.
 | M15 TUI frame p95 | release p95 1.26 ms on a 200-entry transcript (TestBackend) | Local pass |
 | M16 1M journal incremental | 4.7 MB journal: full 31.8 ms, incremental p95 9.4–16.1 µs | Local pass |
 | M17 compacted replay | forced-compaction fixture replay/audit 100% | Local pass |
-| M1/M2/M3 | suite v1.1 16/16 short runs; 8h benchmark `job-1794496736687-2245-2` running | 8h result pending; no human calibration |
-| M7 TTFT | DeepSeek `deepseek-flash`, n=3: p50 1.08 s / p95 2.48 s | Small baseline |
+| M1/M2/M3 | 8h run finished: 136/280 completed (48.57%), 238/280 replay-verified (85%), 280/280 crash-free; completion and replay gates failed | **Gate failed**; no human calibration |
+| M7 TTFT | DeepSeek `deepseek-flash`, earlier n=3 p50 1.08 s / p95 2.48 s; new n=17 partial p50 1.31 s / p95 2.26 s | Small/partial sample |
 | M19–M23 | 40-prompt golden set and answer-quality board exist; blind labels absent | Board only |
 
 Claims: **223 total, 200 verified, 15 partial, 8 no evidence** as of this
@@ -96,8 +96,9 @@ archive new journals before downgrading. See
 
 ## 5. Known limitations for the reviewer
 
-- M1/M2/M3: no 8h result yet; the 8-task suite is short and calibrated
-  locally. M19–M23 blind labels are external.
+- M1/M2/M3: the 8h run failed at 48.57% completion and 85% replay; its
+  failures are model-contract violations, not crashes. The 8-task suite is
+  short and calibrated locally. M19–M23 blind labels are external.
 - M6/M18: no external security/compliance audit; P0 unknown.
 - A-Gate: 14 work packages were ~89% estimated on 2026-11-08; no package was
   fully closed. Re-score after the 0.97 slice.
@@ -117,7 +118,8 @@ archive new journals before downgrading. See
 - [ ] Attempt unapproved write/terminal actions under `--read-only`, Authority
       and kill switch; confirm fail-closed.
 - [ ] Replay a sample of completed journals and audit them.
-- [ ] Verify the 2h soak raw output and the 8h benchmark result when available.
+- [x] 8h benchmark result captured (failed; see
+  `docs/evidence/long-horizon-benchmark-2026-11-12.md`).
 - [ ] Perform an independent red-team pass (prompt injection, SSRF, secret
       leakage, permission bypass).
 - [ ] Record P0/P1 findings and an explicit pass/fail decision; this package is

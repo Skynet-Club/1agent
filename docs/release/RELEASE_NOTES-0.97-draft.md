@@ -2,10 +2,13 @@
 
 [简体中文](RELEASE_NOTES-0.97-draft.md) · [English](RELEASE_NOTES-0.97-draft.en.md)
 
-Date: 2026-11-13  
-Status: **release-candidate draft, not published**  
-Pending: 8h long-horizon result, broader TTFT sample, human blind-review
-labels, external A-Gate/W-Gate/security review, macOS P-Gate, release package.
+Date: 2026-11-13
+
+Status: **release-candidate draft, not published; 8h gate failed**
+
+Pending: reliability fixes and a new 8h run, broader TTFT sample, human
+blind-review labels, external A-Gate/W-Gate/security review, macOS P-Gate,
+release package.
 
 > This draft is not a release announcement. A metric marked “pending” is not
 > zero; the evidence does not exist yet.
@@ -80,9 +83,11 @@ P-Gate 不在本版本。
   审计完整、拒绝观测、token/成本、run 延迟与 TTFT。
 - `gate-check.sh` 对缺失样本失败关闭；dashboard 增加门禁卡片。
 - 真实任务套件 v1.1：DeepSeek `deepseek-flash` 两次 16/16；早期 v1.0
-  基线 17/24（70.83%）。8h 重复基准正在运行，结果未出。
-- 首 token 真实基线：3 次短流式任务 p50 1.08 s / p95 2.48 s；n=20
-  （10 短 + 10 长上下文）已排程，等待 8h 基准结束后执行。
+  基线 17/24（70.83%）。8h 重复基准已完成但**失败**：136/280
+  全任务通过（48.57%）、238/280 结构回放（85%）、280/280 crash-free。
+- 首 token 真实基线：3 次短流式任务 p50 1.08 s / p95 2.48 s；扩展样本
+  17/20（p50 1.31 s / p95 2.26 s），3 个因首次响应是工具调用而缺少
+  content token，需要重跑。
 - `release-check.sh` 在 clean tree `509061c` 上 exit 0：fmt、clippy、
   1261 passed / 0 failed / 13 ignored、HTTP e2e、CI status 0、claims 证据
   执行、TUI PTY 交互。指标门因未传 `--metrics-dir` 跳过。
@@ -108,8 +113,8 @@ P-Gate 不在本版本。
 | 结构回放 | 100% on completed journals | local pass |
 | 审计完整 | 100% under `AgentAnswer::validate` | local pass |
 | 真实任务 v1.1 | 16/16（两次短样本） | local pass, not 8h |
-| 8h M1/M2/M3 | job `job-1794496736687-2245-2` | pending |
-| M7 TTFT | n=3 p50 1.08 s / p95 2.48 s | small baseline |
+| 8h M1/M2/M3 | 136/280 completed (48.57%), 238/280 replay (85%), 280/280 crash-free | **gate failed** |
+| M7 TTFT | n=3 p50 1.08 s / p95 2.48 s; n=17 partial p50 1.31 s / p95 2.26 s | small/partial sample |
 | M19–M23 盲评 | packet pipeline ready | human labels pending |
 | 外部审计 / macOS P-Gate | 未开始 | pending |
 
