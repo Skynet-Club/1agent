@@ -209,7 +209,7 @@ file: <路径>              → 文件必须存在
 | Master 状态卡覆盖理解/规划/批准/分配/启动/Worker/收集/验收/汇报 | test: activity_taxonomy_is_bilingual_and_color_coded | ✅ | 持久卡片；下一步命令写在 footer |
 | 工具调用和结果实时写入主会话工作日志 | test: work_entries_use_a_bilingual_label_in_the_transcript_log | ✅ | journal 增量驱动；状态与详情用 ` · ` 分隔；真实 PTY 证据 `docs/evidence/tui-2026-11-10/work-log.txt`；Bash 输出有长度上限 |
 | 整个 TUI 大背景为暗绿色，为输入面板 80% 亮度且更暗 | test: terminal_backdrop_is_darker_green_than_the_input_panel | ✅ | 大背景 `#06100A`、输入面板 `#08140D`；欢迎页、主会话和命令面板共用大背景 |
-| 欢迎页 `1` 保持亮绿，`Agent`/底部文字深绿，域名亮绿 | test: welcome_logo_keeps_one_green_and_paints_agent_deep_green | ✅ | 真实 PTY：`1`=`3fb950`，`Agent`/说明=`487748`，`SKYNET.CLUB`=`00ff00`；退出 banner 同步 |
+| 欢迎页 `1` 保持亮绿，`Agent`/底部文字深绿，域名亮绿 | test: welcome_logo_highlights_the_s_and_paints_the_rest_dark_green | ✅ | 真实 PTY：`1`=`3fb950`，`Agent`/说明=`487748`，`SKYNET.CLUB`=`00ff00`；退出 banner 同步 |
 | TUI 输入框/状态/模型/模式共用深绿围栏，token 指标嵌在顶部边框右侧 | test: composer_and_panel_text_share_one_fence | ✅ | 暗绿背景/边框/文字整体压暗 50%、白色输入；底部模型/模式；`T` 亮绿加粗；上下文只在顶部进度条 |
 | 窄终端时 token 指标折入围栏内下一行，进度条减半，不再截断 | test: narrow_terminal_folds_metrics_inside_the_same_fence | ✅ | 72 列真实 PTY 证据 `docs/evidence/tui-2026-11-10/input-panel-folded.txt`；进度条 20→10 格，百分比不变 |
 | 用户消息整行使用会话框背景 `#08140D`、白色文字 | test: user_message_and_answer_are_separated_by_an_empty_gap_row | ✅ | 真实 PTY 采样用户行 bg=08140d；回答前的空白行不继承该背景 |

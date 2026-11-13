@@ -21855,7 +21855,7 @@ mod tui_rendering_tests {
     #[test]
     fn provider_credentials_use_a_private_file_and_roundtrip() {
         let root = tempfile::tempdir().unwrap();
-        let path = save_provider_key_in(root.path(), "deepseek-primary", "sk-test").unwrap();
+        let _path = save_provider_key_in(root.path(), "deepseek-primary", "sk-test").unwrap();
         assert_eq!(
             load_provider_key_in(root.path(), "deepseek-primary")
                 .unwrap()
@@ -21865,7 +21865,7 @@ mod tui_rendering_tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            let mode = std::fs::metadata(&_path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
         }
         let profile = ProviderProfile {
