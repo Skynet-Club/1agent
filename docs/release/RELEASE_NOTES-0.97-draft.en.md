@@ -127,7 +127,7 @@ the cross-platform P-Gate remain 0.98–1.0 work.
 
 | Item | Result | Status |
 |---|---|---|
-| Full tests (current) | 1264 passed / 0 failed / 13 ignored | local pass |
+| Full tests (current) | 1265 passed / 0 failed / 13 ignored | local pass |
 | fmt / clippy | clean | local pass |
 | release-check | exit 0 (metrics gate skipped) | local pass |
 | 2h crash-injection soak | 28,552 cycles / 7,200.20s / exit 0 | local pass |
