@@ -31,18 +31,18 @@ This page is a measurement review, not a release announcement. A metric marked
 
 | Metric | Current | Note |
 |---|---|---|
-| M1 long-horizon success | **8h failed**: 280 iterations, 136 completed (48.57%), replay 238/280 (85.00%), crash-free 280/280 (100%). The 0.97 target is ≥50%, so M1 is 1.43 pp short; the run used the 1.0 70% completion gate. Diagnostic sample: 21/24 tasks, 1/3 all-8 suites; failures are model-contract violations | not met; one provider/model; see `docs/evidence/long-horizon-benchmark-2026-11-12.md` |
-| M2 autonomy hours | 7 h 13 m 49 s unattended (`job-1794496736687-2245-2`), but the run failed its quality gate | duration recorded; not counted as an M2 pass |
-| M3 interventions/task | 0 in the unattended 8h run | interventions were not possible in the scheduled job |
+| M1 long-horizon success | **First 8h failed**: 136/280 suites (48.57%). Post-repair 20-run: **144/160 tasks (90.0%)**, 10/20 suites (50%), M5 157/157. A new 320-run 8h (`job-1794537863409-2245-6`) is running with task M1 ≥50% and M5 100% | first run not met; post-repair samples pass; new 8h pending |
+| M2 autonomy hours | New 8h in progress; prior run lasted 7 h 13 m 49 s but failed its quality gate | new result pending |
+| M3 interventions/task | 0 in the prior unattended 8h run | new run is unattended too |
 | M7 TTFT | DeepSeek `deepseek-flash`, n=20 (10 short + 10 long-context): overall p50 1.498 s / p95 2.768 s; short p50 1.239 / p95 1.942; long p50 1.573 / p95 2.786; earlier n=3 was p50 1.08 / p95 2.48 | one provider; tools disabled; not production/statistically sufficient |
 | M8 end-to-end p95 | 72.9 s historical snapshot | first/last event time, not a tool-dense benchmark |
 | M9 tool success | 86.17% historical; 50% test-generated repo set | repo set is dominated by failure-injection tests |
 | M10 cost/task | 3,275 micros historical | provider pricing not embedded; usage only |
 | M11 memory hit rate | not measured | no repeated-task benchmark |
 | M12 skill reuse | not measured | no repeated-workflow benchmark |
-| M14 crash-free sessions | 280/280 (100%) in the 8h run | `crash_free_bps` = runs with a terminal stop / runs; failed model contracts are not crashes |
+| M14 crash-free sessions | Prior 8h: 280/280 (100%); post-repair 5/20 runs: 5/5 and 20/20 | `crash_free_bps`; new 8h pending |
 | M18 external audit | not started | 0 P0 unknown |
-| M19–M23 | board plus a fixed 40-prompt golden set; 1Agent answers collected; Hermes safe-mode needs explicit `--provider`/`--model` (script fixed), so the first packet job failed and Hermes collection is rerunning | `answer-quality` computes rates from caller labels; a human reviewer must label the packet |
+| M19–M23 | Packet built: 39 prompts / 78 label rows; Hermes 39/40 (research-05 timed out) with explicit provider/model; 1Agent answers are pre-repair and must be re-collected | `answer-quality` computes rates from caller labels; a human reviewer must label the final packet |
 
 ## What the 0.97 work added
 
@@ -106,17 +106,15 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Release blockers
 
-1. **M1/M5 reliability**: the 8h run reached 48.57% all-suite completion,
-   1.43 pp below the 0.97 ≥50% target (and far below the 1.0 70% gate). The
-   benchmark's 85% replay counts invalid-output suites; M5 is defined over
-   completed runs and still needs its own calculation. Failures are
-   model-contract violations (repair returned tool calls, high-impact
-   assumption, Conditional vs Completed, prose evidence source). Fix the
-   repair/output contract and rerun; do not lower the gate.
+1. **M1/M5 long-horizon proof**: the first 8h failed at 48.57% all-suite
+   completion. After the repair contract fix, 20 short iterations pass 90% of
+   tasks (M1) and 100% of completed-case replay (M5); a new 320-run 8h is
+   running. Do not release until it passes with the current binary.
 2. M7 TTFT now has 20 mixed short/long samples; a second provider still needs
    credentials, and tool-dense/retry-heavy latency is not sampled.
-3. M19–M23 blind-review labels; the Hermes collector needed explicit
-   provider/model and is rerunning; a human reviewer must label the packet.
+3. M19–M23 blind-review labels: the current 39-prompt/78-row packet is
+   provisional; 1Agent answers must be re-collected after the repair/prompt
+   changes, then a human reviewer must label the final packet.
 4. External A-Gate/W-Gate and security review; a review draft is at
    `docs/audit-package.md`; P-Gate macOS.
 5. Automatic watchdog repair: containment is implemented (`--watch --execute
@@ -126,15 +124,15 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Next actions
 
-- Answer-repair contract is fixed (ADR-0125). The 5- and 20-iteration samples
-  pass task-level M1 (90% in the 20-run) and completed-run M5 (100%); schedule
-  a new 8h run with the current binary, then update M1/M2/M5.
+- Answer-repair contract is fixed (ADR-0125). The 20-iteration sample passes
+  task-level M1 (90%) and completed-run M5 (100%); the new 320-run 8h
+  `job-1794537863409-2245-6` is running. Update M1/M2/M5 when it finishes.
 - Decide whether an irreparable model output should become a valid
   `NeedsEvidence` answer (auditable journal) instead of a hard runtime error;
   this would improve replay without claiming task success.
-- Rerun the 20-sample TTFT set with a direct-answer/no-tool contract.
-- Finish the Hermes blind-review collection, build the packet, then obtain 80
-  human labels; run `1agent answer-quality`.
+- TTFT n=20 is recorded; a second provider/tool-dense sample remains optional.
+- Re-collect the 1Agent blind-review side with the current binary, repacket,
+  then obtain human labels and run `1agent answer-quality`.
 - RFC 0002 containment is implemented; keep automatic resume/restart in 0.98
   pending lease fencing and an independent health signal.
 - Keep the release check fail-closed on a representative journal directory.
