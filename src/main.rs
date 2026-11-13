@@ -18649,12 +18649,30 @@ fn append_work_events(
                 }
                 _ => request.messages.len(),
             };
-            let role_count = |role: first_principles_agent::MessageRole| {
-                request
+            let roles = [
+                (first_principles_agent::MessageRole::System, "系统"),
+                (first_principles_agent::MessageRole::User, "用户"),
+                (first_principles_agent::MessageRole::Assistant, "助手"),
+                (first_principles_agent::MessageRole::Tool, "工具"),
+            ]
+            .into_iter()
+            .filter_map(|(role, label)| {
+                let count = request
                     .messages
                     .iter()
                     .filter(|message| message.role == role)
-                    .count()
+                    .count();
+                (count > 0).then(|| format!("{label} {count}"))
+            })
+            .collect::<Vec<_>>()
+            .join(" · ");
+            let total = request.messages.len();
+            let sent = if total == 0 {
+                "共 0 条".to_string()
+            } else if new_messages == total {
+                format!("共 {total} 条（{roles}）")
+            } else {
+                format!("新增 {new_messages} 条，共 {total} 条（{roles}）")
             };
             let route = route
                 .as_ref()
@@ -18662,14 +18680,7 @@ fn append_work_events(
                 .unwrap_or_else(|| "路由未知".into());
             state.push_work(
                 TuiActivityKind::Requesting,
-                format!(
-                    "第 {step} 步 · {route} · 新增 {new_messages} 条，共 {} 条（系统 {} · 用户 {} · 助手 {} · 工具 {}）",
-                    request.messages.len(),
-                    role_count(first_principles_agent::MessageRole::System),
-                    role_count(first_principles_agent::MessageRole::User),
-                    role_count(first_principles_agent::MessageRole::Assistant),
-                    role_count(first_principles_agent::MessageRole::Tool),
-                ),
+                format!("第 {step} 步 · {route} · {sent}"),
             );
             // Mark the request event consumed before `continue`; otherwise the
             // next event causes this row to be appended a second time.
@@ -20722,9 +20733,10 @@ mod tui_rendering_tests {
             screen.contains("deepseek-primary/deepseek-flash"),
             "{screen}"
         );
-        assert!(screen.contains("新增2条"), "{screen}");
+        assert!(screen.contains("共2条"), "{screen}");
         assert!(screen.contains("系统1"), "{screen}");
         assert!(screen.contains("用户1"), "{screen}");
+        assert!(!screen.contains("助手0"), "{screen}");
 
         journal
             .append(first_principles_agent::JournalEventKind::ModelResponded {
