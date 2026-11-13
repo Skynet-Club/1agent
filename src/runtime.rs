@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -14,13 +14,13 @@ use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
     MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
     ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason,
-    TaskRequest, ToolCall, ToolObservation, ToolStatus, UnknownItem,
+    TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
 use crate::journal::{
     Journal, JournalEventKind, ModelRequestLog, ProviderFailure, ResumablePrefix, RetryOutcome,
-    RetryTiming, find_resumable_prefix, read_events,
+    RetryTiming, ToolRequestDenial, find_resumable_prefix, read_events,
 };
 use crate::provider::{
     ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
@@ -32,7 +32,7 @@ use crate::router::{
     RouteRequest, Router,
 };
 use crate::task_graph::MandateStrength;
-use crate::tools::ToolRegistry;
+use crate::tools::{ToolCapability, ToolRegistry};
 
 #[derive(Clone)]
 pub struct ProviderCandidate {
@@ -342,6 +342,147 @@ impl AgentRuntime {
         self.tools.register(tool);
     }
 
+    fn describe_self_observation(
+        &self,
+        call: &ToolCall,
+        permissions: &crate::domain::PermissionSet,
+        budget: &crate::domain::RunBudget,
+        provider_id: &str,
+        model: &str,
+        capabilities: &[ToolCapability],
+    ) -> ToolObservation {
+        ToolObservation {
+            call_id: call.id.clone(),
+            tool: call.name.clone(),
+            status: ToolStatus::Ok,
+            summary: format!(
+                "live self model: {} tools, {}/{}",
+                capabilities.len(),
+                provider_id,
+                model
+            ),
+            content: crate::dynamic_tools::render_self_model(
+                provider_id,
+                model,
+                permissions,
+                budget,
+                capabilities,
+            ),
+            error_code: None,
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    fn request_tools_observation(
+        &self,
+        call: &ToolCall,
+        permissions: &crate::domain::PermissionSet,
+        tool_specs: &mut Vec<ToolSpec>,
+    ) -> (ToolObservation, Option<JournalEventKind>) {
+        let args = match crate::dynamic_tools::parse_request_tools(&call.arguments) {
+            Ok(args) => args,
+            Err(message) => {
+                return (
+                    ToolObservation {
+                        call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        status: ToolStatus::InvalidArguments,
+                        summary: message.clone(),
+                        content: String::new(),
+                        error_code: Some("invalid_arguments".into()),
+                        metadata: BTreeMap::new(),
+                    },
+                    None,
+                );
+            }
+        };
+        let all_capabilities = self.tools.capabilities();
+        let mut granted = Vec::new();
+        let mut denied = Vec::new();
+        for name in &args.tools {
+            if crate::dynamic_tools::is_virtual(name)
+                || tool_specs.iter().any(|spec| &spec.name == name)
+            {
+                granted.push(name.clone());
+                continue;
+            }
+            let Some(capability) = all_capabilities
+                .iter()
+                .find(|capability| &capability.name == name)
+            else {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "unknown_tool".into(),
+                    message: format!("unknown tool '{name}'"),
+                });
+                continue;
+            };
+            if capability.requires_write && !permissions.allow_write {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "write_not_allowed".into(),
+                    message: "write permission is disabled".into(),
+                });
+                continue;
+            }
+            if crate::dynamic_tools::NETWORK_TOOLS.contains(&name.as_str())
+                && !permissions.allow_network
+            {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "network_not_allowed".into(),
+                    message: "network permission is disabled".into(),
+                });
+                continue;
+            }
+            if !tool_specs.iter().any(|spec| &spec.name == name) {
+                tool_specs.push(ToolSpec {
+                    name: capability.name.clone(),
+                    description: capability.description.clone(),
+                    parameters: capability.parameters.clone(),
+                });
+            }
+            granted.push(name.clone());
+        }
+        tool_specs.sort_by(|left, right| left.name.cmp(&right.name));
+        let status = if granted.is_empty() && !denied.is_empty() {
+            ToolStatus::PermissionDenied
+        } else {
+            ToolStatus::Ok
+        };
+        let summary = format!("granted {} tool(s); denied {}", granted.len(), denied.len());
+        let content = serde_json::to_string_pretty(&serde_json::json!({
+            "requested": args.tools,
+            "granted": granted,
+            "denied": denied.iter().map(|denial| serde_json::json!({
+                "name": denial.name,
+                "code": denial.code,
+                "message": denial.message,
+            })).collect::<Vec<_>>(),
+            "reason": args.reason,
+        }))
+        .unwrap_or_default();
+        let event = JournalEventKind::ToolsRequested {
+            requested: args.tools,
+            granted: granted.clone(),
+            denied: denied.clone(),
+            reason: args.reason,
+        };
+        (
+            ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status,
+                summary,
+                content,
+                error_code: (status == ToolStatus::PermissionDenied)
+                    .then(|| "permission_denied".into()),
+                metadata: BTreeMap::new(),
+            },
+            Some(event),
+        )
+    }
+
     pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.experience_dir = Some(dir.into());
         self
@@ -540,6 +681,7 @@ impl AgentRuntime {
             && self.attachments.is_empty()
             && self.tool_query.is_none()
             && !refers_to_context
+            && !crate::domain::asks_about_capabilities(&request.objective)
             && crate::domain::looks_like_chat(&request.objective);
         if !fast_chat {
             return self
@@ -664,13 +806,17 @@ impl AgentRuntime {
             }
         }
 
-        let tool_capabilities = self
-            .tools
-            .capability_snapshot_for(&request.permissions)
-            .map_err(|message| RuntimeError::ToolCapabilities {
-                path: journal_path.clone(),
-                message,
-            })?;
+        let mut available_capabilities = self.tools.capabilities_for(&request.permissions);
+        if !fast_chat {
+            available_capabilities.extend(crate::dynamic_tools::virtual_capabilities());
+            available_capabilities.sort_by(|left, right| left.name.cmp(&right.name));
+        }
+        let tool_capabilities =
+            crate::tools::ToolCapabilitySnapshot::from_capabilities(available_capabilities.clone())
+                .map_err(|message| RuntimeError::ToolCapabilities {
+                    path: journal_path.clone(),
+                    message,
+                })?;
         if let Some(prefix) = &resume
             && let Some(expected) = &prefix.checkpoint.tool_capabilities_sha256
             && expected != &tool_capabilities.sha256
@@ -726,7 +872,7 @@ impl AgentRuntime {
             });
         }
 
-        let tool_specs = if fast_chat {
+        let mut tool_specs = if fast_chat {
             Vec::new()
         } else {
             match &self.tool_query {
@@ -736,6 +882,10 @@ impl AgentRuntime {
                 None => self.tools.specs_for(&request.permissions),
             }
         };
+        if !fast_chat {
+            tool_specs.extend(crate::dynamic_tools::virtual_specs());
+            tool_specs.sort_by(|left, right| left.name.cmp(&right.name));
+        }
         let stored_objective = resume
             .as_ref()
             .and_then(|prefix| prefix.checkpoint.route_objective);
@@ -861,11 +1011,6 @@ impl AgentRuntime {
                 )
             };
             let mut initial_messages = vec![ModelMessage::system(system_prompt)];
-            if crate::capabilities::asks_about_capabilities(&request.objective) {
-                initial_messages.push(ModelMessage::system(
-                    crate::capabilities::CAPABILITY_CATALOG,
-                ));
-            }
             if !request.known_facts.is_empty() {
                 initial_messages.push(ModelMessage::system(format!(
                     "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
@@ -1612,7 +1757,47 @@ impl AgentRuntime {
                                     source,
                                 })?;
                         }
-                        let observations = if group.len() > 1 {
+                        let has_virtual = group
+                            .iter()
+                            .any(|call| crate::dynamic_tools::is_virtual(&call.name));
+                        let observations = if has_virtual {
+                            let mut observations = Vec::with_capacity(group.len());
+                            for call in group {
+                                let observation = match call.name.as_str() {
+                                    crate::dynamic_tools::DESCRIBE_SELF => self
+                                        .describe_self_observation(
+                                            call,
+                                            &request.permissions,
+                                            &request.budget,
+                                            &response_provider_id,
+                                            &response_model,
+                                            &available_capabilities,
+                                        ),
+                                    crate::dynamic_tools::REQUEST_TOOLS => {
+                                        let (observation, event) = self.request_tools_observation(
+                                            call,
+                                            &request.permissions,
+                                            &mut tool_specs,
+                                        );
+                                        if let Some(event) = event {
+                                            journal.append(event).map_err(|source| {
+                                                RuntimeError::Journal {
+                                                    path: journal_path.clone(),
+                                                    source,
+                                                }
+                                            })?;
+                                        }
+                                        observation
+                                    }
+                                    _ => {
+                                        self.execute_tool(call, &request.permissions, &cancellation)
+                                            .await
+                                    }
+                                };
+                                observations.push(observation);
+                            }
+                            observations
+                        } else if group.len() > 1 {
                             self.execute_tools_parallel(group, &request.permissions, &cancellation)
                                 .await
                         } else {
@@ -4323,7 +4508,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let runtime = chat_capture_runtime(workspace.path(), requests.clone());
-        let request = TaskRequest::from_objective("介绍一下你自己", workspace.path().to_path_buf());
+        let request = TaskRequest::from_objective("你好", workspace.path().to_path_buf());
         let result = runtime
             .run_with_mode(
                 request,
@@ -4401,7 +4586,7 @@ mod tests {
             default_registry(),
             workspace.path().join(".journal"),
         );
-        let request = TaskRequest::from_objective("介绍一下你自己", workspace.path().to_path_buf());
+        let request = TaskRequest::from_objective("你好", workspace.path().to_path_buf());
         let result = runtime
             .run_with_mode(
                 request,
@@ -4415,7 +4600,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capability_catalog_is_injected_for_self_introductions_only() {
+    async fn capability_questions_skip_fast_chat_and_offer_describe_self() {
         let workspace = tempfile::tempdir().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let runtime = chat_capture_runtime(workspace.path(), requests.clone());
@@ -4439,18 +4624,27 @@ mod tests {
             .await
             .unwrap();
         let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == crate::dynamic_tools::DESCRIBE_SELF)
+        );
+        assert!(
+            requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == crate::dynamic_tools::REQUEST_TOOLS)
+        );
         assert!(
             requests[0]
                 .messages
                 .iter()
-                .any(|message| message.content.contains("1-AGENT CAPABILITY CATALOG"))
-        );
-        assert!(
-            requests[1]
-                .messages
-                .iter()
                 .all(|message| !message.content.contains("1-AGENT CAPABILITY CATALOG"))
         );
+        assert!(requests[1].tools.is_empty());
     }
 
     #[tokio::test]
@@ -4579,7 +4773,7 @@ mod tests {
             default_registry(),
             workspace.path().join(".journal"),
         );
-        let request = TaskRequest::from_objective("介绍一下你自己", workspace.path().to_path_buf());
+        let request = TaskRequest::from_objective("最近怎么样？", workspace.path().to_path_buf());
         let result = runtime
             .run_with_mode(
                 request,
@@ -4694,5 +4888,245 @@ mod tests {
             .execute_tool(&read_call(), &permissions, &cancellation)
             .await;
         assert_eq!(read.status, ToolStatus::Ok);
+    }
+
+    struct ScriptedProvider {
+        steps: Mutex<Vec<ModelTurn>>,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
+    impl ScriptedProvider {
+        fn new(steps: Vec<ModelTurn>, requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+            Self {
+                steps: Mutex::new(steps),
+                requests,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ModelProvider for ScriptedProvider {
+        fn id(&self) -> &str {
+            "scripted"
+        }
+
+        fn model(&self) -> &str {
+            "scripted-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            let turn = self
+                .steps
+                .lock()
+                .unwrap()
+                .drain(..1)
+                .next()
+                .expect("scripted provider ran out of steps");
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    fn completed_answer(conclusion: &str) -> AgentAnswer {
+        AgentAnswer {
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Completed,
+            conclusion: conclusion.into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        }
+    }
+
+    fn scripted_runtime(
+        workspace: &std::path::Path,
+        provider: Arc<ScriptedProvider>,
+        registry: ToolRegistry,
+    ) -> AgentRuntime {
+        let mut manifest = local_manifest();
+        manifest.provider_id = provider.id().into();
+        manifest.model = provider.model().into();
+        AgentRuntime::new(
+            vec![ProviderCandidate { provider, manifest }],
+            registry,
+            workspace.join(".journal"),
+        )
+    }
+
+    #[tokio::test]
+    async fn describe_self_reports_the_live_registry() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-self".into(),
+                        name: crate::dynamic_tools::DESCRIBE_SELF.into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("你能做什么？", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation }
+                    if observation.tool == crate::dynamic_tools::DESCRIBE_SELF =>
+                {
+                    Some(observation)
+                }
+                _ => None,
+            })
+            .expect("describe_self observation");
+        let value: serde_json::Value = serde_json::from_str(&observation.content).unwrap();
+        let tools = value["tools"].as_array().unwrap();
+        assert!(tools.iter().any(|tool| tool["name"] == "echo"));
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool["name"] == crate::dynamic_tools::DESCRIBE_SELF)
+        );
+        assert_eq!(value["provider"], "scripted");
+        assert_eq!(value["model"], "scripted-v1");
+        assert!(value["budgets"]["max_steps"].is_number());
+    }
+
+    #[tokio::test]
+    async fn request_tools_adds_permitted_schemas_to_the_next_request() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-tools".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["web_search"],
+                            "reason": "need current facts"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_tool_query("read");
+        let mut request =
+            TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf());
+        request.permissions.allow_network = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            !requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search")
+        );
+        assert!(
+            requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search")
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ToolsRequested { granted, .. } if granted.iter().any(|name| name == "web_search")
+        )));
+    }
+
+    #[tokio::test]
+    async fn request_tools_denies_network_tools_without_network_permission() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-tools".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["web_search"],
+                            "reason": "need current facts"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_tool_query("read");
+        let mut request =
+            TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf());
+        request.permissions.allow_network = false;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(
+            !requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search")
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation }
+                    if observation.tool == crate::dynamic_tools::REQUEST_TOOLS =>
+                {
+                    Some(observation)
+                }
+                _ => None,
+            })
+            .expect("request_tools observation");
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("permission_denied"));
     }
 }

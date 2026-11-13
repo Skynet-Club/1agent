@@ -78,6 +78,22 @@ pub struct ToolCapabilitySnapshot {
     pub tools: Vec<String>,
 }
 
+impl ToolCapabilitySnapshot {
+    /// Hash a capability list exactly as the model sees it. Callers must sort
+    /// the list first so the digest is deterministic.
+    pub fn from_capabilities(capabilities: Vec<ToolCapability>) -> Result<Self, String> {
+        let bytes = serde_json::to_vec(&capabilities).map_err(|error| error.to_string())?;
+        Ok(Self {
+            schema_version: 1,
+            sha256: hex::encode(Sha256::digest(bytes)),
+            tools: capabilities
+                .into_iter()
+                .map(|capability| capability.name)
+                .collect(),
+        })
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     #[error("invalid arguments: {0}")]
@@ -227,6 +243,15 @@ impl ToolRegistry {
         capabilities
     }
 
+    /// Capabilities the model may see under `permissions`, including any
+    /// runtime-provided tools the caller appends.
+    pub fn capabilities_for(&self, permissions: &PermissionSet) -> Vec<ToolCapability> {
+        self.capabilities()
+            .into_iter()
+            .filter(|capability| permissions.allow_write || !capability.requires_write)
+            .collect()
+    }
+
     pub fn capability_snapshot(&self) -> Result<ToolCapabilitySnapshot, String> {
         self.capability_snapshot_for(&PermissionSet {
             allow_write: true,
@@ -242,20 +267,7 @@ impl ToolRegistry {
         &self,
         permissions: &PermissionSet,
     ) -> Result<ToolCapabilitySnapshot, String> {
-        let capabilities = self
-            .capabilities()
-            .into_iter()
-            .filter(|capability| permissions.allow_write || !capability.requires_write)
-            .collect::<Vec<_>>();
-        let bytes = serde_json::to_vec(&capabilities).map_err(|error| error.to_string())?;
-        Ok(ToolCapabilitySnapshot {
-            schema_version: 1,
-            sha256: hex::encode(Sha256::digest(bytes)),
-            tools: capabilities
-                .into_iter()
-                .map(|capability| capability.name)
-                .collect(),
-        })
+        ToolCapabilitySnapshot::from_capabilities(self.capabilities_for(permissions))
     }
 
     pub async fn execute(
