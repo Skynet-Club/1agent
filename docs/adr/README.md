@@ -133,3 +133,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0127 | TUI Work-Log Pairing and Conditional Answer Style | [0127-tui-work-log-pairing-and-answer-style.md](0127-tui-work-log-pairing-and-answer-style.md) |
 | 0128 | TUI Provider Panel and Local Credentials | [0128-provider-panel-credentials.md](0128-provider-panel-credentials.md) |
 | 0129 | Chat Fast Path and Tool-Free Direct Answers | [0129-chat-fast-path.md](0129-chat-fast-path.md) |
+| 0130 | Intelligent Loop: Live Self Model, Dynamic Tools and Evidence Re-planning | [0130-intelligent-loop-self-model-and-dynamic-tools.md](0130-intelligent-loop-self-model-and-dynamic-tools.md) |

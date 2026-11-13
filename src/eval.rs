@@ -67,6 +67,8 @@ pub struct EvalCase {
     #[serde(default)]
     pub experience_scope: Option<String>,
     #[serde(default)]
+    pub known_facts: Vec<String>,
+    #[serde(default)]
     pub rubric: Option<EvalRubric>,
     /// Real tasks may need to modify the workspace. Default false preserves
     /// read-only contract fixtures.
@@ -114,14 +116,35 @@ pub struct EvalExpectation {
     pub min_high_impact_assumptions: usize,
     #[serde(default)]
     pub min_unresolved_conflicts: usize,
+    /// `None` means this suite does not assert checkpoint presence.
     #[serde(default)]
-    pub expect_checkpoint: bool,
+    pub expect_checkpoint: Option<bool>,
     #[serde(default)]
     pub tool_status: Option<ToolStatus>,
     #[serde(default)]
     pub tool_error_code: Option<String>,
     #[serde(default = "default_true")]
     pub audit_ok: bool,
+    /// Optional alternative statuses. When non-empty, any listed status passes
+    /// and the nominal `answer_status` is only descriptive.
+    #[serde(default)]
+    pub accepted_answer_statuses: Vec<AnswerStatus>,
+    #[serde(default)]
+    pub accepted_stop_reasons: Vec<StopReason>,
+    #[serde(default)]
+    pub required_tools: Vec<String>,
+    #[serde(default)]
+    pub required_any_tools: Vec<String>,
+    #[serde(default)]
+    pub forbidden_tools: Vec<String>,
+    #[serde(default)]
+    pub min_tool_calls: usize,
+    #[serde(default)]
+    pub max_tool_calls: Option<usize>,
+    #[serde(default)]
+    pub max_provider_calls: Option<usize>,
+    #[serde(default)]
+    pub max_cost_micros: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -156,6 +179,13 @@ pub struct EvalCaseResult {
     pub model: Option<String>,
     pub duration_ms: u64,
     pub usage: Usage,
+    #[serde(default)]
+    pub tool_names: Vec<String>,
+    #[serde(default)]
+    pub provider_calls: usize,
+    /// Persistent journal path when the caller asked for artifacts.
+    #[serde(default)]
+    pub journal_path: Option<String>,
     pub audit_ok: bool,
     #[serde(default)]
     pub replay_ok: bool,
@@ -705,11 +735,35 @@ pub async fn run_suite_with_providers(
     run_suite_with_learning(suite, providers, allow_network, Vec::new()).await
 }
 
+pub async fn run_suite_with_providers_artifacts(
+    suite: EvalSuite,
+    providers: Vec<ProviderCandidate>,
+    allow_network: bool,
+    artifacts_dir: Option<PathBuf>,
+) -> Result<EvalReport, EvalError> {
+    run_suite_with_learning_artifacts(suite, providers, allow_network, Vec::new(), artifacts_dir)
+        .await
+}
+
 pub async fn run_suite_with_learning(
     suite: EvalSuite,
     providers: Vec<ProviderCandidate>,
     allow_network: bool,
     shadow_experience: Vec<ExperienceCandidate>,
+) -> Result<EvalReport, EvalError> {
+    run_suite_with_learning_artifacts(suite, providers, allow_network, shadow_experience, None)
+        .await
+}
+
+/// Run the suite and keep each case's journal under `artifacts_dir`. The
+/// per-case result records the persistent journal path so the report can be
+/// replayed without relying on a temp directory.
+pub async fn run_suite_with_learning_artifacts(
+    suite: EvalSuite,
+    providers: Vec<ProviderCandidate>,
+    allow_network: bool,
+    shadow_experience: Vec<ExperienceCandidate>,
+    artifacts_dir: Option<PathBuf>,
 ) -> Result<EvalReport, EvalError> {
     if providers.is_empty() {
         return Err(EvalError::NoProviders);
@@ -733,6 +787,7 @@ pub async fn run_suite_with_learning(
                 providers.clone(),
                 allow_network,
                 shadow_experience.clone(),
+                artifacts_dir.as_deref(),
             )
             .await,
         );
@@ -773,12 +828,23 @@ async fn run_case(
     providers: Vec<ProviderCandidate>,
     allow_network: bool,
     shadow_experience: Vec<ExperienceCandidate>,
+    artifacts_dir: Option<&Path>,
 ) -> EvalCaseResult {
     let workspace = match tempfile::tempdir() {
         Ok(workspace) => workspace,
         Err(error) => {
             return failed_case(case.id, format!("cannot create workspace: {error}"));
         }
+    };
+    let journal_dir = match artifacts_dir {
+        Some(root) => {
+            let dir = root.join("journals").join(sanitize_artifact_name(&case.id));
+            if let Err(error) = std::fs::create_dir_all(&dir) {
+                return failed_case(case.id, format!("cannot create journal directory: {error}"));
+            }
+            dir
+        }
+        None => workspace.path().join(".journal"),
     };
     if let Err(error) = materialize_files(workspace.path(), &case.setup_files) {
         return failed_case(case.id, error);
@@ -790,16 +856,17 @@ async fn run_case(
     request.permissions.allow_network = allow_network;
     request.permissions.allow_write = case.allow_write;
     request.experience_scope = case.experience_scope.clone();
-    let mut runtime = AgentRuntime::new(
-        providers,
-        default_registry(),
-        workspace.path().join(".journal"),
-    );
+    request.known_facts = case.known_facts.clone();
+    let mut runtime = AgentRuntime::new(providers, default_registry(), journal_dir);
     if !shadow_experience.is_empty() {
         runtime = runtime.with_shadow_experience_candidates(shadow_experience);
     }
     let started = std::time::Instant::now();
-    let result = match runtime.run(request, CancellationToken::new()).await {
+    let mode = crate::domain::infer_mode(&request);
+    let result = match runtime
+        .run_with_mode(request, mode, CancellationToken::new())
+        .await
+    {
         Ok(result) => result,
         Err(error) => return failed_case(case.id, error.to_string()),
     };
@@ -816,6 +883,8 @@ async fn run_case(
     let mut usage = Usage::default();
     let mut checkpoint_present = false;
     let mut observations = Vec::new();
+    let mut tool_names = Vec::new();
+    let mut provider_calls = 0usize;
     for event in &events {
         match &event.event {
             crate::journal::JournalEventKind::RouteSelected {
@@ -827,6 +896,7 @@ async fn run_case(
                 model = Some(selected_model.clone());
             }
             crate::journal::JournalEventKind::ModelResponded { response } => {
+                provider_calls = provider_calls.saturating_add(1);
                 usage.input_tokens += response.usage.input_tokens;
                 usage.output_tokens += response.usage.output_tokens;
                 usage.cost_micros += response.usage.cost_micros;
@@ -834,22 +904,39 @@ async fn run_case(
             crate::journal::JournalEventKind::Checkpoint { .. } => {
                 checkpoint_present = true;
             }
+            crate::journal::JournalEventKind::ToolCalled { call } => {
+                tool_names.push(call.name.clone());
+            }
             crate::journal::JournalEventKind::ToolObserved { observation } => {
                 observations.push(observation);
             }
             _ => {}
         }
     }
-    if result.stop_reason != case.expect.stop_reason {
+    let stop_reason_ok = if case.expect.accepted_stop_reasons.is_empty() {
+        result.stop_reason == case.expect.stop_reason
+    } else {
+        case.expect
+            .accepted_stop_reasons
+            .contains(&result.stop_reason)
+    };
+    if !stop_reason_ok {
         issues.push(format!(
-            "expected stop reason {:?}, got {:?}",
-            case.expect.stop_reason, result.stop_reason
+            "expected stop reason {:?} (accepted {:?}), got {:?}",
+            case.expect.stop_reason, case.expect.accepted_stop_reasons, result.stop_reason
         ));
     }
-    if result.answer.status != case.expect.answer_status {
+    let status_ok = if case.expect.accepted_answer_statuses.is_empty() {
+        result.answer.status == case.expect.answer_status
+    } else {
+        case.expect
+            .accepted_answer_statuses
+            .contains(&result.answer.status)
+    };
+    if !status_ok {
         issues.push(format!(
-            "expected answer status {:?}, got {:?}",
-            case.expect.answer_status, result.answer.status
+            "expected answer status {:?} (accepted {:?}), got {:?}",
+            case.expect.answer_status, case.expect.accepted_answer_statuses, result.answer.status
         ));
     }
     if result.answer.evidence.len() < case.expect.min_evidence {
@@ -922,10 +1009,11 @@ async fn run_case(
             case.expect.audit_ok, audit.ok
         ));
     }
-    if checkpoint_present != case.expect.expect_checkpoint {
+    if let Some(expected) = case.expect.expect_checkpoint
+        && checkpoint_present != expected
+    {
         issues.push(format!(
-            "expected checkpoint={}, got {}",
-            case.expect.expect_checkpoint, checkpoint_present
+            "expected checkpoint={expected}, got {checkpoint_present}"
         ));
     }
     if let Some(expected_status) = case.expect.tool_status {
@@ -947,6 +1035,60 @@ async fn run_case(
             ));
         }
     }
+    for required in &case.expect.required_tools {
+        if !tool_names.iter().any(|name| name == required) {
+            issues.push(format!(
+                "expected required tool {required}, got {tool_names:?}"
+            ));
+        }
+    }
+    if !case.expect.required_any_tools.is_empty()
+        && !case
+            .expect
+            .required_any_tools
+            .iter()
+            .any(|required| tool_names.iter().any(|name| name == required))
+    {
+        issues.push(format!(
+            "expected at least one of {:?}, got {tool_names:?}",
+            case.expect.required_any_tools
+        ));
+    }
+    for forbidden in &case.expect.forbidden_tools {
+        if tool_names.iter().any(|name| name == forbidden) {
+            issues.push(format!("forbidden tool {forbidden} was called"));
+        }
+    }
+    if tool_names.len() < case.expect.min_tool_calls {
+        issues.push(format!(
+            "expected at least {} tool calls, got {}",
+            case.expect.min_tool_calls,
+            tool_names.len()
+        ));
+    }
+    if let Some(max) = case.expect.max_tool_calls
+        && tool_names.len() > max
+    {
+        issues.push(format!(
+            "expected at most {max} tool calls, got {}",
+            tool_names.len()
+        ));
+    }
+    if let Some(max) = case.expect.max_provider_calls
+        && provider_calls > max
+    {
+        issues.push(format!(
+            "expected at most {max} provider calls, got {provider_calls}"
+        ));
+    }
+    if let Some(max) = case.expect.max_cost_micros
+        && usage.cost_micros > max
+    {
+        issues.push(format!(
+            "expected at most {max} cost micros, got {}",
+            usage.cost_micros
+        ));
+    }
     let (rubric_passed, rubric_checks, rubric_issues) =
         score_rubric(case.rubric.as_ref(), &result.answer);
     issues.extend(rubric_issues);
@@ -955,7 +1097,8 @@ async fn run_case(
         issues.push("decision completeness failed".into());
     }
     let hard_gate_failed = (!audit.ok || !decision_completeness.ok) && case.expect.audit_ok;
-    EvalCaseResult {
+    let journal_path = artifacts_dir.map(|_| result.journal_path.display().to_string());
+    let case_result = EvalCaseResult {
         id: case.id,
         passed: issues.is_empty(),
         hard_gate_failed,
@@ -1014,9 +1157,45 @@ async fn run_case(
         model,
         duration_ms,
         usage,
+        tool_names,
+        provider_calls,
+        journal_path,
         audit_ok: audit.ok,
         replay_ok,
         issues,
+    };
+    if let Some(root) = artifacts_dir {
+        append_case_artifact(root, &case_result);
+    }
+    case_result
+}
+
+fn sanitize_artifact_name(id: &str) -> String {
+    let name = id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if name.is_empty() { "case".into() } else { name }
+}
+
+fn append_case_artifact(root: &Path, result: &EvalCaseResult) {
+    use std::io::Write;
+    let Ok(line) = serde_json::to_string(result) else {
+        return;
+    };
+    let path = root.join("cases.jsonl");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{line}");
     }
 }
 
@@ -1068,6 +1247,9 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         model: None,
         duration_ms: 0,
         usage: Usage::default(),
+        tool_names: Vec::new(),
+        provider_calls: 0,
+        journal_path: None,
         audit_ok: false,
         replay_ok: false,
         issues: vec![issue],
@@ -1361,6 +1543,32 @@ pub fn validate_suite(suite: &EvalSuite) -> Result<(), EvalError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_loop_suite_has_one_hundred_fixed_cases() {
+        let text = std::fs::read_to_string("evals/agent-loop-v1.json").unwrap();
+        let suite: EvalSuite = serde_json::from_str(&text).unwrap();
+        assert_eq!(suite.name, "agent-loop-v1");
+        assert_eq!(suite.cases.len(), 100);
+        let count = |prefix: &str| {
+            suite
+                .cases
+                .iter()
+                .filter(|case| case.id.starts_with(prefix))
+                .count()
+        };
+        assert_eq!(count("intro-"), 20);
+        assert_eq!(count("current-") + count("local-"), 20);
+        assert_eq!(count("followup-"), 20);
+        assert_eq!(count("chat-"), 20);
+        assert_eq!(count("risk-"), 20);
+        let ids = suite
+            .cases
+            .iter()
+            .map(|case| case.id.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids.len(), 100);
+    }
     use async_trait::async_trait;
 
     use crate::domain::{AgentAnswer, Claim, ClaimStatus, MessageRole, ModelResponse, ModelTurn};
@@ -1574,6 +1782,7 @@ mod tests {
             calibration_required: false,
             min_decision_completeness_bps: None,
             cases: vec![EvalCase {
+                known_facts: Vec::new(),
                 id: "read".into(),
                 objective: "Research @read-file:\"${workspace}/evidence.txt\"".into(),
                 setup_files: vec![SetupFile {
@@ -1584,6 +1793,15 @@ mod tests {
                 rubric: None,
                 allow_write: false,
                 expect: EvalExpectation {
+                    accepted_answer_statuses: Vec::new(),
+                    accepted_stop_reasons: Vec::new(),
+                    required_tools: Vec::new(),
+                    required_any_tools: Vec::new(),
+                    forbidden_tools: Vec::new(),
+                    min_tool_calls: 0,
+                    max_tool_calls: None,
+                    max_provider_calls: None,
+                    max_cost_micros: None,
                     stop_reason: StopReason::Completed,
                     answer_status: AnswerStatus::Completed,
                     min_evidence: 1,
@@ -1593,7 +1811,7 @@ mod tests {
                     min_high_impact_unknowns: 0,
                     min_high_impact_assumptions: 0,
                     min_unresolved_conflicts: 0,
-                    expect_checkpoint: true,
+                    expect_checkpoint: Some(true),
                     tool_status: Some(ToolStatus::Ok),
                     tool_error_code: None,
                     audit_ok: true,
@@ -1685,6 +1903,9 @@ mod tests {
                 model: None,
                 duration_ms: 0,
                 usage: Usage::default(),
+                tool_names: Vec::new(),
+                provider_calls: 0,
+                journal_path: None,
                 audit_ok: true,
                 replay_ok: true,
                 issues: Vec::new(),
@@ -1880,6 +2101,7 @@ mod tests {
             min_decision_completeness_bps: None,
             cases: vec![
                 EvalCase {
+                    known_facts: Vec::new(),
                     id: "source-conflict".into(),
                     objective: "Research conflict-marker sources".into(),
                     setup_files: Vec::new(),
@@ -1892,6 +2114,15 @@ mod tests {
                     }),
                     allow_write: false,
                     expect: EvalExpectation {
+                        accepted_answer_statuses: Vec::new(),
+                        accepted_stop_reasons: Vec::new(),
+                        required_tools: Vec::new(),
+                        required_any_tools: Vec::new(),
+                        forbidden_tools: Vec::new(),
+                        min_tool_calls: 0,
+                        max_tool_calls: None,
+                        max_provider_calls: None,
+                        max_cost_micros: None,
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Conditional,
                         min_evidence: 2,
@@ -1901,13 +2132,14 @@ mod tests {
                         min_high_impact_unknowns: 1,
                         min_high_impact_assumptions: 0,
                         min_unresolved_conflicts: 1,
-                        expect_checkpoint: false,
+                        expect_checkpoint: Some(false),
                         tool_status: None,
                         tool_error_code: None,
                         audit_ok: true,
                     },
                 },
                 EvalCase {
+                    known_facts: Vec::new(),
                     id: "decision-flip".into(),
                     objective: "Choose flip-marker option".into(),
                     setup_files: Vec::new(),
@@ -1915,6 +2147,15 @@ mod tests {
                     rubric: None,
                     allow_write: false,
                     expect: EvalExpectation {
+                        accepted_answer_statuses: Vec::new(),
+                        accepted_stop_reasons: Vec::new(),
+                        required_tools: Vec::new(),
+                        required_any_tools: Vec::new(),
+                        forbidden_tools: Vec::new(),
+                        min_tool_calls: 0,
+                        max_tool_calls: None,
+                        max_provider_calls: None,
+                        max_cost_micros: None,
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Conditional,
                         min_evidence: 0,
@@ -1924,13 +2165,14 @@ mod tests {
                         min_high_impact_unknowns: 0,
                         min_high_impact_assumptions: 0,
                         min_unresolved_conflicts: 0,
-                        expect_checkpoint: false,
+                        expect_checkpoint: Some(false),
                         tool_status: None,
                         tool_error_code: None,
                         audit_ok: true,
                     },
                 },
                 EvalCase {
+                    known_facts: Vec::new(),
                     id: "external-correction".into(),
                     objective: "Research observe-marker @read-file:\"${workspace}/evidence.txt\""
                         .into(),
@@ -1947,6 +2189,15 @@ mod tests {
                     }),
                     allow_write: false,
                     expect: EvalExpectation {
+                        accepted_answer_statuses: Vec::new(),
+                        accepted_stop_reasons: Vec::new(),
+                        required_tools: Vec::new(),
+                        required_any_tools: Vec::new(),
+                        forbidden_tools: Vec::new(),
+                        min_tool_calls: 0,
+                        max_tool_calls: None,
+                        max_provider_calls: None,
+                        max_cost_micros: None,
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Completed,
                         min_evidence: 1,
@@ -1956,7 +2207,7 @@ mod tests {
                         min_high_impact_unknowns: 0,
                         min_high_impact_assumptions: 0,
                         min_unresolved_conflicts: 0,
-                        expect_checkpoint: true,
+                        expect_checkpoint: Some(true),
                         tool_status: Some(ToolStatus::Ok),
                         tool_error_code: None,
                         audit_ok: true,
@@ -2252,6 +2503,7 @@ mod tests {
                 calibration_required: false,
                 min_decision_completeness_bps: None,
                 cases: vec![EvalCase {
+                    known_facts: Vec::new(),
                     id: "heldout-1".into(),
                     objective: "Choose the repository option".into(),
                     setup_files: Vec::new(),
@@ -2259,6 +2511,15 @@ mod tests {
                     rubric: None,
                     allow_write: false,
                     expect: EvalExpectation {
+                        accepted_answer_statuses: Vec::new(),
+                        accepted_stop_reasons: Vec::new(),
+                        required_tools: Vec::new(),
+                        required_any_tools: Vec::new(),
+                        forbidden_tools: Vec::new(),
+                        min_tool_calls: 0,
+                        max_tool_calls: None,
+                        max_provider_calls: None,
+                        max_cost_micros: None,
                         stop_reason: StopReason::Completed,
                         answer_status: AnswerStatus::Completed,
                         min_evidence: 0,
@@ -2268,7 +2529,7 @@ mod tests {
                         min_high_impact_unknowns: 0,
                         min_high_impact_assumptions: 0,
                         min_unresolved_conflicts: 0,
-                        expect_checkpoint: false,
+                        expect_checkpoint: Some(false),
                         tool_status: None,
                         tool_error_code: None,
                         audit_ok: true,
