@@ -2,9 +2,11 @@
 
 - Status: **local review; 0.97 is not release-ready — the M1 gate failed.
   AG-23 is implemented and its final 100-question run is archived (96/100).**
-- Latest feature commit: `a04686a` (100-question eval harness), after
-  `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan), `c76a2d4`
-  (live self model and dynamic tools) and `5726381` (0.97 WIP checkpoint)
+- Latest feature commit: `f77ddc1` (Windows/claim fix), after `a3060a3`
+  (routing, evidence fallback and file listing), `a04686a` (100-question eval
+  harness), `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan),
+  `c76a2d4` (live self model and dynamic tools) and `5726381` (0.97 WIP
+  checkpoint); evidence archive `205ac3b`
 - Full suite: 1315 passed / 0 failed / 13 ignored; `scripts/verify.sh`
   passed (fmt, clippy, tests, deterministic core eval, claims structure)
 - Claims: 233 (209 verified / 16 partial / 8 no evidence); the live terminal
@@ -157,12 +159,17 @@ release blocker; cost governance cannot mask a quality failure.
 ## Release blockers
 
 1. **M1/M5 long-horizon proof**: the first 8h failed at 48.57% all-suite
-   completion; the 320-run v2 also failed at 13.28% task completion. The
-   20-iteration sample passed 90% task-level M1, but did not generalize. Do not
-   release. `benchmark-run --artifacts-dir` now keeps per-run/per-case journals
-   and `cases.jsonl`; a fresh 20-run short regression with the current binary
-   is the next step, then the long gate must be rerun. Per-case diagnosis of
-   the old 320-run is impossible because those journals were not preserved.
+   completion; the 320-run v2 also failed at 13.28% task completion. A fresh
+   20-run short regression with per-case artifacts now measures **146/160
+   tasks = 91.25%** (M1 ≥50% target), **148/148 completed-run replay**
+   (100%), and **100% crash-free**; suite-level all-8-cases was 8/20 (40%),
+   below the historical 70% default. The dominant failure is
+   `bug-fix-last-index` (7/20) exhausting the default six-step budget after
+   using the terminal to verify its edit. `real-tasks-v1` v1.2 raises each
+   case to 8 steps / 8 tool calls; a second 20-run is in progress to check the
+   suite-level gate. The long gate still must be rerun with the final binary;
+   per-case diagnosis of the old 320-run is impossible because those journals
+   were not preserved.
 2. **AG-23 intelligent loop**: the implementation landed in `c76a2d4`,
    `5465c2a`, `55ccb22` and `a04686a`: live `describe_self`, dynamic
    `request_tools`, `task_need`, bounded evidence re-plan, strategy drafts and
@@ -189,15 +196,17 @@ release blocker; cost governance cannot mask a quality failure.
 
 ## Next actions
 
-- Answer-repair contract is fixed (ADR-0125). The 20-iteration sample passes
-  task-level M1 (90%) and completed-run M5 (100%); the 320-run v2
-  `job-1794537863409-2245-6` finished 11:52 and failed at 13.28% task
-  completion. Add per-case benchmark capture, diagnose the failure
-  distribution, then short-regress before another long run.
-- Finalize AG-23 evidence: rerun the 100-question suite after the routing,
-  prompt, repair-fallback and budget fixes; archive the report, `cases.jsonl`
-  and per-case journals; then obtain human review. Keep keyword detection only
-  as a cost/safety fallback; never as the primary tool router.
+- Answer-repair contract is fixed (ADR-0125). Per-case benchmark artifacts now
+  exist (`benchmark-run --artifacts-dir`); a fresh 20-run short regression with
+  the current binary is running. The 320-run v2 `job-1794537863409-2245-6`
+  finished 11:52 and failed at 13.28% task completion; its journals were not
+  preserved, so a new long run is required after the short regression.
+- AG-23 evidence is archived: final 100-question v1.3 = **96/100**, 0
+  hard-gate, 78/78 completed-run replay, about ¥2.88. The four misses are three
+  open-ended current-info questions that exhausted the 8-tool budget and one
+  simple-chat repair. Human review of the 100 answers is still pending. Keep
+  keyword detection only as a cost/safety fallback; never as the primary tool
+  router.
 - Cost governance P0 is implemented except TUI per-turn cost visibility, which
   was deferred at the user's request: benchmark preflight/checkpoints/circuit
   breaker, chat fast path, DirectAnswer no-tools, and real prices.
