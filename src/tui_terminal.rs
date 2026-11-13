@@ -14,7 +14,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::tui::{TuiState, WELCOME_LOGO, sanitize_inline, welcome_logo_green_range};
+use crate::tui::{EXIT_ACCENT_WIDTH, EXIT_LOGO, LogoInk, TuiState, logo_ink, sanitize_inline};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TuiInput {
@@ -324,33 +324,29 @@ pub fn write_session_banner(
     use_color: bool,
 ) -> std::io::Result<()> {
     const WORD: &str = "\x1b[38;2;72;119;72m";
+    const SHADOW: &str = "\x1b[38;2;58;92;66m";
     const GREEN: &str = "\x1b[1;38;5;10m";
     const RESET: &str = "\x1b[0m";
 
     writeln!(writer)?;
-    for (index, line) in WELCOME_LOGO.iter().enumerate() {
+    for (index, line) in EXIT_LOGO.iter().enumerate() {
         if !use_color {
             writeln!(writer, "{line}")?;
             continue;
         }
-        let green = welcome_logo_green_range(index);
-        let green_start = char_byte_index(line, green.start);
-        let green_end = char_byte_index(line, green.end);
-        write!(writer, "{WORD}{}", &line[..green_start])?;
-        if green_start < green_end {
-            write!(writer, "{GREEN}{}{WORD}", &line[green_start..green_end])?;
+        for (column, character) in line.chars().enumerate() {
+            match logo_ink(EXIT_LOGO, EXIT_ACCENT_WIDTH, index, column) {
+                LogoInk::Space => write!(writer, "{character}")?,
+                LogoInk::Accent => write!(writer, "{GREEN}{character}{RESET}")?,
+                LogoInk::Body => write!(writer, "{WORD}{character}{RESET}")?,
+                LogoInk::Shadow => write!(writer, "{SHADOW}{character}{RESET}")?,
+            }
         }
-        writeln!(writer, "{}{RESET}", &line[green_end..])?;
+        writeln!(writer)?;
     }
     writeln!(writer)?;
     writeln!(writer, "  会话      {}", sanitize_inline(title))?;
     writeln!(writer, "  继续      {}", sanitize_inline(continue_command))
-}
-
-fn char_byte_index(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index)
-        .map_or(text.len(), |(index, _)| index)
 }
 
 fn write_to_command(program: &str, arguments: &[&str], text: &str) -> std::io::Result<()> {
@@ -521,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn session_banner_reuses_colored_welcome_logo() {
+    fn session_banner_uses_the_colored_exit_logo() {
         let mut output = Vec::new();
         write_session_banner(
             &mut output,
@@ -535,15 +531,12 @@ mod tests {
         assert!(output.contains("\x1b[1;38;5;10m"));
         // The banner writes the logo one styled span at a time, so the plain text
         // is not contiguous; assert on the glyph the art is drawn with.
-        let glyph = crate::tui::WELCOME_LOGO[0]
+        let glyph = EXIT_LOGO[0]
             .trim()
             .chars()
             .next()
             .expect("logo is not empty");
-        assert!(
-            output.contains(glyph),
-            "banner should reuse the welcome logo"
-        );
+        assert!(output.contains(glyph), "banner should reuse the exit logo");
         assert!(output.contains("会话      Greeting"));
         assert!(output.contains("继续      1agent tui --session ses_example"));
     }

@@ -24,6 +24,7 @@ use crate::journal::{
 };
 use crate::provider::{
     ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
+    chat_system_prompt,
 };
 use crate::provider_health::ProviderHealth;
 use crate::router::{
@@ -243,6 +244,22 @@ impl AgentRuntime {
                 candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
             })
             .cloned()
+    }
+
+    pub fn replace_provider(&mut self, candidate: ProviderCandidate) -> bool {
+        // The TUI provider panel replaces the route for a provider id; the
+        // selected model may have changed, so do not require the old model to
+        // match.
+        let Some(existing) = self
+            .providers
+            .iter_mut()
+            .find(|existing| existing.manifest.provider_id == candidate.manifest.provider_id)
+        else {
+            return false;
+        };
+        *existing = candidate;
+        self.selected_route = None;
+        true
     }
 
     pub fn provider_manifests(&self) -> Vec<ProviderManifest> {
@@ -507,7 +524,7 @@ impl AgentRuntime {
         request: TaskRequest,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
-        self.run_internal(request, None, None, None, cancellation)
+        self.run_internal(request, None, None, None, cancellation, false)
             .await
     }
 
@@ -517,8 +534,36 @@ impl AgentRuntime {
         mode: CognitiveMode,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
-        self.run_internal(request, None, Some(mode), None, cancellation)
-            .await
+        let refers_to_context = !request.known_facts.is_empty()
+            && crate::domain::has_context_reference(&request.objective);
+        let fast_chat = mode == CognitiveMode::DirectAnswer
+            && self.attachments.is_empty()
+            && self.tool_query.is_none()
+            && !refers_to_context
+            && crate::domain::looks_like_chat(&request.objective);
+        if !fast_chat {
+            return self
+                .run_internal(request, None, Some(mode), None, cancellation, false)
+                .await;
+        }
+        let fast_result = self
+            .run_internal(
+                request.clone(),
+                None,
+                Some(mode),
+                None,
+                cancellation.clone(),
+                true,
+            )
+            .await?;
+        if fast_result.answer.status == AnswerStatus::NeedsEvidence {
+            // The cheap path admitted that it could not answer from what it
+            // knows. Give the full agent one chance to gather evidence.
+            return self
+                .run_internal(request, None, Some(mode), None, cancellation, false)
+                .await;
+        }
+        Ok(fast_result)
     }
 
     pub async fn run_with_client_request_id(
@@ -533,8 +578,15 @@ impl AgentRuntime {
                 "client request id must not be empty".into(),
             ));
         }
-        self.run_internal(request, None, None, Some(client_request_id), cancellation)
-            .await
+        self.run_internal(
+            request,
+            None,
+            None,
+            Some(client_request_id),
+            cancellation,
+            false,
+        )
+        .await
     }
 
     pub async fn resume(
@@ -552,6 +604,7 @@ impl AgentRuntime {
             None,
             None,
             cancellation,
+            false,
         )
         .await
     }
@@ -563,6 +616,7 @@ impl AgentRuntime {
         requested_mode: Option<CognitiveMode>,
         client_request_id: Option<String>,
         cancellation: CancellationToken,
+        fast_chat: bool,
     ) -> Result<RunResult, RuntimeError> {
         let run_id = Uuid::new_v4();
         let journal_path = self.journal_dir.join(format!("{run_id}.jsonl"));
@@ -577,6 +631,7 @@ impl AgentRuntime {
             .map(|prefix| prefix.checkpoint.mode)
             .or(requested_mode)
             .unwrap_or_else(|| crate::domain::infer_mode(&request));
+        let fast_chat = fast_chat && resume.is_none();
         if let Some(prefix) = &resume {
             journal
                 .append(JournalEventKind::ResumeStarted {
@@ -671,11 +726,15 @@ impl AgentRuntime {
             });
         }
 
-        let tool_specs = match &self.tool_query {
-            Some(query) => {
-                crate::tool_search::select(query, self.tools.specs_for(&request.permissions), 8)
+        let tool_specs = if fast_chat {
+            Vec::new()
+        } else {
+            match &self.tool_query {
+                Some(query) => {
+                    crate::tool_search::select(query, self.tools.specs_for(&request.permissions), 8)
+                }
+                None => self.tools.specs_for(&request.permissions),
             }
-            None => self.tools.specs_for(&request.permissions),
         };
         let stored_objective = resume
             .as_ref()
@@ -789,10 +848,24 @@ impl AgentRuntime {
                 Duration::from_millis(prefix.checkpoint.elapsed_ms),
             )
         } else {
-            let mut initial_messages = vec![ModelMessage::system(agent_system_prompt_for_form(
-                self.voice_mode,
-                crate::voice::VoiceForm::for_task(mode),
-            ))];
+            let system_prompt = if fast_chat {
+                crate::voice::with_voice_form(
+                    chat_system_prompt(),
+                    self.voice_mode,
+                    crate::voice::VoiceForm::for_task(mode),
+                )
+            } else {
+                agent_system_prompt_for_form(
+                    self.voice_mode,
+                    crate::voice::VoiceForm::for_task(mode),
+                )
+            };
+            let mut initial_messages = vec![ModelMessage::system(system_prompt)];
+            if crate::capabilities::asks_about_capabilities(&request.objective) {
+                initial_messages.push(ModelMessage::system(
+                    crate::capabilities::CAPABILITY_CATALOG,
+                ));
+            }
             if !request.known_facts.is_empty() {
                 initial_messages.push(ModelMessage::system(format!(
                     "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
@@ -804,13 +877,20 @@ impl AgentRuntime {
                     crate::attachment::format_attachment_block(&self.attachments),
                 ));
             }
-            initial_messages.push(ModelMessage::user(format!(
-                "Task objective:\n{}\n\nStructured task:\n{}",
-                request.objective,
-                serde_json::to_string_pretty(&request)
-                    .unwrap_or_else(|_| request.objective.clone())
-            )));
-            if let Some(scope) = &request.experience_scope {
+            if fast_chat {
+                initial_messages.push(ModelMessage::user(format!(
+                    "User message:\n{}",
+                    request.objective
+                )));
+            } else {
+                initial_messages.push(ModelMessage::user(format!(
+                    "Task objective:\n{}\n\nStructured task:\n{}",
+                    request.objective,
+                    serde_json::to_string_pretty(&request)
+                        .unwrap_or_else(|_| request.objective.clone())
+                )));
+            }
+            if !fast_chat && let Some(scope) = &request.experience_scope {
                 let mut selected = if let Some(experience_dir) = &self.experience_dir {
                     let store = ExperienceStore::open(experience_dir)
                         .map_err(|error| RuntimeError::Experience(error.to_string()))?;
@@ -925,9 +1005,13 @@ impl AgentRuntime {
             }
         }
 
-        let max_steps = match request.budget.max_steps {
-            0 => usize::MAX,
-            value => value,
+        let max_steps = if fast_chat {
+            1
+        } else {
+            match request.budget.max_steps {
+                0 => usize::MAX,
+                value => value,
+            }
         };
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
@@ -1420,6 +1504,18 @@ impl AgentRuntime {
                     );
                 }
                 ModelTurn::InvalidFinal { content, error } => {
+                    if fast_chat
+                        && let Some(answer) = plain_text_chat_answer(&content)
+                        && answer.validate(&request).is_ok()
+                    {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            answer,
+                            StopReason::Completed,
+                        );
+                    }
                     let repaired = self
                         .repair_answer(
                             AnswerRepairContext {
@@ -1833,6 +1929,34 @@ fn finish_with_answer(
         journal_path,
         answer,
         stop_reason,
+    })
+}
+
+/// A chat model occasionally returns prose instead of the requested JSON.
+/// On the lightweight path, accept clear prose as the conclusion rather than
+/// spending a second call on repair. Malformed JSON and fences still go
+/// through the normal repair path.
+fn plain_text_chat_answer(content: &str) -> Option<AgentAnswer> {
+    let conclusion = content.trim();
+    if conclusion.is_empty()
+        || conclusion.starts_with('{')
+        || conclusion.starts_with('[')
+        || conclusion.starts_with("```")
+    {
+        return None;
+    }
+    Some(AgentAnswer {
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::Completed,
+        conclusion: conclusion.to_string(),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: Vec::new(),
+        unknowns: Vec::new(),
+        conflicts: Vec::new(),
+        flip_conditions: Vec::new(),
+        action_receipts: Vec::new(),
     })
 }
 
@@ -4132,6 +4256,395 @@ mod tests {
         .await;
         assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
         assert!(result.answer.conclusion.contains("token budget"));
+    }
+
+    struct ChatCaptureProvider {
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ChatCaptureProvider {
+        fn id(&self) -> &str {
+            "chat-capture"
+        }
+
+        fn model(&self) -> &str {
+            "chat-capture-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "chat answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    fn chat_capture_runtime(
+        workspace: &std::path::Path,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    ) -> AgentRuntime {
+        let mut manifest = local_manifest();
+        manifest.provider_id = "chat-capture".into();
+        manifest.model = "chat-capture-v1".into();
+        AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ChatCaptureProvider { requests }),
+                manifest,
+            }],
+            default_registry(),
+            workspace.join(".journal"),
+        )
+    }
+
+    #[tokio::test]
+    async fn direct_answer_chat_uses_one_tool_free_compact_call() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        let request = TaskRequest::from_objective("介绍一下你自己", workspace.path().to_path_buf());
+        let result = runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.conclusion, "chat answer");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .starts_with(chat_system_prompt())
+        );
+        assert!(requests[0].messages[0].content.contains("VOICE:"));
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .any(|message| message.content.contains("User message:")),
+            "chat user message should not carry the structured task JSON"
+        );
+    }
+
+    struct PlainTextChatProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for PlainTextChatProvider {
+        fn id(&self) -> &str {
+            "plain-chat"
+        }
+
+        fn model(&self) -> &str {
+            "plain-chat-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::InvalidFinal {
+                    content: "我是 1-Agent，能陪你聊天，也能查资料、读文件和跑命令。".into(),
+                    error: "provider returned prose, not JSON".into(),
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn plain_text_chat_reply_is_accepted_without_repair() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "plain-chat".into();
+        manifest.model = "plain-chat-v1".into();
+        let provider = Arc::new(PlainTextChatProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: provider.clone(),
+                manifest,
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("介绍一下你自己", workspace.path().to_path_buf());
+        let result = runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert!(result.answer.conclusion.contains("1-Agent"));
+    }
+
+    #[tokio::test]
+    async fn capability_catalog_is_injected_for_self_introductions_only() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective(
+                    "介绍一下你自己都有哪些功能",
+                    workspace.path().to_path_buf(),
+                ),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective("你好", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .any(|message| message.content.contains("1-AGENT CAPABILITY CATALOG"))
+        );
+        assert!(
+            requests[1]
+                .messages
+                .iter()
+                .all(|message| !message.content.contains("1-AGENT CAPABILITY CATALOG"))
+        );
+    }
+
+    #[tokio::test]
+    async fn product_mode_question_uses_the_chat_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective("如何切换模式？", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .starts_with(chat_system_prompt())
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_request_carries_a_fraction_of_the_work_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective("你好", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective(
+                    "帮我读取 src/main.rs 并总结",
+                    workspace.path().to_path_buf(),
+                ),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        let chat_tokens =
+            crate::context::total_request_tokens(&requests[0].messages, &requests[0].tools);
+        let work_tokens =
+            crate::context::total_request_tokens(&requests[1].messages, &requests[1].tools);
+        assert!(
+            chat_tokens.saturating_mul(3) <= work_tokens,
+            "chat request {chat_tokens} should be far below work request {work_tokens}"
+        );
+    }
+
+    struct EscalatingChatProvider {
+        calls: AtomicUsize,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for EscalatingChatProvider {
+        fn id(&self) -> &str {
+            "escalating-chat"
+        }
+
+        fn model(&self) -> &str {
+            "escalating-chat-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let (status, conclusion) = if call == 0 {
+                (AnswerStatus::NeedsEvidence, "缺少实时信息")
+            } else {
+                (AnswerStatus::Completed, "完整回答")
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status,
+                        conclusion: conclusion.into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn needs_evidence_from_chat_escalates_to_the_full_agent_once() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "escalating-chat".into();
+        manifest.model = "escalating-chat-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(EscalatingChatProvider {
+                    calls: AtomicUsize::new(0),
+                    requests: requests.clone(),
+                }),
+                manifest,
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("介绍一下你自己", workspace.path().to_path_buf());
+        let result = runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.answer.conclusion, "完整回答");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].tools.is_empty());
+        assert!(!requests[1].tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn context_follow_ups_keep_tools_even_when_phrased_as_questions() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        let mut request =
+            TaskRequest::from_objective("它有什么优点？", workspace.path().to_path_buf());
+        request.known_facts = vec!["Earlier turn: the user asked about a local project".into()];
+        runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .contains("evidence-accountable")
+        );
+    }
+
+    #[tokio::test]
+    async fn action_objectives_keep_the_work_prompt_and_tools() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        let request =
+            TaskRequest::from_objective("帮我安装 DeepTutor", workspace.path().to_path_buf());
+        runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .contains("evidence-accountable")
+        );
     }
 
     #[tokio::test]

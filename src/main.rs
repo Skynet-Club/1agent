@@ -18,13 +18,13 @@ use first_principles_agent::{
     ModelProductionPlanGenerator, ModelProvider, ModelRequestChain, OpenAiCompatibleProvider,
     PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan,
     ProductionPlanningContext, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReframeChoice, ReframeProposal,
-    RegistrySnapshot, RejectedReason, ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel,
-    RouteObjective, RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError,
-    SchedulerLimits, SessionEvent, SessionPreferences, SkillService, StopReason, TaskRequest,
-    TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest,
-    TuiActivity, TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution, TuiPreset,
-    TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
+    ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReasoningEffort, ReframeChoice,
+    ReframeProposal, RegistrySnapshot, RejectedReason, ReleasePolicy, ReleasePolicyMode,
+    RequestRole, RiskLevel, RouteObjective, RoutePolicySources, RouteRequest, Router, RunBudget,
+    RuntimeError, SchedulerLimits, SessionEvent, SessionPreferences, SkillService, StopReason,
+    TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals,
+    TrustAnchorManifest, TuiActivity, TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution,
+    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
     WorkshopCliAdapter, add_git_worktree,
     answer_render::{
         answer_impact_label, claim_status_label, render_answer, render_answer_default,
@@ -39,11 +39,11 @@ use first_principles_agent::{
     interactive_terminal_available, is_destructive_input,
     key_escrow::escrow as escrow_keys,
     key_escrow::restore as restore_keys,
-    list_presets, load_agent_profiles, load_eval_report, load_preset, load_suite, local_manifest,
-    master_audit_summary, master_evidence_summary, master_report, next_actions, parse_model_output,
-    print_session_banner, probe_provider, probe_provider_tools, prompt_sha256, read_clipboard,
-    read_events, read_master_journal_events, rebuild_and_compare, remote_manifest,
-    render_capability_report, render_receipt, render_usage_ledger, replay_events,
+    list_presets, list_provider_models, load_agent_profiles, load_eval_report, load_preset,
+    load_suite, local_manifest, master_audit_summary, master_evidence_summary, master_report,
+    next_actions, parse_model_output, print_session_banner, probe_provider, probe_provider_tools,
+    prompt_sha256, read_clipboard, read_events, read_master_journal_events, rebuild_and_compare,
+    remote_manifest, render_capability_report, render_receipt, render_usage_ledger, replay_events,
     replay_master_journal, resolve_input, restore, risk_for_mode, run_capability_suite, run_report,
     run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
     stage_next_actions, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
@@ -51,6 +51,7 @@ use first_principles_agent::{
     verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
     write_capability_report,
 };
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -442,6 +443,18 @@ enum Command {
         /// Minimum replay of completed cases (M5); 0 disables the check.
         #[arg(long, default_value_t = 0)]
         min_completed_replay_bps: u16,
+        /// Stop when accumulated provider cost reaches this many micros; 0 disables.
+        #[arg(long, default_value_t = 0)]
+        max_cost_micros: u64,
+        /// Evaluate early-stop gates every N runs; 0 disables checkpoints.
+        #[arg(long, default_value_t = 0)]
+        checkpoint_every: usize,
+        /// Stop when provider-error cases exceed this bps at a checkpoint; 0 disables.
+        #[arg(long, default_value_t = 0)]
+        max_provider_error_bps: u16,
+        /// Print the preflight estimate and exit without running the suite.
+        #[arg(long)]
+        estimate_only: bool,
         #[arg(long)]
         json: bool,
     },
@@ -3790,6 +3803,106 @@ fn basis_points(part: u64, total: u64) -> u16 {
     ((part.saturating_mul(10_000) / total).min(10_000)) as u16
 }
 
+fn wilson_upper_bps(successes: u64, total: u64) -> u16 {
+    if total == 0 {
+        return 10_000;
+    }
+    let n = total as f64;
+    let p = successes as f64 / n;
+    let z = 1.96;
+    let z2 = z * z;
+    let denom = 1.0 + z2 / n;
+    let center = p + z2 / (2.0 * n);
+    let margin = z * ((p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt());
+    let upper = ((center + margin) / denom).clamp(0.0, 1.0);
+    (upper * 10_000.0).round() as u16
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BenchmarkCostEstimate {
+    cases: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cost_micros: u64,
+    priced: bool,
+}
+
+/// First-order preflight estimate. A benchmark case is not one call: it may
+/// read files, retry and repair. The fixed per-case overhead keeps the estimate
+/// conservative enough to catch a 320-run mistake before any money is spent.
+fn estimate_benchmark_cost(
+    cases: &[first_principles_agent::EvalCase],
+    runs: usize,
+    providers: &[ProviderCandidate],
+) -> BenchmarkCostEstimate {
+    const INPUT_TOKENS_PER_CASE: u64 = 4_000;
+    const OUTPUT_TOKENS_PER_CASE: u64 = 800;
+    let cases_per_run = cases.len() as u64;
+    let objective_tokens = cases.iter().fold(0u64, |total, case| {
+        total.saturating_add(
+            first_principles_agent::context::estimate_tokens(&case.objective) as u64,
+        )
+    });
+    let input_tokens = objective_tokens
+        .saturating_add(cases_per_run.saturating_mul(INPUT_TOKENS_PER_CASE))
+        .saturating_mul(runs as u64);
+    let output_tokens = cases_per_run
+        .saturating_mul(OUTPUT_TOKENS_PER_CASE)
+        .saturating_mul(runs as u64);
+    let priced = providers.iter().any(|candidate| {
+        candidate.manifest.input_cost_micros_per_k > 0
+            || candidate.manifest.output_cost_micros_per_k > 0
+    });
+    let mut cost_micros = 0u64;
+    for candidate in providers {
+        let manifest = &candidate.manifest;
+        let cost = input_tokens
+            .saturating_mul(manifest.input_cost_micros_per_k)
+            .saturating_add(output_tokens.saturating_mul(manifest.output_cost_micros_per_k))
+            .div_ceil(1_000);
+        cost_micros = cost_micros.max(cost);
+    }
+    BenchmarkCostEstimate {
+        cases: cases_per_run.saturating_mul(runs as u64),
+        input_tokens,
+        output_tokens,
+        cost_micros,
+        priced,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn benchmark_checkpoint_stop(
+    tasks_passed: u64,
+    tasks_total: u64,
+    provider_error_cases: u64,
+    cases_total: u64,
+    crashed_runs: u64,
+    total_runs: u64,
+    min_task_completion_bps: u16,
+    max_provider_error_bps: u16,
+    min_crash_free_bps: u16,
+) -> Option<&'static str> {
+    if min_task_completion_bps > 0
+        && wilson_upper_bps(tasks_passed, tasks_total) < min_task_completion_bps
+    {
+        return Some("task_completion");
+    }
+    if max_provider_error_bps > 0
+        && cases_total >= 8
+        && basis_points(provider_error_cases, cases_total) > max_provider_error_bps
+    {
+        return Some("provider_errors");
+    }
+    if min_crash_free_bps > 0
+        && total_runs > 0
+        && basis_points(total_runs.saturating_sub(crashed_runs), total_runs) < min_crash_free_bps
+    {
+        return Some("crash_free");
+    }
+    None
+}
+
 async fn run_watchdog_watch(
     heartbeat: &std::path::Path,
     policy: first_principles_agent::watchdog::WatchdogPolicy,
@@ -4102,7 +4215,8 @@ async fn main() -> Result<()> {
                 }
             });
             let started = std::time::Instant::now();
-            let result = match runtime.run(request, cancellation).await {
+            let mode = infer_mode(&request);
+            let result = match runtime.run_with_mode(request, mode, cancellation).await {
                 Ok(result) => result,
                 Err(error) => {
                     eprintln!("hint: {}", error.recovery_hint());
@@ -4919,12 +5033,19 @@ async fn main() -> Result<()> {
             min_replay_bps,
             min_task_completion_bps,
             min_completed_replay_bps,
+            max_cost_micros,
+            checkpoint_every,
+            max_provider_error_bps,
+            estimate_only,
             json,
         } => {
             if runs == 0 || runs > 100_000 {
                 anyhow::bail!("--runs must be between 1 and 100000");
             }
-            if min_task_completion_bps > 10_000 || min_completed_replay_bps > 10_000 {
+            if min_task_completion_bps > 10_000
+                || min_completed_replay_bps > 10_000
+                || max_provider_error_bps > 10_000
+            {
                 anyhow::bail!("benchmark thresholds must be at most 10000 bps");
             }
             let suite = load_suite(&suite)?;
@@ -4937,19 +5058,81 @@ async fn main() -> Result<()> {
                     manifest: local_manifest(),
                 }]
             };
+            if max_cost_micros > 0
+                && providers.iter().all(|candidate| {
+                    candidate.manifest.input_cost_micros_per_k == 0
+                        && candidate.manifest.output_cost_micros_per_k == 0
+                })
+            {
+                eprintln!(
+                    "warning: provider prices are zero; --max-cost-micros cannot stop the run until prices are configured"
+                );
+            }
+            let estimate = estimate_benchmark_cost(&suite.cases, runs, &providers);
+            if json {
+                if estimate_only {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "suite": suite.name,
+                            "runs": runs,
+                            "cases": estimate.cases,
+                            "input_tokens": estimate.input_tokens,
+                            "output_tokens": estimate.output_tokens,
+                            "cost_micros": estimate.cost_micros,
+                            "priced": estimate.priced,
+                        }))?
+                    );
+                    return Ok(());
+                }
+            } else {
+                let cost = if estimate.priced {
+                    format_cost_micros(estimate.cost_micros)
+                } else {
+                    "单价未配置".into()
+                };
+                println!(
+                    "preflight: {} cases · input {} / output {} tokens · estimated {}",
+                    estimate.cases,
+                    format_token_count(estimate.input_tokens),
+                    format_token_count(estimate.output_tokens),
+                    cost
+                );
+                if estimate_only {
+                    return Ok(());
+                }
+            }
+            if max_cost_micros > 0 && estimate.priced && estimate.cost_micros > max_cost_micros {
+                anyhow::bail!(
+                    "preflight estimate {} exceeds --max-cost-micros {}; lower --runs or raise the budget",
+                    format_cost_micros(estimate.cost_micros),
+                    format_cost_micros(max_cost_micros)
+                );
+            }
             let mut samples = Vec::with_capacity(runs);
             let mut tasks_total = 0u64;
             let mut tasks_passed = 0u64;
             let mut completed_cases = 0u64;
             let mut completed_replay_ok = 0u64;
-            for _ in 0..runs {
+            let mut cases_total = 0u64;
+            let mut provider_error_cases = 0u64;
+            let mut crashed_runs = 0u64;
+            let mut total_cost_micros = 0u64;
+            let mut stopped_early: Option<&'static str> = None;
+            for run_index in 0..runs {
                 tasks_total = tasks_total.saturating_add(suite.cases.len() as u64);
                 match run_suite_with_providers(suite.clone(), providers.clone(), allow_network)
                     .await
                 {
                     Ok(report) => {
                         tasks_passed = tasks_passed.saturating_add(report.passed as u64);
+                        cases_total = cases_total.saturating_add(report.cases.len() as u64);
                         for case in &report.cases {
+                            total_cost_micros =
+                                total_cost_micros.saturating_add(case.usage.cost_micros);
+                            if case.stop_reason == Some(StopReason::ProviderError) {
+                                provider_error_cases = provider_error_cases.saturating_add(1);
+                            }
                             if case.stop_reason == Some(StopReason::Completed) {
                                 completed_cases = completed_cases.saturating_add(1);
                                 if case.replay_ok && case.audit_ok {
@@ -4972,12 +5155,34 @@ async fn main() -> Result<()> {
                         });
                     }
                     Err(_) => {
+                        crashed_runs = crashed_runs.saturating_add(1);
                         samples.push(first_principles_agent::benchmark::BenchmarkSample {
                             completed: false,
                             crashed: true,
                             replay_verified: false,
                         });
                     }
+                }
+                if max_cost_micros > 0 && total_cost_micros >= max_cost_micros {
+                    stopped_early = Some("cost_budget");
+                    break;
+                }
+                if checkpoint_every > 0
+                    && (run_index + 1) % checkpoint_every == 0
+                    && let Some(reason) = benchmark_checkpoint_stop(
+                        tasks_passed,
+                        tasks_total,
+                        provider_error_cases,
+                        cases_total,
+                        crashed_runs,
+                        runs as u64,
+                        min_task_completion_bps,
+                        max_provider_error_bps,
+                        min_crash_free_bps,
+                    )
+                {
+                    stopped_early = Some(reason);
+                    break;
                 }
             }
             let report = first_principles_agent::benchmark::summarize(
@@ -4997,13 +5202,34 @@ async fn main() -> Result<()> {
             let task_gate_passed = task_completion_bps >= min_task_completion_bps;
             let completed_replay_gate_passed = min_completed_replay_bps == 0
                 || completed_replay_bps.is_some_and(|bps| bps >= min_completed_replay_bps);
-            let passed = report.passed && task_gate_passed && completed_replay_gate_passed;
+            let provider_error_bps = if cases_total == 0 {
+                0
+            } else {
+                basis_points(provider_error_cases, cases_total)
+            };
+            let passed = stopped_early.is_none()
+                && report.passed
+                && task_gate_passed
+                && completed_replay_gate_passed;
             if json {
                 let mut value = serde_json::to_value(&report)?;
                 let object = value
                     .as_object_mut()
                     .ok_or_else(|| anyhow::anyhow!("benchmark report is not an object"))?;
                 object.insert("suite_passed".into(), serde_json::json!(report.passed));
+                object.insert(
+                    "estimated_cost_micros".into(),
+                    serde_json::json!(estimate.cost_micros),
+                );
+                object.insert(
+                    "estimated_input_tokens".into(),
+                    serde_json::json!(estimate.input_tokens),
+                );
+                object.insert(
+                    "estimated_output_tokens".into(),
+                    serde_json::json!(estimate.output_tokens),
+                );
+                object.insert("estimate_priced".into(), serde_json::json!(estimate.priced));
                 object.insert("tasks_total".into(), serde_json::json!(tasks_total));
                 object.insert("tasks_passed".into(), serde_json::json!(tasks_passed));
                 object.insert(
@@ -5026,6 +5252,29 @@ async fn main() -> Result<()> {
                 object.insert(
                     "min_completed_replay_bps".into(),
                     serde_json::json!(min_completed_replay_bps),
+                );
+                object.insert(
+                    "stopped_early".into(),
+                    serde_json::json!(stopped_early.is_some()),
+                );
+                object.insert("stop_reason".into(), serde_json::json!(stopped_early));
+                object.insert("cost_micros".into(), serde_json::json!(total_cost_micros));
+                object.insert(
+                    "provider_error_cases".into(),
+                    serde_json::json!(provider_error_cases),
+                );
+                object.insert(
+                    "provider_error_bps".into(),
+                    serde_json::json!(provider_error_bps),
+                );
+                object.insert(
+                    "checkpoint_every".into(),
+                    serde_json::json!(checkpoint_every),
+                );
+                object.insert("max_cost_micros".into(), serde_json::json!(max_cost_micros));
+                object.insert(
+                    "max_provider_error_bps".into(),
+                    serde_json::json!(max_provider_error_bps),
                 );
                 object.insert("passed".into(), serde_json::json!(passed));
                 println!("{}", serde_json::to_string_pretty(&value)?);
@@ -5054,6 +5303,21 @@ async fn main() -> Result<()> {
                     completed_replay_bps,
                     min_completed_replay_bps
                 );
+                println!(
+                    "cost: {} micros (max {}); provider errors: {}/{} = {} bps (max {})",
+                    total_cost_micros,
+                    max_cost_micros,
+                    provider_error_cases,
+                    cases_total,
+                    provider_error_bps,
+                    max_provider_error_bps
+                );
+                if let Some(reason) = stopped_early {
+                    println!(
+                        "stopped early: {reason} after {} iterations",
+                        report.iterations
+                    );
+                }
                 println!("passed: {passed}");
             }
             if !passed {
@@ -12337,6 +12601,197 @@ fn timeout_label(value: u64) -> String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderSource {
+    id: String,
+    model: String,
+    base_url: String,
+    reasoning_effort: Option<ReasoningEffort>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ProviderProfile {
+    provider_id: String,
+    model: String,
+    #[serde(default)]
+    reasoning_effort: Option<ReasoningEffort>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ProviderProfileStore {
+    version: u32,
+    #[serde(default)]
+    provider: Option<ProviderProfile>,
+}
+
+fn provider_key_path_in(root: &Path, provider_id: &str) -> PathBuf {
+    let safe = provider_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    root.join("keys").join(format!("provider-{safe}.key"))
+}
+
+fn provider_profile_path_in(root: &Path) -> PathBuf {
+    root.join("provider-profile.json")
+}
+
+fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(bytes)?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, bytes)?;
+    }
+    Ok(())
+}
+
+fn save_provider_key_in(root: &Path, provider_id: &str, key: &str) -> Result<PathBuf> {
+    let key = key.trim();
+    if key.is_empty() {
+        bail!("API key must not be empty");
+    }
+    let path = provider_key_path_in(root, provider_id);
+    write_private_file(&path, key.as_bytes())?;
+    Ok(path)
+}
+
+fn load_provider_key_in(root: &Path, provider_id: &str) -> Result<Option<String>> {
+    let path = provider_key_path_in(root, provider_id);
+    match std::fs::read_to_string(&path) {
+        Ok(key) => {
+            let key = key.trim().to_string();
+            Ok((!key.is_empty()).then_some(key))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn save_provider_profile_in(root: &Path, profile: &ProviderProfile) -> Result<PathBuf> {
+    let path = provider_profile_path_in(root);
+    let store = ProviderProfileStore {
+        version: 1,
+        provider: Some(profile.clone()),
+    };
+    write_private_file(&path, serde_json::to_string_pretty(&store)?.as_bytes())?;
+    Ok(path)
+}
+
+fn load_provider_profile_in(root: &Path) -> Option<ProviderProfile> {
+    let path = provider_profile_path_in(root);
+    let bytes = std::fs::read(&path).ok()?;
+    let store: ProviderProfileStore = serde_json::from_slice(&bytes).ok()?;
+    store.provider
+}
+
+fn provider_sources_from_config(config: &AgentConfig) -> Vec<ProviderSource> {
+    config
+        .providers
+        .iter()
+        .filter_map(|provider| {
+            provider.base_url.as_ref().map(|base_url| ProviderSource {
+                id: provider.id.clone(),
+                model: provider.model.clone(),
+                base_url: base_url.clone(),
+                reasoning_effort: provider.reasoning_effort,
+            })
+        })
+        .collect()
+}
+
+fn build_provider_candidate(
+    source: &ProviderSource,
+    model: &str,
+    key: Option<String>,
+    reasoning_effort: Option<ReasoningEffort>,
+    manifest: &first_principles_agent::ProviderManifest,
+    timeout: Duration,
+) -> Result<ProviderCandidate> {
+    let provider = OpenAiCompatibleProvider::new(
+        source.id.clone(),
+        model.to_string(),
+        &source.base_url,
+        key,
+        timeout,
+    )?
+    .with_reasoning_effort(reasoning_effort);
+    let mut manifest = manifest.clone();
+    manifest.model = model.to_string();
+    Ok(ProviderCandidate {
+        provider: Arc::new(provider),
+        manifest,
+    })
+}
+
+fn apply_saved_provider_profile(
+    candidates: &mut [ProviderCandidate],
+    sources: &[ProviderSource],
+    timeout: Duration,
+) -> Result<Option<ProviderProfile>> {
+    apply_saved_provider_profile_in(&default_home(), candidates, sources, timeout)
+}
+
+fn apply_saved_provider_profile_in(
+    root: &Path,
+    candidates: &mut [ProviderCandidate],
+    sources: &[ProviderSource],
+    timeout: Duration,
+) -> Result<Option<ProviderProfile>> {
+    let Some(profile) = load_provider_profile_in(root) else {
+        return Ok(None);
+    };
+    let Some(source) = sources
+        .iter()
+        .find(|source| source.id == profile.provider_id)
+    else {
+        return Ok(None);
+    };
+    let Some(key) = load_provider_key_in(root, &profile.provider_id)? else {
+        return Ok(None);
+    };
+    let Some(candidate) = candidates
+        .iter_mut()
+        .find(|candidate| candidate.manifest.provider_id == profile.provider_id)
+    else {
+        return Ok(None);
+    };
+    let replacement = build_provider_candidate(
+        source,
+        &profile.model,
+        Some(key),
+        profile.reasoning_effort,
+        &candidate.manifest,
+        timeout,
+    )?;
+    *candidate = replacement;
+    Ok(Some(profile))
+}
+
 struct TuiRunSettings {
     cwd: PathBuf,
     roots: Vec<PathBuf>,
@@ -12355,6 +12810,8 @@ struct TuiRunSettings {
     default_preferences: SessionPreferences,
     mentions: Vec<PathBuf>,
     planning_provider: Arc<dyn ModelProvider>,
+    provider_sources: Vec<ProviderSource>,
+    provider_timeout: Duration,
 }
 
 impl TuiRunSettings {
@@ -12483,20 +12940,45 @@ async fn run_tui(
         timeout_seconds
     };
     let timeout = Duration::from_secs(provider_timeout_seconds.max(1));
-    let (provider_label, candidates, mut tools) = if let Some(config_path) = config_path {
-        let config = AgentConfig::load(&config_path)?;
-        let label = config
-            .manifests()?
-            .first()
-            .map(|manifest| format!("{}/{}", manifest.provider_id, manifest.model))
-            .unwrap_or_else(|| "configured".to_string());
-        (label, config.build_providers(timeout)?, default_registry())
-    } else {
-        let label = format!("{provider}/{}", model.as_deref().unwrap_or("default"));
-        let (candidates, tools) =
-            build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?;
-        (label, candidates, tools)
-    };
+    let (provider_label, mut candidates, mut tools, provider_sources) =
+        if let Some(config_path) = config_path {
+            let config = AgentConfig::load(&config_path)?;
+            let provider_sources = provider_sources_from_config(&config);
+            let label = config
+                .manifests()?
+                .first()
+                .map(|manifest| format!("{}/{}", manifest.provider_id, manifest.model))
+                .unwrap_or_else(|| "configured".to_string());
+            (
+                label,
+                config.build_providers(timeout)?,
+                default_registry(),
+                provider_sources,
+            )
+        } else {
+            let label = format!("{provider}/{}", model.as_deref().unwrap_or("default"));
+            let provider_sources = if provider == "openai-compatible" {
+                base_url
+                    .as_ref()
+                    .map(|base_url| {
+                        vec![ProviderSource {
+                            id: "openai-compatible".into(),
+                            model: model.clone().unwrap_or_default(),
+                            base_url: base_url.clone(),
+                            reasoning_effort: None,
+                        }]
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let (candidates, tools) =
+                build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?;
+            (label, candidates, tools, provider_sources)
+        };
+    let provider_label = apply_saved_provider_profile(&mut candidates, &provider_sources, timeout)?
+        .map(|profile| format!("{}/{}", profile.provider_id, profile.model))
+        .unwrap_or(provider_label);
     if let Some(path) = mcp_config {
         for tool in first_principles_agent::load_mcp_tools(&path).await? {
             tools.register(tool);
@@ -12556,6 +13038,8 @@ async fn run_tui(
         default_preferences: cli_preferences,
         mentions: session.mentions().to_vec(),
         planning_provider,
+        provider_sources,
+        provider_timeout: timeout,
     };
     if interactive_terminal_available() {
         let (clarify_sender, clarify_receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -12881,7 +13365,7 @@ async fn run_tui_line_request(
             signal_cancellation.cancel();
         }
     });
-    let result = runtime.run(request, cancellation).await;
+    let result = runtime.run_with_mode(request, mode, cancellation).await;
     signal.abort();
     match result {
         Ok(result) => {
@@ -12935,6 +13419,14 @@ fn command_menu_action(
     }
 }
 
+fn provider_menu_action(label: &str, description: &str, id: &str) -> CommandMenuItem {
+    CommandMenuItem {
+        id: id.to_string(),
+        label: label.to_string(),
+        description: description.to_string(),
+    }
+}
+
 fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
     match command {
         TuiCommandId::Help => Vec::new(),
@@ -12972,6 +13464,17 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
             command_menu_action("生产线", "生成总控生产线报告", "/report master", false),
         ],
         TuiCommandId::Model => vec![
+            provider_menu_action(
+                "设置 API Key 与模型…",
+                "输入 API Key，自动发现模型并测试连接",
+                "secret:provider-key",
+            ),
+            provider_menu_action("选择模型…", "刷新并选择 provider 返回的模型", "model:menu"),
+            provider_menu_action(
+                "思考深度…",
+                "选择 reasoning_effort：快速 / 标准 / 深度",
+                "effort:menu",
+            ),
             command_menu_action("当前模型", "查看当前选择和可用模型", "/model show", false),
             command_menu_action(
                 "质量优先",
@@ -13419,12 +13922,13 @@ async fn run_tui_reframe_interactive(
             _ = ticker.tick() => draw_tui_frame(terminal, state)?,
             input = inputs.recv() => match input {
                 Some(TuiInput::CtrlC) => cancellation.cancel(),
-                Some(TuiInput::CtrlQ) => state.request_quit(),
-                Some(TuiInput::Enter) if state.quit_requested() => {
-                    state.take_quit_request();
-                    quit = true;
-                    cancellation.cancel();
+                Some(TuiInput::CtrlQ) => {
+                    if state.request_quit() {
+                        quit = true;
+                        cancellation.cancel();
+                    }
                 }
+                Some(TuiInput::Enter) if state.quit_requested() => state.cancel_quit(),
                 Some(TuiInput::Escape) if state.quit_requested() => state.cancel_quit(),
                 Some(event) if state.quit_requested()
                     && !matches!(
@@ -13634,10 +14138,23 @@ fn handle_model_command(
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
+            let provider_details = current_provider_manifest(runtime)
+                .map(|manifest| {
+                    let effort = current_provider_source(settings, &manifest.provider_id)
+                        .map(|source| saved_reasoning_effort(&manifest.provider_id, &source))
+                        .unwrap_or(None);
+                    format!(
+                        "API Key      {}\n思考深度     {}",
+                        provider_key_status(&manifest.provider_id),
+                        reasoning_effort_label(effort)
+                    )
+                })
+                .unwrap_or_else(|| "API Key      无可用 provider".into());
             state.info(format!(
                 "模型路由\n\
                  优化目标      {}\n\
                  当前选择      {selected}\n\
+                 {provider_details}\n\
                  \n\
                  可用模型\n{models}",
                 runtime.route_objective().label_zh()
@@ -13681,6 +14198,368 @@ fn handle_model_command(
                 state.info(format!("下一次运行使用：{provider_id}/{model}"));
             }
         }
+    }
+}
+
+fn current_provider_manifest(
+    runtime: &AgentRuntime,
+) -> Option<first_principles_agent::ProviderManifest> {
+    runtime
+        .selected_provider()
+        .cloned()
+        .or_else(|| runtime.provider_manifests().into_iter().next())
+}
+
+fn provider_manifest_by_id(
+    runtime: &AgentRuntime,
+    provider_id: &str,
+) -> Option<first_principles_agent::ProviderManifest> {
+    runtime
+        .provider_manifests()
+        .into_iter()
+        .find(|manifest| manifest.provider_id == provider_id)
+}
+
+fn current_provider_source(settings: &TuiRunSettings, provider_id: &str) -> Option<ProviderSource> {
+    settings
+        .provider_sources
+        .iter()
+        .find(|source| source.id == provider_id)
+        .cloned()
+}
+
+fn saved_reasoning_effort(provider_id: &str, source: &ProviderSource) -> Option<ReasoningEffort> {
+    load_provider_profile_in(&default_home())
+        .filter(|profile| profile.provider_id == provider_id)
+        .and_then(|profile| profile.reasoning_effort)
+        .or(source.reasoning_effort)
+}
+
+fn reasoning_effort_label(effort: Option<ReasoningEffort>) -> &'static str {
+    match effort {
+        Some(ReasoningEffort::Low) => "快速",
+        Some(ReasoningEffort::Medium) => "标准",
+        Some(ReasoningEffort::High) => "深度",
+        None => "关闭/默认",
+    }
+}
+
+fn provider_key_status(provider_id: &str) -> String {
+    match load_provider_key_in(&default_home(), provider_id) {
+        Ok(Some(_)) => "已保存（~/.1a/keys/）".into(),
+        Ok(None) => "未保存".into(),
+        Err(error) => format!("读取失败：{error}"),
+    }
+}
+
+fn open_model_selection_menu(state: &mut TuiState, models: &[String]) {
+    if models.is_empty() {
+        state.info("provider 没有返回可用模型；请检查 API Key 或使用“指定模型…”。");
+        return;
+    }
+    state.begin_command_subpanel("选择模型");
+    state.info(format!("provider 返回 {} 个模型。", models.len()));
+    let items = models
+        .iter()
+        .take(50)
+        .map(|model| provider_menu_action(model, "使用这个模型", &format!("model:{model}")))
+        .collect();
+    state.set_command_panel_menu(items);
+    state.set_notice("↑↓ 选择模型，Enter 应用，← 返回");
+}
+
+fn open_effort_selection_menu(state: &mut TuiState) {
+    state.begin_command_subpanel("思考深度");
+    state.info("选择 reasoning_effort；选择后会用当前模型做一次连接测试。");
+    state.set_command_panel_menu(vec![
+        provider_menu_action("快速", "reasoning_effort = low", "effort:low"),
+        provider_menu_action("标准", "reasoning_effort = medium", "effort:medium"),
+        provider_menu_action("深度", "reasoning_effort = high", "effort:high"),
+        provider_menu_action("关闭", "不发送 reasoning_effort", "effort:off"),
+    ]);
+    state.set_notice("↑↓ 选择思考深度，Enter 应用，← 返回");
+}
+
+async fn refresh_provider_models(
+    state: &mut TuiState,
+    runtime: &AgentRuntime,
+    settings: &TuiRunSettings,
+) {
+    let Some(manifest) = current_provider_manifest(runtime) else {
+        state.info("没有可配置的 provider。");
+        return;
+    };
+    let Some(source) = current_provider_source(settings, &manifest.provider_id) else {
+        state.info("当前 provider 没有 base_url，无法获取模型列表。");
+        return;
+    };
+    let key = match load_provider_key_in(&default_home(), &manifest.provider_id) {
+        Ok(Some(key)) => key,
+        Ok(None) => {
+            state.info("请先设置 API Key。");
+            return;
+        }
+        Err(error) => {
+            state.info(format!("读取 API Key 失败：{error}"));
+            return;
+        }
+    };
+    state.set_notice("正在获取模型列表…");
+    match list_provider_models(&source.base_url, &key, settings.provider_timeout).await {
+        Ok(models) => {
+            state.set_provider_models(models.clone());
+            open_model_selection_menu(state, &models);
+        }
+        Err(error) => state.info(format!(
+            "获取模型列表失败：{:?} · {}",
+            error.code, error.message
+        )),
+    }
+}
+
+fn provider_probe_failure(probe: &first_principles_agent::ProviderProbeResult) -> String {
+    probe
+        .error_code
+        .map(|code| format!("{code:?}"))
+        .unwrap_or_else(|| "unknown".into())
+}
+
+async fn apply_provider_model(
+    state: &mut TuiState,
+    runtime: &mut AgentRuntime,
+    settings: &mut TuiRunSettings,
+    model: &str,
+    follow_up_effort: bool,
+) {
+    let Some(manifest) = current_provider_manifest(runtime) else {
+        state.info("没有可配置的 provider。");
+        return;
+    };
+    let Some(source) = current_provider_source(settings, &manifest.provider_id) else {
+        state.info("当前 provider 没有 base_url，无法重建连接。");
+        return;
+    };
+    let key = match load_provider_key_in(&default_home(), &manifest.provider_id) {
+        Ok(Some(key)) => key,
+        Ok(None) => {
+            state.info("请先设置 API Key。");
+            return;
+        }
+        Err(error) => {
+            state.info(format!("读取 API Key 失败：{error}"));
+            return;
+        }
+    };
+    let effort = saved_reasoning_effort(&manifest.provider_id, &source);
+    let candidate = match build_provider_candidate(
+        &source,
+        model,
+        Some(key),
+        effort,
+        &manifest,
+        settings.provider_timeout,
+    ) {
+        Ok(candidate) => candidate,
+        Err(error) => {
+            state.info(format!("无法创建 provider：{error}"));
+            return;
+        }
+    };
+    state.set_notice("正在测试所选模型…");
+    let probe = probe_provider(
+        candidate.provider.as_ref(),
+        &candidate.manifest,
+        &CancellationToken::new(),
+    )
+    .await;
+    if !probe.ok {
+        state.info(format!(
+            "模型连接失败：{} · {}ms",
+            provider_probe_failure(&probe),
+            probe.latency_ms
+        ));
+        return;
+    }
+    let profile = ProviderProfile {
+        provider_id: manifest.provider_id.clone(),
+        model: model.to_string(),
+        reasoning_effort: effort,
+    };
+    if let Err(error) = save_provider_profile_in(&default_home(), &profile) {
+        state.info(format!("保存模型配置失败：{error}"));
+        return;
+    }
+    if !runtime.replace_provider(candidate.clone()) {
+        state.info("provider 替换失败。");
+        return;
+    }
+    settings.planning_provider = candidate.provider.clone();
+    state.provider_label = format!(
+        "{}/{}",
+        candidate.manifest.provider_id, candidate.manifest.model
+    );
+    let success = format!(
+        "✓ 模型已切换为 {}；连接正常（{}ms）",
+        state.provider_label, probe.latency_ms
+    );
+    if follow_up_effort {
+        state.info(success);
+        open_effort_selection_menu(state);
+    } else {
+        state.close_command_panel();
+        state.info(success);
+    }
+}
+
+async fn apply_provider_effort(
+    state: &mut TuiState,
+    runtime: &mut AgentRuntime,
+    settings: &mut TuiRunSettings,
+    effort: Option<ReasoningEffort>,
+) {
+    let Some(manifest) = current_provider_manifest(runtime) else {
+        state.info("没有可配置的 provider。");
+        return;
+    };
+    let Some(source) = current_provider_source(settings, &manifest.provider_id) else {
+        state.info("当前 provider 没有 base_url，无法重建连接。");
+        return;
+    };
+    let key = match load_provider_key_in(&default_home(), &manifest.provider_id) {
+        Ok(Some(key)) => key,
+        Ok(None) => {
+            state.info("请先设置 API Key。");
+            return;
+        }
+        Err(error) => {
+            state.info(format!("读取 API Key 失败：{error}"));
+            return;
+        }
+    };
+    let model = manifest.model.clone();
+    let candidate = match build_provider_candidate(
+        &source,
+        &model,
+        Some(key),
+        effort,
+        &manifest,
+        settings.provider_timeout,
+    ) {
+        Ok(candidate) => candidate,
+        Err(error) => {
+            state.info(format!("无法创建 provider：{error}"));
+            return;
+        }
+    };
+    state.set_notice("正在测试思考深度…");
+    let probe = probe_provider(
+        candidate.provider.as_ref(),
+        &candidate.manifest,
+        &CancellationToken::new(),
+    )
+    .await;
+    if !probe.ok {
+        state.info(format!(
+            "思考深度设置失败：{} · {}ms",
+            provider_probe_failure(&probe),
+            probe.latency_ms
+        ));
+        return;
+    }
+    let profile = ProviderProfile {
+        provider_id: manifest.provider_id.clone(),
+        model,
+        reasoning_effort: effort,
+    };
+    if let Err(error) = save_provider_profile_in(&default_home(), &profile) {
+        state.info(format!("保存思考深度失败：{error}"));
+        return;
+    }
+    if !runtime.replace_provider(candidate.clone()) {
+        state.info("provider 替换失败。");
+        return;
+    }
+    settings.planning_provider = candidate.provider.clone();
+    state.provider_label = format!(
+        "{}/{}",
+        candidate.manifest.provider_id, candidate.manifest.model
+    );
+    state.close_command_panel();
+    state.info(format!(
+        "✓ 思考深度已设为 {}；连接正常（{}ms）",
+        reasoning_effort_label(effort),
+        probe.latency_ms
+    ));
+}
+
+async fn handle_secret_provider_key(
+    state: &mut TuiState,
+    runtime: &mut AgentRuntime,
+    settings: &mut TuiRunSettings,
+    provider_id: String,
+    provider_model: String,
+    key: String,
+) {
+    if key.trim().is_empty() {
+        state.info("API Key 不能为空。");
+        return;
+    }
+    let Some(source) = current_provider_source(settings, &provider_id) else {
+        state.info("当前 provider 没有 base_url，无法验证 API Key。");
+        return;
+    };
+    state.set_notice("正在验证 API Key 并获取模型列表…");
+    let models =
+        match list_provider_models(&source.base_url, key.trim(), settings.provider_timeout).await {
+            Ok(models) => models,
+            Err(error) => {
+                state.info(format!(
+                    "API Key 验证失败：{:?} · {}",
+                    error.code, error.message
+                ));
+                return;
+            }
+        };
+    if let Err(error) = save_provider_key_in(&default_home(), &provider_id, &key) {
+        state.info(format!("保存 API Key 失败：{error}"));
+        return;
+    }
+    state.set_provider_models(models.clone());
+    state.info(format!(
+        "✓ API Key 已保存（0600）。provider 返回 {} 个模型。",
+        models.len()
+    ));
+    let effort = saved_reasoning_effort(&provider_id, &source);
+    let profile = ProviderProfile {
+        provider_id: provider_id.clone(),
+        model: provider_model.clone(),
+        reasoning_effort: effort,
+    };
+    if let Err(error) = save_provider_profile_in(&default_home(), &profile) {
+        state.info(format!("保存 provider 配置失败：{error}"));
+        return;
+    }
+    if let Some(manifest) = provider_manifest_by_id(runtime, &provider_id)
+        && let Ok(candidate) = build_provider_candidate(
+            &source,
+            &provider_model,
+            Some(key),
+            effort,
+            &manifest,
+            settings.provider_timeout,
+        )
+        && runtime.replace_provider(candidate.clone())
+    {
+        settings.planning_provider = candidate.provider.clone();
+        state.provider_label = format!(
+            "{}/{}",
+            candidate.manifest.provider_id, candidate.manifest.model
+        );
+    }
+    if models.is_empty() {
+        apply_provider_model(state, runtime, settings, &provider_model, false).await;
+    } else {
+        open_model_selection_menu(state, &models);
     }
 }
 
@@ -17370,7 +18249,9 @@ async fn run_tui_interactive(
             state.close_details();
             state.close_command_panel();
             state.clear_confirmation();
-            state.request_quit();
+            if state.request_quit() {
+                break;
+            }
             draw_tui_frame(&mut terminal, &mut state)?;
             continue;
         }
@@ -17452,6 +18333,9 @@ async fn run_tui_interactive(
             TuiInput::Right => state.move_right(),
             TuiInput::Home => state.move_home(),
             TuiInput::End => state.move_end(),
+            TuiInput::Up | TuiInput::Down | TuiInput::PageUp | TuiInput::PageDown
+                if state.secret_input_active() => {}
+            TuiInput::Tab | TuiInput::CtrlTab if state.secret_input_active() => {}
             TuiInput::Up if state.slash_drawer_open() => state.move_command_selection(-1),
             TuiInput::Down if state.slash_drawer_open() => state.move_command_selection(1),
             TuiInput::Up if state.command_panel_menu_open() && state.input().is_empty() => {
@@ -17488,6 +18372,7 @@ async fn run_tui_interactive(
                     state.open_details();
                 }
             }
+            TuiInput::CommandPalette if state.secret_input_active() => {}
             TuiInput::CommandPalette => {
                 state.close_command_panel();
                 state.set_input("/");
@@ -17522,6 +18407,11 @@ async fn run_tui_interactive(
                 }
             }
             TuiInput::Escape => {
+                if state.secret_input_active() {
+                    state.cancel_secret_input();
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
                 if state.quit_requested() {
                     state.cancel_quit();
                     state.info("已取消退出");
@@ -17541,9 +18431,28 @@ async fn run_tui_interactive(
             }
             TuiInput::Resize => {}
             TuiInput::Enter => {
+                if state.secret_input_active() {
+                    if let Some((provider_id, provider_model, key)) = state.take_secret_input() {
+                        state.set_notice("正在验证 API Key 并获取模型列表…");
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        handle_secret_provider_key(
+                            &mut state,
+                            &mut runtime,
+                            &mut settings,
+                            provider_id,
+                            provider_model,
+                            key,
+                        )
+                        .await;
+                    }
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
                 if state.quit_requested() {
-                    state.take_quit_request();
-                    break;
+                    state.cancel_quit();
+                    state.info("已取消退出");
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
                 }
                 let mut confirmed = false;
                 let submission = if state.input().trim().is_empty() {
@@ -17566,6 +18475,59 @@ async fn run_tui_interactive(
                         state.close_command_panel();
                         state.set_input(command_line);
                         state.set_notice("继续输入命令参数后按 Enter");
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    } else if item.id == "secret:provider-key" {
+                        if let Some(manifest) = current_provider_manifest(&runtime) {
+                            if current_provider_source(&settings, &manifest.provider_id).is_none() {
+                                state.info("当前 provider 不需要 API Key（或缺少 base_url）。");
+                            } else {
+                                state.close_command_panel();
+                                state.begin_secret_input(
+                                    format!("{} / {}", manifest.provider_id, manifest.model),
+                                    manifest.provider_id,
+                                    manifest.model,
+                                );
+                                state.set_notice("输入 API Key（掩码，Enter 保存，Esc 取消）");
+                            }
+                        } else {
+                            state.info("没有可配置的 provider。");
+                        }
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    } else if item.id == "model:menu" {
+                        state.set_notice("正在获取模型列表…");
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        refresh_provider_models(&mut state, &runtime, &settings).await;
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    } else if item.id == "effort:menu" {
+                        open_effort_selection_menu(&mut state);
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    } else if let Some(model) = item.id.strip_prefix("model:") {
+                        state.set_notice("正在测试所选模型…");
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        apply_provider_model(&mut state, &mut runtime, &mut settings, model, true)
+                            .await;
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        continue;
+                    } else if let Some(value) = item.id.strip_prefix("effort:") {
+                        let effort = match value {
+                            "low" => Some(ReasoningEffort::Low),
+                            "medium" => Some(ReasoningEffort::Medium),
+                            "high" => Some(ReasoningEffort::High),
+                            "off" => None,
+                            _ => {
+                                state.info("未知思考深度。");
+                                draw_tui_frame(&mut terminal, &mut state)?;
+                                continue;
+                            }
+                        };
+                        state.set_notice("正在测试思考深度…");
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                        apply_provider_effort(&mut state, &mut runtime, &mut settings, effort)
+                            .await;
                         draw_tui_frame(&mut terminal, &mut state)?;
                         continue;
                     } else if activate_workspace_menu_item(
@@ -18044,7 +19006,12 @@ async fn run_tui_task(
                             cancellation.cancel();
                         }
                     }
-                    Some(TuiInput::CtrlQ) => state.request_quit(),
+                    Some(TuiInput::CtrlQ) => {
+                        if state.request_quit() {
+                            quit_after_run = true;
+                            cancellation.cancel();
+                        }
+                    }
                     Some(TuiInput::CtrlO) => {
                         if state.details_open() {
                             state.close_details();
@@ -18053,9 +19020,8 @@ async fn run_tui_task(
                         }
                     }
                     Some(TuiInput::Enter) if state.quit_requested() => {
-                        state.take_quit_request();
-                        quit_after_run = true;
-                        cancellation.cancel();
+                        state.cancel_quit();
+                        state.info("已取消退出");
                     }
                     Some(TuiInput::Escape) if state.quit_requested() => {
                         state.cancel_quit();
@@ -18926,10 +19892,21 @@ fn failure_category(status: ToolStatus, summary: &str) -> &'static str {
 }
 
 fn format_token_count(tokens: u64) -> String {
-    if tokens >= 1_000 {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
         format!("{:.1}k", tokens as f64 / 1_000.0)
     } else {
         tokens.to_string()
+    }
+}
+
+fn format_cost_micros(micros: u64) -> String {
+    let yuan = micros as f64 / 1_000_000.0;
+    if micros < 10_000 {
+        format!("¥{yuan:.3}")
+    } else {
+        format!("¥{yuan:.2}")
     }
 }
 
@@ -19375,7 +20352,11 @@ mod tui_rendering_tests {
             );
             for action in actions {
                 assert!(
-                    action.id.starts_with("open:") || action.id.starts_with("prompt:"),
+                    action.id.starts_with("open:")
+                        || action.id.starts_with("prompt:")
+                        || action.id.starts_with("secret:")
+                        || action.id.starts_with("model:")
+                        || action.id.starts_with("effort:"),
                     "{} has invalid action {}",
                     command.name,
                     action.id
@@ -19452,6 +20433,8 @@ mod tui_rendering_tests {
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
+            provider_sources: Vec::new(),
+            provider_timeout: Duration::from_secs(120),
         };
         assert_eq!(settings.request("test").budget.max_provider_attempts, 6);
     }
@@ -19597,6 +20580,8 @@ mod tui_rendering_tests {
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
+            provider_sources: Vec::new(),
+            provider_timeout: Duration::from_secs(120),
         };
 
         run_tui_master_plan(&mut state, &mut session, &settings, "generate").await;
@@ -19804,6 +20789,8 @@ mod tui_rendering_tests {
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
+            provider_sources: Vec::new(),
+            provider_timeout: Duration::from_secs(120),
         };
 
         assert!(
@@ -20043,6 +21030,8 @@ mod tui_rendering_tests {
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
+            provider_sources: Vec::new(),
+            provider_timeout: Duration::from_secs(120),
         };
         let (trace_id, state_root, _, _) =
             prepare_master_dispatch(&mut state, &mut session).unwrap();
@@ -20646,6 +21635,8 @@ mod tui_rendering_tests {
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
+            provider_sources: Vec::new(),
+            provider_timeout: Duration::from_secs(120),
         }
     }
 
@@ -20797,6 +21788,124 @@ mod tui_rendering_tests {
         assert_eq!(format_elapsed_ms(62_000), "1m02s");
         assert_eq!(format_token_count(812), "812");
         assert_eq!(format_token_count(5_136), "5.1k");
+    }
+
+    #[test]
+    fn benchmark_preflight_cost_uses_yuan_precision() {
+        assert_eq!(format_cost_micros(3_000), "¥0.003");
+        assert_eq!(format_cost_micros(12_000), "¥0.01");
+        assert_eq!(format_cost_micros(1_500_000), "¥1.50");
+    }
+
+    #[test]
+    fn benchmark_checkpoint_stops_on_gate_failures() {
+        assert_eq!(
+            benchmark_checkpoint_stop(0, 8, 0, 8, 0, 320, 5000, 0, 0),
+            Some("task_completion")
+        );
+        assert_eq!(
+            benchmark_checkpoint_stop(8, 8, 0, 8, 0, 320, 5000, 0, 0),
+            None
+        );
+        assert_eq!(
+            benchmark_checkpoint_stop(8, 8, 8, 8, 0, 320, 0, 5000, 0),
+            Some("provider_errors")
+        );
+        assert_eq!(
+            benchmark_checkpoint_stop(8, 8, 0, 8, 5, 320, 0, 0, 9950),
+            Some("crash_free")
+        );
+        assert_eq!(
+            benchmark_checkpoint_stop(8, 8, 0, 8, 1, 320, 0, 0, 9950),
+            None
+        );
+    }
+
+    #[test]
+    fn wilson_upper_bound_needs_enough_cases_before_stopping() {
+        assert!(wilson_upper_bps(0, 8) < 5000);
+        assert!(wilson_upper_bps(0, 1) > 5000);
+        assert!(wilson_upper_bps(144, 160) > 5000);
+        assert!(wilson_upper_bps(64, 160) < 5000);
+    }
+
+    #[test]
+    fn provider_credentials_use_a_private_file_and_roundtrip() {
+        let root = tempfile::tempdir().unwrap();
+        let path = save_provider_key_in(root.path(), "deepseek-primary", "sk-test").unwrap();
+        assert_eq!(
+            load_provider_key_in(root.path(), "deepseek-primary")
+                .unwrap()
+                .as_deref(),
+            Some("sk-test")
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let profile = ProviderProfile {
+            provider_id: "deepseek-primary".into(),
+            model: "deepseek-flash".into(),
+            reasoning_effort: Some(ReasoningEffort::Medium),
+        };
+        save_provider_profile_in(root.path(), &profile).unwrap();
+        assert_eq!(load_provider_profile_in(root.path()), Some(profile));
+    }
+
+    #[test]
+    fn model_menu_exposes_provider_setup_actions() {
+        let items = command_menu_actions(TuiCommandId::Model);
+        assert!(items.iter().any(|item| item.id == "secret:provider-key"));
+        assert!(items.iter().any(|item| item.id == "model:menu"));
+        assert!(items.iter().any(|item| item.id == "effort:menu"));
+    }
+
+    #[test]
+    fn saved_provider_profile_rebuilds_the_candidate() {
+        let root = tempfile::tempdir().unwrap();
+        save_provider_key_in(root.path(), "deepseek-primary", "sk-test").unwrap();
+        let profile = ProviderProfile {
+            provider_id: "deepseek-primary".into(),
+            model: "deepseek-flash".into(),
+            reasoning_effort: Some(ReasoningEffort::Medium),
+        };
+        save_provider_profile_in(root.path(), &profile).unwrap();
+        let manifest = first_principles_agent::ProviderManifest {
+            provider_id: "deepseek-primary".into(),
+            model: "old-model".into(),
+            privacy: first_principles_agent::PrivacyClass::Remote,
+            supported_modes: Vec::new(),
+            supports_tools: true,
+            supports_structured_output: true,
+            max_risk: RiskLevel::High,
+            quality_score: 100,
+            input_cost_micros_per_k: 0,
+            output_cost_micros_per_k: 0,
+            p95_latency_ms: 0,
+        };
+        let mut candidates = vec![ProviderCandidate {
+            provider: Arc::new(DeterministicProvider::new()),
+            manifest,
+        }];
+        let sources = vec![ProviderSource {
+            id: "deepseek-primary".into(),
+            model: "old-model".into(),
+            base_url: "https://example.invalid/v1".into(),
+            reasoning_effort: None,
+        }];
+        let applied = apply_saved_provider_profile_in(
+            root.path(),
+            &mut candidates,
+            &sources,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(applied, Some(profile));
+        assert_eq!(candidates[0].manifest.model, "deepseek-flash");
+        assert_eq!(candidates[0].provider.id(), "deepseek-primary");
+        assert_eq!(candidates[0].provider.model(), "deepseek-flash");
     }
 
     #[test]

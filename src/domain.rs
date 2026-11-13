@@ -1137,8 +1137,7 @@ pub fn infer_mode(request: &TaskRequest) -> CognitiveMode {
     ) {
         return CognitiveMode::Execute;
     }
-    if !request.known_facts.is_empty()
-        || !request.unknowns.is_empty()
+    if !request.unknowns.is_empty()
         || contains_any(
             &text,
             &["search", "evidence", "source", "检索", "证据", "来源"],
@@ -1147,6 +1146,284 @@ pub fn infer_mode(request: &TaskRequest) -> CognitiveMode {
         return CognitiveMode::EvidenceResearch;
     }
     CognitiveMode::DirectAnswer
+}
+
+/// Whether a task is conversational enough for the one-call chat fast path.
+/// This is deliberately conservative: an explicit action, an imperative, or a
+/// continuation of earlier work stays on the full agent loop.
+pub fn looks_like_chat(objective: &str) -> bool {
+    let text = objective.trim();
+    let length = text.chars().count();
+    if length == 0 || length > 120 {
+        return false;
+    }
+    let lower = text.to_lowercase();
+
+    if contains_any(
+        &lower,
+        &[
+            "继续",
+            "接着",
+            "然后呢",
+            "下一步",
+            "go on",
+            "continue",
+            "keep going",
+        ],
+    ) {
+        return false;
+    }
+    if contains_any(
+        &lower,
+        &[
+            "帮我",
+            "给我",
+            "替我",
+            "麻烦你",
+            "please ",
+            "go ahead",
+            "do it",
+        ],
+    ) {
+        return false;
+    }
+    // A question word does not make a task conversational. Retrieval, local
+    // state, current facts and repository work must keep the tools and the
+    // full evidence loop even when the sentence ends with "哪些" or "如何".
+    if contains_any(
+        &lower,
+        &[
+            "查一下",
+            "查查",
+            "搜一下",
+            "搜索",
+            "检索",
+            "读取",
+            "写入",
+            "执行",
+            "运行",
+            "安装",
+            "下载",
+            "上传",
+            "部署",
+            "重启",
+            "删除",
+            "创建",
+            "修改",
+            "编辑",
+            "提交",
+            "打开",
+            "分析",
+            "审查",
+            "重构",
+            "迁移",
+            "优化",
+            "实现",
+            "设计",
+            "计划",
+            "报告",
+            "项目",
+            "架构",
+            "代码",
+            "仓库",
+            "文件",
+            "目录",
+            "本地",
+            "当前",
+            "最新",
+            "实时",
+            "新闻",
+            "大事件",
+            "价格",
+            "多少钱",
+            "余额",
+            "日志",
+            "报错",
+            "错误",
+            "配置",
+            "版本",
+            "密钥",
+            "数据库",
+            "网址",
+            "链接",
+            "天气",
+            "几点",
+        ],
+    ) || contains_any_word(
+        &lower,
+        &[
+            "read",
+            "show",
+            "open",
+            "write",
+            "edit",
+            "create",
+            "delete",
+            "remove",
+            "run",
+            "execute",
+            "install",
+            "build",
+            "test",
+            "search",
+            "find",
+            "download",
+            "upload",
+            "fetch",
+            "git",
+            "ls",
+            "cat",
+            "grep",
+            "project",
+            "architecture",
+            "codebase",
+            "repository",
+            "file",
+            "directory",
+            "local",
+            "current",
+            "latest",
+            "recent",
+            "today",
+            "real-time",
+            "news",
+            "price",
+            "cost",
+            "balance",
+            "log",
+            "error",
+            "config",
+            "version",
+            "api",
+            "database",
+            "url",
+            "link",
+            "weather",
+            "time",
+        ],
+    ) {
+        return false;
+    }
+    if contains_any(
+        &lower,
+        &[
+            "？",
+            "?",
+            "吗",
+            "呢",
+            "什么",
+            "怎么",
+            "为什么",
+            "如何",
+            "哪个",
+            "哪些",
+            "哪里",
+            "哪儿",
+            "在哪",
+            "谁",
+            "什么时候",
+            "多久",
+            "多少",
+            "介绍",
+            "解释",
+            "区别",
+            "是什么",
+            "能不能",
+            "可以吗",
+        ],
+    ) || contains_any_word(
+        &lower,
+        &[
+            "who",
+            "what",
+            "why",
+            "how",
+            "which",
+            "explain",
+            "tell me",
+            "difference",
+        ],
+    ) {
+        return true;
+    }
+    if contains_any(
+        &lower,
+        &[
+            "写",
+            "读一下",
+            "读这个",
+            "读文件",
+            "写下",
+            "写个",
+            "写一个",
+            "写一下",
+            "改一下",
+            "改这个",
+            "删掉",
+            "查一下",
+            "查查",
+            "跑一下",
+            "装一下",
+            "装个",
+            "建一个",
+            "开一下",
+            "关掉",
+            "发给",
+            "买个",
+            "买一个",
+            "读取",
+            "打开",
+            "查看",
+            "写入",
+            "修改",
+            "编辑",
+            "创建",
+            "新建",
+            "删除",
+            "移除",
+            "运行",
+            "执行",
+            "启动",
+            "安装",
+            "编译",
+            "构建",
+            "测试",
+            "搜索",
+            "查找",
+            "下载",
+            "上传",
+            "拉取",
+            "提交",
+            "部署",
+            "重启",
+            "停止",
+            "read ",
+            "show ",
+            "open ",
+            "write ",
+            "edit ",
+            "create ",
+            "delete ",
+            "remove ",
+            "run ",
+            "exec",
+            "install",
+            "build",
+            "test ",
+            "search ",
+            "find ",
+            "download",
+            "upload",
+            "fetch",
+            "git ",
+            "ls ",
+            "cat ",
+            "grep ",
+        ],
+    ) {
+        return false;
+    }
+    length <= 80
 }
 
 fn now_unix_ms() -> u128 {
@@ -1158,6 +1435,33 @@ fn now_unix_ms() -> u128 {
 
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
+}
+
+/// Word-boundary match for English cues, so "show" does not match "how" and
+/// "sandwich" does not match "which".
+fn contains_any_word(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| {
+        haystack.match_indices(needle).any(|(start, _)| {
+            let before = haystack[..start].chars().next_back();
+            let after = haystack[start + needle.len()..].chars().next();
+            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+        })
+    })
+}
+
+/// A follow-up that points back at earlier turns is safer on the full agent
+/// path, where it can use tools and the complete evidence rules.
+pub fn has_context_reference(objective: &str) -> bool {
+    let lower = objective.to_lowercase();
+    contains_any(
+        &lower,
+        &[
+            "它", "这个", "那个", "该", "其", "上述", "刚才", "前面", "上面", "此",
+        ],
+    ) || contains_any_word(
+        &lower,
+        &["it", "its", "this", "that", "they", "them", "their"],
+    )
 }
 
 #[cfg(test)]
@@ -1204,6 +1508,69 @@ mod tests {
 
         request.objective = "Execute the deployment".into();
         assert_eq!(infer_mode(&request), CognitiveMode::Execute);
+    }
+
+    #[test]
+    fn conversation_context_does_not_force_evidence_research() {
+        let mut request = TaskRequest::from_objective("你好", PathBuf::from("."));
+        request.known_facts = vec!["Earlier: the user asked about Rust".into()];
+        assert_eq!(infer_mode(&request), CognitiveMode::DirectAnswer);
+    }
+
+    #[test]
+    fn chat_fast_path_is_conservative() {
+        for text in [
+            "你好",
+            "谢谢你",
+            "介绍一下你自己",
+            "介绍一下你自己有哪些功能？",
+            "如何切换模式？",
+            "最近怎么样？",
+            "启动指令是什么？",
+            "为什么天空是蓝色的？",
+            "How does prompt caching work?",
+        ] {
+            assert!(looks_like_chat(text), "{text} should be chat");
+        }
+        for text in [
+            "写入全局变量",
+            "帮我安装 DeepTutor",
+            "启动服务",
+            "继续",
+            "读取 src/main.rs",
+            "写一个 Rust 函数",
+            "please run the tests",
+            "show me the file",
+            "查一下最近AI圈有哪些大事件",
+            "现在 DeepSeek 的价格是多少？",
+            "这个项目架构如何？",
+            "这个文件在哪里？",
+            "安装包在哪里？",
+            "解释一下这段代码",
+            "今天天气怎么样？",
+        ] {
+            assert!(
+                !looks_like_chat(text),
+                "{text} should stay on the work path"
+            );
+        }
+    }
+
+    #[test]
+    fn context_references_are_detected_for_follow_ups() {
+        assert!(has_context_reference("它有什么优点？"));
+        assert!(has_context_reference("这个方案怎么实现？"));
+        assert!(has_context_reference("what about its price?"));
+        assert!(!has_context_reference("介绍一下你自己"));
+        assert!(!has_context_reference("如何切换模式？"));
+    }
+
+    #[test]
+    fn english_question_cues_need_word_boundaries() {
+        assert!(!contains_any_word("somewhat better", &["what"]));
+        assert!(!contains_any_word("show me", &["how"]));
+        assert!(contains_any_word("what is this?", &["what"]));
+        assert!(contains_any_word("how does it work", &["how"]));
     }
 
     #[test]

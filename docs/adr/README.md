@@ -131,3 +131,5 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0125 | Tool-Free Answer Repair and Exact Evidence Sources | [0125-tool-free-answer-repair.md](0125-tool-free-answer-repair.md) |
 | 0126 | Task-Level M1 and Completed-Run M5 Metrics | [0126-benchmark-task-and-completed-replay-metrics.md](0126-benchmark-task-and-completed-replay-metrics.md) |
 | 0127 | TUI Work-Log Pairing and Conditional Answer Style | [0127-tui-work-log-pairing-and-answer-style.md](0127-tui-work-log-pairing-and-answer-style.md) |
+| 0128 | TUI Provider Panel and Local Credentials | [0128-provider-panel-credentials.md](0128-provider-panel-credentials.md) |
+| 0129 | Chat Fast Path and Tool-Free Direct Answers | [0129-chat-fast-path.md](0129-chat-fast-path.md) |

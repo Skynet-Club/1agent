@@ -4,7 +4,12 @@ fn run_one_journal(dir: &tempfile::TempDir) -> std::path::PathBuf {
     let journal_dir = dir.path().join("journals");
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let run = Command::new(bin)
-        .args(["run", "--task", "Summarize the result", "--journal-dir"])
+        .args([
+            "run",
+            "--task",
+            "Summarize the repository result",
+            "--journal-dir",
+        ])
         .arg(&journal_dir)
         .arg("--json")
         .output()

@@ -21,7 +21,12 @@ fn journal_text(dir: &tempfile::TempDir, name: &str, args: &[&str]) -> String {
     let journal_dir = dir.path().join(name);
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let run = Command::new(bin)
-        .args(["run", "--task", "Answer briefly", "--journal-dir"])
+        .args([
+            "run",
+            "--task",
+            "Read the file and answer briefly",
+            "--journal-dir",
+        ])
         .arg(&journal_dir)
         .args(args)
         .arg("--json")

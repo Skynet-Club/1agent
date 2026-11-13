@@ -1,12 +1,12 @@
-# 0.97 Status and Metric Review (2026-11-13, 09:55 CST)
+# 0.97 Status and Metric Review (2026-11-13, 16:00 CST)
 
-- Status: **local review; 0.97 is not release-ready — the 8h gate failed**
+- Status: **local review; 0.97 is not release-ready — the M1 gate failed and AG-23 is not implemented**
 - Latest feature commit: `f670f13` (TUI request-row refinement), after
   `46864c1` (route/role work log), `68db238` (work-log pairing), `a2ad66c`
   (repair contract and M1/M5 metrics) and `41cb333` (watchdog containment);
   earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify panel),
   `16ce37f` (TUI unslop), `ace343e` (model request deltas)
-- Full suite: 1269 passed / 0 failed / 13 ignored
+- Full suite: 1300 passed / 0 failed / 13 ignored
 - Claims: 226 (202 verified / 16 partial / 8 no evidence); the live terminal
   claim is partial because the local session daemon is at its 128-session limit
   (`session_limit`), not because the terminal tool failed
@@ -32,16 +32,16 @@ This page is a measurement review, not a release announcement. A metric marked
 
 | Metric | Current | Note |
 |---|---|---|
-| M1 long-horizon success | **First 8h failed**: 136/280 suites (48.57%). Post-repair 20-run: **144/160 tasks (90.0%)**, 10/20 suites (50%), M5 157/157. A new 320-run 8h (`job-1794537863409-2245-6`) is running with task M1 ≥50% and M5 100% | first run not met; post-repair samples pass; new 8h pending |
-| M2 autonomy hours | New 8h in progress; prior run lasted 7 h 13 m 49 s but failed its quality gate | new result pending |
-| M3 interventions/task | 0 in the prior unattended 8h run | new run is unattended too |
+| M1 long-horizon success | **First 8h failed**: 136/280 suites (48.57%). Post-repair 20-run: **144/160 tasks (90.0%)**, 10/20 suites (50%), M5 157/157. **320-run v2 finished 11:52 and failed**: 340/2560 tasks (13.28%), 25/320 suites, completed-case replay 351/351 (100%), crash-free 100%, 68m18s | failed: task-level M1 below 50% |
+| M2 autonomy hours | 320-run v2 wall clock 68 m 18 s; prior run lasted 7 h 13 m 49 s. Both failed their quality gates | duration measured; quality not met |
+| M3 interventions/task | 0 in the prior unattended 8h run; 320-run v2 was also unattended | 0 interventions in long runs |
 | M7 TTFT | DeepSeek `deepseek-flash`, n=20 (10 short + 10 long-context): overall p50 1.498 s / p95 2.768 s; short p50 1.239 / p95 1.942; long p50 1.573 / p95 2.786; earlier n=3 was p50 1.08 / p95 2.48 | one provider; tools disabled; not production/statistically sufficient |
 | M8 end-to-end p95 | 72.9 s historical snapshot | first/last event time, not a tool-dense benchmark |
 | M9 tool success | 86.17% historical; 50% test-generated repo set | repo set is dominated by failure-injection tests |
 | M10 cost/task | 3,275 micros historical | provider pricing not embedded; usage only |
 | M11 memory hit rate | not measured | no repeated-task benchmark |
 | M12 skill reuse | not measured | no repeated-workflow benchmark |
-| M14 crash-free sessions | Prior 8h: 280/280 (100%); post-repair 5/20 runs: 5/5 and 20/20 | `crash_free_bps`; new 8h pending |
+| M14 crash-free sessions | Prior 8h: 280/280 (100%); post-repair 5/20 runs: 5/5 and 20/20; 320-run v2: 320/320 (100%), 0 crashes | `crash_free_bps`; quality is the blocker, not crashes |
 | M18 external audit | not started | 0 P0 unknown |
 | M19–M23 | Packet built: 39 prompts / 78 label rows; Hermes 39/40 (research-05 timed out) with explicit provider/model; 1Agent answers are pre-repair and must be re-collected | `answer-quality` computes rates from caller labels; a human reviewer must label the final packet |
 
@@ -73,6 +73,11 @@ This page is a measurement review, not a release announcement. A metric marked
   136/280 all-task iterations (48.57%, 1.43 pp below the 0.97 ≥50% target),
   238/280 suite-replay-verified (85%; not the completed-run M5 denominator),
   280/280 crash-free. This is now the binding release blocker.
+- 320-run v2 (`job-1794537863409-2245-6`) completed 68 m 18 s unattended and
+  **failed**: 340/2560 tasks (13.28%), 25/320 suites, completed-case replay
+  351/351 (100%), 320/320 crash-free. The shorter runtime and lower completion
+  indicate many early failures; per-case journals were not preserved, so
+  diagnosis needs a rerun with per-case capture.
 - Answer repair contract (ADR-0125): repair requests carry no tools; a
   high-impact assumption must downgrade to conditional/needs_evidence;
   evidence.source must be the exact path. The repair tests assert both.
@@ -105,20 +110,65 @@ This page is a measurement review, not a release announcement. A metric marked
 - First-token timing, crash-free proxy, compacted-replay proof, subagent
   parent acceptance/fanout.
 
+## Cost governance (release selling point)
+
+0.97 ships cost governance as a product feature, not an internal optimization:
+users should see and control what a run costs, and chat should not wake the
+whole agent. The detailed plan is [docs/cost-governance.md](cost-governance.md).
+
+P0 scope:
+
+- **Chat fast path**: one model call, no tools, minimal JSON, `max_tokens`
+  500–800; simple questions target ≤2k input + ≤500 output.
+- **DirectAnswer no-tools**: tools are exposed only when an explicit action
+  needs them.
+- **Benchmark cost guard**: preflight estimate, `--max-cost-micros`,
+  checkpoints at 20/40/80/160/320, and a 401/429/timeout circuit breaker.
+- **Cost visibility**: real prices in config, per-turn tokens/cost in the TUI,
+  and cost per successful task.
+
+P0 progress (2026-11-13): the benchmark cost guard is implemented
+(`--max-cost-micros`, `--checkpoint-every`, Wilson-bound task checkpoints,
+provider-error and crash-free early stops). The chat fast path is implemented:
+conservative auto-detection, a compact prompt, minimal
+JSON, one step, and no tools. Conversation context no longer forces
+`EvidenceResearch`; action/local/current-data cues force the full agent, and a
+`needs_evidence` chat answer escalates once to the full agent. Per-turn TUI
+cost display was intentionally not added: it would change the information flow
+without a product request. `benchmark-run --estimate-only` prints a preflight
+estimate, and `--max-cost-micros` refuses to start when the estimate exceeds
+the budget. At reference prices, the 8-case core suite × 320 runs estimates
+10.3M input + 2.0M output tokens ≈ ¥26.68, consistent with the 2026-11-13 bill.
+P0 cost governance is implemented except TUI per-turn cost visibility.
+
+Targets from the 2026-11-13 baseline: simple chat 5–20x cheaper per question;
+work tasks 30–50% fewer tokens; a failing long run 50–80% cheaper. These are
+product targets, not measured results yet. The M1/M5 quality gates remain the
+release blocker; cost governance cannot mask a quality failure.
+
 ## Release blockers
 
 1. **M1/M5 long-horizon proof**: the first 8h failed at 48.57% all-suite
-   completion. After the repair contract fix, 20 short iterations pass 90% of
-   tasks (M1) and 100% of completed-case replay (M5); a new 320-run 8h is
-   running. Do not release until it passes with the current binary.
-2. M7 TTFT now has 20 mixed short/long samples; a second provider still needs
+   completion; the 320-run v2 also failed at 13.28% task completion. The
+   20-iteration sample passed 90% task-level M1, but did not generalize. Do not
+   release. First capture per-case benchmark results and diagnose the 13.28%
+   failure distribution; then fix, short-regress, and rerun the long gate with
+   the current binary.
+2. **AG-23 intelligent loop**: 0.97 now includes the AG-23 release gate.
+   The current agent still uses `looks_like_chat`/`infer_mode` as the primary
+   router, a static `CAPABILITY_CATALOG`, no model-callable `describe_self`,
+   no mid-loop `request_tools`, and no evidence-driven re-plan. The release
+   gate requires all six AG-23 items and the 100-task evaluation; see
+   `III-01-1Agent-开发计划` 4.4/4.5 and the Obsidian 0.97 plan. Do not ship
+   before this passes.
+3. M7 TTFT now has 20 mixed short/long samples; a second provider still needs
    credentials, and tool-dense/retry-heavy latency is not sampled.
-3. M19–M23 blind-review labels: the current 39-prompt/78-row packet is
+4. M19–M23 blind-review labels: the current 39-prompt/78-row packet is
    provisional; 1Agent answers must be re-collected after the repair/prompt
    changes, then a human reviewer must label the final packet.
-4. External A-Gate/W-Gate and security review; a review draft is at
+5. External A-Gate/W-Gate and security review; a review draft is at
    `docs/audit-package.md`; P-Gate macOS.
-5. Automatic watchdog repair: containment is implemented (`--watch --execute
+6. Automatic watchdog repair: containment is implemented (`--watch --execute
    pause`); automatic resume, kill/restart and external repair commands remain
    out of scope pending a health signal, lease fencing and approval. M6 is not
    an external audit.
@@ -126,8 +176,17 @@ This page is a measurement review, not a release announcement. A metric marked
 ## Next actions
 
 - Answer-repair contract is fixed (ADR-0125). The 20-iteration sample passes
-  task-level M1 (90%) and completed-run M5 (100%); the new 320-run 8h
-  `job-1794537863409-2245-6` is running. Update M1/M2/M5 when it finishes.
+  task-level M1 (90%) and completed-run M5 (100%); the 320-run v2
+  `job-1794537863409-2245-6` finished 11:52 and failed at 13.28% task
+  completion. Add per-case benchmark capture, diagnose the failure
+  distribution, then short-regress before another long run.
+- Implement AG-23 before release: `describe_self`, `request_tools` with dynamic
+  schema loading, bounded evidence re-plan, model-driven task-need assessment,
+  strategy-memory wiring, and the 100-task evaluation. Delete the static
+  capability catalog; keep keyword routing only as a fallback.
+- Cost governance P0 is implemented except TUI per-turn cost visibility, which
+  was deferred at the user's request: benchmark preflight/checkpoints/circuit
+  breaker, chat fast path, DirectAnswer no-tools, and real prices.
 - Decide whether an irreparable model output should become a valid
   `NeedsEvidence` answer (auditable journal) instead of a hard runtime error;
   this would improve replay without claiming task success.

@@ -6,6 +6,8 @@
       "model": "deepseek-flash",
       "base_url": "https://api.deepseek.com/v1",
       "api_key_env": "PI_DEEPSEEK_API_KEY",
+      "input_cost_micros_per_k": 2000,
+      "output_cost_micros_per_k": 3000,
       "privacy": "remote",
       "quality_score": 100,
       "max_risk": "high",
