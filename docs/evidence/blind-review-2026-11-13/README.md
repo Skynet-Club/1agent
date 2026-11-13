@@ -1,7 +1,10 @@
 # Blind Review Packet — M19–M23 (2026-11-13)
 
-Status: **packet ready; human labels pending**
+Status: **provisional packet; regenerate before final labels**
 
+- The 1Agent answers were collected before the answer-repair contract fix
+  (ADR-0125), so this packet is not the final release sample. Regenerate the
+  1Agent side and repacket after the validation benchmark.
 - 39 prompts × 2 sides = 78 label rows.
 - `research-05` is excluded: the Hermes `--safe-mode` baseline timed out on that
   prompt even with a 300s timeout. The packet is explicit about the reduced

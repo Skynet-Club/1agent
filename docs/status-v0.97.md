@@ -70,8 +70,12 @@ This page is a measurement review, not a release announcement. A metric marked
   evidence.source must be the exact path. The repair tests assert both.
 - Benchmark metric split (ADR-0126): `EvalCaseResult.replay_ok` now uses
   `replay_events`; `benchmark-run` reports task-level M1 and completed-run M5
-  with independent gates. A 5-iteration validation run uses M1 ≥50% and M5
-  100%; the old 8h JSON has no task-level data and cannot be rescored.
+  with independent gates. A post-repair 5-iteration validation run passed 37/40
+  tasks (92.5% task-level M1), 40/40 completed-case replay (M5 100%), and
+  5/5 suites crash-free (100%); suite-level all-8 completion was only 2/5
+  (40%). A
+  20-iteration run is in progress; the old 8h JSON has no task-level data and
+  cannot be rescored.
 - Real TTFT baseline: three DeepSeek streaming runs, p50 1.08 s / p95 2.48 s.
 - Rollback drill: 0.96.1 cannot read a 0.97 journal; the current binary reads
   0.96.1 journals.
