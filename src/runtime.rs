@@ -500,6 +500,105 @@ impl AgentRuntime {
         self
     }
 
+    /// Record a successful tool-using run as an inert strategy draft. The
+    /// store's review/verify/activate/rollback lifecycle decides whether it
+    /// ever influences a later run. The content holds task features and the
+    /// tool sequence, never the user's text or the answer.
+    fn record_strategy(&self, request: &TaskRequest, result: &RunResult) {
+        let Some(directory) = &self.experience_dir else {
+            return;
+        };
+        if !matches!(
+            result.answer.status,
+            AnswerStatus::Completed | AnswerStatus::Conditional
+        ) {
+            return;
+        }
+        let Ok(events) = read_events(&result.journal_path) else {
+            return;
+        };
+        let mut mode = None;
+        let mut tool_sequence = Vec::new();
+        let mut evidence_event_seqs = Vec::new();
+        let mut verification_rounds = 0usize;
+        for event in &events {
+            match &event.event {
+                JournalEventKind::RunStarted { mode: started, .. } => mode = Some(*started),
+                JournalEventKind::ResumeStarted { checkpoint, .. } => {
+                    mode = Some(checkpoint.mode);
+                }
+                JournalEventKind::ToolCalled { call } => {
+                    tool_sequence.push(call.name.clone());
+                }
+                JournalEventKind::ToolObserved { .. } | JournalEventKind::AnswerProduced { .. } => {
+                    evidence_event_seqs.push(event.seq);
+                }
+                JournalEventKind::AnswerVerificationFailed { .. } => {
+                    verification_rounds = verification_rounds.saturating_add(1);
+                }
+                _ => {}
+            }
+        }
+        let Some(mode) = mode else {
+            return;
+        };
+        if tool_sequence.is_empty() || evidence_event_seqs.is_empty() {
+            return;
+        }
+        let scope = request
+            .experience_scope
+            .clone()
+            .unwrap_or_else(|| "*".into());
+        let tool_call_count = tool_sequence.len();
+        tool_sequence.truncate(64);
+        while evidence_event_seqs.len() > 32 {
+            evidence_event_seqs.remove(0);
+        }
+        let content = serde_json::json!({
+            "task_features": {
+                "mode": mode,
+                "objective_sha256": hex::encode(Sha256::digest(request.objective.as_bytes())),
+                "objective_chars": request.objective.chars().count(),
+                "task_need": result.answer.task_need,
+            },
+            "tool_sequence": tool_sequence,
+            "tool_call_count": tool_call_count,
+            "outcome": {
+                "status": result.answer.status,
+                "stop_reason": result.stop_reason,
+                "verification_rounds": verification_rounds,
+            },
+            "success": result.answer.status == AnswerStatus::Completed,
+        })
+        .to_string();
+        let title = format!(
+            "Strategy: {mode:?} · {tool_call_count} tool call(s) · {:?}",
+            result.answer.status
+        );
+        let Ok(mut store) = ExperienceStore::open(directory) else {
+            return;
+        };
+        if store.candidates().is_ok_and(|candidates| {
+            candidates
+                .values()
+                .any(|candidate| candidate.scope == scope && candidate.content == content)
+        }) {
+            return;
+        }
+        let spec = crate::experience::ExperienceCandidateSpec {
+            kind: crate::experience::ExperienceKind::Strategy,
+            title,
+            content,
+            scope,
+            evidence_event_seqs,
+            sensitive: false,
+            applicable_modes: vec![mode],
+            expires_at_unix_ms: None,
+            supersedes: None,
+        };
+        let _ = store.propose(spec, &events);
+    }
+
     async fn repair_answer(
         &self,
         context: AnswerRepairContext<'_>,
@@ -758,6 +857,30 @@ impl AgentRuntime {
     }
 
     async fn run_internal(
+        &self,
+        request: TaskRequest,
+        resume: Option<ResumablePrefix>,
+        requested_mode: Option<CognitiveMode>,
+        client_request_id: Option<String>,
+        cancellation: CancellationToken,
+        fast_chat: bool,
+    ) -> Result<RunResult, RuntimeError> {
+        let strategy_request = request.clone();
+        let result = self
+            .run_internal_inner(
+                request,
+                resume,
+                requested_mode,
+                client_request_id,
+                cancellation,
+                fast_chat,
+            )
+            .await?;
+        self.record_strategy(&strategy_request, &result);
+        Ok(result)
+    }
+
+    async fn run_internal_inner(
         &self,
         request: TaskRequest,
         resume: Option<ResumablePrefix>,
@@ -2441,6 +2564,7 @@ fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static st
         ExperienceKind::Memory => "memory",
         ExperienceKind::Skill => "skill",
         ExperienceKind::RoutePolicy => "route-policy",
+        ExperienceKind::Strategy => "strategy",
     }
 }
 
@@ -5345,6 +5469,59 @@ mod tests {
         assert_eq!(requests.len(), 2);
         assert!(requests[0].tools.is_empty());
         assert!(!requests[1].tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn strategy_draft_records_tool_sequence_without_user_text() {
+        let workspace = tempfile::tempdir().unwrap();
+        let experience_dir = workspace.path().join("experience");
+        let mut registry = default_registry();
+        registry.register(Arc::new(EchoTool));
+        let objective = "build a release plan";
+
+        for _ in 0..2 {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let provider = Arc::new(ScriptedProvider::new(
+                vec![
+                    ModelTurn::ToolCalls {
+                        calls: vec![ToolCall {
+                            id: "call-echo".into(),
+                            name: "echo".into(),
+                            arguments: serde_json::json!({"text": "plan"}),
+                        }],
+                    },
+                    ModelTurn::Final {
+                        answer: completed_answer("plan ready"),
+                    },
+                ],
+                requests,
+            ));
+            let runtime = scripted_runtime(workspace.path(), provider, registry.clone())
+                .with_experience_dir(&experience_dir);
+            runtime
+                .run(
+                    TaskRequest::from_objective(objective, workspace.path().to_path_buf()),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let store = ExperienceStore::open(&experience_dir).unwrap();
+        let candidates = store.candidates().unwrap();
+        let strategies = candidates
+            .values()
+            .filter(|candidate| candidate.kind == ExperienceKind::Strategy)
+            .collect::<Vec<_>>();
+        assert_eq!(strategies.len(), 1, "identical strategy drafts are deduped");
+        let strategy = strategies[0];
+        assert_eq!(strategy.status, crate::experience::ExperienceStatus::Draft);
+        assert!(strategy.content.contains("\"echo\""));
+        assert!(strategy.content.contains("\"tool_call_count\":1"));
+        assert!(
+            !strategy.content.contains(objective),
+            "strategy content must not store the user's text"
+        );
     }
 
     #[tokio::test]
