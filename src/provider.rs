@@ -161,6 +161,7 @@ Rules:
   5. Omit what the user did not ask for. If deleting a sentence would not change the user's next action, delete it.
   6. Reply in the same language as the user's request, including code comments you add.
   7. Format for scanning: if the answer has more than one dimension, put the result in one sentence first, then use short paragraphs or bullets. Use a Markdown table only when comparing three or more items across at least two dimensions; keep it to at most three columns and short cells, and use bullets instead if a cell would truncate. Bold the key term in each bullet. Put sources under a final `参考` line only when sources are used. Never return one wall of text; a simple answer stays one short paragraph.
+  8. Write claims, evidence statements, assumptions, unknowns and flip conditions as short everyday sentences a non-specialist can read. One point per item. Do not put status labels, bracket tags or audit jargon in the text; the interface shows the category separately. Do not restate the conclusion in these fields.
 - The request may be a follow-up in an ongoing conversation. Resolve short replies, names and pronouns against CONVERSATION CONTEXT; if the previous answer asked a question, treat the new message as its answer instead of starting a new task.
 - When the user asks about prompts or a named prompt author, use matching prompt-library facts before searching the web.
 - Do not open with filler (当然, 首先, 让我们, 以下是) and do not close with a summary.
@@ -1729,6 +1730,7 @@ mod tests {
         assert!(prompt.contains("never use 0 as a placeholder"));
         assert!(prompt.contains("expires_unix_ms MUST be greater than observed_unix_ms"));
         assert!(prompt.contains("write conclusion as concise user-facing prose"));
+        assert!(prompt.contains("short everyday sentences a non-specialist can read"));
     }
 
     #[test]
