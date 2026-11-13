@@ -5,7 +5,7 @@
   `e1291b1` when tool bylines were removed), based on
   `825af12`; earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify
   panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas)
-- Full suite: 1261 passed / 0 failed / 13 ignored
+- Full suite: 1264 passed / 0 failed / 13 ignored
 - Claims: 224 (200 verified / 16 partial / 8 no evidence); the live terminal
   claim is partial because the local session daemon is at its 128-session limit
   (`session_limit`), not because the terminal tool failed
@@ -72,7 +72,8 @@ This page is a measurement review, not a release announcement. A metric marked
 - Watchdog escalation ladder plus explicit checked `--execute pause/resume`.
 - Opt-in watchdog automatic containment (`--watch --execute pause`): one
   checked SIGSTOP per Pause/Repair pid, no repeat on escalation, no automatic
-  resume, kill or restart; 10 `watchdog_cli` tests pass.
+  resume, kill or restart; 10 `watchdog_cli` tests pass. The attribution
+  history/tree check is now fail-closed with 3 regression tests.
 - Clarify gate and round outcome states.
 - Actionable error hints and Answer/Audit layering.
 - Local gate metrics, journal-derived route/context/model/tool stage latencies,
