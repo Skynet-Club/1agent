@@ -428,12 +428,20 @@ enum Command {
         allow_network: bool,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
+        /// Minimum all-task suite completion; historical gate.
         #[arg(long, default_value_t = 7000)]
         min_completion_bps: u16,
         #[arg(long, default_value_t = 9950)]
         min_crash_free_bps: u16,
+        /// Minimum suite audit+replay integrity; historical name.
         #[arg(long, default_value_t = 10000)]
         min_replay_bps: u16,
+        /// Minimum task-level completion (M1): passed cases / total cases.
+        #[arg(long, default_value_t = 0)]
+        min_task_completion_bps: u16,
+        /// Minimum replay of completed cases (M5); 0 disables the check.
+        #[arg(long, default_value_t = 0)]
+        min_completed_replay_bps: u16,
         #[arg(long)]
         json: bool,
     },
@@ -3775,6 +3783,13 @@ fn parse_escalation_ladder(
         .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
+fn basis_points(part: u64, total: u64) -> u16 {
+    if total == 0 {
+        return 0;
+    }
+    ((part.saturating_mul(10_000) / total).min(10_000)) as u16
+}
+
 async fn run_watchdog_watch(
     heartbeat: &std::path::Path,
     policy: first_principles_agent::watchdog::WatchdogPolicy,
@@ -4902,10 +4917,15 @@ async fn main() -> Result<()> {
             min_completion_bps,
             min_crash_free_bps,
             min_replay_bps,
+            min_task_completion_bps,
+            min_completed_replay_bps,
             json,
         } => {
             if runs == 0 || runs > 100_000 {
                 anyhow::bail!("--runs must be between 1 and 100000");
+            }
+            if min_task_completion_bps > 10_000 || min_completed_replay_bps > 10_000 {
+                anyhow::bail!("benchmark thresholds must be at most 10000 bps");
             }
             let suite = load_suite(&suite)?;
             let providers = if let Some(config_path) = config {
@@ -4918,16 +4938,33 @@ async fn main() -> Result<()> {
                 }]
             };
             let mut samples = Vec::with_capacity(runs);
+            let mut tasks_total = 0u64;
+            let mut tasks_passed = 0u64;
+            let mut completed_cases = 0u64;
+            let mut completed_replay_ok = 0u64;
             for _ in 0..runs {
+                tasks_total = tasks_total.saturating_add(suite.cases.len() as u64);
                 match run_suite_with_providers(suite.clone(), providers.clone(), allow_network)
                     .await
                 {
                     Ok(report) => {
+                        tasks_passed = tasks_passed.saturating_add(report.passed as u64);
+                        for case in &report.cases {
+                            if case.stop_reason == Some(StopReason::Completed) {
+                                completed_cases = completed_cases.saturating_add(1);
+                                if case.replay_ok && case.audit_ok {
+                                    completed_replay_ok = completed_replay_ok.saturating_add(1);
+                                }
+                            }
+                        }
                         let completed = report.total > 0
                             && report.passed == report.total
                             && report.hard_gate_failures == 0;
                         let replay_verified = report.validate_integrity().is_ok()
-                            && report.cases.iter().all(|case| case.audit_ok);
+                            && report
+                                .cases
+                                .iter()
+                                .all(|case| case.audit_ok && case.replay_ok);
                         samples.push(first_principles_agent::benchmark::BenchmarkSample {
                             completed,
                             crashed: false,
@@ -4951,8 +4988,47 @@ async fn main() -> Result<()> {
                     min_replay_bps,
                 },
             )?;
+            let task_completion_bps = basis_points(tasks_passed, tasks_total);
+            let completed_replay_bps = if completed_cases == 0 {
+                None
+            } else {
+                Some(basis_points(completed_replay_ok, completed_cases))
+            };
+            let task_gate_passed = task_completion_bps >= min_task_completion_bps;
+            let completed_replay_gate_passed = min_completed_replay_bps == 0
+                || completed_replay_bps.is_some_and(|bps| bps >= min_completed_replay_bps);
+            let passed = report.passed && task_gate_passed && completed_replay_gate_passed;
             if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
+                let mut value = serde_json::to_value(&report)?;
+                let object = value
+                    .as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("benchmark report is not an object"))?;
+                object.insert("suite_passed".into(), serde_json::json!(report.passed));
+                object.insert("tasks_total".into(), serde_json::json!(tasks_total));
+                object.insert("tasks_passed".into(), serde_json::json!(tasks_passed));
+                object.insert(
+                    "task_completion_bps".into(),
+                    serde_json::json!(task_completion_bps),
+                );
+                object.insert(
+                    "min_task_completion_bps".into(),
+                    serde_json::json!(min_task_completion_bps),
+                );
+                object.insert("completed_cases".into(), serde_json::json!(completed_cases));
+                object.insert(
+                    "completed_replay_ok".into(),
+                    serde_json::json!(completed_replay_ok),
+                );
+                object.insert(
+                    "completed_replay_bps".into(),
+                    serde_json::json!(completed_replay_bps),
+                );
+                object.insert(
+                    "min_completed_replay_bps".into(),
+                    serde_json::json!(min_completed_replay_bps),
+                );
+                object.insert("passed".into(), serde_json::json!(passed));
+                println!("{}", serde_json::to_string_pretty(&value)?);
             } else {
                 println!(
                     "iterations: {} completed: {} crashed: {} replay_verified: {}",
@@ -4967,9 +5043,20 @@ async fn main() -> Result<()> {
                     report.replay_bps,
                     min_replay_bps
                 );
-                println!("passed: {}", report.passed);
+                println!(
+                    "tasks: {}/{} = {} bps (min {}); completed replay: {}/{} = {:?} bps (min {})",
+                    tasks_passed,
+                    tasks_total,
+                    task_completion_bps,
+                    min_task_completion_bps,
+                    completed_replay_ok,
+                    completed_cases,
+                    completed_replay_bps,
+                    min_completed_replay_bps
+                );
+                println!("passed: {passed}");
             }
-            if !report.passed {
+            if !passed {
                 anyhow::bail!("benchmark gate failed");
             }
         }

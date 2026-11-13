@@ -2,6 +2,19 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- Answer repair contract (ADR-0125): the repair request carries no tools, so a
+  model cannot continue acting instead of returning the corrected
+  `AgentAnswer` JSON. The repair prompt requires a high-impact assumption to
+  downgrade to `conditional` or `needs_evidence`, and the system prompt
+  requires `evidence.source` to be the exact path, not a prose tool-result
+  description. Tests assert the tool-free repair request and the new clause.
+- Benchmark metrics (ADR-0126): `EvalCaseResult.replay_ok` is computed with
+  `replay_events`. `benchmark-run` reports task-level M1
+  (`tasks_total/tasks_passed/task_completion_bps`) and completed-run M5
+  (`completed_cases/completed_replay_ok/completed_replay_bps`), with
+  `--min-task-completion-bps` and `--min-completed-replay-bps` independent
+  gates. Suite-level fields remain; M5 counts only `Completed` runs with
+  audit+replay.
 - Watchdog automatic containment (RFC 0002, 0.97 scope): `watchdog --watch
   --execute pause --interval-ms N [--ticks N]` re-evaluates the heartbeat and
   sends one checked SIGSTOP per Pause/Repair pid, with an intervention-log

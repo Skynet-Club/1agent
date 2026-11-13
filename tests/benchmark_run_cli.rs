@@ -26,6 +26,13 @@ fn benchmark_run_repeats_the_core_suite() {
     assert_eq!(report["completion_bps"], 10_000);
     assert_eq!(report["crash_free_bps"], 10_000);
     assert_eq!(report["replay_bps"], 10_000);
+    assert_eq!(report["suite_passed"], true);
+    assert_eq!(report["tasks_total"], 16);
+    assert_eq!(report["tasks_passed"], 16);
+    assert_eq!(report["task_completion_bps"], 10_000);
+    assert_eq!(report["completed_cases"], 2);
+    assert_eq!(report["completed_replay_ok"], 2);
+    assert_eq!(report["completed_replay_bps"], 10_000);
     assert_eq!(report["passed"], true);
 
     let human = Command::new(binary())
@@ -36,6 +43,31 @@ fn benchmark_run_repeats_the_core_suite() {
     assert!(human.status.success());
     let stdout = String::from_utf8_lossy(&human.stdout);
     assert!(stdout.contains("passed: true"), "stdout: {stdout}");
+}
+
+#[test]
+fn benchmark_run_rejects_out_of_range_task_thresholds() {
+    let workspace = tempfile::tempdir().unwrap();
+    let suite = format!("{}/evals/core.json", env!("CARGO_MANIFEST_DIR"));
+    let output = Command::new(binary())
+        .current_dir(workspace.path())
+        .args([
+            "benchmark-run",
+            "--suite",
+            &suite,
+            "--runs",
+            "1",
+            "--min-task-completion-bps",
+            "10001",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("at most 10000"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -77,6 +109,10 @@ fn benchmark_run_fails_a_failing_suite() {
     assert_eq!(report["iterations"], 1);
     assert_eq!(report["completed"], 0);
     assert_eq!(report["completion_bps"], 0);
+    assert_eq!(report["suite_passed"], false);
+    assert_eq!(report["tasks_total"], 1);
+    assert_eq!(report["tasks_passed"], 0);
+    assert_eq!(report["task_completion_bps"], 0);
     assert_eq!(report["passed"], false);
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("benchmark gate failed"),
