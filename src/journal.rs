@@ -141,6 +141,15 @@ pub enum JournalEventKind {
     ToolCalled {
         call: ToolCall,
     },
+    /// The model asked for tools that were not in the current request. The
+    /// runtime recorded which names it granted or denied before the next
+    /// model request.
+    ToolsRequested {
+        requested: Vec<String>,
+        granted: Vec<String>,
+        denied: Vec<ToolRequestDenial>,
+        reason: String,
+    },
     ToolObserved {
         observation: ToolObservation,
     },
@@ -181,6 +190,14 @@ pub enum JournalEventKind {
     RunStopped {
         reason: StopReason,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolRequestDenial {
+    pub name: String,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1379,7 +1396,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             | JournalEventKind::ModelRequested { .. }
             | JournalEventKind::ModelRequestDelta { .. }
             | JournalEventKind::ModelResponded { .. }
-            | JournalEventKind::StreamFirstToken { .. } => {}
+            | JournalEventKind::StreamFirstToken { .. }
+            | JournalEventKind::ToolsRequested { .. } => {}
         }
     }
 

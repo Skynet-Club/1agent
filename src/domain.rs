@@ -1426,6 +1426,61 @@ pub fn looks_like_chat(objective: &str) -> bool {
     length <= 80
 }
 
+/// Whether the user is asking about 1-Agent itself, not about a project or
+/// another product. Capability questions skip the tool-free chat path so the
+/// model can call `describe_self` instead of reciting a static catalog.
+pub fn asks_about_capabilities(objective: &str) -> bool {
+    let lower = objective.to_lowercase();
+    let self_reference = contains_any(
+        &lower,
+        &[
+            "你",
+            "1-agent",
+            "1agent",
+            "super-agent",
+            "super agent",
+            "sagent",
+            "s-agent",
+        ],
+    );
+    let topic = contains_any(
+        &lower,
+        &[
+            "功能",
+            "能做什么",
+            "能干什么",
+            "会什么",
+            "能力",
+            "特点",
+            "优势",
+            "区别",
+            "不同",
+            "介绍",
+            "是谁",
+            "who are you",
+            "what can you do",
+            "capabilities",
+            "features",
+            "difference",
+        ],
+    );
+    if self_reference && topic {
+        return true;
+    }
+    contains_any(
+        &lower,
+        &[
+            "介绍一下自己",
+            "介绍下自己",
+            "介绍你自己",
+            "介绍下你自己",
+            "你是谁",
+            "who are you",
+            "what can you do",
+        ],
+    )
+}
+
 fn now_unix_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1553,6 +1608,28 @@ mod tests {
                 !looks_like_chat(text),
                 "{text} should stay on the work path"
             );
+        }
+    }
+
+    #[test]
+    fn capability_questions_are_detected_conservatively() {
+        for text in [
+            "介绍一下你自己都有哪些功能",
+            "你能做什么？",
+            "你的特点是什么",
+            "你和别的 agent 有什么区别",
+            "你是谁",
+            "what can you do?",
+        ] {
+            assert!(asks_about_capabilities(text), "{text}");
+        }
+        for text in [
+            "这个项目有什么功能？",
+            "查一下其他 agent 的功能",
+            "如何切换模式？",
+            "读取 src/main.rs",
+        ] {
+            assert!(!asks_about_capabilities(text), "{text}");
         }
     }
 
