@@ -1,7 +1,9 @@
 # 0.97 Status and Metric Review (2026-11-13, evening CST)
 
-- Status: **local review; 0.97 is not release-ready — the M1 gate failed.
-  AG-23 is implemented and its final 100-question run is archived (96/100).**
+- Status: **local review; 0.97 is not release-ready — the M1 20-run short
+  regression passes (task 93.12%, suite 55%, M5 100%), but the 8h long gate,
+  human review, external audit and release packaging remain. AG-23 is
+  implemented and its final 100-question run is archived (96/100).**
 - Latest feature commit: `f77ddc1` (Windows/claim fix), after `a3060a3`
   (routing, evidence fallback and file listing), `a04686a` (100-question eval
   harness), `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan),
@@ -158,16 +160,14 @@ release blocker; cost governance cannot mask a quality failure.
 
 ## Release blockers
 
-1. **M1/M5 long-horizon proof**: the first 8h failed at 48.57% all-suite
-   completion; the 320-run v2 also failed at 13.28% task completion. A fresh
-   20-run short regression with per-case artifacts now measures **146/160
-   tasks = 91.25%** (M1 ≥50% target), **148/148 completed-run replay**
-   (100%), and **100% crash-free**; suite-level all-8-cases was 8/20 (40%),
-   below the historical 70% default. The dominant failure is
-   `bug-fix-last-index` (7/20) exhausting the default six-step budget after
-   using the terminal to verify its edit. `real-tasks-v1` v1.2 raises each
-   case to 8 steps / 8 tool calls; a second 20-run is in progress to check the
-   suite-level gate. The long gate still must be rerun with the final binary;
+1. **M1/M5 long-horizon proof**: the old 8h failed at 48.57% and the 320-run
+   v2 at 13.28% task completion. The new 20-run short regression with
+   `real-tasks-v1` v1.2 (8 steps / 8 tool calls per case) **passes**:
+   **149/160 tasks = 93.12%** (M1 ≥50%), **suite-level 11/20 = 55%**
+   (0.97 ≥50%), **154/154 completed-run replay** (100%), **100% crash-free**,
+   CLI `passed = true`. Run 1 with the six-step default measured 146/160
+   (91.25%) and 8/20 (40%) suite-level; the eight-step change cleared the
+   suite-level gate. The 8h long gate still must be rerun with this binary;
    per-case diagnosis of the old 320-run is impossible because those journals
    were not preserved.
 2. **AG-23 intelligent loop**: the implementation landed in `c76a2d4`,
