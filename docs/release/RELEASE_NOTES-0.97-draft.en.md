@@ -104,7 +104,8 @@ the cross-platform P-Gate remain 0.98–1.0 work.
   expanded sample collected 17/20 (p50 1.31 s / p95 2.26 s); three runs lacked
   a content token because the first response was a tool call, so a rerun is
   needed.
-- `release-check.sh` exited 0 on clean tree `509061c`: fmt, clippy, 1261 passed
+- `release-check.sh` exited 0 on clean tree `39ea96e` (hash rewritten from
+  `509061c` when tool bylines were removed): fmt, clippy, 1261 passed
   / 0 failed / 13 ignored, HTTP e2e, CI status 0, claims evidence execution and
   TUI PTY interaction. The metrics gate was skipped without
   `--metrics-dir`.

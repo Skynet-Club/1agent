@@ -1,7 +1,8 @@
 # 0.97 Status and Metric Review (2026-11-13, 09:20 CST)
 
 - Status: **local review; 0.97 is not release-ready — the 8h gate failed**
-- Latest feature commit: `e1291b1` (watchdog containment), based on
+- Latest feature commit: `41cb333` (watchdog containment; hash rewritten from
+  `e1291b1` when tool bylines were removed), based on
   `825af12`; earlier evidence commits `bbecf78` (M4 soak), `7e6306f` (Clarify
   panel), `16ce37f` (TUI unslop), `ace343e` (model request deltas)
 - Full suite: 1261 passed / 0 failed / 13 ignored
