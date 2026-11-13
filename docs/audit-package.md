@@ -32,7 +32,7 @@ claim that the review has happened.
 | M15 TUI frame p95 | release p95 1.26 ms on a 200-entry transcript (TestBackend) | Local pass |
 | M16 1M journal incremental | 4.7 MB journal: full 31.8 ms, incremental p95 9.4–16.1 µs | Local pass |
 | M17 compacted replay | forced-compaction fixture replay/audit 100% | Local pass |
-| M1/M2/M3 | 8h run finished: 136/280 completed (48.57%), 238/280 replay-verified (85%), 280/280 crash-free; completion and replay gates failed | **Gate failed**; no human calibration |
+| M1/M2/M3 | 8h run finished: 136/280 completed (48.57%; 0.97 target ≥50%), 238/280 suite-replay-verified (85%; M5 needs completed-run calc), 280/280 crash-free | **M1 target missed**; no human calibration |
 | M7 TTFT | DeepSeek `deepseek-flash`, earlier n=3 p50 1.08 s / p95 2.48 s; new n=17 partial p50 1.31 s / p95 2.26 s | Small/partial sample |
 | M19–M23 | 40-prompt golden set and answer-quality board exist; blind labels absent | Board only |
 
@@ -96,9 +96,11 @@ archive new journals before downgrading. See
 
 ## 5. Known limitations for the reviewer
 
-- M1/M2/M3: the 8h run failed at 48.57% completion and 85% replay; its
-  failures are model-contract violations, not crashes. The 8-task suite is
-  short and calibrated locally. M19–M23 blind labels are external.
+- M1/M2/M3: the 8h run reached 48.57% all-suite completion, 1.43 points below
+  the 0.97 ≥50% target; its failures are model-contract violations, not
+  crashes. The reported 85% replay counts invalid-output suites, not completed
+  runs, so M5 needs a separate calculation. The 8-task suite is short and
+  calibrated locally. M19–M23 blind labels are external.
 - M6/M18: no external security/compliance audit; P0 unknown.
 - A-Gate: 14 work packages were ~89% estimated on 2026-11-08; no package was
   fully closed. Re-score after the 0.97 slice.

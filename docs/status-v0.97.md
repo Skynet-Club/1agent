@@ -31,7 +31,7 @@ This page is a measurement review, not a release announcement. A metric marked
 
 | Metric | Current | Note |
 |---|---|---|
-| M1 long-horizon success | **8h failed**: 280 iterations, 136 completed (48.57%), replay 238/280 (85.00%), crash-free 280/280 (100%); gate requires completion ≥70% and replay 100%. Diagnostic sample: 21/24 tasks, 1/3 all-8 suites; failures are model-contract violations | not met; one provider/model; see `docs/evidence/long-horizon-benchmark-2026-11-12.md` |
+| M1 long-horizon success | **8h failed**: 280 iterations, 136 completed (48.57%), replay 238/280 (85.00%), crash-free 280/280 (100%). The 0.97 target is ≥50%, so M1 is 1.43 pp short; the run used the 1.0 70% completion gate. Diagnostic sample: 21/24 tasks, 1/3 all-8 suites; failures are model-contract violations | not met; one provider/model; see `docs/evidence/long-horizon-benchmark-2026-11-12.md` |
 | M2 autonomy hours | 7 h 13 m 49 s unattended (`job-1794496736687-2245-2`), but the run failed its quality gate | duration recorded; not counted as an M2 pass |
 | M3 interventions/task | 0 in the unattended 8h run | interventions were not possible in the scheduled job |
 | M7 TTFT | DeepSeek `deepseek-flash`: earlier n=3 p50 1.08 s / p95 2.48 s; new run collected 17/20 samples p50 1.309 s / p95 2.261 s (3 missing because the first response was a tool call, not content) | one provider; rerun with a direct-answer contract needed for n=20 |
@@ -62,7 +62,8 @@ This page is a measurement review, not a release announcement. A metric marked
 - Real-provider 8-task baseline: suite v1.1 passes 16/16 across two runs;
   the earlier v1.0 baseline was 17/24.
 - 8h repeated benchmark completed 7 h 13 m 49 s unattended but **failed**:
-  136/280 all-task iterations (48.57%), 238/280 replay-verified (85%),
+  136/280 all-task iterations (48.57%, 1.43 pp below the 0.97 ≥50% target),
+  238/280 suite-replay-verified (85%; not the completed-run M5 denominator),
   280/280 crash-free. This is now the binding release blocker.
 - Real TTFT baseline: three DeepSeek streaming runs, p50 1.08 s / p95 2.48 s.
 - Rollback drill: 0.96.1 cannot read a 0.97 journal; the current binary reads
@@ -86,10 +87,13 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Release blockers
 
-1. **M1/M5 reliability**: the 8h run failed at 48.57% completion and 85%
-   replay. Failures are model-contract violations (repair returned tool calls,
-   high-impact assumption, Conditional vs Completed, prose evidence source).
-   Fix the repair/output contract and rerun; do not lower the gate.
+1. **M1/M5 reliability**: the 8h run reached 48.57% all-suite completion,
+   1.43 pp below the 0.97 ≥50% target (and far below the 1.0 70% gate). The
+   benchmark's 85% replay counts invalid-output suites; M5 is defined over
+   completed runs and still needs its own calculation. Failures are
+   model-contract violations (repair returned tool calls, high-impact
+   assumption, Conditional vs Completed, prose evidence source). Fix the
+   repair/output contract and rerun; do not lower the gate.
 2. M7 broader TTFT samples: 17/20 collected; 3 lacked a first content token
    because the model called a tool. Rerun with a direct-answer contract. A
    second provider still needs credentials.

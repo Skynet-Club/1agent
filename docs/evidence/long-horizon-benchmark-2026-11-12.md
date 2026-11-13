@@ -33,10 +33,16 @@ Wall clock: 26,029.1 s (7 h 13 m 49 s)
 }
 ```
 
-Gate: completion ≥7000 bps, crash-free ≥9950 bps, replay 10000 bps.
+Configured gate: completion ≥7000 bps, crash-free ≥9950 bps, replay 10000 bps.
 
-- Completion **4857 bps (48.57%)** — failed (min 7000).
-- Replay **8500 bps (85.00%)** — failed (min 10000).
+- Completion **4857 bps (48.57%)** — failed the configured 7000 bps (1.0
+  target). The 0.97 target for M1 is ≥50%, so this is also 1.43 percentage
+  points below the 0.97 target.
+- Replay **8500 bps (85.00%)** — below the configured 10000 bps, but this
+  metric counts every suite attempt, including suites with invalid model
+  output. M5 is defined over **completed** runs; the 42 non-replay-verified
+  iterations are the invalid-output cases, not evidence that completed
+  journals fail replay. M5 still needs a completed-run calculation.
 - Crash-free **10000 bps (100%)** — passed.
 - Crashed 0 / 280.
 
@@ -66,9 +72,12 @@ This is a reliability/product-quality gap, not evidence of journal corruption.
 
 ## What this means
 
-- 0.97.0 must not be released with these numbers.
-- M1 (long-horizon success) is not met; M2 autonomy duration is 7 h 13 m 49 s
-  unattended, but the run failed its quality gate; M3 interventions were 0.
+- 0.97.0 must not be released with these numbers: M1 is below its 0.97 ≥50%
+  target and far below the configured 70% gate.
+- M2 autonomy duration is 7 h 13 m 49 s unattended, but the run failed its
+  quality gate; M3 interventions were 0.
+- M5 is not established by the 85% benchmark replay number; calculate replay
+  only over completed runs before calling the hard gate.
 - The next iteration should target the repair contract (disable tools during
   answer repair, handle high-impact assumptions, exact evidence paths), then
   rerun a shorter benchmark to measure improvement before another 8h run.
