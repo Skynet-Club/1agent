@@ -45,11 +45,10 @@ use first_principles_agent::{
     prompt_sha256, read_clipboard, read_events, read_master_journal_events, rebuild_and_compare,
     remote_manifest, render_capability_report, render_receipt, render_usage_ledger, replay_events,
     replay_master_journal, resolve_input, restore, risk_for_mode, run_capability_suite, run_report,
-    run_suite_with_providers, save_preset, scan_history, schedule_ready, spawn_input_reader,
-    stage_next_actions, summarize_route_trace, terminal_dimensions, trash_preset, triage_goal,
-    uninstall, upgrade, verify_goldset_manifest, verify_provenance, verify_release_approval,
-    verify_release_manifest, verify_snapshot_chain, verify_snapshot_chain_with_anchor,
-    write_capability_report,
+    save_preset, scan_history, schedule_ready, spawn_input_reader, stage_next_actions,
+    summarize_route_trace, terminal_dimensions, trash_preset, triage_goal, uninstall, upgrade,
+    verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
+    verify_snapshot_chain, verify_snapshot_chain_with_anchor, write_capability_report,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -427,6 +426,9 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(long)]
         allow_network: bool,
+        /// Keep per-run/per-case journals and cases.jsonl under this directory.
+        #[arg(long)]
+        artifacts_dir: Option<PathBuf>,
         #[arg(long, default_value_t = 120)]
         timeout_seconds: u64,
         /// Minimum all-task suite completion; historical gate.
@@ -1069,6 +1071,9 @@ enum Command {
         /// Write a trust-center evaluation disclosure for this run.
         #[arg(long)]
         disclosure_out: Option<PathBuf>,
+        /// Keep per-case journals and a cases.jsonl index under this directory.
+        #[arg(long)]
+        artifacts_dir: Option<PathBuf>,
         /// Validate the suite structure without running a model.
         #[arg(long)]
         validate_only: bool,
@@ -5027,6 +5032,7 @@ async fn main() -> Result<()> {
             runs,
             config,
             allow_network,
+            artifacts_dir,
             timeout_seconds,
             min_completion_bps,
             min_crash_free_bps,
@@ -5121,8 +5127,16 @@ async fn main() -> Result<()> {
             let mut stopped_early: Option<&'static str> = None;
             for run_index in 0..runs {
                 tasks_total = tasks_total.saturating_add(suite.cases.len() as u64);
-                match run_suite_with_providers(suite.clone(), providers.clone(), allow_network)
-                    .await
+                let run_artifacts = artifacts_dir
+                    .as_ref()
+                    .map(|root| root.join(format!("run-{run_index:04}")));
+                match first_principles_agent::eval::run_suite_with_providers_artifacts(
+                    suite.clone(),
+                    providers.clone(),
+                    allow_network,
+                    run_artifacts,
+                )
+                .await
                 {
                     Ok(report) => {
                         tasks_passed = tasks_passed.saturating_add(report.passed as u64);
@@ -9573,6 +9587,7 @@ async fn main() -> Result<()> {
             allow_network,
             timeout_seconds,
             disclosure_out,
+            artifacts_dir,
             validate_only,
             json,
         } => {
@@ -9618,7 +9633,13 @@ async fn main() -> Result<()> {
                     manifest: local_manifest(),
                 }]
             };
-            let report = run_suite_with_providers(suite, providers, allow_network).await?;
+            let report = first_principles_agent::eval::run_suite_with_providers_artifacts(
+                suite,
+                providers,
+                allow_network,
+                artifacts_dir,
+            )
+            .await?;
             if let Some(path) = disclosure_out {
                 let encoded = serde_json::to_vec_pretty(&report)?;
                 let disclosure = first_principles_agent::trust_center::EvaluationDisclosure {

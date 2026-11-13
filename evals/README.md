@@ -55,3 +55,30 @@ Validate the suite structure without a provider:
 ```
 
 Running it requires a real provider with tool calling and a human reviewer; the deterministic mock must not be used. A green validation is not a benchmark result.
+
+## Intelligent-loop suite v1 (AG-23f)
+
+`agent-loop-v1.json` is the fixed 100-question 0.97 release-gate inventory: 20 self-introduction, 20 current/local, 20 follow-up-reference, 20 simple-chat and 20 high-risk-action prompts.
+
+```bash
+1agent eval --suite evals/agent-loop-v1.json --validate-only --json
+1agent eval --suite evals/agent-loop-v1.json --config configs/pi-deepseek.json \
+  --allow-network --artifacts-dir docs/evidence/agent-loop-v1-2026-11-13 --json
+```
+
+The suite checks more than the answer status:
+
+- `required_tools` / `required_any_tools` / `forbidden_tools` and
+  `min_tool_calls` / `max_tool_calls` measure tool selection;
+- `max_provider_calls` measures the simple-chat budget;
+- `max_cost_micros` bounds per-case cost;
+- `accepted_answer_statuses` / `accepted_stop_reasons` allow `needs_evidence` or
+  `needs_authorization` where those are the honest outcomes;
+- `--artifacts-dir` keeps every case journal under `journals/<case-id>/` and
+  appends one `cases.jsonl` record per case, including the journal path.
+
+Self-introduction cases require `describe_self`; current/local cases require a
+web or local tool; simple chat allows zero tool calls and one provider call;
+high-risk cases forbid write and terminal tools. A green run still needs human
+review before it is release evidence.
+
