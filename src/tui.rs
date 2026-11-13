@@ -2172,7 +2172,7 @@ impl TuiState {
             }
         }
         output.push_str(&format!(
-            "{}\n› {}\n",
+            "{}\n❯ {}\n",
             fit_row(&self.activity_line(), columns),
             self.input
         ));
@@ -2224,7 +2224,12 @@ impl TuiState {
             let header_area = Rect::new(area.x, area.y, area.width, 1);
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
-                    Span::styled("› ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "❯ ",
+                        Style::default()
+                            .fg(Color::LightGreen)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(header, Style::default().add_modifier(Modifier::BOLD)),
                 ]))
                 .style(Style::default().bg(PANEL_BG).fg(Color::White)),
@@ -2361,7 +2366,7 @@ impl TuiState {
                 ));
             }
             let (prefix, prefix_tone) = match entry.kind {
-                TranscriptKind::User => ("› ", TuiTone::Success),
+                TranscriptKind::User => ("❯ ", TuiTone::Success),
                 TranscriptKind::Assistant => {
                     (if in_conclusion { "   " } else { "  " }, TuiTone::Default)
                 }
@@ -2721,7 +2726,7 @@ impl TuiState {
         if first.kind == TranscriptKind::User
             && first
                 .text
-                .strip_prefix("› ")
+                .strip_prefix("❯ ")
                 .is_some_and(|text| !text.trim().is_empty())
         {
             return None;
@@ -3008,9 +3013,9 @@ impl TuiState {
         };
         let mode = self.displayed_mode().label_zh();
         if status.is_empty() {
-            format!("{model} · {mode} · Ctrl+T 模式 ")
+            format!("{model} · {mode} · Ctrl + T 切换模式 ")
         } else {
-            format!("{status} · {model} · {mode} · Ctrl+T 模式 ")
+            format!("{status} · {model} · {mode} · Ctrl + T 切换模式 ")
         }
     }
 
@@ -3049,15 +3054,10 @@ impl TuiState {
         });
 
         let mut spans = vec![Span::styled(
-            "› ",
-            Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG),
+            "❯ ",
+            Style::default().fg(Color::LightGreen).bg(PANEL_BG),
         )];
-        if self.input.is_empty() {
-            spans.push(Span::styled(
-                "输入任务，/ 查看命令",
-                Style::default().fg(MUTED_TEXT).bg(PANEL_BG),
-            ));
-        } else {
+        if !self.input.is_empty() {
             spans.extend(self.input_spans(visible_end));
         }
         frame.render_widget(
@@ -4210,18 +4210,18 @@ fn push_link_range(
     }
 }
 
-/// Render the `T` in `Ctrl+T` as a bright-green, bold shortcut key while the
+/// Render the `T` in `Ctrl + T` as a bright-green, bold shortcut key while the
 /// rest of the status keeps the panel text style.
 fn shortcut_key_spans(text: String, base: Style) -> Vec<Span<'static>> {
-    let Some(start) = text.find("Ctrl+T") else {
+    let Some(start) = text.find("Ctrl + T") else {
         return vec![Span::styled(text, base)];
     };
-    let key = start + "Ctrl+".len();
+    let key = start + "Ctrl + ".len();
     let mut spans = Vec::new();
     if start > 0 {
         spans.push(Span::styled(text[..start].to_string(), base));
     }
-    spans.push(Span::styled("Ctrl+".to_string(), base));
+    spans.push(Span::styled("Ctrl + ".to_string(), base));
     spans.push(Span::styled(
         "T".to_string(),
         base.fg(Color::LightGreen).add_modifier(Modifier::BOLD),
@@ -5941,8 +5941,8 @@ mod tests {
             .buffer()
             .cell((geometry.text_x - 2, geometry.row))
             .unwrap();
-        assert_eq!(prompt_cell.symbol(), "›");
-        assert_eq!(prompt_cell.fg, PANEL_TEXT_GREEN);
+        assert_eq!(prompt_cell.symbol(), "❯");
+        assert_eq!(prompt_cell.fg, Color::LightGreen);
         assert!(!prompt_cell.modifier.contains(Modifier::BOLD));
         assert_eq!(
             terminal
@@ -5981,6 +5981,33 @@ mod tests {
         state.begin_selection_drag(geometry.text_x, geometry.row + 1);
         state.update_selection_drag(geometry.text_x, geometry.row);
         assert_eq!(state.selected_input_text().as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn empty_composer_shows_only_a_bright_green_prompt() {
+        let backend = TestBackend::new(60, 18);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(!content.contains("输入任务"), "{content}");
+        assert!(!content.contains("查看命令"), "{content}");
+
+        let geometry = state.input_geometry.unwrap();
+        let prompt = terminal
+            .backend()
+            .buffer()
+            .cell((geometry.text_x - 2, geometry.row))
+            .unwrap();
+        assert_eq!(prompt.symbol(), "❯");
+        assert_eq!(prompt.fg, Color::LightGreen);
     }
 
     #[test]
@@ -6116,7 +6143,7 @@ mod tests {
             .cell((1, header_y))
             .unwrap()
             .symbol();
-        assert_eq!(header, "›");
+        assert_eq!(header, "❯");
 
         state.begin("Second topic", CognitiveMode::DirectAnswer, RiskLevel::Low);
         state.transcript_lines = state.build_transcript_lines(60);
@@ -6969,7 +6996,8 @@ mod tests {
         let tight: String = row.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(tight.contains("deepseek-flash"), "model: {row}");
         assert!(tight.contains("证据研究"), "mode: {row}");
-        assert!(tight.contains("Ctrl+T模式"), "hint: {row}");
+        assert!(!tight.contains("模式："), "mode stays unprefixed: {row}");
+        assert!(tight.contains("Ctrl+T切换模式"), "hint: {row}");
         assert!(
             !tight.contains("上下文"),
             "context stays on the top border: {row}"
@@ -7052,7 +7080,11 @@ mod tests {
             "bottom: {}",
             rows[bottom]
         );
-        assert!(rows[bottom].contains("Ctrl+T"), "bottom: {}", rows[bottom]);
+        assert!(
+            rows[bottom].contains("Ctrl + T"),
+            "bottom: {}",
+            rows[bottom]
+        );
 
         let metrics_y = rows
             .iter()
@@ -7095,7 +7127,7 @@ mod tests {
 
         let composer = rows
             .iter()
-            .position(|row| row.contains('›'))
+            .position(|row| row.contains('❯'))
             .expect("composer");
         assert!(composer > top && composer < bottom, "{rows:?}");
         assert!(rows[composer].starts_with('│'), "{}", rows[composer]);
@@ -7191,7 +7223,7 @@ mod tests {
             .expect("bottom");
         let composer = rows
             .iter()
-            .position(|row| row.contains('›'))
+            .position(|row| row.contains('❯'))
             .expect("composer");
         assert!(composer > metrics && composer < bottom, "{rows:?}");
     }

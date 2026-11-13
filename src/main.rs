@@ -18625,6 +18625,32 @@ fn append_work_events(
     let Ok(events) = read_events(journal_path) else {
         return;
     };
+    let tool_calls = events
+        .iter()
+        .filter(|event| matches!(&event.event, JournalEventKind::ToolCalled { .. }))
+        .count();
+    let tool_observations = events
+        .iter()
+        .filter(|event| matches!(&event.event, JournalEventKind::ToolObserved { .. }))
+        .count();
+    let tool_failures = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.event,
+                JournalEventKind::ToolObserved { observation }
+                    if observation.status != ToolStatus::Ok
+            )
+        })
+        .count();
+    let run_started_ms = events.iter().find_map(|event| {
+        if matches!(&event.event, JournalEventKind::RunStarted { .. }) {
+            Some(event.timestamp_unix_ms)
+        } else {
+            None
+        }
+    });
+    let mut request_started_ms: Option<u128> = None;
     let mut step = 0usize;
     let mut route: Option<(String, String)> = None;
     let mut model_requests = ModelRequestChain::new();
@@ -18643,45 +18669,25 @@ fn append_work_events(
             continue;
         }
         if let Some(request) = model_request {
-            let new_messages = match &event.event {
-                JournalEventKind::ModelRequestDelta { delta } => {
-                    request.messages.len().saturating_sub(delta.prefix_len)
-                }
-                _ => request.messages.len(),
-            };
-            let roles = [
-                (first_principles_agent::MessageRole::System, "系统"),
-                (first_principles_agent::MessageRole::User, "用户"),
-                (first_principles_agent::MessageRole::Assistant, "助手"),
-                (first_principles_agent::MessageRole::Tool, "工具"),
-            ]
-            .into_iter()
-            .filter_map(|(role, label)| {
-                let count = request
-                    .messages
-                    .iter()
-                    .filter(|message| message.role == role)
-                    .count();
-                (count > 0).then(|| format!("{label} {count}"))
-            })
-            .collect::<Vec<_>>()
-            .join(" · ");
-            let total = request.messages.len();
-            let sent = if total == 0 {
-                "共 0 条".to_string()
-            } else if new_messages == total {
-                format!("共 {total} 条（{roles}）")
-            } else {
-                format!("新增 {new_messages} 条，共 {total} 条（{roles}）")
-            };
-            let route = route
-                .as_ref()
-                .map(|(provider, model)| format!("{provider}/{model}"))
-                .unwrap_or_else(|| "路由未知".into());
-            state.push_work(
-                TuiActivityKind::Requesting,
-                format!("第 {step} 步 · {route} · {sent}"),
+            request_started_ms = Some(event.timestamp_unix_ms);
+            let context_tokens = first_principles_agent::context::total_request_tokens(
+                &request.messages,
+                &request.tools,
             );
+            let model = route
+                .as_ref()
+                .map(|(_, model)| model.as_str())
+                .filter(|model| !model.is_empty())
+                .unwrap_or("路由未知");
+            let detail = if context_tokens > 0 {
+                format!(
+                    "第 {step} 步 · {model} · 上下文 {}",
+                    format_token_count(context_tokens as u64)
+                )
+            } else {
+                format!("第 {step} 步 · {model}")
+            };
+            state.push_work(TuiActivityKind::Requesting, detail);
             // Mark the request event consumed before `continue`; otherwise the
             // next event causes this row to be appended a second time.
             *last_seq = Some(event.seq);
@@ -18695,24 +18701,37 @@ fn append_work_events(
                 state.push_work(TuiActivityKind::Planning, "任务计划已生成");
             }
             JournalEventKind::ModelResponded { response } => {
-                let detail = match &response.turn {
-                    first_principles_agent::ModelTurn::Final { .. } => format!(
-                        "返回最终答案 · 输出 {} tokens · ctrl+o 详情",
-                        response.usage.output_tokens
-                    ),
-                    first_principles_agent::ModelTurn::ToolCalls { calls } => format!(
-                        "返回工具调用 · {}",
-                        calls
-                            .iter()
-                            .map(|call| call.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                    first_principles_agent::ModelTurn::InvalidFinal { error, .. } => {
-                        format!("返回无效结果 · {error}")
+                let mut parts = Vec::new();
+                let final_answer = matches!(
+                    &response.turn,
+                    first_principles_agent::ModelTurn::Final { .. }
+                );
+                match &response.turn {
+                    first_principles_agent::ModelTurn::Final { .. } => {
+                        parts.push("返回最终答案".to_string())
                     }
-                };
-                state.push_work_result(detail, TuiTone::Muted);
+                    first_principles_agent::ModelTurn::ToolCalls { calls } => {
+                        parts.push(format!("返回 {} 个工具调用", calls.len()))
+                    }
+                    first_principles_agent::ModelTurn::InvalidFinal { error, .. } => {
+                        parts.push(format!("返回无效结果 · {error}"))
+                    }
+                }
+                if response.usage.output_tokens > 0 {
+                    parts.push(format!(
+                        "↓ {} tokens",
+                        format_token_count(response.usage.output_tokens)
+                    ));
+                }
+                if let Some(started) = request_started_ms.take() {
+                    parts.push(format_elapsed_ms(
+                        event.timestamp_unix_ms.saturating_sub(started),
+                    ));
+                }
+                if final_answer {
+                    parts.push("ctrl+o 详情".to_string());
+                }
+                state.push_work_result(parts.join(" · "), TuiTone::Muted);
             }
             JournalEventKind::ToolCalled { call } => {
                 state.push_work_call(
@@ -18778,10 +18797,28 @@ fn append_work_events(
                 );
             }
             JournalEventKind::RunStopped { reason } => {
-                state.push_work(
-                    TuiActivityKind::Answering,
-                    format!("运行结束 · {}", stop_reason_label(*reason)),
-                );
+                let mut parts = vec![format!("运行结束 · {}", stop_reason_label(*reason))];
+                if step > 0 {
+                    parts.push(format!("{step} 步"));
+                }
+                if tool_calls > 0 {
+                    let unpaired = tool_calls.saturating_sub(tool_observations);
+                    let mut counts = format!(
+                        "{tool_calls} 次工具调用（{} 成 / {tool_failures} 败",
+                        tool_observations.saturating_sub(tool_failures)
+                    );
+                    if unpaired > 0 {
+                        counts.push_str(&format!(" / {unpaired} 未回"));
+                    }
+                    counts.push('）');
+                    parts.push(counts);
+                }
+                if let Some(started) = run_started_ms {
+                    parts.push(format_elapsed_ms(
+                        event.timestamp_unix_ms.saturating_sub(started),
+                    ));
+                }
+                state.push_work(TuiActivityKind::Answering, parts.join(" · "));
             }
             _ => {}
         }
@@ -18837,26 +18874,25 @@ fn work_tool_detail(call: &first_principles_agent::ToolCall) -> String {
 }
 
 fn work_result_detail(observation: &ToolObservation) -> String {
-    let status = tool_activity_status(observation.status);
     let summary = sanitize_tui_inline(&observation.summary);
-    let summary = if observation.status == ToolStatus::Ok {
-        summary
-    } else {
-        humanize_tool_failure(&summary, observation.status)
-    };
-    let tool = observation.tool.trim();
     let mut detail = if observation.status == ToolStatus::Ok {
-        if tool.is_empty() {
-            summary
-        } else if summary.is_empty() {
-            format!("{tool} · {status}")
+        if summary.is_empty() {
+            "✓ 完成".into()
         } else {
-            format!("{tool} · {summary}")
+            format!("✓ {summary}")
         }
-    } else if tool.is_empty() {
-        format!("{status} · {summary}")
     } else {
-        format!("{status} · {tool} · {summary}")
+        let category = failure_category(observation.status, &summary);
+        let detail = if observation.status == ToolStatus::TimedOut {
+            String::new()
+        } else {
+            humanize_tool_failure(&summary, observation.status)
+        };
+        if detail.is_empty() {
+            format!("✗ {category}")
+        } else {
+            format!("✗ {category} · {detail}")
+        }
     };
     if observation.tool.starts_with("terminal_") && !observation.content.trim().is_empty() {
         let preview = observation
@@ -18871,6 +18907,53 @@ fn work_result_detail(observation: &ToolObservation) -> String {
         detail.push_str(&bounded_tui_text(&preview, 240));
     }
     detail
+}
+
+fn failure_category(status: ToolStatus, summary: &str) -> &'static str {
+    let lower = summary.to_ascii_lowercase();
+    match status {
+        ToolStatus::Ok => "完成",
+        ToolStatus::InvalidArguments => "参数错误",
+        ToolStatus::PermissionDenied => "无权限",
+        ToolStatus::TimedOut => "超时",
+        ToolStatus::Failed => {
+            if lower.contains("session_limit") {
+                "环境限制"
+            } else if lower.contains("resolve")
+                || lower.contains("name resolution")
+                || lower.contains("dns")
+            {
+                "网络解析失败"
+            } else if lower.contains("fetch failed")
+                || lower.contains("error sending request")
+                || lower.contains("connection refused")
+                || lower.contains("http ")
+            {
+                "网络错误"
+            } else {
+                "失败"
+            }
+        }
+    }
+}
+
+fn format_token_count(tokens: u64) -> String {
+    if tokens >= 1_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
+
+fn format_elapsed_ms(milliseconds: u128) -> String {
+    if milliseconds < 1_000 {
+        format!("{milliseconds}ms")
+    } else if milliseconds < 60_000 {
+        format!("{:.1}s", milliseconds as f64 / 1_000.0)
+    } else {
+        let seconds = milliseconds / 1_000;
+        format!("{}m{:02}s", seconds / 60, seconds % 60)
+    }
 }
 
 fn extract_http_url(text: &str) -> Option<&str> {
@@ -19170,28 +19253,39 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
     state.assistant_conclusion_end();
 
     if !answer.claims.is_empty() {
-        state.assistant_heading("主张", TuiTone::SectionText);
+        state.assistant_heading("我的判断", TuiTone::SectionText);
         for claim in &answer.claims {
-            state.assistant_item(
-                format!("[{}]", claim_status_label(claim.status)),
-                TuiTone::SectionText,
-                &claim.text,
-            );
+            let status = claim_status_label(claim.status);
+            let label = if claim.id.trim().is_empty() {
+                status.to_string()
+            } else {
+                format!("{} · {status}", claim.id.trim())
+            };
+            state.assistant_item(label, TuiTone::SectionText, &claim.text);
         }
     }
 
     if !answer.evidence.is_empty() {
         state.assistant_heading("依据", TuiTone::SectionText);
         for evidence in &answer.evidence {
-            state.assistant_evidence(&evidence.source, &evidence.statement);
+            let statement = if evidence.claim_ids.is_empty() {
+                evidence.statement.clone()
+            } else {
+                format!(
+                    "{}（对应 {}）",
+                    evidence.statement,
+                    evidence.claim_ids.join("、")
+                )
+            };
+            state.assistant_evidence(short_evidence_source(&evidence.source), statement);
         }
     }
 
     if !answer.assumptions.is_empty() {
-        state.assistant_heading("假设", TuiTone::SectionText);
+        state.assistant_heading("我默认的前提", TuiTone::SectionText);
         for assumption in &answer.assumptions {
             state.assistant_item(
-                format!("[假设·{}]", answer_impact_label(assumption.impact)),
+                format!("影响{}", answer_impact_label(assumption.impact)),
                 TuiTone::SectionText,
                 &assumption.description,
             );
@@ -19199,17 +19293,17 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
     }
 
     if !answer.constraints.is_empty() {
-        state.assistant_heading("约束", TuiTone::SectionText);
+        state.assistant_heading("限制", TuiTone::SectionText);
         for constraint in &answer.constraints {
-            state.assistant_item("[约束]", TuiTone::SectionText, constraint);
+            state.assistant_item("", TuiTone::SectionText, constraint);
         }
     }
 
     if !answer.unknowns.is_empty() {
-        state.assistant_heading("未知", TuiTone::SectionText);
+        state.assistant_heading("还没确定", TuiTone::SectionText);
         for unknown in &answer.unknowns {
             state.assistant_item(
-                format!("[未知·{}]", answer_impact_label(unknown.impact)),
+                format!("影响{}", answer_impact_label(unknown.impact)),
                 TuiTone::SectionText,
                 &unknown.description,
             );
@@ -19217,14 +19311,14 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
     }
 
     if !answer.conflicts.is_empty() {
-        state.assistant_heading("冲突", TuiTone::SectionText);
+        state.assistant_heading("有矛盾的地方", TuiTone::SectionText);
         for conflict in &answer.conflicts {
             let resolved = conflict.status == first_principles_agent::ConflictStatus::Resolved;
             state.assistant_item(
                 if resolved {
-                    "[已解决]"
+                    "已解决"
                 } else {
-                    "[未解决]"
+                    "还没解决"
                 },
                 TuiTone::SectionText,
                 conflict
@@ -19236,15 +19330,25 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
     }
 
     if !answer.flip_conditions.is_empty() {
-        state.assistant_heading("翻转条件", TuiTone::SectionText);
+        state.assistant_heading("什么情况会改变结论", TuiTone::SectionText);
         for condition in &answer.flip_conditions {
-            state.assistant_item(
-                "⇒",
-                TuiTone::SectionText,
-                format!("若 {}，则 {}", condition.if_observed, condition.then),
-            );
+            let mut text = format!("{}，就 {}", condition.if_observed, condition.then);
+            if !condition.target_ids.is_empty() {
+                text.push_str(&format!("（推翻 {}）", condition.target_ids.join("、")));
+            }
+            state.assistant_item("如果", TuiTone::SectionText, text);
         }
     }
+}
+
+fn short_evidence_source(source: &str) -> String {
+    let Some((tool, call)) = source.split_once(':') else {
+        return source.to_string();
+    };
+    if !call.starts_with("call_") || call.chars().count() <= 18 {
+        return source.to_string();
+    }
+    format!("{tool}:{}…", call.chars().take(14).collect::<String>())
 }
 
 #[cfg(test)]
@@ -20661,7 +20765,7 @@ mod tui_rendering_tests {
     }
 
     #[test]
-    fn tool_results_pair_the_tool_name_and_humanize_failures() {
+    fn tool_results_show_outcome_and_failure_category() {
         let observation = |status, summary: &str| first_principles_agent::ToolObservation {
             call_id: "call-1".into(),
             tool: "fetch_url".into(),
@@ -20676,19 +20780,35 @@ mod tui_rendering_tests {
                 ToolStatus::Failed,
                 "tool failed: fetch failed: error sending request for url (https://example.com)"
             )),
-            "失败 · fetch_url · 网络请求失败（https://example.com）"
+            "✗ 网络错误 · 网络请求失败（https://example.com）"
         );
         assert_eq!(
             work_result_detail(&observation(ToolStatus::TimedOut, "tool timed out")),
-            "超时 · fetch_url · 请求超时"
+            "✗ 超时"
+        );
+        assert_eq!(
+            work_result_detail(&observation(
+                ToolStatus::Failed,
+                "create_failed: session_limit：活动会话最多 128 个"
+            )),
+            "✗ 环境限制 · create_failed: session_limit：活动会话最多 128 个"
         );
         assert_eq!(
             work_result_detail(&observation(
                 ToolStatus::Ok,
                 "已抓取 example.com（HTTP 200）"
             )),
-            "fetch_url · 已抓取 example.com（HTTP 200）"
+            "✓ 已抓取 example.com（HTTP 200）"
         );
+    }
+
+    #[test]
+    fn elapsed_and_token_counts_are_compact() {
+        assert_eq!(format_elapsed_ms(420), "420ms");
+        assert_eq!(format_elapsed_ms(1_240), "1.2s");
+        assert_eq!(format_elapsed_ms(62_000), "1m02s");
+        assert_eq!(format_token_count(812), "812");
+        assert_eq!(format_token_count(5_136), "5.1k");
     }
 
     #[test]
@@ -20729,13 +20849,11 @@ mod tui_rendering_tests {
         append_work_events(&mut state, &path, &mut last_seq);
         let screen = tui_screen_text(&mut state).replace(' ', "");
         assert_eq!(screen.matches("模型请求").count(), 1);
-        assert!(
-            screen.contains("deepseek-primary/deepseek-flash"),
-            "{screen}"
-        );
-        assert!(screen.contains("共2条"), "{screen}");
-        assert!(screen.contains("系统1"), "{screen}");
-        assert!(screen.contains("用户1"), "{screen}");
+        assert!(screen.contains("deepseek-flash"), "{screen}");
+        assert!(!screen.contains("deepseek-primary/"), "{screen}");
+        assert!(!screen.contains("共2条"), "{screen}");
+        assert!(!screen.contains("系统1"), "{screen}");
+        assert!(!screen.contains("用户1"), "{screen}");
         assert!(!screen.contains("助手0"), "{screen}");
 
         journal
@@ -20757,6 +20875,78 @@ mod tui_rendering_tests {
             1,
             "the request row must not be appended again when the response arrives"
         );
+    }
+
+    #[test]
+    fn work_rows_show_compact_request_and_categorized_failure() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("trace.jsonl");
+        let run_id = Uuid::new_v4();
+        let mut journal = first_principles_agent::Journal::create(&path, run_id).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("probe", workspace.path().to_path_buf()),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RouteSelected {
+                provider_id: "openai-compatible".into(),
+                model: "deepseek-flash".into(),
+                reason: "test route".into(),
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ModelRequested {
+                request: first_principles_agent::ModelRequest {
+                    run_id,
+                    mode: CognitiveMode::DirectAnswer,
+                    messages: vec![
+                        first_principles_agent::ModelMessage::system("system"),
+                        first_principles_agent::ModelMessage::user("check example.com"),
+                    ],
+                    tools: Vec::new(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ToolCalled {
+                call: first_principles_agent::ToolCall {
+                    id: "call-1".into(),
+                    name: "fetch_url".into(),
+                    arguments: serde_json::json!({"url": "https://example.com"}),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ToolObserved {
+                observation: first_principles_agent::ToolObservation {
+                    call_id: "call-1".into(),
+                    tool: "fetch_url".into(),
+                    status: ToolStatus::Failed,
+                    summary: "cannot resolve example.com: Temporary failure in name resolution"
+                        .into(),
+                    content: String::new(),
+                    error_code: None,
+                    metadata: Default::default(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: first_principles_agent::StopReason::Completed,
+            })
+            .unwrap();
+
+        let mut state = TuiState::new("mock", 6, 120);
+        let mut last_seq = None;
+        append_work_events(&mut state, &path, &mut last_seq);
+        let screen = tui_screen_text(&mut state).replace(' ', "");
+        assert!(screen.contains("第1步·deepseek-flash"), "{screen}");
+        assert!(!screen.contains("openai-compatible/"), "{screen}");
+        assert!(!screen.contains("系统1"), "{screen}");
+        assert!(screen.contains("✗网络解析失败"), "{screen}");
+        assert!(screen.contains("1次工具调用（0成/1败）"), "{screen}");
     }
 
     #[test]
@@ -21059,16 +21249,16 @@ mod tui_rendering_tests {
         assert!(visible.contains("连接测试成功。"));
         assert!(!visible.contains("终止原因"));
         assert!(!visible.contains("allow_write"));
-        assert!(!visible.contains("主张"));
+        assert!(!visible.contains("我的判断"));
         assert!(!visible.contains("依据"));
         assert!(!visible.contains("需要注意"));
         assert!(!visible.contains("如何确认"));
-        assert!(!visible.contains("翻转条件"));
+        assert!(!visible.contains("什么情况会改变结论"));
 
         let details = state.last_details().unwrap();
         assert!(details.contains("终止原因"));
         assert!(details.contains("allow_write"));
-        assert!(details.contains("主张"));
+        assert!(details.contains("我的判断"));
     }
 
     #[test]
@@ -21078,10 +21268,10 @@ mod tui_rendering_tests {
         record_tui_result(&mut state, &result());
         let visible = state.render_screen(80, 24);
         assert!(visible.contains("结论"));
-        assert!(visible.contains("主张"));
+        assert!(visible.contains("我的判断"));
         assert!(visible.contains("依据"));
-        assert!(visible.contains("约束"));
-        assert!(visible.contains("翻转条件"));
+        assert!(visible.contains("限制"));
+        assert!(visible.contains("什么情况会改变结论"));
     }
 
     #[test]

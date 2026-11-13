@@ -3422,7 +3422,7 @@ fn default_run_output_is_concise_and_details_expands_it() {
     let stdout = String::from_utf8_lossy(&default.stdout);
     assert!(stdout.contains("信任摘要："), "stdout: {stdout}");
     assert!(stdout.contains("使用 --details"), "stdout: {stdout}");
-    assert!(stdout.contains("翻转条件："), "stdout: {stdout}");
+    assert!(stdout.contains("什么情况会改变结论："), "stdout: {stdout}");
     assert!(!stdout.contains("路由："), "stdout: {stdout}");
     assert!(!stdout.contains("终止原因："), "stdout: {stdout}");
 

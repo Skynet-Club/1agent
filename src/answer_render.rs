@@ -15,7 +15,7 @@ pub fn render_answer(result: &RunResult) -> String {
         result.stop_reason
     );
     if !answer.claims.is_empty() {
-        output.push_str("\n主张：");
+        output.push_str("\n我的判断：");
         for claim in &answer.claims {
             output.push_str(&format!(
                 "\n- [{}] {}",
@@ -31,7 +31,7 @@ pub fn render_answer(result: &RunResult) -> String {
         }
     }
     if !answer.assumptions.is_empty() {
-        output.push_str("\n假设：");
+        output.push_str("\n我默认的前提：");
         for assumption in &answer.assumptions {
             output.push_str(&format!(
                 "\n- [{}] {}",
@@ -41,19 +41,19 @@ pub fn render_answer(result: &RunResult) -> String {
         }
     }
     if !answer.constraints.is_empty() {
-        output.push_str("\n约束：");
+        output.push_str("\n限制：");
         for constraint in &answer.constraints {
             output.push_str(&format!("\n- {constraint}"));
         }
     }
     if !answer.unknowns.is_empty() {
-        output.push_str("\n未知：");
+        output.push_str("\n还没确定：");
         for unknown in &answer.unknowns {
             output.push_str(&format!("\n- {}", unknown.description));
         }
     }
     if !answer.flip_conditions.is_empty() {
-        output.push_str("\n翻转条件：");
+        output.push_str("\n什么情况会改变结论：");
         for condition in &answer.flip_conditions {
             output.push_str(&format!(
                 "\n- 若 {}，则 {}",
@@ -75,7 +75,7 @@ pub fn render_answer_default(result: &RunResult) -> String {
         answer.conclusion
     );
     output.push_str(&format!(
-        "信任摘要：主张 {} · 证据 {} · 假设 {} · 未知 {} · 翻转 {}\n",
+        "信任摘要：我的判断 {} · 依据 {} · 假设 {} · 还没确定 {} · 改判 {}\n",
         answer.claims.len(),
         answer.evidence.len(),
         answer.assumptions.len(),
@@ -98,7 +98,7 @@ pub fn render_answer_default(result: &RunResult) -> String {
             }
         }
         if !answer.flip_conditions.is_empty() {
-            output.push_str("翻转条件：\n");
+            output.push_str("什么情况会改变结论：\n");
             for condition in &answer.flip_conditions {
                 output.push_str(&format!(
                     "- 若 {}，则 {}\n",
@@ -131,13 +131,13 @@ pub fn answer_status_label(status: AnswerStatus) -> &'static str {
 
 pub fn claim_status_label(status: ClaimStatus) -> &'static str {
     match status {
-        ClaimStatus::Verified => "已证实",
-        ClaimStatus::UserAsserted => "用户提供",
-        ClaimStatus::Derived => "推导",
+        ClaimStatus::Verified => "实测",
+        ClaimStatus::UserAsserted => "你说的",
+        ClaimStatus::Derived => "推断",
         ClaimStatus::Assumed => "假设",
-        ClaimStatus::ModelPrior => "模型先验",
-        ClaimStatus::Conflicting => "冲突",
-        ClaimStatus::Unknown => "未知",
+        ClaimStatus::ModelPrior => "经验",
+        ClaimStatus::Conflicting => "有冲突",
+        ClaimStatus::Unknown => "不确定",
     }
 }
 
@@ -200,9 +200,9 @@ mod tests {
         let concise = render_answer_default(&result);
         assert!(concise.contains("信任摘要："));
         assert!(concise.contains("使用 --details"));
-        assert!(!concise.contains("主张："));
+        assert!(!concise.contains("我的判断："));
         let full = render_answer(&result);
-        assert!(full.contains("主张："));
+        assert!(full.contains("我的判断："));
         assert!(full.contains("终止原因："));
     }
 
@@ -233,13 +233,13 @@ mod tests {
         );
         let concise = render_answer_default(&result);
         assert!(concise.contains("依据："));
-        assert!(concise.contains("翻转条件："));
+        assert!(concise.contains("什么情况会改变结论："));
     }
 
     #[test]
     fn labels_are_stable() {
         assert_eq!(answer_status_label(AnswerStatus::NeedsEvidence), "需证据");
-        assert_eq!(claim_status_label(ClaimStatus::Verified), "已证实");
+        assert_eq!(claim_status_label(ClaimStatus::Verified), "实测");
         assert_eq!(answer_impact_label(ImpactLevel::High), "高");
     }
 }
