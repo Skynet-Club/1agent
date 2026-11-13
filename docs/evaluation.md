@@ -136,6 +136,33 @@ Recommended evidence stages:
 | Held-out | Generalization | “The result did not use tuning examples.” |
 | Production candidate | Operational envelope | “Quality, stability, cost and latency meet approved thresholds.” |
 
+## Cost guard
+
+`benchmark-run` can stop an expensive run before it finishes:
+
+- `--max-cost-micros N`: stop when accumulated provider cost reaches N micros.
+  A preflight estimate runs before the suite; if the estimate exceeds N, the
+  command refuses to start. Provider prices must be set in the config; with zero
+  prices the command warns that the budget cannot stop the run.
+- `--estimate-only`: print the preflight estimate (cases, input/output tokens,
+  estimated cost) and exit without running the suite. JSON mode reports
+  `cases`, `input_tokens`, `output_tokens`, `cost_micros` and `priced`.
+  The estimate is first-order: 4,000 input and 800 output tokens per case plus
+  the objective length, using the highest configured provider price.
+- `--checkpoint-every N`: evaluate running gates every N runs (recommended:
+  20/40/80/160/320).
+- `--min-task-completion-bps N`: at a checkpoint, stop when the Wilson 95%
+  upper bound of running task completion is below N. The bound keeps a small
+  failing sample from stopping a run that could still recover.
+- `--max-provider-error-bps N`: at a checkpoint, stop when provider-error cases
+  exceed N bps after at least 8 cases.
+- `--min-crash-free-bps N`: at a checkpoint, stop when the remaining planned
+  runs cannot reach N bps even with zero further crashes.
+
+The report adds `stopped_early`, `stop_reason`, `cost_micros`,
+`provider_error_cases` and `provider_error_bps`. An early stop always fails the
+benchmark gate: it means the run was incomplete, not that it passed.
+
 ## Report trust
 
 Reports include a canonical content digest. `eval-inspect` recomputes arithmetic and aggregates,

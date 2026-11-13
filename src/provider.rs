@@ -162,6 +162,14 @@ Rules:
   6. Reply in the same language as the user's request, including code comments you add.
   7. Format for scanning: if the answer has more than one dimension, put the result in one sentence first, then use short paragraphs or bullets. Use a Markdown table only when comparing three or more items across at least two dimensions; keep it to at most three columns and short cells, and use bullets instead if a cell would truncate. Bold the key term in each bullet. Put sources under a final `参考` line only when sources are used. Never return one wall of text; a simple answer stays one short paragraph.
   8. Write claims, evidence statements, assumptions, unknowns and flip conditions as short everyday sentences a non-specialist can read. One point per item. Do not put status labels, bracket tags or audit jargon in the text; the interface shows the category separately. Do not restate the conclusion in these fields.
+- Working style, non-negotiable (adapted from Karpathy's coding guidelines, MIT, and Felix Rieseberg's "How to be more ambitious"):
+  1. Aim at the outcome, not the literal wording: name what the user actually needs, set the bar high, and prefer deeper over bigger.
+  2. Before acting, decide what observation, artifact or test would prove the result right.
+  3. Challenge assumptions against raw data; do not trust a summary when the source is available.
+  4. Prefer an outside check — a test, tool, replay or independent reviewer — over self-assessment.
+  5. Use the methods and instruments a top practitioner would use; do not just borrow their vocabulary.
+  6. Describe actions, not artifacts, and do the work rather than role-playing the expert.
+  7. Plan before building. Keep the change small. Verify before saying done. Do not add unrequested scope.
 - The request may be a follow-up in an ongoing conversation. Resolve short replies, names and pronouns against CONVERSATION CONTEXT; if the previous answer asked a question, treat the new message as its answer instead of starting a new task.
 - When the user asks about prompts or a named prompt author, use matching prompt-library facts before searching the web.
 - Do not open with filler (当然, 首先, 让我们, 以下是) and do not close with a summary.
@@ -211,6 +219,151 @@ pub fn agent_system_prompt_for_form(
     form: crate::voice::VoiceForm,
 ) -> String {
     crate::voice::with_voice_form(agent_system_prompt(), mode, form)
+}
+
+/// Compact prompt for the one-call chat fast path. No tools, no evidence
+/// schema beyond the minimum needed to produce a validated answer.
+pub fn chat_system_prompt() -> &'static str {
+    r#"You are 1-Agent, a capable partner. Answer naturally and confidently; the user is talking with you, not configuring a machine.
+
+Product facts:
+- 1-Agent can chat, search the web, read and write files, run commands and analyze. The orchestrator picks the lightest path that can answer, so the user does not need to switch modes for ordinary work.
+- This turn started on the lightweight path with no tools attached. If a reliable answer needs current or local facts, or an action, use status "needs_evidence" and name what should be checked. The system will automatically upgrade to the full tool-enabled agent. Never tell the user to paste sources or switch modes just because you cannot check something yourself.
+- Manual controls only when asked: `/mode` or Ctrl+T switches, `/model` configures provider/model/thinking depth, and `/cost` shows usage. The binary is `1agent`.
+- When asked what you can do, be confident and concrete: lead with one sentence, then up to eight short grouped bullets with examples. If a CAPABILITY CATALOG is present, use its facts and include the differentiators when asked. Never dump internal mode labels or invent beyond the catalog.
+
+Rules:
+- Answer in the same language as the user. Lead with the answer, then only the minimum explanation needed.
+- This turn has no tools. Never claim to have read files, run commands, searched the web or performed actions. If the answer needs them, use the automatic upgrade above instead of pretending.
+- Do not invent citations. Do not add filler, headings or a closing summary for a short answer.
+- Keep it short: usually one short paragraph or up to five bullets. Do not talk about schemas.
+
+Return only one JSON object:
+{"schema_version":2,"status":"completed","conclusion":"your answer"}
+or
+{"schema_version":2,"status":"needs_evidence","conclusion":"what you can answer and what is missing"}
+"#
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelEntry {
+    id: String,
+}
+
+/// Lists the chat models a provider advertises at its OpenAI-compatible
+/// `/models` endpoint. This validates the API key and lets the model panel
+/// offer real choices instead of a hard-coded list.
+pub async fn list_provider_models(
+    base_url: &str,
+    api_key: &str,
+    timeout: Duration,
+) -> Result<Vec<String>, ProviderError> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    let model_base = trimmed.strip_suffix("/chat/completions").unwrap_or(trimmed);
+    let endpoint = if model_base.ends_with("/models") {
+        model_base.to_string()
+    } else {
+        format!("{model_base}/models")
+    };
+    let url = reqwest::Url::parse(&endpoint).map_err(|error| {
+        ProviderError::new(
+            ProviderErrorCode::InvalidConfiguration,
+            format!("invalid base URL: {error}"),
+            false,
+        )
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(ProviderError::new(
+            ProviderErrorCode::InvalidConfiguration,
+            "base URL must use http or https",
+            false,
+        ));
+    }
+    if url.scheme() == "http" {
+        let host = url.host_str().unwrap_or_default();
+        let is_loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback());
+        if !is_loopback {
+            return Err(ProviderError::new(
+                ProviderErrorCode::InvalidConfiguration,
+                "API credentials require HTTPS for non-loopback endpoints",
+                false,
+            ));
+        }
+    }
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| {
+            ProviderError::new(
+                ProviderErrorCode::InvalidConfiguration,
+                format!("failed to construct HTTP client: {error}"),
+                false,
+            )
+        })?;
+    let response = client
+        .get(&endpoint)
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|error| {
+            let code = if error.is_timeout() {
+                ProviderErrorCode::Timeout
+            } else {
+                ProviderErrorCode::Network
+            };
+            ProviderError::new(code, format!("model discovery failed: {error}"), true)
+        })?;
+    let status = response.status();
+    if !status.is_success() {
+        let code = match status.as_u16() {
+            401 | 403 => ProviderErrorCode::Authentication,
+            429 => ProviderErrorCode::RateLimited,
+            _ => ProviderErrorCode::ProviderUnavailable,
+        };
+        return Err(ProviderError::new(
+            code,
+            format!("model discovery returned HTTP {status}"),
+            status.as_u16() == 429,
+        ));
+    }
+    let body = response.text().await.map_err(|error| {
+        ProviderError::new(
+            ProviderErrorCode::Network,
+            format!("cannot read model list: {error}"),
+            true,
+        )
+    })?;
+    parse_model_ids(&body)
+}
+
+fn parse_model_ids(body: &str) -> Result<Vec<String>, ProviderError> {
+    let parsed: ModelsResponse = serde_json::from_str(body).map_err(|error| {
+        ProviderError::new(
+            ProviderErrorCode::InvalidResponse,
+            format!("model list is not valid JSON: {error}"),
+            false,
+        )
+    })?;
+    let mut models = parsed
+        .data
+        .into_iter()
+        .map(|entry| entry.id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    models.sort();
+    models.dedup();
+    Ok(models)
 }
 
 pub async fn probe_provider(
@@ -688,11 +841,20 @@ impl ModelProvider for DeterministicProvider {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
 pub struct OpenAiCompatibleProvider {
     id: String,
     model: String,
     endpoint: String,
     api_key: Option<String>,
+    reasoning_effort: Option<ReasoningEffort>,
     client: reqwest::Client,
 }
 
@@ -777,8 +939,14 @@ impl OpenAiCompatibleProvider {
             model,
             endpoint,
             api_key,
+            reasoning_effort: None,
             client,
         })
+    }
+
+    pub fn with_reasoning_effort(mut self, effort: Option<ReasoningEffort>) -> Self {
+        self.reasoning_effort = effort;
+        self
     }
 
     fn parse_answer(content: &str) -> Result<AgentAnswer, ProviderError> {
@@ -822,6 +990,7 @@ impl OpenAiCompatibleProvider {
             tools: (!tools.is_empty()).then_some(tools),
             temperature: 0.0,
             stream,
+            reasoning_effort: self.reasoning_effort,
         }
     }
 
@@ -1299,6 +1468,8 @@ struct WireRequest {
     temperature: f32,
     #[serde(skip_serializing_if = "is_false")]
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -1739,6 +1910,17 @@ mod tests {
     }
 
     #[test]
+    fn chat_prompt_is_compact_and_asks_for_minimal_json() {
+        let prompt = chat_system_prompt();
+        assert!(prompt.contains("capable partner"));
+        assert!(prompt.contains("automatically upgrade"));
+        assert!(prompt.contains(r#""schema_version":2"#));
+        assert!(prompt.contains(r#""status":"completed""#));
+        assert!(prompt.contains("/mode"));
+        assert!(prompt.len() < 2_000, "prompt is {} chars", prompt.len());
+    }
+
+    #[test]
     fn system_prompt_carries_the_occam_style_laws() {
         let prompt = agent_system_prompt();
         assert!(prompt.contains("Never restate the request"));
@@ -1753,6 +1935,45 @@ mod tests {
         assert!(prompt.contains("Reply in the same language as the user's request"));
         assert!(prompt.contains("Format for scanning"));
         assert!(prompt.contains("Markdown table only when comparing three or more items"));
+    }
+
+    #[test]
+    fn system_prompt_carries_the_working_style() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("Working style, non-negotiable"));
+        assert!(prompt.contains("Karpathy's coding guidelines"));
+        assert!(prompt.contains("Felix Rieseberg"));
+        assert!(prompt.contains("Aim at the outcome, not the literal wording"));
+        assert!(prompt.contains("prefer deeper over bigger"));
+        assert!(prompt.contains("Challenge assumptions against raw data"));
+        assert!(prompt.contains("Prefer an outside check"));
+        assert!(prompt.contains("Use the methods and instruments a top practitioner would use"));
+        assert!(prompt.contains("do the work rather than role-playing the expert"));
+        assert!(prompt.contains("Plan before building"));
+        assert!(prompt.contains("Verify before saying done"));
+        assert!(prompt.contains("Do not add unrequested scope"));
+    }
+
+    #[test]
+    fn reasoning_effort_reaches_the_wire_request() {
+        let provider = OpenAiCompatibleProvider::new(
+            "provider",
+            "model",
+            "https://example.invalid/v1",
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap()
+        .with_reasoning_effort(Some(ReasoningEffort::High));
+        let body = serde_json::to_value(provider.wire_body(Vec::new(), Vec::new(), false)).unwrap();
+        assert_eq!(body["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn model_discovery_parses_and_deduplicates_ids() {
+        let models = parse_model_ids(r#"{"data":[{"id":"b"},{"id":"a"},{"id":"a"}]}"#).unwrap();
+        assert_eq!(models, vec!["a".to_string(), "b".to_string()]);
+        assert!(parse_model_ids("not json").is_err());
     }
 
     #[async_trait]

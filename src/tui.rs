@@ -93,15 +93,24 @@ pub const MODE_MENU: &[ModeMenuItem] = &[
 ];
 
 pub const WELCOME_LOGO: &[&str] = &[
-    " ╔╗ ╔═══╗             ╔╗ ",
-    "╔╝║ ║╔═╗║            ╔╝╚╗",
-    "╚╗║ ║║ ║║╔══╗╔══╗╔═╗ ╚╗╔╝",
-    " ║║ ║╚═╝║║╔╗║║╔╗║║╔╗╗ ║║ ",
-    "╔╝╚╗║╔═╗║║╚╝║║║═╣║║║║ ║╚╗",
-    "╚══╝╚╝ ╚╝╚═╗║╚══╝╚╝╚╝ ╚═╝",
-    "         ╔═╝║            ",
-    "         ╚══╝            ",
+    "╔═══╗╔═══╗             ╔╗",
+    "║╔═╗║║╔═╗║            ╔╝╚╗",
+    "║╚══╗║║ ║║╔══╗╔══╗╔═╗ ╚╗╔╝",
+    "╚══╗║║╚═╝║║╔╗║║╔╗║║╔╗╗ ║║",
+    "║╚═╝║║╔═╗║║╚╝║║║═╣║║║║ ║╚╗",
+    "╚═══╝╚╝ ╚╝╚═╗║╚══╝╚╝╚╝ ╚═╝",
+    "          ╔═╝║",
+    "          ╚══╝",
 ];
+
+pub const EXIT_LOGO: &[&str] = &[
+    "█▀▀ █▀█ █▀▀ █▀▀ █▀▄ ▀█▀",
+    "▀▀█ █▀█ █ █ █▀  █ █  █",
+    "▀▀▀ ▀ ▀ ▀▀▀ ▀▀▀ ▀ ▀  ▀",
+];
+
+const WELCOME_ACCENT_WIDTH: usize = 5;
+pub const EXIT_ACCENT_WIDTH: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TuiTone {
@@ -208,6 +217,14 @@ pub struct CommandMenuItem {
     pub id: String,
     pub label: String,
     pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SecretInput {
+    label: String,
+    provider_id: String,
+    provider_model: String,
+    previous_input: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -431,6 +448,8 @@ pub struct TuiState {
     activity_frame: usize,
     clarify: Option<TuiClarifyState>,
     last_clarify: Option<TuiClarifyResult>,
+    secret_input: Option<SecretInput>,
+    provider_models: Vec<String>,
 }
 
 impl TuiState {
@@ -499,6 +518,8 @@ impl TuiState {
             activity_frame: 0,
             clarify: None,
             last_clarify: None,
+            secret_input: None,
+            provider_models: Vec::new(),
         }
     }
 
@@ -1137,6 +1158,67 @@ impl TuiState {
         self.history_cursor = None;
     }
 
+    pub fn begin_secret_input(
+        &mut self,
+        label: impl Into<String>,
+        provider_id: impl Into<String>,
+        provider_model: impl Into<String>,
+    ) {
+        let previous_input = std::mem::take(&mut self.input);
+        self.input_cursor = 0;
+        self.input_scroll = 0;
+        self.selection_anchor = None;
+        self.slash_drawer_dismissed = true;
+        self.pending_confirmation = None;
+        self.history_cursor = None;
+        self.secret_input = Some(SecretInput {
+            label: sanitize_inline(&label.into()),
+            provider_id: provider_id.into(),
+            provider_model: provider_model.into(),
+            previous_input,
+        });
+        self.clear_notice();
+        self.welcome_visible = false;
+    }
+
+    pub fn secret_input_active(&self) -> bool {
+        self.secret_input.is_some()
+    }
+
+    pub fn secret_input_label(&self) -> Option<&str> {
+        self.secret_input
+            .as_ref()
+            .map(|secret| secret.label.as_str())
+    }
+
+    pub fn cancel_secret_input(&mut self) {
+        let Some(secret) = self.secret_input.take() else {
+            return;
+        };
+        self.input = secret.previous_input;
+        self.input_cursor = self.input.len();
+        self.input_scroll = 0;
+        self.clear_notice();
+    }
+
+    pub fn take_secret_input(&mut self) -> Option<(String, String, String)> {
+        let secret = self.secret_input.take()?;
+        let key = std::mem::take(&mut self.input);
+        self.input = secret.previous_input;
+        self.input_cursor = self.input.len();
+        self.input_scroll = 0;
+        self.clear_notice();
+        Some((secret.provider_id, secret.provider_model, key))
+    }
+
+    pub fn set_provider_models(&mut self, models: Vec<String>) {
+        self.provider_models = models;
+    }
+
+    pub fn provider_models(&self) -> &[String] {
+        &self.provider_models
+    }
+
     pub fn history_active(&self) -> bool {
         self.history_cursor.is_some()
     }
@@ -1226,7 +1308,9 @@ impl TuiState {
         self.clear_transcript_selection();
         self.input_scroll = self.input_scroll.min(self.input_cursor);
         self.selected_command = 0;
-        self.slash_drawer_dismissed = false;
+        if self.secret_input.is_none() {
+            self.slash_drawer_dismissed = false;
+        }
         self.pending_confirmation = None;
         self.history_cursor = None;
     }
@@ -1577,9 +1661,16 @@ impl TuiState {
         self.pending_confirmation = None;
     }
 
-    pub fn request_quit(&mut self) {
+    /// Arms quit on the first call and confirms it on the second. Returns
+    /// `true` when the second Ctrl+Q should exit.
+    pub fn request_quit(&mut self) -> bool {
+        if self.quit_requested {
+            self.quit_requested = false;
+            return true;
+        }
         self.quit_requested = true;
-        self.set_notice("再次按 Enter 退出，Esc 取消");
+        self.set_notice("再次按 Ctrl+Q 退出，Esc 取消");
+        false
     }
 
     pub fn quit_requested(&self) -> bool {
@@ -1588,12 +1679,6 @@ impl TuiState {
 
     pub fn cancel_quit(&mut self) {
         self.quit_requested = false;
-    }
-
-    pub fn take_quit_request(&mut self) -> bool {
-        let requested = self.quit_requested;
-        self.quit_requested = false;
-        requested
     }
 
     pub fn set_run_metrics(&mut self, metrics: TuiRunMetrics) {
@@ -2001,6 +2086,9 @@ impl TuiState {
     }
 
     pub fn selected_input_text(&self) -> Option<String> {
+        if self.secret_input.is_some() {
+            return None;
+        }
         self.selection_range()
             .map(|(start, end)| self.input[start..end].to_string())
             .filter(|text| !text.is_empty())
@@ -2171,10 +2259,15 @@ impl TuiState {
                 }
             }
         }
+        let input = if self.secret_input.is_some() {
+            "•".repeat(self.input.chars().count())
+        } else {
+            self.input.clone()
+        };
         output.push_str(&format!(
             "{}\n❯ {}\n",
             fit_row(&self.activity_line(), columns),
-            self.input
+            input
         ));
         output
     }
@@ -2299,7 +2392,7 @@ impl TuiState {
                 block_width.min(area.width),
                 block_height.min(area.height),
             );
-            let mut lines = welcome_mark_lines()
+            let mut lines = logo_mark_lines(WELCOME_LOGO, WELCOME_ACCENT_WIDTH)
                 .into_iter()
                 .map(|line| line.alignment(Alignment::Center))
                 .collect::<Vec<_>>();
@@ -2337,7 +2430,7 @@ impl TuiState {
                 .saturating_add(area.height.saturating_sub(content_height) / 2);
             let compact = Rect::new(area.x, start_y, area.width, area.height.min(content_height));
             let title = vec![Line::styled(
-                "1-Agent",
+                "Sagent",
                 Style::default().fg(MARK_GREEN).add_modifier(Modifier::BOLD),
             )];
             frame.render_widget(Paragraph::new(title).alignment(Alignment::Center), compact);
@@ -3057,7 +3150,13 @@ impl TuiState {
             "❯ ",
             Style::default().fg(Color::LightGreen).bg(PANEL_BG),
         )];
-        if !self.input.is_empty() {
+        if self.secret_input.is_some() {
+            let masked = "•".repeat(self.input[self.input_scroll..visible_end].chars().count());
+            spans.push(Span::styled(
+                masked,
+                Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG),
+            ));
+        } else if !self.input.is_empty() {
             spans.extend(self.input_spans(visible_end));
         }
         frame.render_widget(
@@ -3065,8 +3164,14 @@ impl TuiState {
             input_area,
         );
 
-        let cursor_column =
-            text_x + self.input[self.input_scroll..self.input_cursor].width() as u16;
+        let cursor_offset = if self.secret_input.is_some() {
+            self.input[self.input_scroll..self.input_cursor]
+                .chars()
+                .count()
+        } else {
+            self.input[self.input_scroll..self.input_cursor].width()
+        };
+        let cursor_column = text_x + cursor_offset as u16;
         frame.set_cursor_position((
             cursor_column.min(area.right().saturating_sub(1)),
             input_area.y,
@@ -5383,46 +5488,65 @@ fn draw_clarify_panel(frame: &mut Frame, clarify: &TuiClarifyState) {
     );
 }
 
-/// The mark is drawn in two greens: the leading `1` in the accent and the rest
-/// of the word in the body green.
-fn welcome_mark_lines() -> Vec<Line<'static>> {
-    WELCOME_LOGO
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogoInk {
+    Space,
+    Accent,
+    Body,
+    Shadow,
+}
+
+/// The mark opens with an `S` in the accent green; the rest of the word uses
+/// the body green. Shadow glyphs are darkened further.
+fn logo_mark_lines(logo: &[&str], accent_width: usize) -> Vec<Line<'static>> {
+    let width = logo
         .iter()
-        .map(|row| {
-            Line::from(
-                row.chars()
-                    .enumerate()
-                    .map(|(column, c)| {
-                        // The mark opens with a four-column "1"; the rest is the
-                        // word. Spaces stay empty so the terminal shows through.
-                        let style = if c == ' ' {
-                            Style::default()
-                        } else if column < 4 {
-                            Style::default().fg(MARK_GREEN)
-                        } else {
-                            Style::default().fg(PANEL_TEXT_GREEN)
-                        };
-                        Span::styled(c.to_string(), style)
-                    })
-                    .collect::<Vec<_>>(),
-            )
+        .map(|row| row.chars().count())
+        .max()
+        .unwrap_or_default();
+    logo.iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let mut spans = row
+                .chars()
+                .enumerate()
+                .map(|(column, character)| {
+                    let style = match logo_ink(logo, accent_width, index, column) {
+                        LogoInk::Space => Style::default(),
+                        LogoInk::Accent => Style::default().fg(MARK_GREEN),
+                        LogoInk::Body => Style::default().fg(PANEL_TEXT_GREEN),
+                        LogoInk::Shadow => Style::default().fg(PANEL_GREEN),
+                    };
+                    Span::styled(character.to_string(), style)
+                })
+                .collect::<Vec<_>>();
+            // Pad to the widest row so centered rows keep their columns aligned.
+            for _ in row.chars().count()..width {
+                spans.push(Span::raw(" "));
+            }
+            Line::from(spans)
         })
         .collect()
 }
 
-pub fn welcome_logo_green_range(index: usize) -> Range<usize> {
-    let Some(line) = WELCOME_LOGO.get(index) else {
-        return 0..0;
+pub fn logo_ink(logo: &[&str], accent_width: usize, index: usize, column: usize) -> LogoInk {
+    let Some(line) = logo.get(index) else {
+        return LogoInk::Space;
     };
-    let mut start = None;
-    let mut end = 0;
-    for (column, character) in line.chars().enumerate() {
-        if column < 4 && character != ' ' {
-            start.get_or_insert(column);
-            end = column + 1;
-        }
+    let Some(character) = line.chars().nth(column) else {
+        return LogoInk::Space;
+    };
+    if character == ' ' {
+        return LogoInk::Space;
     }
-    start.unwrap_or(0)..end
+    if character == '░' {
+        return LogoInk::Shadow;
+    }
+    if column < accent_width && !line.starts_with(' ') {
+        LogoInk::Accent
+    } else {
+        LogoInk::Body
+    }
 }
 
 fn wrap_first_then_rest(text: &str, first_width: usize, rest_width: usize) -> Vec<String> {
@@ -5860,14 +5984,15 @@ mod tests {
     }
 
     #[test]
-    fn quit_requires_an_explicit_confirmation() {
+    fn quit_needs_two_ctrl_q_presses() {
         let mut state = TuiState::new("mock", 6, 120);
-        state.request_quit();
+        assert!(!state.request_quit());
         assert!(state.quit_requested());
         state.cancel_quit();
         assert!(!state.quit_requested());
-        state.request_quit();
-        assert!(state.take_quit_request());
+        assert!(!state.request_quit());
+        assert!(state.quit_requested());
+        assert!(state.request_quit());
         assert!(!state.quit_requested());
     }
 
@@ -6008,6 +6133,22 @@ mod tests {
             .unwrap();
         assert_eq!(prompt.symbol(), "❯");
         assert_eq!(prompt.fg, Color::LightGreen);
+    }
+
+    #[test]
+    fn secret_input_is_masked_and_restores_the_previous_input() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("hello");
+        state.begin_secret_input("API Key", "provider", "model");
+        state.insert_text("sk-secret");
+        let screen = state.render_screen(80, 24);
+        assert!(!screen.contains("sk-secret"), "{screen}");
+        assert!(screen.contains('•'), "{screen}");
+        let (provider_id, model, key) = state.take_secret_input().expect("secret input");
+        assert_eq!(provider_id, "provider");
+        assert_eq!(model, "model");
+        assert_eq!(key, "sk-secret");
+        assert_eq!(state.input(), "hello");
     }
 
     #[test]
@@ -7312,7 +7453,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(
             colours.contains(&MARK_GREEN),
-            "the leading 1 keeps its green"
+            "the leading S keeps its green"
         );
         assert!(
             colours.contains(&PANEL_TEXT_GREEN),
@@ -7344,7 +7485,7 @@ mod tests {
     }
 
     #[test]
-    fn welcome_logo_keeps_one_green_and_paints_agent_deep_green() {
+    fn welcome_logo_highlights_the_s_and_paints_the_rest_dark_green() {
         let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
@@ -7355,7 +7496,7 @@ mod tests {
             let row: String = (0..buffer.area.width)
                 .map(|x| buffer.cell((x, y)).unwrap().symbol())
                 .collect();
-            if !['╔', '╚', '╝', '╗']
+            if !['╔', '║', '╚', '╝', '═']
                 .iter()
                 .any(|glyph| row.contains(*glyph))
             {
@@ -7368,12 +7509,42 @@ mod tests {
                 }
             }
         }
-        assert!(colours.contains(&MARK_GREEN), "the 1 stays bright green");
-        assert!(colours.contains(&PANEL_TEXT_GREEN), "Agent uses deep green");
+        assert!(colours.contains(&MARK_GREEN), "the S stays bright green");
+        assert!(
+            colours.contains(&PANEL_TEXT_GREEN),
+            "the rest of the word uses deep green"
+        );
         assert!(
             !colours.contains(&Color::Indexed(75)),
             "the mark has no blue"
         );
+    }
+
+    #[test]
+    fn logo_ink_marks_the_leading_s_and_darkens_shadows() {
+        assert_eq!(
+            logo_ink(WELCOME_LOGO, WELCOME_ACCENT_WIDTH, 0, 0),
+            LogoInk::Accent
+        );
+        assert_eq!(
+            logo_ink(WELCOME_LOGO, WELCOME_ACCENT_WIDTH, 0, 4),
+            LogoInk::Accent
+        );
+        assert_eq!(
+            logo_ink(WELCOME_LOGO, WELCOME_ACCENT_WIDTH, 0, 5),
+            LogoInk::Body
+        );
+        assert_eq!(
+            logo_ink(WELCOME_LOGO, WELCOME_ACCENT_WIDTH, 6, 10),
+            LogoInk::Body
+        );
+        assert_eq!(logo_ink(&["░"], 1, 0, 0), LogoInk::Shadow);
+        assert_eq!(
+            logo_ink(EXIT_LOGO, EXIT_ACCENT_WIDTH, 0, 0),
+            LogoInk::Accent
+        );
+        assert_eq!(logo_ink(EXIT_LOGO, EXIT_ACCENT_WIDTH, 0, 3), LogoInk::Space);
+        assert_eq!(logo_ink(EXIT_LOGO, EXIT_ACCENT_WIDTH, 0, 4), LogoInk::Body);
     }
 
     #[test]
@@ -7422,7 +7593,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(content.contains("1-Agent"));
+        assert!(content.contains("Sagent"));
         assert!(!content.contains('╔'), "the mark is not drawn at this size");
     }
 

@@ -2,19 +2,59 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- TUI quit: press `Ctrl+Q` twice to exit; the first press arms, `Enter`, `Esc`
+  or other input cancels. `Enter` no longer confirms quit. Applies while idle,
+  during a run and during a reframe request.
+- TUI provider panel: `/model` now opens a provider setup flow. A masked API
+  key input validates the credential through the provider's `/v1/models`
+  endpoint, lists real model choices, lets the user select a model and a
+  `reasoning_effort` (low/medium/high/off), probes the resulting provider, and
+  applies it to the next run. The key is stored at
+  `~/.1a/keys/provider-<id>.key` with mode 0600; the non-secret provider profile
+  is stored at `~/.1a/provider-profile.json`. Saved credentials override
+  environment/wrapper keys and are reapplied at startup. The
+  OpenAI-compatible wire request now carries `reasoning_effort`. The key never
+  enters the transcript or run journal. Tests: masked-input rendering,
+  private-file mode, model-list parsing, menu actions, and wire serialization.
+- Chat cost fast path (ADR-0129): TUI/CLI tasks that are short questions,
+  greetings or self-introductions now run as one model call with no tools, a
+  compact chat prompt and minimal `AgentAnswer` JSON instead of the full
+  evidence loop. Action requests, imperatives, continuations, attachments,
+  tool queries and context references stay on the work path. Retrieval, local
+  state, current facts and repository work also keep the tools even when the
+  sentence is phrased as a question. A chat answer that returns
+  `needs_evidence` escalates once to the full agent. Clear prose from a chat
+  model is accepted as the answer instead of paying for a JSON repair call.
+  The compact prompt carries the product's automatic-upgrade story; a
+  capability self-introduction also receives a verified capability catalog
+  with concrete features and differentiators. Benchmark and eval runs keep the
+  full loop. Tests: conservative intent classification, one-call/no-tool
+  request capture, work-path tool retention, context follow-ups, automatic
+  escalation, plain-text fallback, and capability-catalog injection.
+- Benchmark cost guard: `benchmark-run` accepts `--max-cost-micros`,
+  `--checkpoint-every`, `--max-provider-error-bps`, and `--min-crash-free-bps`.
+  It prints a preflight estimate (`--estimate-only` exits after printing it),
+  refuses to start when the estimate exceeds `--max-cost-micros`, then stops on
+  budget, task-completion, provider-error or crash-free checkpoints. It reports
+  `stopped_early`/`stop_reason`/`cost_micros`/`provider_error_bps` plus
+  estimated fields, and warns when provider prices are zero.
+  `configs/pi-deepseek.json` now carries reference input/output prices. At
+  reference prices, the 320-run core suite preflights at ≈¥26.68. Tests:
+  checkpoint helper, preflight estimate, and a failing-suite early-stop CLI
+  test.
 - TUI work-log information flow (ADR-0127): a model-request event advances the
   journal cursor before continuing, so the next event no longer appends the
-  same “Thinking” row twice. Each step is one `Model Request` row naming the
-  provider/model and showing new/total messages by role, without the
-  meaningless context-token or available-tool counts; tool results carry their
-  `call_id` and are inserted
-  under the matching call, so parallel calls keep pairs adjacent. Common
-  network/timeout/HTTP failures become short labels with the URL retained,
-  stop reasons are localized, and Markdown tables that would truncate render
-  as stacked label/field rows. The answer prompt asks a question only when the
-  next action depends on the user's choice and limits tables to three or more
-  items across two or more dimensions. Tests: rendered-buffer duplicate check,
-  call/result ordering, stacked-table fallback and failure labels.
+  same “Thinking” row twice. Each step is one `Model Request` row with the
+  step number and context tokens; the model lives in the panel status bar.
+  Tool results carry `✓`/`✗` outcome markers and categorized failures and are
+  inserted under the matching call, so parallel calls keep pairs adjacent.
+  Common network/timeout/HTTP failures become short labels with the URL
+  retained, stop reasons are localized, and Markdown tables that would
+  truncate render as stacked label/field rows. The answer prompt asks a
+  question only when the next action depends on the user's choice and limits
+  tables to three or more items across two or more dimensions. Tests:
+  rendered-buffer duplicate check, call/result ordering, stacked-table
+  fallback and failure labels.
 - Answer repair contract (ADR-0125): the repair request carries no tools, so a
   model cannot continue acting instead of returning the corrected
   `AgentAnswer` JSON. The repair prompt requires a high-impact assumption to

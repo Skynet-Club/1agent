@@ -382,8 +382,8 @@ section.
 - press `Esc` or click the follow control to return to the newest output;
 - hovering the follow control applies reverse-video highlighting;
 - the sticky prompt bar tracks the first visible answer and yields at prompt boundaries;
-- `Ctrl+Q` requests exit; press `Enter` to confirm or `Esc` to cancel, so a stray
-  terminal key cannot close the session accidentally;
+- `Ctrl+Q` arms exit on the first press and exits on the second; `Esc` or `Enter`
+  cancels, so a stray terminal key cannot close the session accidentally;
 - `/help` shows commands;
 - `/help` is an executable command palette rather than a static list; it is scoped to the
   current Core/Master surface and lifecycle stage, and `Enter` opens or runs the selected

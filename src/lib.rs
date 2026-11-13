@@ -16,6 +16,7 @@ pub mod authority;
 pub mod autonomy;
 pub mod benchmark;
 pub mod budget;
+pub mod capabilities;
 pub mod capability_probe;
 pub mod card_trust;
 pub mod cascade;

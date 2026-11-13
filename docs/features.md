@@ -199,6 +199,7 @@
 | Android/iOS App | **规划中** | 与 Bot 一起推进 |
 | macOS 正式支持 | **规划中** | 当前只验证 Linux |
 | Windows 正式支持 | **不发布（未测试）** | 仅内部构建；不提供下载，不作为支持平台 |
+| 成本治理 | **部分落地（0.97 卖点）** | 已落地 Chat 快速路径、聊天型 DirectAnswer 无工具、benchmark 开跑预估/预算/checkpoint/熔断；TUI 每轮成本、提示词/工具前缀缓存、工具结果压缩、cost per successful task 看板待补；详见 [cost-governance.md](cost-governance.md) |
 
 ## 4. 典型使用场景
 

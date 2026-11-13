@@ -105,7 +105,7 @@ Check provider configuration:
 | `Ctrl+T` | Open the conversation mode menu |
 | `Ctrl+K` | Open the `/` command drawer |
 | `Ctrl+O` | Open/close the run details and process trace |
-| `Ctrl+Q` | Request exit; `Enter` confirms, `Esc` cancels |
+| `Ctrl+Q` | Press twice to exit; the first press arms, `Esc` or `Enter` cancels |
 | `Ctrl+C` | Copy selected text |
 
 The session input box uses a dark-green panel whose background, border and panel text are dimmed by 50%. Input text stays white. While the width allows, token metrics sit on the right side of the input box's top border:

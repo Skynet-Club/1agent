@@ -27,6 +27,8 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub api_key_env: Option<String>,
     #[serde(default)]
+    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    #[serde(default)]
     pub privacy: PrivacyClass,
     #[serde(default)]
     pub quality_score: u32,
@@ -204,7 +206,8 @@ impl AgentConfig {
                             api_key,
                             timeout,
                         )
-                        .map_err(|error| ConfigError::Provider(error.to_string()))?;
+                        .map_err(|error| ConfigError::Provider(error.to_string()))?
+                        .with_reasoning_effort(provider.reasoning_effort);
                         Ok(ProviderCandidate {
                             provider: Arc::new(model_provider),
                             manifest,
@@ -319,6 +322,7 @@ mod tests {
                 model: "offline-v1".into(),
                 base_url: None,
                 api_key_env: None,
+                reasoning_effort: None,
                 privacy: PrivacyClass::Local,
                 quality_score: 1,
                 input_cost_micros_per_k: 0,

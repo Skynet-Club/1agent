@@ -82,12 +82,27 @@ TUI 默认把会话写入 `--journal-dir`（默认 `.journal`）；需要固定�
 
 ### 接入真实模型
 
-密钥只放环境变量，不写入配置文件：
+密钥默认走环境变量，不写入 provider 配置文件：
 
 ```bash
 export DEEPSEEK_API_KEY="..."
 1agent tui --config configs/example.json --allow-network
 ```
+
+TUI 里也可以直接配置：
+
+1. 输入 `/model`，选择「设置 API Key 与模型…」。
+2. 输入 API Key（掩码显示，Enter 保存，Esc 取消）。
+3. 1Agent 调用 provider 的 `/v1/models` 验证 key，并列出可用模型。
+4. 选择模型版本，再选择思考深度（`reasoning_effort`：快速 / 标准 / 深度 / 关闭）。
+5. 自动测试连接；成功后才保存并应用到下一次运行。
+
+保存位置：
+
+- Key：`~/.1a/keys/provider-<id>.key`，权限 `0600`。
+- 非密配置：`~/.1a/provider-profile.json`，权限 `0600`，记录 provider/model/思考深度。
+
+Key 不会进入 transcript，也不会写入 run journal。保存的 key 优先于环境变量和包装脚本的 `~/.pi/agent/auth.json`。思考深度会作为 `reasoning_effort` 下发给 provider；如果 provider 不接受该字段，面板会显示失败且不保存。
 
 或使用命令行参数：
 
@@ -156,6 +171,8 @@ Provider 告警历史：
 
 按 provider/model 汇总 token、成本与 p50/p95 延迟；数据来自 run journal，未上报 usage 的调用按 0 计。
 
+聊天成本：短问句、问候和自我介绍会走“聊天快速路径”，只调用一次模型，不挂工具，也不会跑完整的证据循环。带动作的请求（写入、执行、安装、读取、下载等）、“继续”、上下文指代，以及检索/本地/实时信息类问题仍走完整 Agent。快速路径答不上来时，会自动升级一次完整 Agent；日常不需要手动切模式，系统会按任务自动选择。
+
 检查 provider 配置：
 
 ```bash
@@ -177,7 +194,7 @@ Provider 告警历史：
 | `Ctrl+T` | 打开对话模式菜单 |
 | `Ctrl+K` | 打开 `/` 命令抽屉 |
 | `Ctrl+O` | 打开/关闭运行详情与过程记录 |
-| `Ctrl+Q` | 请求退出；`Enter` 确认，`Esc` 取消 |
+| `Ctrl+Q` | 连按两次退出；第一次提示，`Esc` 或 `Enter` 取消 |
 | `Ctrl+C` | 复制选中文本 |
 
 > 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭。最终是否执行仍由 Authority/Policy 和 Workshop 决定。网络仍需 `--allow-network`。

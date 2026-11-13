@@ -1,6 +1,6 @@
 # ADR 0030: Guarded Quit, Direct Answers and Run Metrics
 
-- Status: accepted for the interaction slice
+- Status: accepted for the interaction slice; amended 2026-11-13
 - Date: 2026-11-09
 
 ## Context
@@ -18,8 +18,8 @@ time, token usage or provider cache statistics.
 1. A bare `1agent tui` starts a new session. `--session <id>` reopens an earlier
    session explicitly. The post-exit banner reports the current session title and
    continue command.
-2. `Ctrl+Q` only arms an exit request. `Enter` confirms, `Esc` or other input
-   cancels. The same rule applies while a run is active.
+2. The first `Ctrl+Q` arms an exit request; the second `Ctrl+Q` exits. `Enter`,
+   `Esc` or other input cancels. The same rule applies while a run is active.
 3. Direct Answer mode writes only the answer conclusion to the transcript for
    every answer status. Structured evidence, caveats and flip conditions remain
    available through `/details`; other modes keep their sections.
@@ -37,7 +37,7 @@ time, token usage or provider cache statistics.
 - A new launch remains a clean session; resuming an earlier conversation requires
   the explicit `--session <id>` command printed in the exit banner.
 - Accidental or terminal-mapped quit keys no longer terminate the TUI; quitting
-  takes one explicit confirmation.
+  takes a second `Ctrl+Q`.
 - Direct answers stay concise even when the answer is conditional or needs
   evidence; structured detail is still auditable.
 - The status line is wider and requires a terminal with enough columns; long
