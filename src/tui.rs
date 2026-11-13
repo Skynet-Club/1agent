@@ -192,6 +192,7 @@ struct TranscriptEntry {
     label: Option<String>,
     label_tone: TuiTone,
     text: String,
+    call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,6 +254,7 @@ pub enum TuiActivityKind {
     Understanding,
     Planning,
     Routing,
+    Requesting,
     Thinking,
     Reading,
     Writing,
@@ -331,6 +333,7 @@ impl TuiActivityKind {
             Self::Understanding => ("任务理解", "Task Understanding"),
             Self::Planning => ("规划", "Planning"),
             Self::Routing => ("选择模型", "Model Routing"),
+            Self::Requesting => ("模型请求", "Model Request"),
             Self::Thinking => ("模型思考", "Thinking"),
             Self::Reading => ("读取", "Reading"),
             Self::Writing => ("写入", "Writing"),
@@ -1631,8 +1634,65 @@ impl TuiState {
         );
     }
 
+    pub fn push_work_call(
+        &mut self,
+        call_id: impl Into<String>,
+        kind: TuiActivityKind,
+        detail: impl Into<String>,
+    ) {
+        let tone = activity_kind_tone(kind);
+        let (cn, en) = kind.label();
+        self.push_entry(
+            TranscriptKind::Work,
+            tone,
+            Some(format!("{cn} {en}")),
+            tone,
+            detail.into(),
+        );
+        if let Some(entry) = self.transcript.last_mut() {
+            entry.call_id = Some(call_id.into());
+        }
+    }
+
     pub fn push_work_result(&mut self, detail: impl Into<String>, tone: TuiTone) {
         self.push_entry(TranscriptKind::WorkResult, tone, None, tone, detail.into());
+    }
+
+    /// Insert a tool result directly under its call, so parallel calls keep
+    /// their call/result pairs adjacent.
+    pub fn push_work_result_for(
+        &mut self,
+        call_id: &str,
+        detail: impl Into<String>,
+        tone: TuiTone,
+    ) {
+        let Some(index) = self
+            .transcript
+            .iter()
+            .position(|entry| entry.call_id.as_deref() == Some(call_id))
+        else {
+            self.push_work_result(detail, tone);
+            return;
+        };
+        if self.scroll_from_bottom > 0 {
+            self.unseen_activity = true;
+        }
+        let detail = detail.into();
+        self.transcript.insert(
+            index + 1,
+            TranscriptEntry {
+                kind: TranscriptKind::WorkResult,
+                tone,
+                label: None,
+                label_tone: tone,
+                text: sanitize_multiline(&detail),
+                call_id: None,
+            },
+        );
+        if self.transcript.len() > 200 {
+            self.transcript.remove(0);
+        }
+        self.transcript_revision = self.transcript_revision.wrapping_add(1);
     }
 
     pub fn clear_activity(&mut self) {
@@ -3607,6 +3667,7 @@ impl TuiState {
             label: label.map(|label| sanitize_inline(&label)),
             label_tone,
             text: sanitize_multiline(&entry),
+            call_id: None,
         });
         if self.transcript.len() > 200 {
             self.transcript.remove(0);
@@ -3818,6 +3879,36 @@ fn markdown_table(lines: &[&str], start: usize) -> Option<(Vec<String>, usize)> 
             *width = (*width).min(max - 1).max(6);
         }
     }
+    let truncated = rows.iter().any(|row| {
+        row.iter()
+            .enumerate()
+            .any(|(column, cell)| cell.width() > widths[column])
+    });
+    if truncated || columns > 4 {
+        let mut output = Vec::new();
+        for (row_index, row) in rows.iter().enumerate() {
+            if row_index == 0 {
+                continue;
+            }
+            let label = row.first().map(String::as_str).unwrap_or("");
+            if !label.is_empty() {
+                output.push(label.to_string());
+            }
+            for column in 1..columns {
+                let header = rows
+                    .first()
+                    .and_then(|header| header.get(column))
+                    .map(String::as_str)
+                    .unwrap_or("");
+                let cell = row.get(column).map(String::as_str).unwrap_or("");
+                if !cell.is_empty() {
+                    output.push(format!("  {header}：{cell}"));
+                }
+            }
+            output.push(String::new());
+        }
+        return Some((output, index));
+    }
     let mut output = Vec::new();
     for (row_index, row) in rows.iter().enumerate() {
         let cells = (0..columns)
@@ -3868,6 +3959,7 @@ fn activity_kind_tone(kind: TuiActivityKind) -> TuiTone {
         TuiActivityKind::Understanding
         | TuiActivityKind::Planning
         | TuiActivityKind::Routing
+        | TuiActivityKind::Requesting
         | TuiActivityKind::Thinking
         | TuiActivityKind::Reading
         | TuiActivityKind::Writing
@@ -6169,6 +6261,29 @@ mod tests {
     }
 
     #[test]
+    fn parallel_tool_results_are_inserted_under_their_calls() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_work_call("call-1", TuiActivityKind::Fetching, "fetch_url · a");
+        state.push_work_call("call-2", TuiActivityKind::Searching, "web_search · b");
+        state.push_work_result_for("call-1", "fetch_url · done", TuiTone::Success);
+        state.push_work_result_for("call-2", "web_search · done", TuiTone::Success);
+        let texts = state
+            .transcript
+            .iter()
+            .map(|entry| entry.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            texts,
+            [
+                "fetch_url · a",
+                "fetch_url · done",
+                "web_search · b",
+                "web_search · done"
+            ]
+        );
+    }
+
+    #[test]
     fn work_log_uses_bright_green_labels_and_deep_green_details() {
         let mut state = TuiState::new("mock", 6, 120);
         state.push_work(TuiActivityKind::Reading, "read_file · src/main.rs");
@@ -6333,6 +6448,25 @@ mod tests {
         assert!(
             widths.windows(2).all(|pair| pair[0] == pair[1]),
             "{widths:?}"
+        );
+    }
+
+    #[test]
+    fn a_table_that_would_truncate_is_stacked_instead() {
+        let lines = vec![
+            "| 方案 | 桌面可用 | 代价 |",
+            "|---|---|---|",
+            "| 继续用手机 Authy | 间接可用（Authy 多设备同步） | 零迁移，但每次要在手机确认 |",
+        ];
+        let (table, next) = markdown_table(&lines, 0).expect("table");
+        assert_eq!(next, 3);
+        assert!(
+            table.iter().any(|line| line.contains("桌面可用：")),
+            "{table:?}"
+        );
+        assert!(
+            !table.iter().any(|line| line.trim_start().starts_with('|')),
+            "{table:?}"
         );
     }
 

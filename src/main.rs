@@ -18367,7 +18367,7 @@ fn tui_run_trace(journal_path: &Path) -> String {
                 ));
             }
             JournalEventKind::RunStopped { reason } => {
-                lines.push(format!("结束 · {reason:?}"));
+                lines.push(format!("结束 · {}", stop_reason_label(*reason)));
             }
             _ => {}
         }
@@ -18607,7 +18607,7 @@ fn tui_journal_snapshot(journal_path: &std::path::Path) -> TuiJournalSnapshot {
             JournalEventKind::RunStopped { reason } => {
                 snapshot.activity = Some(TuiActivity::bilingual(
                     TuiActivityKind::Answering,
-                    format!("运行结束 · {reason:?}"),
+                    format!("运行结束 · {}", stop_reason_label(*reason)),
                     step,
                 ));
             }
@@ -18636,19 +18636,20 @@ fn append_work_events(
             continue;
         }
         if let Some(request) = model_request {
-            state.push_work(TuiActivityKind::Thinking, format!("第 {step} 步"));
             let tokens = first_principles_agent::context::total_request_tokens(
                 &request.messages,
                 &request.tools,
             );
-            state.push_work_result(
+            state.push_work(
+                TuiActivityKind::Requesting,
                 format!(
-                    "请求 {} 条消息 · 上下文 {tokens} tokens · 工具 {} 个",
-                    request.messages.len(),
-                    request.tools.len()
+                    "第 {step} 步 · {} 条消息 · {tokens} tokens",
+                    request.messages.len()
                 ),
-                TuiTone::Muted,
             );
+            // Mark the request event consumed before `continue`; otherwise the
+            // next event causes this row to be appended a second time.
+            *last_seq = Some(event.seq);
             continue;
         }
         match &event.event {
@@ -18679,7 +18680,11 @@ fn append_work_events(
                 state.push_work_result(detail, TuiTone::Muted);
             }
             JournalEventKind::ToolCalled { call } => {
-                state.push_work(tool_activity_kind(&call.name), work_tool_detail(call));
+                state.push_work_call(
+                    &call.id,
+                    tool_activity_kind(&call.name),
+                    work_tool_detail(call),
+                );
             }
             JournalEventKind::ToolObserved { observation } => {
                 let tone = if observation.status == ToolStatus::Ok {
@@ -18687,7 +18692,11 @@ fn append_work_events(
                 } else {
                     TuiTone::Danger
                 };
-                state.push_work_result(work_result_detail(observation), tone);
+                state.push_work_result_for(
+                    &observation.call_id,
+                    work_result_detail(observation),
+                    tone,
+                );
             }
             JournalEventKind::ProviderFailed { failure } => {
                 state.push_work_with_tone(
@@ -18734,7 +18743,10 @@ fn append_work_events(
                 );
             }
             JournalEventKind::RunStopped { reason } => {
-                state.push_work(TuiActivityKind::Answering, format!("运行结束 · {reason:?}"));
+                state.push_work(
+                    TuiActivityKind::Answering,
+                    format!("运行结束 · {}", stop_reason_label(*reason)),
+                );
             }
             _ => {}
         }
@@ -18791,19 +18803,26 @@ fn work_tool_detail(call: &first_principles_agent::ToolCall) -> String {
 
 fn work_result_detail(observation: &ToolObservation) -> String {
     let status = tool_activity_status(observation.status);
-    let mut detail = if observation.status == ToolStatus::Ok {
-        String::new()
-    } else {
-        format!("{status} · ")
-    };
     let summary = sanitize_tui_inline(&observation.summary);
-    if summary.is_empty() {
-        if detail.is_empty() {
-            detail.push_str(status);
-        }
+    let summary = if observation.status == ToolStatus::Ok {
+        summary
     } else {
-        detail.push_str(&bounded_tui_text(&summary, 160));
-    }
+        humanize_tool_failure(&summary, observation.status)
+    };
+    let tool = observation.tool.trim();
+    let mut detail = if observation.status == ToolStatus::Ok {
+        if tool.is_empty() {
+            summary
+        } else if summary.is_empty() {
+            format!("{tool} · {status}")
+        } else {
+            format!("{tool} · {summary}")
+        }
+    } else if tool.is_empty() {
+        format!("{status} · {summary}")
+    } else {
+        format!("{status} · {tool} · {summary}")
+    };
     if observation.tool.starts_with("terminal_") && !observation.content.trim().is_empty() {
         let preview = observation
             .content
@@ -18817,6 +18836,37 @@ fn work_result_detail(observation: &ToolObservation) -> String {
         detail.push_str(&bounded_tui_text(&preview, 240));
     }
     detail
+}
+
+fn extract_http_url(text: &str) -> Option<&str> {
+    let start = text.find("http")?;
+    let rest = &text[start..];
+    let end = rest
+        .find(|character: char| character == ')' || character.is_whitespace())
+        .unwrap_or(rest.len());
+    Some(&rest[..end])
+}
+
+fn humanize_tool_failure(summary: &str, status: ToolStatus) -> String {
+    let lower = summary.to_ascii_lowercase();
+    if status == ToolStatus::TimedOut || lower.contains("timed out") {
+        return "请求超时".into();
+    }
+    if lower.contains("fetch failed") || lower.contains("error sending request") {
+        return extract_http_url(summary)
+            .map(|url| format!("网络请求失败（{url}）"))
+            .unwrap_or_else(|| "网络请求失败".into());
+    }
+    let unboxed = summary
+        .strip_prefix("tool failed: ")
+        .unwrap_or(summary)
+        .trim();
+    if let Some(rest) = unboxed.strip_prefix("HTTP ")
+        && let Some(code) = rest.split_whitespace().next()
+    {
+        return format!("HTTP {code}");
+    }
+    bounded_tui_text(unboxed, 120)
 }
 
 fn sanitize_tui_inline(value: &str) -> String {
@@ -18889,6 +18939,20 @@ fn tool_activity_status(status: ToolStatus) -> &'static str {
         ToolStatus::PermissionDenied => "无权限",
         ToolStatus::TimedOut => "超时",
         ToolStatus::Failed => "失败",
+    }
+}
+
+fn stop_reason_label(reason: StopReason) -> &'static str {
+    match reason {
+        StopReason::Completed => "完成",
+        StopReason::NeedsEvidence => "需要证据",
+        StopReason::NeedsAuthorization => "需要授权",
+        StopReason::BudgetExhausted => "预算耗尽",
+        StopReason::Cancelled => "已取消",
+        StopReason::ProviderError => "模型调用失败",
+        StopReason::ToolFailure => "工具失败",
+        StopReason::InvalidOutput => "输出无效",
+        StopReason::InternalError => "内部错误",
     }
 }
 
@@ -20544,6 +20608,106 @@ mod tui_rendering_tests {
                 .any(|fact| fact.contains("Short reply `felix`")),
             "{:?}",
             request.known_facts
+        );
+    }
+
+    fn tui_screen_text(state: &mut TuiState) -> String {
+        let backend = ratatui::backend::TestBackend::new(120, 40);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        (0..40)
+            .map(|y| {
+                (0..120)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn tool_results_pair_the_tool_name_and_humanize_failures() {
+        let observation = |status, summary: &str| first_principles_agent::ToolObservation {
+            call_id: "call-1".into(),
+            tool: "fetch_url".into(),
+            status,
+            summary: summary.into(),
+            content: String::new(),
+            error_code: None,
+            metadata: Default::default(),
+        };
+        assert_eq!(
+            work_result_detail(&observation(
+                ToolStatus::Failed,
+                "tool failed: fetch failed: error sending request for url (https://example.com)"
+            )),
+            "失败 · fetch_url · 网络请求失败（https://example.com）"
+        );
+        assert_eq!(
+            work_result_detail(&observation(ToolStatus::TimedOut, "tool timed out")),
+            "超时 · fetch_url · 请求超时"
+        );
+        assert_eq!(
+            work_result_detail(&observation(
+                ToolStatus::Ok,
+                "已抓取 example.com（HTTP 200）"
+            )),
+            "fetch_url · 已抓取 example.com（HTTP 200）"
+        );
+    }
+
+    #[test]
+    fn append_work_events_does_not_duplicate_a_model_request() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("trace.jsonl");
+        let run_id = Uuid::new_v4();
+        let mut journal = first_principles_agent::Journal::create(&path, run_id).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("trace", workspace.path().to_path_buf()),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ModelRequested {
+                request: first_principles_agent::ModelRequest {
+                    run_id,
+                    mode: CognitiveMode::DirectAnswer,
+                    messages: Vec::new(),
+                    tools: Vec::new(),
+                },
+            })
+            .unwrap();
+
+        let mut state = TuiState::new("mock", 6, 120);
+        let mut last_seq = None;
+        append_work_events(&mut state, &path, &mut last_seq);
+        assert_eq!(
+            tui_screen_text(&mut state)
+                .replace(' ', "")
+                .matches("模型请求")
+                .count(),
+            1
+        );
+
+        journal
+            .append(first_principles_agent::JournalEventKind::ModelResponded {
+                response: first_principles_agent::ModelResponse {
+                    provider_id: "fixture-provider".into(),
+                    model: "fixture-model".into(),
+                    turn: first_principles_agent::ModelTurn::ToolCalls { calls: Vec::new() },
+                    usage: first_principles_agent::Usage::default(),
+                },
+            })
+            .unwrap();
+        append_work_events(&mut state, &path, &mut last_seq);
+        assert_eq!(
+            tui_screen_text(&mut state)
+                .replace(' ', "")
+                .matches("模型请求")
+                .count(),
+            1,
+            "the request row must not be appended again when the response arrives"
         );
     }
 

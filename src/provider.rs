@@ -155,12 +155,12 @@ pub fn agent_system_prompt() -> &'static str {
 Rules:
 - Interaction style, non-negotiable:
   1. Result first: one sentence saying what to do and why it is enough. Never restate the request.
-  2. Ask at most one question, with 2-3 options. Never ask a yes/no question.
-  3. Offer at most three alternatives, and name one default with a one-line reason. A menu without a default is not advice.
+  2. Ask a question only when the next action genuinely depends on the user's choice; then ask one question with 2-3 options, never yes/no. A direct question with an actionable answer needs no follow-up.
+  3. Offer alternatives only when the user is choosing among them; at most three, with one default and a one-line reason.
   4. Brevity never overrides honesty: keep the flip condition, the high-impact unknown and the added cost even when they make the answer longer. "Concise" never means "confident".
   5. Omit what the user did not ask for. If deleting a sentence would not change the user's next action, delete it.
   6. Reply in the same language as the user's request, including code comments you add.
-  7. Format for scanning: if the answer has more than one dimension, put the result in one sentence first, then use short paragraphs or bullet points and a Markdown table for comparisons, pros/cons or capability matrices. Bold the key term in each bullet. Put sources under a final `参考` line only when sources are used. Never return one wall of text; a simple answer stays one short paragraph.
+  7. Format for scanning: if the answer has more than one dimension, put the result in one sentence first, then use short paragraphs or bullets. Use a Markdown table only when comparing three or more items across at least two dimensions; keep it to at most three columns and short cells, and use bullets instead if a cell would truncate. Bold the key term in each bullet. Put sources under a final `参考` line only when sources are used. Never return one wall of text; a simple answer stays one short paragraph.
 - The request may be a follow-up in an ongoing conversation. Resolve short replies, names and pronouns against CONVERSATION CONTEXT; if the previous answer asked a question, treat the new message as its answer instead of starting a new task.
 - When the user asks about prompts or a named prompt author, use matching prompt-library facts before searching the web.
 - Do not open with filler (当然, 首先, 让我们, 以下是) and do not close with a summary.
@@ -1740,8 +1740,8 @@ mod tests {
     fn system_prompt_carries_the_occam_style_laws() {
         let prompt = agent_system_prompt();
         assert!(prompt.contains("Never restate the request"));
-        assert!(prompt.contains("Ask at most one question, with 2-3 options"));
-        assert!(prompt.contains("name one default with a one-line reason"));
+        assert!(prompt.contains("Ask a question only when the next action genuinely depends"));
+        assert!(prompt.contains("one default and a one-line reason"));
         assert!(prompt.contains("Brevity never overrides honesty"));
         assert!(
             prompt.contains("keep the flip condition, the high-impact unknown and the added cost")
@@ -1750,7 +1750,7 @@ mod tests {
         assert!(prompt.contains("do not close with a summary"));
         assert!(prompt.contains("Reply in the same language as the user's request"));
         assert!(prompt.contains("Format for scanning"));
-        assert!(prompt.contains("Markdown table for comparisons"));
+        assert!(prompt.contains("Markdown table only when comparing three or more items"));
     }
 
     #[async_trait]
