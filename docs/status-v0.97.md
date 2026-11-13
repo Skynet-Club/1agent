@@ -77,12 +77,12 @@ This page is a measurement review, not a release announcement. A metric marked
   evidence.source must be the exact path. The repair tests assert both.
 - Benchmark metric split (ADR-0126): `EvalCaseResult.replay_ok` now uses
   `replay_events`; `benchmark-run` reports task-level M1 and completed-run M5
-  with independent gates. A post-repair 5-iteration validation run passed 37/40
-  tasks (92.5% task-level M1), 40/40 completed-case replay (M5 100%), and
-  5/5 suites crash-free (100%); suite-level all-8 completion was only 2/5
-  (40%). A
-  20-iteration run is in progress; the old 8h JSON has no task-level data and
-  cannot be rescored.
+  with independent gates. Post-repair samples: 5 iterations passed 37/40 tasks
+  (92.5% task-level M1, 2/5 suites) and 20 iterations passed 144/160 tasks
+  (90.0% task-level M1, 10/20 suites = 50%); both had 100% completed-case
+  replay (40/40 and 157/157) and 100% crash-free. The old 8h JSON has no
+  task-level data and cannot be rescored; a new 8h run must use the current
+  binary.
 - Real TTFT baseline: three DeepSeek streaming runs, p50 1.08 s / p95 2.48 s.
 - Rollback drill: 0.96.1 cannot read a 0.97 journal; the current binary reads
   0.96.1 journals.
@@ -127,9 +127,9 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Next actions
 
-- Answer-repair contract is fixed (ADR-0125). A 5-iteration benchmark with
-  task-level M1 ≥50% and completed-run M5 100% is running; use its per-task
-  diagnostics before scheduling a larger run.
+- Answer-repair contract is fixed (ADR-0125). The 5- and 20-iteration samples
+  pass task-level M1 (90% in the 20-run) and completed-run M5 (100%); schedule
+  a new 8h run with the current binary, then update M1/M2/M5.
 - Decide whether an irreparable model output should become a valid
   `NeedsEvidence` answer (auditable journal) instead of a hard runtime error;
   this would improve replay without claiming task success.
