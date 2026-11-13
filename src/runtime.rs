@@ -395,14 +395,15 @@ impl AgentRuntime {
              claim needs a source; a derived or assumed claim needs a non-empty scope; a \
              conflicting claim needs at least two distinct sources; a model_prior claim needs \
              empty sources; every conflict claim id must reference an existing claim and the pair \
-             must be distinct. Use null for unknown evidence timestamps. Read-only \
-             action_receipts must be empty."
+             must be distinct. If the answer depends on a high-impact assumption, do not return \
+             completed; set status to conditional or needs_evidence and declare the assumption. \
+             Use null for unknown evidence timestamps. Read-only action_receipts must be empty."
         )));
         let repair_request = ModelRequest {
             run_id: model_request.run_id,
             mode: model_request.mode,
             messages: repair_messages,
-            tools: model_request.tools.clone(),
+            tools: Vec::new(),
         };
         model_request_log
             .append(journal, repair_request.clone())
@@ -2288,6 +2289,13 @@ mod tests {
                         .last()
                         .is_some_and(|message| message.content.contains("failed validation"))
                 );
+                assert!(request.tools.is_empty(), "repair must not offer tools");
+                assert!(
+                    request
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.content.contains("high-impact assumption"))
+                );
             }
             let evidence_source = if call == 0 { "wrong.source" } else { "task" };
             let answer: AgentAnswer = serde_json::from_value(serde_json::json!({
@@ -2357,6 +2365,7 @@ mod tests {
                         .last()
                         .is_some_and(|message| message.content.contains("could not be parsed"))
                 );
+                assert!(request.tools.is_empty(), "repair must not offer tools");
                 assert!(
                     request
                         .messages

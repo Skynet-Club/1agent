@@ -1,4 +1,4 @@
-# 0.97 Status and Metric Review (2026-11-13, 09:20 CST)
+# 0.97 Status and Metric Review (2026-11-13, 09:55 CST)
 
 - Status: **local review; 0.97 is not release-ready — the 8h gate failed**
 - Latest feature commit: `41cb333` (watchdog containment; hash rewritten from
@@ -65,6 +65,13 @@ This page is a measurement review, not a release announcement. A metric marked
   136/280 all-task iterations (48.57%, 1.43 pp below the 0.97 ≥50% target),
   238/280 suite-replay-verified (85%; not the completed-run M5 denominator),
   280/280 crash-free. This is now the binding release blocker.
+- Answer repair contract (ADR-0125): repair requests carry no tools; a
+  high-impact assumption must downgrade to conditional/needs_evidence;
+  evidence.source must be the exact path. The repair tests assert both.
+- Benchmark metric split (ADR-0126): `EvalCaseResult.replay_ok` now uses
+  `replay_events`; `benchmark-run` reports task-level M1 and completed-run M5
+  with independent gates. A 5-iteration validation run uses M1 ≥50% and M5
+  100%; the old 8h JSON has no task-level data and cannot be rescored.
 - Real TTFT baseline: three DeepSeek streaming runs, p50 1.08 s / p95 2.48 s.
 - Rollback drill: 0.96.1 cannot read a 0.97 journal; the current binary reads
   0.96.1 journals.
@@ -109,10 +116,9 @@ This page is a measurement review, not a release announcement. A metric marked
 
 ## Next actions
 
-- Fix the answer-repair contract: disable tools on the repair request, make a
-  high-impact assumption downgrade to Conditional/NeedsEvidence, and require an
-  exact evidence path. Then run a short benchmark (e.g. 20–50 iterations) to
-  measure the change before scheduling another 8h run.
+- Answer-repair contract is fixed (ADR-0125). A 5-iteration benchmark with
+  task-level M1 ≥50% and completed-run M5 100% is running; use its per-task
+  diagnostics before scheduling a larger run.
 - Decide whether an irreparable model output should become a valid
   `NeedsEvidence` answer (auditable journal) instead of a hard runtime error;
   this would improve replay without claiming task success.

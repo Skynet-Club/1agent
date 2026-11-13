@@ -157,6 +157,8 @@ pub struct EvalCaseResult {
     pub duration_ms: u64,
     pub usage: Usage,
     pub audit_ok: bool,
+    #[serde(default)]
+    pub replay_ok: bool,
     pub issues: Vec<String>,
 }
 
@@ -807,6 +809,7 @@ async fn run_case(
         Err(error) => return failed_case(case.id, error.to_string()),
     };
     let audit = audit_events(&events);
+    let replay_ok = crate::journal::replay_events(&events).is_ok();
     let mut issues = audit.issues.clone();
     let mut provider_id = None;
     let mut model = None;
@@ -1012,6 +1015,7 @@ async fn run_case(
         duration_ms,
         usage,
         audit_ok: audit.ok,
+        replay_ok,
         issues,
     }
 }
@@ -1065,6 +1069,7 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         duration_ms: 0,
         usage: Usage::default(),
         audit_ok: false,
+        replay_ok: false,
         issues: vec![issue],
     }
 }
@@ -1678,6 +1683,7 @@ mod tests {
                 duration_ms: 0,
                 usage: Usage::default(),
                 audit_ok: true,
+                replay_ok: true,
                 issues: Vec::new(),
             }],
         };

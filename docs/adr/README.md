@@ -128,3 +128,5 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0122 | Model Request Deltas | [0122-model-request-deltas.md](0122-model-request-deltas.md) |
 | 0123 | Clarify TUI Batch Panel | [0123-clarify-tui-panel.md](0123-clarify-tui-panel.md) |
 | 0124 | Opt-In Watchdog Containment Loop | [0124-watchdog-containment.md](0124-watchdog-containment.md) |
+| 0125 | Tool-Free Answer Repair and Exact Evidence Sources | [0125-tool-free-answer-repair.md](0125-tool-free-answer-repair.md) |
+| 0126 | Task-Level M1 and Completed-Run M5 Metrics | [0126-benchmark-task-and-completed-replay-metrics.md](0126-benchmark-task-and-completed-replay-metrics.md) |

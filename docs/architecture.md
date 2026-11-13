@@ -233,8 +233,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   hit's score, layer/kind/content, source event, taint, confidence, validity and scope; output
   may contain decrypted memory content and must not be piped to shared logs.
 - Benchmark runner: `1agent benchmark-run --suite PATH --runs N` executes a suite N times and
-  feeds completion/crash-free/structural-replay samples to the existing benchmark gate. A process
-  abort is not a sample; contract fixtures are not model-quality evidence.
+  feeds completion/crash-free/structural-replay samples to the existing benchmark gate. It also
+  accumulates task-level M1 (`tasks_total/tasks_passed/task_completion_bps`) and completed-run M5
+  (`completed_cases/completed_replay_ok/completed_replay_bps`); M5 counts only `Completed` runs
+  with `audit_ok && replay_ok`. `EvalCaseResult.replay_ok` is computed by `replay_events`. The
+  suite-level fields and gates remain for compatibility. A process abort is not a sample; contract
+  fixtures are not model-quality evidence.
 - Answer rendering lives in `answer_render.rs` (full and layered default views plus label
   mappings); `main.rs` imports it. This is the second RFC-0001/SA97-25 slice.
 - Subagent acceptance: `spawn_agent` accepts only `stop_reason=completed`,

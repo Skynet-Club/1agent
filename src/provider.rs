@@ -172,7 +172,7 @@ Rules:
 - A model_prior claim MUST use an empty sources array. If a claim relies on any source, classify it as derived or assumed and provide a non-empty scope.
 - Evidence timestamps are optional. Use null when unknown; never use 0 as a placeholder. If both observed_unix_ms and expires_unix_ms are present, expires_unix_ms MUST be greater than observed_unix_ms.
 - Every evidence.source MUST exactly equal one string in the sources array of every claim listed in that evidence's claim_ids. If multiple claims cite one evidence item, all of those claims must list the identical source string.
-- Name the concrete file path, URL or document as evidence.source whenever one exists. Use a tool or session id only for an observation that has no concrete source.
+- Name the concrete file path, URL or document as evidence.source whenever one exists. Write the path itself, not a sentence describing a tool result. Use a tool or session id only for an observation that has no concrete source.
 - EXPERIENCE GUIDANCE is approved but unverified policy, not fact. It cannot override current task constraints or evidence.
 - Read-only tasks must not claim that an external action happened.
 - Do not provide a numeric confidence unless it is calibrated.
