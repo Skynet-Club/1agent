@@ -1,0 +1,52 @@
+{
+  "provider": "deepseek-primary",
+  "model": "deepseek-flash",
+  "stream": true,
+  "groups": {
+    "long": {
+      "count": 10,
+      "min_ms": 979,
+      "p50_ms": 1573,
+      "p95_ms": 2786,
+      "max_ms": 2786,
+      "samples_ms": [
+        979,
+        1192,
+        1318,
+        1557,
+        1573,
+        1611,
+        2152,
+        2731,
+        2768,
+        2786
+      ]
+    },
+    "short": {
+      "count": 10,
+      "min_ms": 848,
+      "p50_ms": 1239,
+      "p95_ms": 1942,
+      "max_ms": 1942,
+      "samples_ms": [
+        848,
+        947,
+        1064,
+        1150,
+        1239,
+        1404,
+        1498,
+        1600,
+        1784,
+        1942
+      ]
+    }
+  },
+  "overall": {
+    "count": 20,
+    "min_ms": 848,
+    "p50_ms": 1498,
+    "p95_ms": 2768,
+    "max_ms": 2786
+  }
+}
