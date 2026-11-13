@@ -120,7 +120,7 @@ P-Gate 不在本版本。
 | 审计完整 | 100% under `AgentAnswer::validate` | local pass |
 | 真实任务 v1.1 | 16/16（两次短样本） | local pass, not 8h |
 | 8h M1/M2/M3 | 136/280 completed (48.57%; 0.97 target ≥50%), 238/280 suite replay (85%; M5 needs completed-run calc), 280/280 crash-free | **target missed** |
-| M7 TTFT | n=3 p50 1.08 s / p95 2.48 s; n=17 partial p50 1.31 s / p95 2.26 s | small/partial sample |
+| M7 TTFT | n=20（10 短 + 10 长上下文）p50 1.50 s / p95 2.77 s；短 p50 1.24 / p95 1.94，长 p50 1.57 / p95 2.79 | one provider; tools disabled |
 | M19–M23 盲评 | packet pipeline ready | human labels pending |
 | 外部审计 / macOS P-Gate | 未开始 | pending |
 

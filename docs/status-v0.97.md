@@ -34,7 +34,7 @@ This page is a measurement review, not a release announcement. A metric marked
 | M1 long-horizon success | **8h failed**: 280 iterations, 136 completed (48.57%), replay 238/280 (85.00%), crash-free 280/280 (100%). The 0.97 target is ≥50%, so M1 is 1.43 pp short; the run used the 1.0 70% completion gate. Diagnostic sample: 21/24 tasks, 1/3 all-8 suites; failures are model-contract violations | not met; one provider/model; see `docs/evidence/long-horizon-benchmark-2026-11-12.md` |
 | M2 autonomy hours | 7 h 13 m 49 s unattended (`job-1794496736687-2245-2`), but the run failed its quality gate | duration recorded; not counted as an M2 pass |
 | M3 interventions/task | 0 in the unattended 8h run | interventions were not possible in the scheduled job |
-| M7 TTFT | DeepSeek `deepseek-flash`: earlier n=3 p50 1.08 s / p95 2.48 s; new run collected 17/20 samples p50 1.309 s / p95 2.261 s (3 missing because the first response was a tool call, not content) | one provider; rerun with a direct-answer contract needed for n=20 |
+| M7 TTFT | DeepSeek `deepseek-flash`, n=20 (10 short + 10 long-context): overall p50 1.498 s / p95 2.768 s; short p50 1.239 / p95 1.942; long p50 1.573 / p95 2.786; earlier n=3 was p50 1.08 / p95 2.48 | one provider; tools disabled; not production/statistically sufficient |
 | M8 end-to-end p95 | 72.9 s historical snapshot | first/last event time, not a tool-dense benchmark |
 | M9 tool success | 86.17% historical; 50% test-generated repo set | repo set is dominated by failure-injection tests |
 | M10 cost/task | 3,275 micros historical | provider pricing not embedded; usage only |
@@ -113,9 +113,8 @@ This page is a measurement review, not a release announcement. A metric marked
    model-contract violations (repair returned tool calls, high-impact
    assumption, Conditional vs Completed, prose evidence source). Fix the
    repair/output contract and rerun; do not lower the gate.
-2. M7 broader TTFT samples: 17/20 collected; 3 lacked a first content token
-   because the model called a tool. Rerun with a direct-answer contract. A
-   second provider still needs credentials.
+2. M7 TTFT now has 20 mixed short/long samples; a second provider still needs
+   credentials, and tool-dense/retry-heavy latency is not sampled.
 3. M19–M23 blind-review labels; the Hermes collector needed explicit
    provider/model and is rerunning; a human reviewer must label the packet.
 4. External A-Gate/W-Gate and security review; a review draft is at
