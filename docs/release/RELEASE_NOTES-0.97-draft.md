@@ -92,6 +92,7 @@ P-Gate 不在本版本。
 - `release-check.sh` 在 clean tree `39ea96e`（由 `509061c` 去除工具署名后
   重写）上 exit 0：fmt、clippy、
   1261 passed / 0 failed / 13 ignored、HTTP e2e、CI status 0、claims 证据
+  （新增 3 个 attribution 回归测试后当前全量为 1264）
   执行、TUI PTY 交互。指标门因未传 `--metrics-dir` 跳过。
 
 ### 5. 安全与运维
@@ -108,7 +109,7 @@ P-Gate 不在本版本。
 
 | 项 | 结果 | 状态 |
 |---|---|---|
-| 全量测试 | 1261 passed / 0 failed / 13 ignored | local pass |
+| 全量测试（当前） | 1264 passed / 0 failed / 13 ignored | local pass |
 | fmt / clippy | clean | local pass |
 | release-check | exit 0（指标门跳过） | local pass |
 | 2h 崩溃注入 soak | 28,552 cycles / 7,200.20s / exit 0 | local pass |
