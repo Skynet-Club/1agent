@@ -88,6 +88,9 @@ pub enum ExperienceKind {
     Memory,
     Skill,
     RoutePolicy,
+    /// A task-feature -> tool-sequence -> outcome trace. It never stores a
+    /// fixed answer; drafts stay inert until reviewed and activated.
+    Strategy,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
