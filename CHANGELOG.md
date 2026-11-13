@@ -2,6 +2,17 @@
 
 ## Unreleased — 0.97 Super-Partner groundwork
 
+- TUI work-log information flow (ADR-0127): a model-request event advances the
+  journal cursor before continuing, so the next event no longer appends the
+  same “Thinking” row twice. Each step is one `Model Request` row with
+  message/context counts; tool results carry their `call_id` and are inserted
+  under the matching call, so parallel calls keep pairs adjacent. Common
+  network/timeout/HTTP failures become short labels with the URL retained,
+  stop reasons are localized, and Markdown tables that would truncate render
+  as stacked label/field rows. The answer prompt asks a question only when the
+  next action depends on the user's choice and limits tables to three or more
+  items across two or more dimensions. Tests: rendered-buffer duplicate check,
+  call/result ordering, stacked-table fallback and failure labels.
 - Answer repair contract (ADR-0125): the repair request carries no tools, so a
   model cannot continue acting instead of returning the corrected
   `AgentAnswer` JSON. The repair prompt requires a high-impact assumption to

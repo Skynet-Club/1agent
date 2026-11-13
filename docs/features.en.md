@@ -38,7 +38,8 @@ User
 - transcript scrolling, mouse selection, copy and cancellation;
 - a bare launch starts a new session; exit prints the explicit `--session` continue command;
 - running line shows `Working...`, elapsed time, input/output tokens and provider cache hit rate;
-- green instrument-panel visual pass: body/work-log contrast 6.0:1 and borders 3.8:1, missing token/cache metrics are hidden instead of shown as placeholders, short terminals use a compact wordmark, an empty composer shows a start hint, and `/help` shows the selected position.
+- green instrument-panel visual pass: body/work-log contrast 6.0:1 and borders 3.8:1, missing token/cache metrics are hidden instead of shown as placeholders, short terminals use a compact wordmark, an empty composer shows a start hint, and `/help` shows the selected position;
+- work-log information flow: one `Model Request` row per step with message/context counts; tool results are inserted under their call by call id, so parallel calls do not pile results at the end; common network/timeout/HTTP failures become short Chinese labels with the URL kept, while raw errors stay in `/details`; stop reasons are localized; a Markdown table that would truncate renders as stacked `label` plus `header: value` rows.
 
 See [Manual](manual.en.md) and repository `docs/tui.md`.
 
