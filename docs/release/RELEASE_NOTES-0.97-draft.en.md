@@ -102,10 +102,10 @@ the cross-platform P-Gate remain 0.98–1.0 work.
 - `gate-check.sh` fails closed on a missing sample; the dashboard adds gate
   cards.
 - Real-task suite v1.1: DeepSeek `deepseek-flash` passed 16/16 across two short
-  runs; the earlier v1.0 baseline was 17/24 (70.83%). The 8h repeated benchmark
-  finished below the 0.97 target: 136/280 all-task iterations (48.57%, 1.43
-  points below the ≥50% target), 238/280 suite-replay-verified (85%; not the
-  completed-run M5 denominator), 280/280 crash-free.
+  runs; the earlier v1.0 baseline was 17/24 (70.83%). The first 8h run missed
+  the target at 136/280 suites (48.57%). After the answer-repair fix, a 20-run
+  sample passed 144/160 tasks (90%), 10/20 suites (50%) and 157/157
+  completed-case replay (M5 100%); a new 320-run 8h is running.
 - Real TTFT baseline: three short streaming runs, p50 1.08 s / p95 2.48 s. The
   expanded sample collected 17/20 (p50 1.31 s / p95 2.26 s); three runs lacked
   a content token because the first response was a tool call, so a rerun is
@@ -139,7 +139,7 @@ the cross-platform P-Gate remain 0.98–1.0 work.
 | Structural replay | 100% on completed journals | local pass |
 | Audit completeness | 100% under `AgentAnswer::validate` | local pass |
 | Real-task v1.1 | 16/16 across two short runs | local pass, not 8h |
-| 8h M1/M2/M3 | 136/280 completed (48.57%; 0.97 target ≥50%), 238/280 suite replay (85%; M5 needs completed-run calc), 280/280 crash-free | **target missed** |
+| 8h M1/M2/M3 | First run 136/280 suites (48.57%). Post-repair 20-run: 144/160 tasks (90%), 10/20 suites (50%), 157/157 completed replay (M5 100%); new 320-run 8h in progress | first run missed; new 8h pending |
 | M7 TTFT | n=20 (10 short + 10 long-context) p50 1.50 s / p95 2.77 s; short p50 1.24 / p95 1.94; long p50 1.57 / p95 2.79 | one provider; tools disabled |
 | M19–M23 blind review | packet pipeline ready | human labels pending |
 | External audit / macOS P-Gate | not started | pending |

@@ -86,9 +86,10 @@ P-Gate 不在本版本。
   审计完整、拒绝观测、token/成本、run 延迟与 TTFT。
 - `gate-check.sh` 对缺失样本失败关闭；dashboard 增加门禁卡片。
 - 真实任务套件 v1.1：DeepSeek `deepseek-flash` 两次 16/16；早期 v1.0
-  基线 17/24（70.83%）。8h 重复基准已完成但**未达 0.97 目标**：136/280
-  全任务通过（48.57%，0.97 目标 ≥50%，差 1.43 个百分点）、238/280
-  suite 回放（85%，不是 M5 的已完成 run 分母）、280/280 crash-free。
+  基线 17/24（70.83%）。第一次 8h 未达 0.97 目标：136/280 全任务通过
+  （48.57%）。修复 answer repair 后 20 轮样本：144/160 task（90%）、
+  suite 10/20（50%）、157/157 completed replay（M5 100%）；新的 320 轮
+  8h 正在运行。
 - 首 token 真实基线：3 次短流式任务 p50 1.08 s / p95 2.48 s；扩展样本
   17/20（p50 1.31 s / p95 2.26 s），3 个因首次响应是工具调用而缺少
   content token，需要重跑。
@@ -119,7 +120,7 @@ P-Gate 不在本版本。
 | 结构回放 | 100% on completed journals | local pass |
 | 审计完整 | 100% under `AgentAnswer::validate` | local pass |
 | 真实任务 v1.1 | 16/16（两次短样本） | local pass, not 8h |
-| 8h M1/M2/M3 | 136/280 completed (48.57%; 0.97 target ≥50%), 238/280 suite replay (85%; M5 needs completed-run calc), 280/280 crash-free | **target missed** |
+| 8h M1/M2/M3 | First run 136/280 suites (48.57%). Post-repair 20-run: 144/160 tasks (90%), 10/20 suites (50%), 157/157 completed replay (M5 100%); new 320-run 8h in progress | first run missed; new 8h pending |
 | M7 TTFT | n=20（10 短 + 10 长上下文）p50 1.50 s / p95 2.77 s；短 p50 1.24 / p95 1.94，长 p50 1.57 / p95 2.79 | one provider; tools disabled |
 | M19–M23 盲评 | packet pipeline ready | human labels pending |
 | 外部审计 / macOS P-Gate | 未开始 | pending |
