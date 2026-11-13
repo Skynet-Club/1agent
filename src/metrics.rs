@@ -579,6 +579,7 @@ mod tests {
 
     fn valid_answer() -> AgentAnswer {
         AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "done".into(),

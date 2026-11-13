@@ -75,6 +75,7 @@ mod tests {
 
     fn answer(status: AnswerStatus) -> AgentAnswer {
         AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status,
             conclusion: "先说结论：路由器的方案更便宜。".into(),

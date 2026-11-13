@@ -34,6 +34,10 @@ use crate::router::{
 use crate::task_graph::MandateStrength;
 use crate::tools::{ToolCapability, ToolRegistry};
 
+/// Bounded evidence re-planning: a completed draft that lacks the evidence its
+/// own task assessment calls for gets at most this many corrections.
+const MAX_EVIDENCE_REPLANS: usize = 2;
+
 #[derive(Clone)]
 pub struct ProviderCandidate {
     pub provider: Arc<dyn ModelProvider>,
@@ -698,9 +702,11 @@ impl AgentRuntime {
                 true,
             )
             .await?;
-        if fast_result.answer.status == AnswerStatus::NeedsEvidence {
-            // The cheap path admitted that it could not answer from what it
-            // knows. Give the full agent one chance to gather evidence.
+        if fast_result.answer.status == AnswerStatus::NeedsEvidence
+            || answer_needs_evidence_replan(&fast_result.answer).is_some()
+        {
+            // The cheap path admitted that it needed evidence, or its own task
+            // assessment says it does. Give the full agent one chance.
             return self
                 .run_internal(request, None, Some(mode), None, cancellation, false)
                 .await;
@@ -1160,6 +1166,7 @@ impl AgentRuntime {
         };
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
+        let mut evidence_replans = 0usize;
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
@@ -1639,6 +1646,51 @@ impl AgentRuntime {
                             );
                         }
                     }
+                    if let Some(reason) = answer_needs_evidence_replan(&answer) {
+                        if evidence_replans < MAX_EVIDENCE_REPLANS {
+                            evidence_replans += 1;
+                            journal
+                                .append(JournalEventKind::AnswerVerificationFailed {
+                                    reason: reason.clone(),
+                                    round: evidence_replans,
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            let draft = serde_json::to_string(&answer).map_err(|error| {
+                                RuntimeError::InvalidOutput {
+                                    path: journal_path.clone(),
+                                    message: format!(
+                                        "cannot serialize answer draft for evidence re-plan: {error}"
+                                    ),
+                                }
+                            })?;
+                            messages.push(ModelMessage::assistant(draft, Vec::new()));
+                            messages.push(ModelMessage::user(evidence_replan_prompt(
+                                &reason,
+                                evidence_replans,
+                            )));
+                            continue;
+                        }
+                        journal
+                            .append(JournalEventKind::AnswerVerificationExhausted {
+                                reason: reason.clone(),
+                                rounds: evidence_replans,
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
+                        answer.status = AnswerStatus::NeedsEvidence;
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            answer,
+                            StopReason::NeedsEvidence,
+                        );
+                    }
                     let stop_reason = stop_reason_for_answer(answer.status);
                     return finish_with_answer(
                         &mut journal,
@@ -1986,6 +2038,49 @@ pub fn risk_for_mode(mode: CognitiveMode) -> RiskLevel {
     }
 }
 
+/// Return a human-readable reason when a completed answer is not supported by
+/// the evidence its own `task_need` assessment calls for. `None` means the
+/// answer can be returned as-is. Answers without an assessment keep the
+/// pre-AG-23 behavior.
+fn answer_needs_evidence_replan(answer: &AgentAnswer) -> Option<String> {
+    if answer.status != AnswerStatus::Completed {
+        return None;
+    }
+    let need = answer.task_need?;
+    if need.freshness.requires_evidence() && answer.evidence.is_empty() {
+        return Some("the task needs current facts but the answer has no evidence".into());
+    }
+    if need.locality.requires_evidence() && answer.evidence.is_empty() {
+        return Some("the task needs local facts but the answer has no evidence".into());
+    }
+    if need.action.requires_evidence() && answer.action_receipts.is_empty() {
+        return Some("the task asks for an action but the answer has no action receipt".into());
+    }
+    if need.ambiguity == crate::domain::NeedLevel::High && answer.unknowns.is_empty() {
+        return Some("the task is ambiguous but the answer does not declare an unknown".into());
+    }
+    if answer.evidence.is_empty()
+        && answer
+            .unknowns
+            .iter()
+            .any(|unknown| unknown.impact == ImpactLevel::High)
+    {
+        return Some("high-impact unknowns are not backed by evidence".into());
+    }
+    None
+}
+
+fn evidence_replan_prompt(reason: &str, round: usize) -> String {
+    format!(
+        "EVIDENCE CHECK FAILED ({round}/{MAX_EVIDENCE_REPLANS}): {reason}\n\
+         Re-check the task now. If it needs current or local facts, call a tool. If the \
+         evidence is still unavailable, return an AgentAnswer with status \"needs_evidence\" \
+         and state what is missing. If it needs an action, call the tool or return \
+         \"needs_authorization\". Do not repeat the same answer without changing the evidence \
+         or status."
+    )
+}
+
 fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
     match status {
         AnswerStatus::Completed | AnswerStatus::Conditional => StopReason::Completed,
@@ -2023,6 +2118,7 @@ fn append_provider_failure(
 
 fn authorization_answer() -> crate::domain::AgentAnswer {
     crate::domain::AgentAnswer {
+        task_need: None,
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::NeedsAuthorization,
         conclusion: "当前任务被识别为执行操作，但本次运行被设为只读；未执行任何外部动作。在 TUI 输入 /permissions write on 后重试，或去掉 --read-only 后重新运行。".into(),
@@ -2052,6 +2148,7 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
 
 fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
     crate::domain::AgentAnswer {
+        task_need: None,
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::NeedsEvidence,
         conclusion: format!("本轮未形成可验证结论：{reason}。"),
@@ -2131,6 +2228,7 @@ fn plain_text_chat_answer(content: &str) -> Option<AgentAnswer> {
         return None;
     }
     Some(AgentAnswer {
+        task_need: None,
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::Completed,
         conclusion: conclusion.to_string(),
@@ -2683,6 +2781,7 @@ mod tests {
                 );
                 ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion:
@@ -3115,6 +3214,7 @@ mod tests {
             } else {
                 ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "长任务完成".into(),
@@ -3173,6 +3273,7 @@ mod tests {
             } else {
                 ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "delta resume complete".into(),
@@ -3448,6 +3549,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "streamed answer".into(),
@@ -3672,6 +3774,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "tools finished".into(),
@@ -4375,6 +4478,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "usage answer".into(),
@@ -4468,6 +4572,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "chat answer".into(),
@@ -4737,6 +4842,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status,
                         conclusion: conclusion.into(),
@@ -4938,6 +5044,7 @@ mod tests {
 
     fn completed_answer(conclusion: &str) -> AgentAnswer {
         AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: conclusion.into(),
@@ -5073,6 +5180,171 @@ mod tests {
             &event.event,
             JournalEventKind::ToolsRequested { granted, .. } if granted.iter().any(|name| name == "web_search")
         )));
+    }
+
+    fn answer_with_need(
+        status: AnswerStatus,
+        conclusion: &str,
+        need: crate::domain::TaskNeed,
+    ) -> AgentAnswer {
+        let mut answer = completed_answer(conclusion);
+        answer.status = status;
+        answer.task_need = Some(need);
+        answer
+    }
+
+    fn high_freshness_need() -> crate::domain::TaskNeed {
+        crate::domain::TaskNeed {
+            freshness: crate::domain::NeedLevel::High,
+            locality: crate::domain::NeedLevel::None,
+            action: crate::domain::NeedLevel::None,
+            risk: RiskLevel::Low,
+            ambiguity: crate::domain::NeedLevel::None,
+            budget: crate::domain::NeedLevel::Low,
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_answer_with_current_need_and_no_evidence_gets_a_replan() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft answer",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::NeedsEvidence,
+                        "missing current evidence",
+                        high_freshness_need(),
+                    ),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1]
+                .messages
+                .iter()
+                .any(|message| { message.content.contains("EVIDENCE CHECK FAILED (1/2)") })
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::AnswerVerificationFailed { round: 1, .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn evidence_replan_is_bounded_and_downgrades_to_needs_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft one",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft two",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft three",
+                        high_freshness_need(),
+                    ),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(requests.lock().unwrap().len(), 3);
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        let events = read_events(&result.journal_path).unwrap();
+        let failed = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    JournalEventKind::AnswerVerificationFailed { .. }
+                )
+            })
+            .count();
+        assert_eq!(failed, MAX_EVIDENCE_REPLANS);
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::AnswerVerificationExhausted { rounds: 2, .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn fast_chat_escalates_when_its_task_assessment_needs_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "chat draft",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("full answer"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run_with_mode(
+                TaskRequest::from_objective("你好", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.conclusion, "full answer");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].tools.is_empty());
+        assert!(!requests[1].tools.is_empty());
     }
 
     #[tokio::test]

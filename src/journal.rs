@@ -176,6 +176,18 @@ pub enum JournalEventKind {
     AnswerProduced {
         answer: AgentAnswer,
     },
+    /// A completed draft failed the evidence check and the model gets another
+    /// bounded chance to gather evidence or downgrade the status.
+    AnswerVerificationFailed {
+        reason: String,
+        round: usize,
+    },
+    /// The bounded evidence check still failed; the answer is downgraded to
+    /// `needs_evidence` instead of being presented as complete.
+    AnswerVerificationExhausted {
+        reason: String,
+        rounds: usize,
+    },
     ReframeProposed {
         proposal: ReframeProposal,
         provider_id: String,
@@ -1397,7 +1409,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             | JournalEventKind::ModelRequestDelta { .. }
             | JournalEventKind::ModelResponded { .. }
             | JournalEventKind::StreamFirstToken { .. }
-            | JournalEventKind::ToolsRequested { .. } => {}
+            | JournalEventKind::ToolsRequested { .. }
+            | JournalEventKind::AnswerVerificationFailed { .. }
+            | JournalEventKind::AnswerVerificationExhausted { .. } => {}
         }
     }
 
@@ -1555,6 +1569,7 @@ mod tests {
 
     fn answer() -> AgentAnswer {
         AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "answer".into(),
@@ -1835,6 +1850,7 @@ mod tests {
                 timestamp_unix_ms: 0,
                 event: JournalEventKind::AnswerProduced {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                         status: AnswerStatus::Completed,
                         conclusion: "done".into(),
@@ -2421,6 +2437,7 @@ mod reframe_journal_tests {
 
     fn answer() -> AgentAnswer {
         AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: "已记录".into(),

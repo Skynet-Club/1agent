@@ -338,6 +338,7 @@ mod tests {
             reframe_decided_at_unix_ms: None,
         };
         replay.answer = Some(AgentAnswer {
+            task_need: None,
             schema_version: LEGACY_ANSWER_SCHEMA_VERSION,
             status: crate::domain::AnswerStatus::Conditional,
             conclusion: "A is preferred.".into(),

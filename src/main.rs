@@ -12496,6 +12496,7 @@ fn record_reframe_decision(
     })?;
     journal.append(JournalEventKind::AnswerProduced {
         answer: AgentAnswer {
+            task_need: None,
             schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
             conclusion: format!("已记录：{}", choice.label_zh()),
@@ -20514,6 +20515,7 @@ mod tui_rendering_tests {
                 },
             };
             let answer = first_principles_agent::AgentAnswer {
+                task_need: None,
                 schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
                 status: first_principles_agent::AnswerStatus::Completed,
                 conclusion: serde_json::to_string(&production).unwrap(),
@@ -22620,6 +22622,7 @@ mod why_tests {
 
     fn answer() -> AgentAnswer {
         AgentAnswer {
+            task_need: None,
             schema_version: 2,
             status: AnswerStatus::Conditional,
             conclusion: "Use the smaller plan.".into(),

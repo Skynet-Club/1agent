@@ -162,6 +162,7 @@ mod tests {
             run_id: Uuid::new_v4(),
             journal_path: PathBuf::from("journal.jsonl"),
             answer: AgentAnswer {
+                task_need: None,
                 schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                 status,
                 conclusion: "conclusion".into(),

@@ -1436,6 +1436,7 @@ mod tests {
 
             let answer = if let Some(observation) = Self::latest_observation(&request.messages) {
                 AgentAnswer {
+                    task_need: None,
                     schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Completed,
                     conclusion: format!("verified after observation: {}", observation.summary),
@@ -1466,6 +1467,7 @@ mod tests {
                 .any(|message| message.content.contains("conflict-marker"))
             {
                 AgentAnswer {
+                    task_need: None,
                     schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Conditional,
                     conclusion: "sources conflict; result is conditional".into(),
@@ -1527,6 +1529,7 @@ mod tests {
                 }
             } else {
                 AgentAnswer {
+                    task_need: None,
                     schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Conditional,
                     conclusion: "decision is conditional on cost".into(),
@@ -1990,6 +1993,7 @@ mod tests {
     #[test]
     fn decision_completeness_rollup_tracks_each_failure_mode() {
         let mut answer = AgentAnswer {
+            task_need: None,
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Conditional,
             conclusion: "conditional".into(),
@@ -2188,6 +2192,7 @@ mod tests {
             });
             let answer = if guided {
                 AgentAnswer {
+                    task_need: None,
                     schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::Completed,
                     conclusion: "guided answer".into(),
@@ -2208,6 +2213,7 @@ mod tests {
                 }
             } else {
                 AgentAnswer {
+                    task_need: None,
                     schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: AnswerStatus::NeedsEvidence,
                     conclusion: "baseline answer".into(),

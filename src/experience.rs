@@ -1406,6 +1406,7 @@ mod tests {
         journal
             .append(JournalEventKind::AnswerProduced {
                 answer: AgentAnswer {
+                    task_need: None,
                     schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
                     status: crate::domain::AnswerStatus::Completed,
                     conclusion: "done".into(),

@@ -1059,6 +1059,7 @@ mod tests {
             approved: false,
         };
         let answer = AgentAnswer {
+            task_need: None,
             schema_version: 2,
             status: AnswerStatus::Completed,
             conclusion: serde_json::to_string(&plan).unwrap(),
@@ -1117,6 +1118,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: 2,
                         status: AnswerStatus::Completed,
                         conclusion: serde_json::to_string(&self.plan).unwrap(),
@@ -1197,6 +1199,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: 2,
                         status: AnswerStatus::Completed,
                         conclusion: serde_json::to_string(&self.plan).unwrap(),
@@ -1342,6 +1345,7 @@ mod tests {
                 model: self.model().into(),
                 turn: ModelTurn::Final {
                     answer: AgentAnswer {
+                        task_need: None,
                         schema_version: 2,
                         status: AnswerStatus::Completed,
                         conclusion: serde_json::to_string(&self.plan).unwrap(),
@@ -1452,6 +1456,7 @@ mod tests {
             approved: false,
         };
         let answer = AgentAnswer {
+            task_need: None,
             schema_version: 2,
             status: AnswerStatus::Completed,
             conclusion: serde_json::to_string(&plan).unwrap(),
