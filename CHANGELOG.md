@@ -13,9 +13,14 @@
   `--experience-dir` write inert `Strategy` drafts into the existing
   `ExperienceStore`. `evals/agent-loop-v1.json` adds the fixed 100-question
   release suite, and `eval`/`benchmark-run --artifacts-dir` keep per-case
-  journals plus a `cases.jsonl` index. Tests: live self-model rendering,
-  dynamic tool permission checks, bounded re-plan, fast-path escalation,
-  strategy drafting, and suite inventory.
+  journals plus a `cases.jsonl` index. `search_files` with an empty query now
+  lists file paths without reading contents, so the agent can discover a file
+  before reading it. Capability detection requires a question shape, keeping
+  destructive commands on the read-only authorization path. Irreparable model
+  output becomes an auditable `needs_evidence` answer instead of a runtime
+  error. Tests: live self-model rendering, dynamic tool permission checks,
+  bounded re-plan, fast-path escalation, strategy drafting, file listing, and
+  suite inventory.
 
 - TUI quit: press `Ctrl+Q` twice to exit; the first press arms, `Enter`, `Esc`
   or other input cancels. `Enter` no longer confirms quit. Applies while idle,

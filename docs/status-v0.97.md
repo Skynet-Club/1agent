@@ -1,14 +1,17 @@
 # 0.97 Status and Metric Review (2026-11-13, evening CST)
 
 - Status: **local review; 0.97 is not release-ready — the M1 gate failed.
-  AG-23 is implemented; the 100-question evidence is being finalized.**
+  AG-23 is implemented and its final 100-question run is archived (96/100).**
 - Latest feature commit: `a04686a` (100-question eval harness), after
   `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan), `c76a2d4`
   (live self model and dynamic tools) and `5726381` (0.97 WIP checkpoint)
-- Full suite: 1311 passed / 0 failed / 13 ignored
-- Claims: 226 (202 verified / 16 partial / 8 no evidence); the live terminal
+- Full suite: 1315 passed / 0 failed / 13 ignored; `scripts/verify.sh`
+  passed (fmt, clippy, tests, deterministic core eval, claims structure)
+- Claims: 233 (209 verified / 16 partial / 8 no evidence); the live terminal
   claim is partial because the local session daemon is at its 128-session limit
-  (`session_limit`), not because the terminal tool failed
+  (`session_limit`), not because the terminal tool failed. `verify-claims --run`
+  still reports that TUI command failure; `cross-check.sh --build` passes when
+  run alone.
 - Local release: Linux and Windows GNU binaries are rebuilt per slice; the
   Windows `.exe` is linked, not run on Windows
 
@@ -156,17 +159,22 @@ release blocker; cost governance cannot mask a quality failure.
 1. **M1/M5 long-horizon proof**: the first 8h failed at 48.57% all-suite
    completion; the 320-run v2 also failed at 13.28% task completion. The
    20-iteration sample passed 90% task-level M1, but did not generalize. Do not
-   release. First capture per-case benchmark results and diagnose the 13.28%
-   failure distribution; then fix, short-regress, and rerun the long gate with
-   the current binary.
+   release. `benchmark-run --artifacts-dir` now keeps per-run/per-case journals
+   and `cases.jsonl`; a fresh 20-run short regression with the current binary
+   is the next step, then the long gate must be rerun. Per-case diagnosis of
+   the old 320-run is impossible because those journals were not preserved.
 2. **AG-23 intelligent loop**: the implementation landed in `c76a2d4`,
    `5465c2a`, `55ccb22` and `a04686a`: live `describe_self`, dynamic
    `request_tools`, `task_need`, bounded evidence re-plan, strategy drafts and
-   the 100-question suite. The first full run scored 69/100 (chat 20/20,
-   intro 10/20, current/local 14/20, follow-up 13/20, risk 12/20). The intro
-   routing, known-facts prompt, irreparable-output fallback and per-case
-   budgets were then fixed; a focused regression is running, the full rerun
-   and human review are still required. Do not ship before the final report.
+   the 100-question suite. The final v1.3 run scored **96/100** (intro
+   20/20, follow-up 20/20, risk 20/20, simple chat 19/20, current/local
+   17/20), 0 hard-gate failures, 100% completed-run replay (78/78), and
+   about ¥2.88 cost. The four misses are honest limits, not hidden
+   errors: three open-ended current-info questions exhausted the 8-tool
+   budget and returned `needs_evidence`; one simple-chat answer used a
+   repair call (20-case average 1.05 calls, 0 tools, within the ≤1.2
+   gate). Human review of the 100 answers is still required. Do not ship
+   before that review and the M1 gate.
 3. M7 TTFT now has 20 mixed short/long samples; a second provider still needs
    credentials, and tool-dense/retry-heavy latency is not sampled.
 4. M19–M23 blind-review labels: the current 39-prompt/78-row packet is

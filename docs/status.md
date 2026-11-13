@@ -102,7 +102,10 @@
 - [x] 模型驱动任务需求评估：freshness/locality/action/risk/ambiguity/budget；关键词只兜底
 - [x] 策略记忆：任务特征 → 计划/工具序列/结果；不记忆固定答案
 - [ ] 100 题评测：自我介绍、最新/本地、追问、简单聊天、高风险动作；M1/M5 不回归
-  （`evals/agent-loop-v1.json` 与 `eval --artifacts-dir` 已就绪，最终报告待归档）
+  （最终 v1.3 **96/100**：intro 20/20、追问 20/20、高风险 20/20、简单聊天 19/20、
+  最新/本地 17/20；0 hard-gate；completed replay 78/78；3 个联网题耗尽 8 次工具预算
+  后返回 `needs_evidence`，1 个简单聊天用了 2 次调用，20 题平均 1.05 次/0 工具。
+  人工复核仍未做）
 - 未完成不得发布 0.97；详见 Obsidian `III-01-1Agent-开发计划` 4.4/4.5
 
 ### R2：行动层（部分已落地）
