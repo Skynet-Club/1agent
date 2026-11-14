@@ -23,7 +23,7 @@
     ],
     "permissions": {
       "read_roots": [
-        "/home/skynet"
+        "/path/to/workspace"
       ],
       "allow_network": false,
       "allow_write": true
@@ -59,7 +59,7 @@
     ],
     "permissions": {
       "read_roots": [
-        "/home/skynet"
+        "/path/to/workspace"
       ],
       "allow_network": true,
       "allow_write": true
@@ -94,7 +94,7 @@
     ],
     "permissions": {
       "read_roots": [
-        "/home/skynet"
+        "/path/to/workspace"
       ],
       "allow_network": false,
       "allow_write": true
@@ -130,7 +130,7 @@
     ],
     "permissions": {
       "read_roots": [
-        "/home/skynet"
+        "/path/to/workspace"
       ],
       "allow_network": false,
       "allow_write": true

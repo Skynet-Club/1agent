@@ -145,7 +145,7 @@ The same journal events are appended incrementally to the main transcript as a v
  • 模型思考 Thinking · 第 1 步
    ⎿ 请求 8 条消息 · 上下文 12400 tokens · 工具 12 个
    ⎿ 返回工具调用 · read_file
- • 读取 Reading · read_file · /home/skynet/1-agent/README.md
+ • 读取 Reading · read_file · $HOME/1-agent/README.md
    ⎿ read README.md (999 bytes)
 ```
 
