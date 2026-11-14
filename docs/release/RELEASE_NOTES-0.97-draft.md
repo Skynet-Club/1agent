@@ -157,10 +157,14 @@ P-Gate 不在本版本。
 3. 回滚点与详细步骤见 `docs/rollback-v0.97.md`。
 4. kill switch `~/.1a/KILL` 可阻止写工具；它不杀进程、不重启、不清理锁。
 
-## 发布资产（待生成）
+## 发布资产（本地候选）
 
 - `1agent-0.97.0-linux-x86_64.tar.gz` — Linux x86_64 包；
 - `SHA256SUMS` — 归档与 provenance 校验和；
 - `linux-x86_64.json` — Linux 构建 provenance。
 
-资产尚未生成；本文件不是发布公告。
+本地包已生成并验证：二进制 SHA-256
+`36c6e44faa15e4011261f20b735738cd7fb05a9b9818ddd0340e0fad482ee3fb`，
+`package.sh --linux-only` 两次构建 `reproducible=true`，内层/外层
+`SHA256SUMS`、provenance、`--version`、init/doctor 与临时 prefix 安装均通过。
+这是本地发布候选，不是公开发布公告；公开前仍需重建干净历史并确认资产。
