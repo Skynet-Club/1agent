@@ -1,5 +1,10 @@
-f81aa8f39cbe03d7d71bc2f9c63e36e69b1052e050c3a46f162ce5a760127ce6  docs/evidence/answer-quality-2026-11-14/feishu-labels.json
-f00bde58b809a7772d770324cfc0247aaeb2119e4353c8a638d4012d818317d6  docs/evidence/answer-quality-2026-11-14/mapping.json
-1e7985ff715c32273d4f0ff1d3db7ec4a5b00f9aac756bb38499a328bfab3ad8  docs/evidence/answer-quality-2026-11-14/packet.jsonl
-d14a73d194869eed498fab51327d0522b8f2f8f652db6f83289181e0a7cf1bce  docs/evidence/answer-quality-2026-11-14/samples.jsonl
-8f67cba964fd6d3576f28894d403fdaa185dfeecad48b120362caf93f3bd12b4  docs/evidence/answer-quality-2026-11-14/summary.json
+f81aa8f39cbe03d7d71bc2f9c63e36e69b1052e050c3a46f162ce5a760127ce6  ./feishu-labels.json
+f00bde58b809a7772d770324cfc0247aaeb2119e4353c8a638d4012d818317d6  ./mapping.json
+1e7985ff715c32273d4f0ff1d3db7ec4a5b00f9aac756bb38499a328bfab3ad8  ./packet.jsonl
+43118bf07c55d3049b3a517a92b6d7257b414109e4d24b80b7105c54d7869c84  ./raw/answers-1agent.jsonl
+20706861426814251ff8faaafea95cfc46e23e025bb29889f712308ee2efd25d  ./raw/answers-codex.jsonl
+fbd334d6ada024b5448c2d87958e99b3ff42312926ea00609cc9f36b2d3d8590  ./raw/answers-hermes.jsonl
+4083d83adf75413bdb84061d399f928d533291f28cd09f9578d6d370c8ddc52a  ./raw/answers-opencode.jsonl
+f2798b70998e850f085d322ab329b5059395714281191e952ef604533ff14180  ./README.md
+d14a73d194869eed498fab51327d0522b8f2f8f652db6f83289181e0a7cf1bce  ./samples.jsonl
+8f67cba964fd6d3576f28894d403fdaa185dfeecad48b120362caf93f3bd12b4  ./summary.json
