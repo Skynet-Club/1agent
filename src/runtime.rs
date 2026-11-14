@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
+use crate::authority::PolicyOutcome;
 use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
@@ -301,8 +302,8 @@ impl AgentRuntime {
                 metadata: Default::default(),
             };
         }
-        if let Some(context) = &self.tool_gate
-            && let Err(error) = context.gate.authorize(
+        if let Some(context) = &self.tool_gate {
+            let authorization = context.gate.authorize(
                 &ToolCallRequest {
                     actor_id: context.actor_id.clone(),
                     tool: call.name.clone(),
@@ -311,17 +312,35 @@ impl AgentRuntime {
                     risk: RiskLevel::Low,
                 },
                 context.now_ms,
-            )
-        {
-            return ToolObservation {
-                call_id: call.id.clone(),
-                tool: call.name.clone(),
-                status: ToolStatus::PermissionDenied,
-                summary: error.to_string(),
-                content: String::new(),
-                error_code: Some("authority_denied".into()),
-                metadata: Default::default(),
-            };
+            );
+            match authorization {
+                Ok(authorization) if authorization.outcome == PolicyOutcome::Allow => {}
+                Ok(authorization) => {
+                    return ToolObservation {
+                        call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        status: ToolStatus::PermissionDenied,
+                        summary: format!(
+                            "tool {} requires approval: {}",
+                            call.name, authorization.reason
+                        ),
+                        content: String::new(),
+                        error_code: Some("approval_required".into()),
+                        metadata: Default::default(),
+                    };
+                }
+                Err(error) => {
+                    return ToolObservation {
+                        call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        status: ToolStatus::PermissionDenied,
+                        summary: error.to_string(),
+                        content: String::new(),
+                        error_code: Some("authority_denied".into()),
+                        metadata: Default::default(),
+                    };
+                }
+            }
         }
         self.tools.execute(call, permissions, cancellation).await
     }
@@ -761,6 +780,128 @@ impl AgentRuntime {
             answer,
             stop_reason: None,
         })
+    }
+
+    /// Give the model one final, tool-free turn when the tool budget is
+    /// exhausted, so gathered evidence is not thrown away behind a canned
+    /// "budget exhausted" answer. Any failure falls back to that answer; the
+    /// journal still records the attempt.
+    #[allow(clippy::too_many_arguments)]
+    async fn answer_at_budget(
+        &self,
+        journal: &mut Journal,
+        model_request_log: &mut ModelRequestLog,
+        journal_path: &Path,
+        request: &TaskRequest,
+        model_request: &ModelRequest,
+        provider_id: &str,
+        model: &str,
+        provider_attempts_used: &mut usize,
+        started_at: Instant,
+        initial_elapsed: Duration,
+        cancellation: &CancellationToken,
+        reason: &str,
+    ) -> crate::domain::AgentAnswer {
+        if request.budget.max_provider_attempts != 0
+            && *provider_attempts_used >= request.budget.max_provider_attempts
+        {
+            return budget_answer(reason);
+        }
+        let Some(candidate) = self.providers.iter().find(|candidate| {
+            candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+        }) else {
+            return budget_answer(reason);
+        };
+        *provider_attempts_used += 1;
+        let mut messages = model_request.messages.clone();
+        messages.push(ModelMessage::user(
+            "You have reached the tool-call budget. Do not request tools and do not claim \
+             any action that was not executed. Using only the conversation and evidence \
+             above, return exactly one valid AgentAnswer JSON object now, with no prose or \
+             outer Markdown fence. If the evidence is insufficient, set status to \
+             needs_evidence and state what is missing."
+                .to_string(),
+        ));
+        let final_request = ModelRequest {
+            run_id: model_request.run_id,
+            mode: model_request.mode,
+            messages,
+            tools: Vec::new(),
+        };
+        if model_request_log
+            .append(journal, final_request.clone())
+            .is_err()
+        {
+            return budget_answer(reason);
+        }
+        let result = if request.budget.timeout_ms == 0 {
+            Ok(candidate
+                .provider
+                .complete(final_request, cancellation)
+                .await)
+        } else {
+            let Some(remaining) =
+                remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+            else {
+                return budget_answer(reason);
+            };
+            tokio::time::timeout(
+                remaining,
+                candidate.provider.complete(final_request, cancellation),
+            )
+            .await
+        };
+        let mut response = match result {
+            Ok(Ok(response)) => response,
+            Ok(Err(source)) => {
+                let _ = append_provider_failure(journal, journal_path, provider_id, model, &source);
+                return budget_answer(reason);
+            }
+            Err(_) => return budget_answer(reason),
+        };
+        if response.provider_id != provider_id || response.model != model {
+            return budget_answer(reason);
+        }
+        apply_manifest_cost(&mut response, &candidate.manifest);
+        if journal
+            .append(JournalEventKind::ModelResponded {
+                response: response.clone(),
+            })
+            .is_err()
+        {
+            return budget_answer(reason);
+        }
+        let answer = match response.turn {
+            ModelTurn::Final { answer } => answer,
+            _ => return budget_answer(reason),
+        };
+        let validation_error = match answer.validate(request) {
+            Ok(()) => return answer,
+            Err(error) => error,
+        };
+        let invalid_content = match serde_json::to_string(&answer) {
+            Ok(content) => content,
+            Err(_) => return budget_answer(reason),
+        };
+        let context = AnswerRepairContext {
+            journal,
+            model_request_log,
+            journal_path: journal_path.to_path_buf(),
+            request,
+            model_request,
+            provider_id: provider_id.to_string(),
+            model: model.to_string(),
+            invalid_content,
+            failure: format!("The final answer failed validation: {validation_error}"),
+            initial_elapsed,
+        };
+        match self
+            .repair_answer(context, provider_attempts_used, started_at, cancellation)
+            .await
+        {
+            Ok(repaired) => repaired.answer,
+            Err(_) => budget_answer(reason),
+        }
     }
 
     pub async fn run(
@@ -1910,7 +2051,27 @@ impl AgentRuntime {
                     if request.budget.max_tool_calls != 0
                         && tool_calls.saturating_add(calls.len()) > request.budget.max_tool_calls
                     {
-                        let answer = budget_answer("tool-call budget exhausted");
+                        let answer = self
+                            .answer_at_budget(
+                                &mut journal,
+                                &mut model_request_log,
+                                &journal_path,
+                                &request,
+                                &model_request,
+                                &response_provider_id,
+                                &response_model,
+                                &mut provider_attempts_used,
+                                started_at,
+                                initial_elapsed,
+                                &cancellation,
+                                "tool-call budget exhausted",
+                            )
+                            .await;
+                        let stop_reason = if answer.status == AnswerStatus::Completed {
+                            StopReason::Completed
+                        } else {
+                            StopReason::BudgetExhausted
+                        };
                         journal
                             .append(JournalEventKind::AnswerProduced {
                                 answer: answer.clone(),
@@ -1921,7 +2082,7 @@ impl AgentRuntime {
                             })?;
                         journal
                             .append(JournalEventKind::RunStopped {
-                                reason: StopReason::BudgetExhausted,
+                                reason: stop_reason,
                             })
                             .map_err(|source| RuntimeError::Journal {
                                 path: journal_path.clone(),
@@ -1931,7 +2092,7 @@ impl AgentRuntime {
                             run_id,
                             journal_path,
                             answer,
-                            stop_reason: StopReason::BudgetExhausted,
+                            stop_reason,
                         });
                     }
                     tool_calls = tool_calls.saturating_add(calls.len());
@@ -4205,6 +4366,115 @@ mod tests {
         );
         let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn tool_budget_gets_one_final_tool_free_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: Arc::new(AtomicUsize::new(0)),
+            max_active: Arc::new(AtomicUsize::new(0)),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "read_one"),
+                    ]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("read two things", workspace.path().into());
+        request.budget.max_tool_calls = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(result.answer.conclusion, "tools finished");
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(&event.event, JournalEventKind::ToolCalled { .. })),
+            "the over-budget batch must not execute"
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn execution_gate_denies_tools_that_require_approval() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: Arc::new(AtomicUsize::new(0)),
+            max_active: Arc::new(AtomicUsize::new(0)),
+        }));
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "approval-profile".into(),
+                actor_id: "actor-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: MandateStrength::Write,
+                allowed_tools: vec!["read_one".into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::Low,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("actor-1", "approval-profile").unwrap();
+        let gate = ExecutionGate::new(authority, &tools);
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![tool_call("call-1", "read_one")]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        )
+        .with_execution_gate(gate, "actor-1", "repo:1-agent", MandateStrength::Write, 0);
+
+        let request = TaskRequest::from_objective("read one thing", workspace.path().into());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation),
+                _ => None,
+            })
+            .expect("expected a denied observation");
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("approval_required"));
     }
 
     #[test]

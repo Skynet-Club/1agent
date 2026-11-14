@@ -27,6 +27,21 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
+umask 022
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "refusing to package a dirty tree; commit or stash first" >&2
+  exit 1
+fi
+tag="v$version"
+if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+  echo "refusing to package without tag $tag" >&2
+  exit 1
+fi
+if [[ "$(git rev-list -n 1 "$tag")" != "$(git rev-parse HEAD)" ]]; then
+  echo "refusing to package: HEAD is not $tag" >&2
+  exit 1
+fi
+
 package_root="$project_dir/dist/1agent-$version"
 linux_archive="$project_dir/dist/1agent-$version-linux-x86_64.tar.gz"
 windows_archive="$project_dir/dist/1agent-$version-windows-x86_64.zip"
@@ -52,25 +67,37 @@ fi
 
 ./scripts/reproducible-build.sh x86_64-unknown-linux-gnu "$linux_dir/1agent"
 mkdir -p "$package_root/provenance"
-SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
-  --artifact "$linux_dir/1agent" \
-  --target x86_64-unknown-linux-gnu \
-  --output "$package_root/provenance/linux-x86_64.json" \
-  >/dev/null
+(
+  cd "$linux_dir"
+  SOURCE_DATE_EPOCH=0 ./1agent provenance create \
+    --artifact 1agent \
+    --target x86_64-unknown-linux-gnu \
+    --output "$package_root/provenance/linux-x86_64.json" \
+    >/dev/null
+)
 if ! $linux_only; then
   ./scripts/reproducible-build.sh x86_64-pc-windows-gnu "$windows_dir/1agent.exe"
-  SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
-    --artifact "$windows_dir/1agent.exe" \
-    --target x86_64-pc-windows-gnu \
-    --output "$package_root/provenance/windows-x86_64.json" \
-    >/dev/null
+  (
+    cd "$windows_dir"
+    SOURCE_DATE_EPOCH=0 "$linux_dir/1agent" provenance create \
+      --artifact 1agent.exe \
+      --target x86_64-pc-windows-gnu \
+      --output "$package_root/provenance/windows-x86_64.json" \
+      >/dev/null
+  )
 fi
-install -m 0644 README.md LICENSE CHANGELOG.md SECURITY.md PRIVACY.md \
+install -m 0644 README.md README.en.md LICENSE CHANGELOG.md SECURITY.md PRIVACY.md \
   THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.md "$package_root/"
 cp -R LICENSES "$package_root/"
 mkdir -p "$package_root/scripts"
 install -m 0755 scripts/install.sh "$package_root/scripts/install.sh"
 cp -R docs evals configs "$package_root/"
+find "$package_root" -type d -exec chmod 0755 {} +
+find "$package_root" -type f -exec chmod 0644 {} +
+chmod 0755 "$linux_dir/1agent" "$package_root/scripts/install.sh"
+if ! $linux_only; then
+  chmod 0644 "$windows_dir/1agent.exe"
+fi
 
 (
   cd "$package_root"

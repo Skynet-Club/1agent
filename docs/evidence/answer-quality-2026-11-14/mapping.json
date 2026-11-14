@@ -1,0 +1,242 @@
+{
+  "chat-01": {
+    "a": "1agent",
+    "b": "opencode",
+    "c": "codex",
+    "d": "hermes"
+  },
+  "chat-02": {
+    "a": "opencode",
+    "b": "1agent",
+    "c": "codex",
+    "d": "hermes"
+  },
+  "chat-03": {
+    "a": "codex",
+    "b": "hermes",
+    "c": "1agent",
+    "d": "opencode"
+  },
+  "chat-04": {
+    "a": "codex",
+    "b": "1agent",
+    "c": "opencode",
+    "d": "hermes"
+  },
+  "chat-05": {
+    "a": "1agent",
+    "b": "codex",
+    "c": "opencode",
+    "d": "hermes"
+  },
+  "chat-06": {
+    "a": "hermes",
+    "b": "opencode",
+    "c": "1agent",
+    "d": "codex"
+  },
+  "chat-07": {
+    "a": "codex",
+    "b": "hermes",
+    "c": "opencode",
+    "d": "1agent"
+  },
+  "chat-08": {
+    "a": "opencode",
+    "b": "hermes",
+    "c": "1agent",
+    "d": "codex"
+  },
+  "fact-01": {
+    "a": "hermes",
+    "b": "opencode",
+    "c": "codex",
+    "d": "1agent"
+  },
+  "fact-02": {
+    "a": "opencode",
+    "b": "codex",
+    "c": "hermes",
+    "d": "1agent"
+  },
+  "fact-03": {
+    "a": "hermes",
+    "b": "codex",
+    "c": "1agent",
+    "d": "opencode"
+  },
+  "fact-04": {
+    "a": "codex",
+    "b": "1agent",
+    "c": "hermes",
+    "d": "opencode"
+  },
+  "fact-05": {
+    "a": "codex",
+    "b": "hermes",
+    "c": "1agent",
+    "d": "opencode"
+  },
+  "fact-06": {
+    "a": "1agent",
+    "b": "hermes",
+    "c": "codex",
+    "d": "opencode"
+  },
+  "fact-07": {
+    "a": "opencode",
+    "b": "1agent",
+    "c": "codex",
+    "d": "hermes"
+  },
+  "fact-08": {
+    "a": "hermes",
+    "b": "1agent",
+    "c": "codex",
+    "d": "opencode"
+  },
+  "decision-01": {
+    "a": "codex",
+    "b": "opencode",
+    "c": "hermes",
+    "d": "1agent"
+  },
+  "decision-02": {
+    "a": "1agent",
+    "b": "hermes",
+    "c": "opencode",
+    "d": "codex"
+  },
+  "decision-03": {
+    "a": "opencode",
+    "b": "hermes",
+    "c": "codex",
+    "d": "1agent"
+  },
+  "decision-04": {
+    "a": "opencode",
+    "b": "codex",
+    "c": "hermes",
+    "d": "1agent"
+  },
+  "decision-05": {
+    "a": "1agent",
+    "b": "hermes",
+    "c": "codex",
+    "d": "opencode"
+  },
+  "decision-06": {
+    "a": "1agent",
+    "b": "hermes",
+    "c": "opencode",
+    "d": "codex"
+  },
+  "decision-07": {
+    "a": "opencode",
+    "b": "codex",
+    "c": "hermes",
+    "d": "1agent"
+  },
+  "decision-08": {
+    "a": "opencode",
+    "b": "1agent",
+    "c": "hermes",
+    "d": "codex"
+  },
+  "research-01": {
+    "a": "hermes",
+    "b": "1agent",
+    "c": "opencode",
+    "d": "codex"
+  },
+  "research-02": {
+    "a": "opencode",
+    "b": "hermes",
+    "c": "1agent",
+    "d": "codex"
+  },
+  "research-03": {
+    "a": "1agent",
+    "b": "codex",
+    "c": "hermes",
+    "d": "opencode"
+  },
+  "research-04": {
+    "a": "hermes",
+    "b": "opencode",
+    "c": "1agent",
+    "d": "codex"
+  },
+  "research-05": {
+    "a": "hermes",
+    "b": "1agent",
+    "c": "codex",
+    "d": "opencode"
+  },
+  "research-06": {
+    "a": "opencode",
+    "b": "codex",
+    "c": "hermes",
+    "d": "1agent"
+  },
+  "research-07": {
+    "a": "opencode",
+    "b": "hermes",
+    "c": "codex",
+    "d": "1agent"
+  },
+  "research-08": {
+    "a": "1agent",
+    "b": "codex",
+    "c": "opencode",
+    "d": "hermes"
+  },
+  "execution-01": {
+    "a": "opencode",
+    "b": "1agent",
+    "c": "hermes",
+    "d": "codex"
+  },
+  "execution-02": {
+    "a": "codex",
+    "b": "hermes",
+    "c": "opencode",
+    "d": "1agent"
+  },
+  "execution-03": {
+    "a": "hermes",
+    "b": "codex",
+    "c": "1agent",
+    "d": "opencode"
+  },
+  "execution-04": {
+    "a": "1agent",
+    "b": "opencode",
+    "c": "hermes",
+    "d": "codex"
+  },
+  "execution-05": {
+    "a": "1agent",
+    "b": "codex",
+    "c": "hermes",
+    "d": "opencode"
+  },
+  "execution-06": {
+    "a": "opencode",
+    "b": "hermes",
+    "c": "codex",
+    "d": "1agent"
+  },
+  "execution-07": {
+    "a": "opencode",
+    "b": "hermes",
+    "c": "codex",
+    "d": "1agent"
+  },
+  "execution-08": {
+    "a": "opencode",
+    "b": "codex",
+    "c": "1agent",
+    "d": "hermes"
+  }
+}

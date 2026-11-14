@@ -140,7 +140,7 @@ impl AgentTool for SpawnAgentTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "spawn_agent".into(),
-            description: "Spawn a bounded child 1Agent run for a subtask. The child has its own journal, workspace and budget; results are returned as JSON. Depth is capped to prevent runaway trees. Child write/network permissions are intersected with the parent's permissions, so allow_write/allow_network can only restrict; AGENT_* provider environment is inherited.".into(),
+            description: "Spawn a bounded child 1Agent run for a subtask. The child has its own journal, workspace and budget; results are returned as JSON. Depth is capped to prevent runaway trees. Child write/network permissions are intersected with the parent's permissions, so allow_write/allow_network can only restrict; AGENT_* provider environment is inherited. The spawn itself is classified as write-capable because the child may write, so read-only mode, the kill switch and write-level Authority gates apply before any child starts.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -182,6 +182,10 @@ impl AgentTool for SpawnAgentTool {
 
     fn risk(&self) -> RiskLevel {
         RiskLevel::Medium
+    }
+
+    fn requires_write(&self) -> bool {
+        true
     }
 
     fn timeout(&self) -> Duration {
@@ -551,5 +555,11 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
             matches!(error, ToolError::Failed(ref message) if message.contains("fanout")),
             "unexpected error: {error:?}"
         );
+    }
+
+    #[test]
+    fn spawn_is_write_capable_so_read_only_gates_cannot_bypass_it() {
+        let tool = SpawnAgentTool::new("1agent");
+        assert!(tool.requires_write());
     }
 }

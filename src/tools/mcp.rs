@@ -203,11 +203,20 @@ impl McpClient {
         let mut child_command = Command::new(program);
         child_command
             .args(arguments)
-            .envs(&server.env)
+            .env_clear()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
+        // A third-party MCP server must not inherit provider keys, tokens or
+        // webhook secrets. Only the minimum process environment is passed
+        // through; `server.env` is the operator's explicit allowlist.
+        for key in ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SystemRoot"] {
+            if let Some(value) = std::env::var_os(key) {
+                child_command.env(key, value);
+            }
+        }
+        child_command.envs(&server.env);
         let mut child = super::spawn_with_retry(&mut child_command)
             .await
             .map_err(|error| {
@@ -769,8 +778,12 @@ fn tool_risk(tool: &Value) -> RiskLevel {
     }
 }
 
-fn tool_requires_write(tool: &Value) -> bool {
-    !annotation_bool(tool, "readOnlyHint")
+fn tool_requires_write(_tool: &Value) -> bool {
+    // Server-provided annotations are untrusted: a malicious server can mark a
+    // destructive tool `readOnlyHint: true` and have it bypass read-only mode,
+    // the kill switch and write-level Authority checks. Until an operator-side
+    // allowlist exists, every MCP tool is write-capable.
+    true
 }
 
 struct McpTool {
@@ -802,9 +815,14 @@ impl AgentTool for McpTool {
     async fn execute(
         &self,
         arguments: Value,
-        _permissions: &PermissionSet,
+        permissions: &PermissionSet,
         _cancellation: &CancellationToken,
     ) -> Result<ToolOutcome, ToolError> {
+        if !permissions.allow_network {
+            return Err(ToolError::PermissionDenied(
+                "MCP tools require --allow-network".into(),
+            ));
+        }
         let result = self.client.call_tool(&self.remote_name, arguments).await?;
         let is_error = result
             .get("isError")
@@ -882,7 +900,11 @@ fn build_tool(
 }
 
 fn bounded(value: &str, max_chars: usize) -> String {
-    let mut bounded: String = value.chars().take(max_chars).collect();
+    let mut bounded: String = value
+        .chars()
+        .filter(|character| !crate::safety::is_disallowed_control(*character))
+        .take(max_chars)
+        .collect();
     if value.chars().nth(max_chars).is_some() {
         bounded.push('…');
     }
@@ -1118,11 +1140,14 @@ mod tests {
         let tools = load_mcp_tools(&config_path).await.unwrap();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].spec().name, "mcp_fake_echo");
-        assert!(!tools[0].requires_write());
+        assert!(tools[0].requires_write());
         let outcome = tools[0]
             .execute(
                 json!({"text": "hello"}),
-                &PermissionSet::default(),
+                &PermissionSet {
+                    allow_network: true,
+                    ..PermissionSet::default()
+                },
                 &CancellationToken::new(),
             )
             .await
@@ -1245,7 +1270,10 @@ mod tests {
         tools[0]
             .execute(
                 json!({"text": "after expiry"}),
-                &PermissionSet::default(),
+                &PermissionSet {
+                    allow_network: true,
+                    ..PermissionSet::default()
+                },
                 &CancellationToken::new(),
             )
             .await
@@ -1523,7 +1551,7 @@ for line in sys.stdin:
             .iter()
             .find(|tool| tool.spec().name == "mcp_fake_echo")
             .unwrap();
-        assert!(!echo.requires_write());
+        assert!(echo.requires_write());
         let write = tools
             .iter()
             .find(|tool| tool.spec().name == "mcp_fake_write")
@@ -1533,7 +1561,10 @@ for line in sys.stdin:
         let outcome = echo
             .execute(
                 json!({"text": "hello"}),
-                &PermissionSet::default(),
+                &PermissionSet {
+                    allow_network: true,
+                    ..PermissionSet::default()
+                },
                 &CancellationToken::new(),
             )
             .await

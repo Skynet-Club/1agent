@@ -934,6 +934,10 @@ impl OpenAiCompatibleProvider {
         }
         let client = reqwest::Client::builder()
             .timeout(timeout)
+            // Never follow redirects with a provider bearer token attached.
+            // A same-host scheme downgrade could otherwise resend the key in
+            // cleartext; a misconfigured endpoint should fail visibly.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| {
                 ProviderError::new(

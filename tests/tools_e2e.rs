@@ -27,7 +27,6 @@ fn tools_command_uses_runtime_registry_and_redacts_paths() {
         "fetch_url",
         "web_search",
         "browser_read",
-        "spawn_agent",
         "skill_list",
         "skill_eval",
         "delegation_list",
@@ -50,6 +49,7 @@ fn tools_command_uses_runtime_registry_and_redacts_paths() {
         "skill_rollback",
         "delegation_register",
         "delegation_revoke",
+        "spawn_agent",
     ] {
         let capability = find(name);
         assert_eq!(capability["status"], "implemented");

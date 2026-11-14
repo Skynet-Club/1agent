@@ -50,8 +50,8 @@ This page is a measurement review, not a release announcement. A metric marked
 | M11 memory hit rate | not measured | no repeated-task benchmark |
 | M12 skill reuse | not measured | no repeated-workflow benchmark |
 | M14 crash-free sessions | Prior 8h: 280/280 (100%); post-repair 5/20 runs: 5/5 and 20/20; 320-run v2: 320/320 (100%), 0 crashes | `crash_free_bps`; quality is the blocker, not crashes |
-| M18 external audit | not started | 0 P0 unknown |
-| M19–M23 | Packet built: 39 prompts / 78 label rows; Hermes 39/40 (research-05 timed out) with explicit provider/model; 1Agent answers are pre-repair and must be re-collected | `answer-quality` computes rates from caller labels; a human reviewer must label the final packet |
+| M18 external audit | Independent code-level review completed (4 read-only reviewers); 0 P0 found, 5 P1 classes fixed; no third-party certification | Still not an external audit/attestation; residual P1/P2 in `docs/audit-v0.97.md` |
+| M19–M23 | 40-prompt / 160-answer packet; labels bulk-written by an AI, adopted by the product owner: M19 **85.00%**, M20 best-of-4 **5.13%** (2/39), M21 **2.50%**, M22 **0.00%**, M23 null | **Not a human blind review**; Hermes wins 26/39 and is one of the four answerers. See `docs/evidence/answer-quality-2026-11-14/` |
 
 ## What the 0.97 work added
 
