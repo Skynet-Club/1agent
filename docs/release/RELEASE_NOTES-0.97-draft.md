@@ -123,7 +123,7 @@ P-Gate 不在本版本。
 |---|---|---|
 | 全量测试（当前） | `cargo test --offline -j 2` 全绿 | local pass |
 | fmt / clippy | clean | local pass |
-| release-check | fmt、clippy、tests、HTTP e2e、claims、TUI PTY；attribution 因本地历史报红 | local pass, rebuilt history required |
+| release-check | fmt、clippy、tests、HTTP e2e、verify.sh 通过；发布分支 attribution 干净；TUI PTY 检查在本机会话超时，`verify-claims --run` 未跑完 | partial |
 | 2h 崩溃注入 soak | 28,552 cycles / 7,200.20s / exit 0 | local pass |
 | 结构回放 | 100% on completed journals | local pass |
 | 审计完整 | 100% under `AgentAnswer::validate` | local pass |
