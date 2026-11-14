@@ -18,10 +18,10 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 当前版本 **0.96.1**（2026-11-11 更新），R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
-> 本版重点：TUI 可读性与 Markdown 结论；完整提示词原文库（`//`）；1M token 上下文预算；交互式 TUI 不设步数/工具/超时上限。  
+> **项目仍在持续开发。** 当前版本 **0.97.0**（2026-11-14 更新），R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
+> 本版重点：AG-23 智能闭环（`describe_self`/`request_tools`/证据再规划）；≤1h 真实任务门 M1 97.08%；本地 8h 运行时 soak 0 崩溃；成本治理与一轮独立代码级安全评审。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
-> 当前 Linux 预发布：[v0.96.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1) · [发布说明](docs/release/RELEASE_NOTES.md)。
+> 当前 Linux 0.97.0 RC 为本地打包候选，尚未公开发布；公开发布前仍需重建干净历史并确认发布资产。
 
 ---
 
@@ -65,13 +65,13 @@
 
 ---
 
-## 下一版本：Super-Agent 0.97–1.0
+## 版本路线：Super-Agent 0.97–1.0
 
-0.96.1 仍是“可审计 Runtime”的 R1 候选，不是已验收的 Super-Agent。下一步按公开路线推进，以指标和证据为退出条件，不以功能数量为退出条件：
+0.97.0 仍是“可审计 Runtime”的 R1 候选，不是已验收的 Super-Agent。下一步按公开路线推进，以指标和证据为退出条件，不以功能数量为退出条件：
 
 | 版本 | 主题 | 目标窗口 | 核心结果 |
 |---|---|---|---|
-| **0.97.0** | Reliable Loop | 2026-12-22 | 长时程可靠闭环：流式输出、并行只读工具、增量 journal、崩溃恢复/断点续跑、验证门、memory MVP、沙箱、结果先行的回答契约；User Model 2.0、Trust & Repair、Value Report v0、跨平台适配层 |
+| **0.97.0** | Reliable Loop | 2026-11-14（RC） | 长时程可靠闭环：流式输出、并行只读工具、增量 journal、崩溃恢复/断点续跑、验证门、memory MVP、沙箱、结果先行的回答契约；User Model 2.0、Trust & Repair、Value Report v0、跨平台适配层 |
 | **0.98.0** | Real World | 2027-02-02 | 真实世界操作：浏览器写操作 / computer-use、MCP 扩展、技能学习、常驻 MVP；Agent Inbox、桌面/聊天入口、自治档位、伙伴声音、跨平台 Alpha |
 | **0.99.0** | Multi-Agent Organization | 2027-03-16 | 多 Agent 组织：Master/Worker 可靠性、成本治理、级联遏制、团队共享伙伴、外部审计准备、跨平台 Beta |
 | **1.0.0** | Trusted Super-Partner | 2027-05-11 | 可信 Super-Partner：用户模型、Agent Inbox、外部审计、SDK/API、团队协作、跨平台 GA、生态 |
@@ -87,8 +87,8 @@
 从 Releases 下载 Linux 包后：
 
 ```bash
-tar -xzf 1agent-0.96.1-linux-x86_64.tar.gz
-cd 1agent-0.96.1
+tar -xzf 1agent-0.97.0-linux-x86_64.tar.gz
+cd 1agent-0.97.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 

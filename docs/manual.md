@@ -3,7 +3,7 @@
 
 [简体中文](manual.md) · [English](manual.en.md)
 
-> 适用版本：**0.96.1 R1 release candidate**  
+> 适用版本：**0.97.0 R1 release candidate**  
 > 适用平台：**Linux x86_64**  
 > Windows 版本尚未测试，暂不发布、不提供下载；macOS、Android、iOS 后续发布。
 
@@ -12,8 +12,8 @@
 ### 从发布包安装
 
 ```bash
-tar -xzf 1agent-0.96.1-linux-x86_64.tar.gz
-cd 1agent-0.96.1
+tar -xzf 1agent-0.97.0-linux-x86_64.tar.gz
+cd 1agent-0.97.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 1agent --version

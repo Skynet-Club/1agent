@@ -16,10 +16,10 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** Current version **0.96.1** (updated 2026-11-11), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
-> This release: TUI readability and Markdown conclusions; the complete prompt source library (`//`); a 1M-token context budget; and unlimited interactive steps/tools/timeout.  
+> **This project is under active development.** Current version **0.97.0** (updated 2026-11-14), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
+> This release: the AG-23 intelligent loop (`describe_self`/`request_tools`/evidence re-plan); a ≤1h real-task gate at M1 97.08%; an 8h local runtime soak with zero crashes; cost governance and one independent code-level security review.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> Current Linux pre-release: [v0.96.1](https://github.com/Skynet-Club/1agent/releases/tag/v0.96.1) · [Release notes](docs/release/RELEASE_NOTES.en.md).
+> The Linux 0.97.0 RC is a local packaging candidate, not published yet; a public release still needs rebuilt clean history and release-asset confirmation.
 
 ---
 
@@ -61,15 +61,15 @@ These are listed honestly in [Status & Roadmap](docs/status.en.md).
 
 ---
 
-## Next: Super-Agent 0.97–1.0
+## Roadmap: Super-Agent 0.97–1.0
 
-0.96.1 is still an auditable runtime at the R1-candidate stage, not an accepted
+0.97.0 is still an auditable runtime at the R1-candidate stage, not an accepted
 Super-Agent. The next steps are public and gated by metrics and evidence rather
 than feature count:
 
 | Version | Theme | Target window | Core outcome |
 |---|---|---|---|
-| **0.97.0** | Reliable Loop | 2026-12-22 | Long-horizon reliable closure: streaming, parallel read-only tools, incremental journal, crash recovery/checkpoint resume, verification gate, memory MVP, sandbox and a result-first answer contract; User Model 2.0, Trust & Repair, Value Report v0, cross-platform adapter layer |
+| **0.97.0** | Reliable Loop | 2026-11-14 (RC) | Long-horizon reliable closure: streaming, parallel read-only tools, incremental journal, crash recovery/checkpoint resume, verification gate, memory MVP, sandbox and a result-first answer contract; User Model 2.0, Trust & Repair, Value Report v0, cross-platform adapter layer |
 | **0.98.0** | Real World | 2027-02-02 | Browser writes / computer-use, MCP expansion, skill learning and a resident MVP; Agent Inbox, desktop/chat surface, autonomy dial, partner voice, cross-platform Alpha |
 | **0.99.0** | Multi-Agent Organization | 2027-03-16 | Master/Worker reliability, cost governance, cascade containment, shared team partner, external-audit preparation, cross-platform Beta |
 | **1.0.0** | Trusted Super-Partner | 2027-05-11 | User model, Agent Inbox, external audit, SDK/API, team collaboration, cross-platform GA and ecosystem |
@@ -86,8 +86,8 @@ not pass, we do not release and do not claim Super-Agent.**
 Download the Linux archive from Releases:
 
 ```bash
-tar -xzf 1agent-0.96.1-linux-x86_64.tar.gz
-cd 1agent-0.96.1
+tar -xzf 1agent-0.97.0-linux-x86_64.tar.gz
+cd 1agent-0.97.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 

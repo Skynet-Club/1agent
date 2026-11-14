@@ -1,6 +1,6 @@
 # Manual
 
-> Version: **0.96.1 R1 release candidate**  
+> Version: **0.97.0 R1 release candidate**  
 > Platform: **Linux x86_64**  
 > Windows is untested and not published; macOS, Android and iOS are planned.
 
@@ -11,8 +11,8 @@
 ### From the release archive
 
 ```bash
-tar -xzf 1agent-0.96.1-linux-x86_64.tar.gz
-cd 1agent-0.96.1
+tar -xzf 1agent-0.97.0-linux-x86_64.tar.gz
+cd 1agent-0.97.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 1agent --version

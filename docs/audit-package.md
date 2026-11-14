@@ -1,7 +1,9 @@
 # 1Agent External Audit Package (Review Draft)
 
-Status: **review draft — not an audit result and not an A-Gate pass**
-Snapshot: local `main` at commit `d78759e` (2026-11-12)
+Status: **review draft — an independent code-level review is complete
+(`docs/audit-v0.97.md`), but this is not a third-party audit result and not an
+A-Gate pass**
+Snapshot: local `main` at commit `1ac7b5a` (2026-11-14)
 Product: 1Agent / first-principles-agent, version 0.96.1
 Platforms: Linux x86_64 verified; Windows compile-level only; macOS not verified
 
@@ -34,7 +36,7 @@ claim that the review has happened.
 | M17 compacted replay | forced-compaction fixture replay/audit 100% | Local pass |
 | M1/M2/M3 | 8h run finished: 136/280 completed (48.57%; 0.97 target ≥50%), 238/280 suite-replay-verified (85%; M5 needs completed-run calc), 280/280 crash-free | **M1 target missed**; no human calibration |
 | M7 TTFT | DeepSeek `deepseek-flash`, earlier n=3 p50 1.08 s / p95 2.48 s; new n=17 partial p50 1.31 s / p95 2.26 s | Small/partial sample |
-| M19–M23 | 40-prompt golden set and answer-quality board exist; blind labels absent | Board only |
+| M19–M23 | 40-prompt / 160-answer packet; labels bulk-written by an AI and adopted by the owner: M19 85.00%, M20 5.13%, M21 2.50%, M22 0.00%, M23 null | **Not a human blind review**; see `docs/evidence/answer-quality-2026-11-14/` |
 
 Claims: **223 total, 200 verified, 15 partial, 8 no evidence** as of this
 snapshot (`docs/claims.md`, `./scripts/verify-claims.sh --run`). README claims
@@ -100,8 +102,11 @@ archive new journals before downgrading. See
   the 0.97 ≥50% target; its failures are model-contract violations, not
   crashes. The reported 85% replay counts invalid-output suites, not completed
   runs, so M5 needs a separate calculation. The 8-task suite is short and
-  calibrated locally. M19–M23 blind labels are external.
-- M6/M18: no external security/compliance audit; P0 unknown.
+  calibrated locally. The M19–M23 labels are AI/bulk-written, not a human
+  blind review; see the packet README for provenance.
+- M6/M18: an independent code-level review found no P0 and fixed five P1
+  classes; there is still no external security/compliance audit or
+  certification. See `docs/audit-v0.97.md` for the open P1/P2 list.
 - A-Gate: 14 work packages were ~89% estimated on 2026-11-08; no package was
   fully closed. Re-score after the 0.97 slice.
 - W-Gate/P-Gate: macOS and Windows runtime behavior are not verified; Linux is

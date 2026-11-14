@@ -1,7 +1,24 @@
 # Changelog
 
-## Unreleased — 0.97 Super-Partner groundwork
+## 0.97.0 — 2026-11-14
 
+- Safety and packaging review: an independent code-level audit found no P0 and
+  fixed five P1 classes. Authority `RequireApproval` now denies instead of
+  executing; `spawn_agent` is write-classified; MCP stdio environments are
+  cleared to a minimal allowlist; every MCP tool is write-gated and requires
+  network permission; resume rejects a paired tool call after the last
+  checkpoint. Provider redirects are disabled. Packaging now requires a clean
+  tagged tree, `install.sh` verifies `SHA256SUMS`, file modes are normalized,
+  provenance uses a relative artifact path and `README.en.md` ships. See
+  `docs/audit-v0.97.md` for the four open P1 residual items.
+- Answer quality: 40 prompts × 4 answerers, 160 answers, anonymized A/B/C/D and
+  sealed mapping. The adopted labels are AI/bulk-written, not a human blind
+  review: M19 85.00%, M20 best-of-4 5.13%, M21 2.50%, M22 0.00%, M23 null.
+  Evidence and provenance: `docs/evidence/answer-quality-2026-11-14/`.
+- Product fixes from the packet: conceptual questions such as `BufWriter`
+  flush or JSONL append semantics no longer route to Execute; a reached tool
+  budget now gets one final tool-free answer (then schema repair) instead of a
+  canned "budget exhausted" reply.
 - Intelligent loop release gate (AG-23, ADR-0130): `describe_self` renders the
   live permission-filtered tool registry, selected provider/model and run
   budgets; the static capability catalog is gone. `request_tools` lets the

@@ -2,13 +2,14 @@
 
 [简体中文](RELEASE_NOTES-0.97-draft.md) · [English](RELEASE_NOTES-0.97-draft.en.md)
 
-Date: 2026-11-13
+Date: 2026-11-14
 
-Status: **release-candidate draft, not published; 8h gate failed**
+Status: **release-candidate draft, not published; local gates and the Linux
+package are being finalized**
 
-Pending: reliability fixes and a new 8h run, broader TTFT sample, human
-blind-review labels, external A-Gate/W-Gate/security review, macOS P-Gate,
-release package.
+Pending: third-party A-Gate/W-Gate/security certification, a human blind
+review (the archived answer-quality labels are AI/bulk-written), macOS P-Gate,
+a rebuilt clean public history, and the final package confirmation.
 
 > This draft is not a release announcement. A metric marked “pending” is not
 > zero; the evidence does not exist yet.
@@ -85,19 +86,22 @@ P-Gate 不在本版本。
 - `metrics` 从 journal 投影完成率、恢复率、结构回放、压缩回放、工具成功、
   审计完整、拒绝观测、token/成本、run 延迟与 TTFT。
 - `gate-check.sh` 对缺失样本失败关闭；dashboard 增加门禁卡片。
-- 真实任务套件 v1.1：DeepSeek `deepseek-flash` 两次 16/16；早期 v1.0
-  基线 17/24（70.83%）。第一次 8h 未达 0.97 目标：136/280 全任务通过
-  （48.57%）。修复 answer repair 后 20 轮样本：144/160 task（90%）、
-  suite 10/20（50%）、157/157 completed replay（M5 100%）；新的 320 轮
-  8h 正在运行。
-- 首 token 真实基线：3 次短流式任务 p50 1.08 s / p95 2.48 s；扩展样本
-  17/20（p50 1.31 s / p95 2.26 s），3 个因首次响应是工具调用而缺少
-  content token，需要重跑。
-- `release-check.sh` 在 clean tree `39ea96e`（由 `509061c` 去除工具署名后
-  重写）上 exit 0：fmt、clippy、
-  1261 passed / 0 failed / 13 ignored、HTTP e2e、CI status 0、claims 证据
-  （新增 attribution/repair/benchmark 测试后当前全量为 1265）
-  执行、TUI PTY 交互。指标门因未传 `--metrics-dir` 跳过。
+- 真实任务 1h 门（产品口径 ≤1h）：DeepSeek `deepseek-flash`，30 轮 /
+  240 任务，M1 **233/240 = 97.08%**，suite **23/30 = 76.66%**，completed
+  replay **239/239 = 100%**，crash-free 100%，44m16s，约 ¥11.63。一次
+  provider error 丢了一条 case 记录，历史 suite audit+replay 门为 29/30，
+  CLI `passed=false`；任务级门通过，差异已写入证据。
+- 8h 本地运行时 soak：Ollama `qwen3-8b-16k`，56 轮 / 448 任务，0 崩溃，
+  completed replay 234/234，实际 8h26m51s。本地模型任务质量仅 21.2%，
+  只证明运行时稳定性，不作为 M1 模型质量声明；8h DeepSeek 质量门不再声称。
+- 100 题 AG-23 闭环：**96/100**；intro 20/20、追问 20/20、高风险 20/20、
+  简单聊天 19/20、最新/本地 17/20；completed replay 78/78。
+- 首 token 真实基线：n=20（10 短 + 10 长上下文）p50 1.50 s / p95 2.77 s；
+  短 p50 1.24 / p95 1.94，长 p50 1.57 / p95 2.79；一个 provider，工具关闭。
+- `release-check.sh` 在当前 tree 上执行 fmt、clippy、全量测试、HTTP e2e、
+  claims 与 TUI PTY。`check-attribution.sh` 在本地 `main` 上仍因两条历史提交
+  报红；公开发布必须从重建的干净历史切出。指标门因未传 `--metrics-dir`
+  跳过。
 
 ### 5. 安全与运维
 
@@ -107,23 +111,29 @@ P-Gate 不在本版本。
 - 0.97 新增 opt-in 自动遏制：`--watch --execute pause` 对每个 Pause/Repair
   pid 只发一次校验过的 SIGSTOP，Pause→Repair 不重复；不自动恢复、kill、
   重启或清锁。Unix only，仍有 cmdline 检查与信号之间的 TOCTOU。
-- 威胁模型、审计包草稿、claims 200 ✅ / 16 ⚠️ / 8 ❌；外部审计未开始。
+- 威胁模型、审计包和独立代码级评审：0 个 P0，5 类 P1 已修（审批结果、
+  子 Agent 权限、MCP 环境与注解、恢复重放、provider 重定向）；4 项 P1
+  残余（browser_read SSRF、run journal 无哈希链、跨构建机可复现、历史署名）
+  与 P2 清单见 `docs/audit-v0.97.md`。claims 233（209 ✅ / 16 ⚠️ / 8 ❌）；
+  第三方审计/认证仍未完成。
 
 ## 验证摘要
 
 | 项 | 结果 | 状态 |
 |---|---|---|
-| 全量测试（当前） | 1265 passed / 0 failed / 13 ignored | local pass |
+| 全量测试（当前） | `cargo test --offline -j 2` 全绿 | local pass |
 | fmt / clippy | clean | local pass |
-| release-check | exit 0（指标门跳过） | local pass |
+| release-check | fmt、clippy、tests、HTTP e2e、claims、TUI PTY；attribution 因本地历史报红 | local pass, rebuilt history required |
 | 2h 崩溃注入 soak | 28,552 cycles / 7,200.20s / exit 0 | local pass |
 | 结构回放 | 100% on completed journals | local pass |
 | 审计完整 | 100% under `AgentAnswer::validate` | local pass |
-| 真实任务 v1.1 | 16/16（两次短样本） | local pass, not 8h |
-| 8h M1/M2/M3 | First run 136/280 suites (48.57%). Post-repair 20-run: 144/160 tasks (90%), 10/20 suites (50%), 157/157 completed replay (M5 100%); new 320-run 8h in progress | first run missed; new 8h pending |
-| M7 TTFT | n=20（10 短 + 10 长上下文）p50 1.50 s / p95 2.77 s；短 p50 1.24 / p95 1.94，长 p50 1.57 / p95 2.79 | one provider; tools disabled |
-| M19–M23 盲评 | packet pipeline ready | human labels pending |
-| 外部审计 / macOS P-Gate | 未开始 | pending |
+| 1h 真实任务门 | 30 轮 / 240 任务：M1 97.08%，suite 76.66%，M5 100%，44m16s，¥11.63 | local pass; one lost case record |
+| 8h 本地模型 soak | 56 轮 / 448 任务，0 崩溃，replay 234/234，8h26m51s | runtime pass; local model quality 21.2%, not M1 |
+| 100 题 AG-23 | 96/100，0 hard gate | local pass |
+| M7 TTFT | n=20 p50 1.50 s / p95 2.77 s | one provider; tools disabled |
+| M19–M23 | M19 85.00%, M20 5.13% (2/39), M21 2.50%, M22 0.00%, M23 null | **AI/bulk labels, not human blind review** |
+| 独立代码级评审 | 0 P0；5 类 P1 已修；4 项 P1 残余 | not a third-party audit |
+| 第三方审计 / macOS P-Gate | 未开始 | pending |
 
 ## 已知边界
 
@@ -134,8 +144,11 @@ P-Gate 不在本版本。
 - watchdog 只支持 Unix 进程信号；日志无轮转。
 - `cost_micros` 只有在 provider 配置了价格时才有意义；当前 DeepSeek 配置
   未嵌入价格。
-- M1/M2/M3、M7 扩展样本、M19–M23 人工标签、外部 A-Gate/W-Gate/安全审计、
-  macOS P-Gate 仍未完成；不能据此宣称 Super-Agent 或生产稳定。
+- 人工盲评、第三方 A-Gate/W-Gate/安全认证、macOS P-Gate 仍未完成；M19–M23
+  当前是 AI/批量标签，不能写成“人工盲评通过”。
+- `docs/audit-v0.97.md` 仍有 4 项 P1 残余（browser_read SSRF、run journal
+  哈希链、跨构建机可复现、历史署名），发布说明不得声称“已通过安全审计”。
+- 8h DeepSeek 模型质量未声称；M1 质量声明限定在 ≤1h 任务口径。
 
 ## 升级与回滚
 
