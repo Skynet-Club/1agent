@@ -147,7 +147,7 @@ the cross-platform P-Gate remain 0.98–1.0 work.
 |---|---|---|
 | Full tests (current) | `cargo test --offline -j 2` green | local pass |
 | fmt / clippy | clean | local pass |
-| release-check | fmt, clippy, tests, HTTP e2e, claims, TUI PTY; attribution red on local history | local pass, rebuilt history required |
+| release-check | fmt, clippy, tests, HTTP e2e and verify.sh pass; release-branch attribution is clean; the TUI PTY check times out in this session and `verify-claims --run` did not finish | partial |
 | 2h crash-injection soak | 28,552 cycles / 7,200.20s / exit 0 | local pass |
 | Structural replay | 100% on completed journals | local pass |
 | Audit completeness | 100% under `AgentAnswer::validate` | local pass |
