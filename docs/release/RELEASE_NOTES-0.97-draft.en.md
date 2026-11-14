@@ -2,13 +2,14 @@
 
 [简体中文](RELEASE_NOTES-0.97-draft.md) · [English](RELEASE_NOTES-0.97-draft.en.md)
 
-Date: 2026-11-13
+Date: 2026-11-14
 
-Status: **release-candidate draft, not published; 8h gate failed**
+Status: **release-candidate draft, not published; local gates and the Linux
+package are being finalized**
 
-Pending: reliability fixes and a new 8h run, broader TTFT sample, human
-blind-review labels, external A-Gate/W-Gate/security review, macOS P-Gate,
-release package.
+Pending: third-party A-Gate/W-Gate/security certification, a human blind
+review (the archived answer-quality labels are AI/bulk-written), macOS P-Gate,
+a rebuilt clean public history, and the final package confirmation.
 
 > This draft is not a release announcement. A metric marked “pending” is not
 > zero; the evidence does not exist yet.
@@ -101,19 +102,26 @@ the cross-platform P-Gate remain 0.98–1.0 work.
   run latency and TTFT from journals.
 - `gate-check.sh` fails closed on a missing sample; the dashboard adds gate
   cards.
-- Real-task suite v1.1: DeepSeek `deepseek-flash` passed 16/16 across two short
-  runs; the earlier v1.0 baseline was 17/24 (70.83%). The first 8h run missed
-  the target at 136/280 suites (48.57%). After the answer-repair fix, a 20-run
-  sample passed 144/160 tasks (90%), 10/20 suites (50%) and 157/157
-  completed-case replay (M5 100%); a new 320-run 8h is running.
-- Real TTFT baseline: three short streaming runs, p50 1.08 s / p95 2.48 s. The
-  expanded sample collected 17/20 (p50 1.31 s / p95 2.26 s); three runs lacked
-  a content token because the first response was a tool call, so a rerun is
-  needed.
-- `release-check.sh` exited 0 on clean tree `39ea96e` (hash rewritten from
-  `509061c` when tool bylines were removed): fmt, clippy, 1261 passed
-  / 0 failed / 13 ignored, HTTP e2e, CI status 0, claims evidence execution and
-  TUI PTY interaction. The metrics gate was skipped without
+- Real-task 1h gate (product scope ≤1h): DeepSeek `deepseek-flash`, 30 runs /
+  240 tasks, M1 **233/240 = 97.08%**, suite **23/30 = 76.66%**, completed
+  replay **239/239 = 100%**, crash-free 100%, 44m16s, about ¥11.63. One
+  provider error lost a case record, so the historical suite audit+replay gate
+  is 29/30 and the CLI prints `passed=false`; the task-level gate passed and
+  the discrepancy is archived.
+- 8h local runtime soak: Ollama `qwen3-8b-16k`, 56 runs / 448 tasks, 0 crashes,
+  completed replay 234/234, 8h26m51s. Local model task quality was only 21.2%,
+  so this proves runtime stability, not M1 model quality; no 8h DeepSeek
+  quality claim is made.
+- 100-question AG-23 loop: **96/100**; intro 20/20, follow-up 20/20,
+  high-risk 20/20, simple chat 19/20, current/local 17/20; completed replay
+  78/78.
+- Real TTFT baseline: n=20 (10 short + 10 long-context), p50 1.50 s / p95
+  2.77 s; short p50 1.24 / p95 1.94, long p50 1.57 / p95 2.79; one provider,
+  tools disabled.
+- `release-check.sh` runs fmt, clippy, the full test suite, HTTP e2e, claims
+  and TUI PTY on the current tree. `check-attribution.sh` is still red on local
+  `main` because of two historical commits; a public release must be cut from
+  rebuilt clean history. The metrics gate is skipped without
   `--metrics-dir`.
 
 ### 5. Security and operations
@@ -125,24 +133,31 @@ the cross-platform P-Gate remain 0.98–1.0 work.
   checked SIGSTOP per Pause/Repair pid and does not re-signal on
   Pause-to-Repair escalation. It never auto-resumes, kills, restarts or clears
   locks. Unix only; the cmdline-check/signal TOCTOU remains.
-- Threat model, audit-package draft, and claims at 200 ✅ / 16 ⚠️ / 8 ❌.
-  External audit has not started.
+- Threat model, audit package and an independent code-level review: no P0, five
+  P1 classes fixed (approval outcome, subagent permission, MCP environment and
+  annotations, resume replay, provider redirects); four P1 residual items
+  (browser_read SSRF, run-journal hash chain, cross-builder reproducibility,
+  historical attribution) and the P2 list are in `docs/audit-v0.97.md`.
+  Claims are 233 (209 ✅ / 16 ⚠️ / 8 ❌); third-party audit/certification has
+  not started.
 
 ## Verification summary
 
 | Item | Result | Status |
 |---|---|---|
-| Full tests (current) | 1265 passed / 0 failed / 13 ignored | local pass |
+| Full tests (current) | `cargo test --offline -j 2` green | local pass |
 | fmt / clippy | clean | local pass |
-| release-check | exit 0 (metrics gate skipped) | local pass |
+| release-check | fmt, clippy, tests, HTTP e2e, claims, TUI PTY; attribution red on local history | local pass, rebuilt history required |
 | 2h crash-injection soak | 28,552 cycles / 7,200.20s / exit 0 | local pass |
 | Structural replay | 100% on completed journals | local pass |
 | Audit completeness | 100% under `AgentAnswer::validate` | local pass |
-| Real-task v1.1 | 16/16 across two short runs | local pass, not 8h |
-| 8h M1/M2/M3 | First run 136/280 suites (48.57%). Post-repair 20-run: 144/160 tasks (90%), 10/20 suites (50%), 157/157 completed replay (M5 100%); new 320-run 8h in progress | first run missed; new 8h pending |
-| M7 TTFT | n=20 (10 short + 10 long-context) p50 1.50 s / p95 2.77 s; short p50 1.24 / p95 1.94; long p50 1.57 / p95 2.79 | one provider; tools disabled |
-| M19–M23 blind review | packet pipeline ready | human labels pending |
-| External audit / macOS P-Gate | not started | pending |
+| 1h real-task gate | 30 runs / 240 tasks: M1 97.08%, suite 76.66%, M5 100%, 44m16s, ¥11.63 | local pass; one lost case record |
+| 8h local-model soak | 56 runs / 448 tasks, 0 crashes, replay 234/234, 8h26m51s | runtime pass; local model quality 21.2%, not M1 |
+| 100-question AG-23 | 96/100, 0 hard gate | local pass |
+| M7 TTFT | n=20 p50 1.50 s / p95 2.77 s | one provider; tools disabled |
+| M19–M23 | M19 85.00%, M20 5.13% (2/39), M21 2.50%, M22 0.00%, M23 null | **AI/bulk labels, not human blind review** |
+| Independent code-level review | 0 P0; five P1 classes fixed; four P1 residual | not a third-party audit |
+| Third-party audit / macOS P-Gate | not started | pending |
 
 ## Known limits
 
@@ -158,9 +173,14 @@ the cross-platform P-Gate remain 0.98–1.0 work.
   rotation.
 - `cost_micros` is meaningful only when provider pricing is configured; the
   current DeepSeek config does not embed prices.
-- M1/M2/M3, the broader M7 sample, M19–M23 human labels, external
-  A-Gate/W-Gate/security review and macOS P-Gate remain open. Do not claim
-  Super-Agent or production stability from this draft.
+- Human blind review, third-party A-Gate/W-Gate/security certification and
+  macOS P-Gate remain open; M19–M23 currently come from AI/bulk labels and
+  must not be described as a human blind-review pass.
+- `docs/audit-v0.97.md` lists four open P1 residual items (browser_read SSRF,
+  run-journal hash chain, cross-builder reproducibility, historical
+  attribution). Do not claim a passed security audit.
+- No 8h DeepSeek model-quality claim is made; the M1 quality claim is limited
+  to the ≤1h task scope.
 
 ## Upgrade and rollback
 

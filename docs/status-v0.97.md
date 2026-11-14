@@ -1,17 +1,19 @@
-# 0.97 Status and Metric Review (2026-11-13, evening CST)
+# 0.97 Status and Metric Review (2026-11-14)
 
 - Status: **local review; by product-owner scope, the model-quality claim is
   limited to ≤1h tasks. The 1h DeepSeek task test passes (M1 97.08%, suite
   76.66%, M5 100%, 44m16s) and the 8h local-model runtime soak passes (0
-  crashes, 234/234 replay). The 8h DeepSeek model-quality M1 is not claimed;
-  human review, external audit and release packaging remain. AG-23 is
-  implemented and its final 100-question run is archived (96/100).**
-- Latest feature commit: `f77ddc1` (Windows/claim fix), after `a3060a3`
-  (routing, evidence fallback and file listing), `a04686a` (100-question eval
-  harness), `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan),
-  `c76a2d4` (live self model and dynamic tools) and `5726381` (0.97 WIP
-  checkpoint); evidence archive `205ac3b`
-- Full suite: 1315 passed / 0 failed / 13 ignored; `scripts/verify.sh`
+  crashes, 234/234 replay). The 8h DeepSeek model-quality M1 is not claimed.
+  An independent code-level security review found no P0 and five fixed P1
+  classes; four P1 residual items remain in `docs/audit-v0.97.md`. The answer
+  quality packet is archived, but its labels are AI/bulk-written, not a human
+  blind review. AG-23 is implemented and its final 100-question run is
+  archived (96/100).**
+- Latest feature commit: `74be874` (approval/MCP/subagent/resume safety and
+  packaging fixes), after `1ac7b5a` (answer-quality evidence) and `03ad40a`
+  (1h evidence). Earlier: `f77ddc1` (Windows/claim fix), `a3060a3` (routing,
+  evidence fallback and file listing), `a04686a` (100-question eval harness).
+- Full suite: `cargo test --offline -j 2`, fmt and clippy pass; `scripts/verify.sh`
   passed (fmt, clippy, tests, deterministic core eval, claims structure)
 - Claims: 233 (209 verified / 16 partial / 8 no evidence); the live terminal
   claim is partial because the local session daemon is at its 128-session limit
