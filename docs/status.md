@@ -109,6 +109,11 @@
 - [x] 8h 本地运行时 soak：Ollama `qwen3-8b-16k`，56 轮 / 448 任务，0 崩溃，
   completed replay 234/234，实际 8h26m51s；本地模型任务质量仅 21.2%，只证明
   运行时稳定性，不作为 M1 模型质量门
+- [x] 1h DeepSeek 任务质量门（产品口径限定 ≤1h）：30 轮 / 240 任务，
+  M1 233/240 = **97.08%**，suite 23/30 = **76.66%**，completed replay
+  239/239 = 100%，crash-free 100%，44m16s，约 ¥11.63；一次 provider error
+  丢失了 1 条 case 记录，历史 suite audit+replay 门为 29/30，CLI 显示失败，
+  但任务级门通过。8h DeepSeek 模型质量不再作为本次声称
 - 未完成不得发布 0.97；详见 Obsidian `III-01-1Agent-开发计划` 4.4/4.5
 
 ### R2：行动层（部分已落地）
