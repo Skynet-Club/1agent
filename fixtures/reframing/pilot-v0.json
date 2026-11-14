@@ -1,0 +1,251 @@
+{
+  "name": "reframing-pilot-v0",
+  "schema_version": 1,
+  "execution_status": "draft",
+  "max_questions_per_case": 3,
+  "max_branch_arity": 3,
+  "not_runnable_reason": "EvalCase uses deny_unknown_fields and has no reframing block, so this file cannot be loaded by `eval` yet. It lives in fixtures/ until the runner supports the reframing rubric. Promoting it early would create a file that looks runnable and is not.",
+  "families": [
+    "F1 手段替代：买一个东西，其实是为了完成另一件事",
+    "F2 学习：学一项技能，其实是为了某个用途",
+    "F3 选型：选一个产品/技术，其实是为了满足某组约束",
+    "F4 地点：问去哪儿，其实是为了某种体验",
+    "F5 优先级：问先做哪个，其实是为了某种关切",
+    "F6 表达：要一份文档，其实是给某个人看",
+    "F7 边界：必须不重构（字面请求 / 复杂域）"
+  ],
+  "cases": [
+    {
+      "id": "f1-print-01",
+      "family": "F1",
+      "source": "constructed",
+      "stated_request": "我要买个打印机，推荐个型号",
+      "constraints": ["家里空间有限"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "偶尔打印合同给客户签字", "prior": 0.4, "action": "去打印店，不买", "falsifier": "如果必须在家立刻打，这个假设就是错的" },
+        { "id": "H2", "statement": "给孩子打作业，需要在家", "prior": 0.35, "action": "买低端黑白机", "falsifier": "如果孩子作业都在学校完成，这个假设就是错的" },
+        { "id": "H3", "statement": "长期大量打印", "prior": 0.25, "action": "买激光机", "falsifier": "如果一个月打印不到 20 页，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "一个月大概打印多少页？", "branches": { "很少（<20 页）": ["H1", "H2"], "经常（>200 页）": ["H3"] } },
+        { "id": "Q2", "text": "需要在家立刻打，还是可以出门打？", "branches": { "必须在家": ["H2"], "可以出门": ["H1"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["打印店", "便利店打印"], "unacceptable_substitutes": ["买激光机"] }
+    },
+    {
+      "id": "f1-camera-02",
+      "family": "F1",
+      "source": "constructed",
+      "stated_request": "推荐个相机",
+      "constraints": [],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "拍孩子日常，主要留纪念", "prior": 0.45, "action": "手机或轻便卡片机", "falsifier": "如果照片要交付给客户，这个假设就是错的" },
+        { "id": "H2", "statement": "旅行风光，想出片", "prior": 0.35, "action": "可换镜头机型", "falsifier": "如果一年只出门一两次，这个假设就是错的" },
+        { "id": "H3", "statement": "接商单，需要专业设备", "prior": 0.2, "action": "专业机身与镜头", "falsifier": "如果没有付费客户，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "拍的东西主要是什么用途：日常记录、旅行出片，还是接活？", "branches": { "日常记录": ["H1"], "旅行出片": ["H2"], "接活": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["手机", "轻便卡片机"], "unacceptable_substitutes": ["专业机身"] }
+    },
+    {
+      "id": "f2-sql-03",
+      "family": "F2",
+      "source": "constructed",
+      "stated_request": "我要学 SQL",
+      "constraints": [],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "工作需要自己查数", "prior": 0.5, "action": "针对性查询教程", "falsifier": "如果他的工作不需要碰数据，这个假设就是错的" },
+        { "id": "H2", "statement": "想转行做数据分析", "prior": 0.3, "action": "系统课程加项目", "falsifier": "如果他没有转行打算，这个假设就是错的" },
+        { "id": "H3", "statement": "只想看懂别人给的报表", "prior": 0.2, "action": "只学查询基础", "falsifier": "如果他要自己建表，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "学 SQL 是为了自己查数、转行，还是看懂报表？", "branches": { "自己查数": ["H1"], "转行": ["H2"], "看懂报表": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["带真实表的查询练习"], "unacceptable_substitutes": ["从数据库原理讲起的完整课程"] }
+    },
+    {
+      "id": "f2-english-04",
+      "family": "F2",
+      "source": "constructed",
+      "stated_request": "怎么提高英语",
+      "constraints": ["每天可投入 30 分钟"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "工作需要英文沟通", "prior": 0.45, "action": "口语与邮件场景训练", "falsifier": "如果工作中不用英文，这个假设就是错的" },
+        { "id": "H2", "statement": "要考试", "prior": 0.35, "action": "按考试题型训练", "falsifier": "如果近期没有考试，这个假设就是错的" },
+        { "id": "H3", "statement": "想看英文资料", "prior": 0.2, "action": "只练阅读", "falsifier": "如果他要开口说话，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "最想解决的是开口沟通、考试，还是读资料？", "branches": { "开口沟通": ["H1"], "考试": ["H2"], "读资料": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["工作场景口语练习"], "unacceptable_substitutes": ["背单词书"] }
+    },
+    {
+      "id": "f3-laptop-05",
+      "family": "F3",
+      "source": "constructed",
+      "stated_request": "推荐个笔记本",
+      "constraints": ["预算一万元以内"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "办公文档与网页", "prior": 0.5, "action": "轻薄本", "falsifier": "如果他要跑渲染，这个假设就是错的" },
+        { "id": "H2", "statement": "剪辑与渲染", "prior": 0.3, "action": "高性能本", "falsifier": "如果只是偶尔修图，这个假设就是错的" },
+        { "id": "H3", "statement": "打游戏", "prior": 0.2, "action": "游戏本", "falsifier": "如果他不玩游戏，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "主要拿来做什么：办公、剪辑，还是游戏？", "branches": { "办公": ["H1"], "剪辑": ["H2"], "游戏": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["轻薄本"], "unacceptable_substitutes": ["游戏本"] }
+    },
+    {
+      "id": "f3-framework-06",
+      "family": "F3",
+      "source": "constructed",
+      "stated_request": "前端用 React 还是 Vue",
+      "constraints": ["团队 4 人", "三个月上线"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "团队已有人熟练 React", "prior": 0.4, "action": "用 React", "falsifier": "如果团队里没人用过 React，这个假设就是错的" },
+        { "id": "H2", "statement": "团队已有人熟练 Vue", "prior": 0.35, "action": "用 Vue", "falsifier": "如果团队里没人用过 Vue，这个假设就是错的" },
+        { "id": "H3", "statement": "团队两者都不会", "prior": 0.25, "action": "按项目需求与招聘市场选", "falsifier": "如果团队已有明确熟练项，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "团队里有人熟练用其中一个吗？", "branches": { "有人熟练 React": ["H1"], "有人熟练 Vue": ["H2"], "都没有": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["React"], "unacceptable_substitutes": ["为了新技术重写"] }
+    },
+    {
+      "id": "f4-trip-07",
+      "family": "F4",
+      "source": "journal",
+      "stated_request": "周末去北京周边玩你有好的建议吗？",
+      "constraints": ["周末两天", "北京出发"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "想休息，目的地不重要", "prior": 0.45, "action": "就近低强度方案", "falsifier": "如果他明确排出想去的地方，这个假设就是错的" },
+        { "id": "H2", "statement": "想要新鲜感", "prior": 0.35, "action": "目的地清单", "falsifier": "如果他说去哪都行，这个假设就是错的" },
+        { "id": "H3", "statement": "主要为了陪家人", "prior": 0.2, "action": "先问同伴偏好", "falsifier": "如果他是独自出行，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这趟是想休息、想看点新鲜的，还是主要为了陪家人？", "branches": { "休息": ["H1"], "新鲜感": ["H2"], "陪家人": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["京郊民宿两日", "市区公园加餐厅"], "unacceptable_substitutes": ["跨省长途"] }
+    },
+    {
+      "id": "f4-teambuilding-08",
+      "family": "F4",
+      "source": "constructed",
+      "stated_request": "公司团建去哪",
+      "constraints": ["预算每人 500", "当天往返"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "想让跨部门的人熟悉起来", "prior": 0.45, "action": "分组协作型活动", "falsifier": "如果大家本来就熟，这个假设就是错的" },
+        { "id": "H2", "statement": "想奖励业绩", "prior": 0.35, "action": "高预算放松型", "falsifier": "如果最近没有业绩可奖，这个假设就是错的" },
+        { "id": "H3", "statement": "只是走流程", "prior": 0.2, "action": "最省事方案", "falsifier": "如果老板明确要效果，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这次团建最想解决的是协作、奖励，还是走个流程？", "branches": { "协作": ["H1"], "奖励": ["H2"], "走流程": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["分组任务型半日"], "unacceptable_substitutes": ["高端餐厅聚餐"] }
+    },
+    {
+      "id": "f5-priority-09",
+      "family": "F5",
+      "source": "journal",
+      "stated_request": "周一有很多事情要做，要提交周报，要开发我们的1Agent，我先做哪个呢？",
+      "constraints": [],
+      "classification_expected": "end",
+      "hypotheses": [
+        { "id": "H1", "statement": "想要一个明确的先后排序", "prior": 0.45, "action": "给出排序与理由", "falsifier": "如果他说出排序后仍然不动，这个假设就是错的" },
+        { "id": "H3", "statement": "想让我替他决定并承担后果", "prior": 0.2, "action": "给出排序与理由", "falsifier": "如果他说我自己决定，这个假设就是错的" },
+        { "id": "H2", "statement": "担心漏掉某件事", "prior": 0.35, "action": "先列全待办并核对遗漏", "falsifier": "如果他能完整背出所有待办，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "你是想要个排序，还是先确认有没有漏掉的事？", "branches": { "排序": ["H1", "H3"], "确认遗漏": ["H2"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "f5-hire-10",
+      "family": "F5",
+      "source": "constructed",
+      "stated_request": "先招人还是先买工具",
+      "constraints": ["预算有限"],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "产能不足：活干不完", "prior": 0.45, "action": "招人或外包", "falsifier": "如果任务本身做不出来，这个假设就是错的" },
+        { "id": "H2", "statement": "能力缺口：活干不了", "prior": 0.35, "action": "买工具或培训", "falsifier": "如果团队会做只是没时间，这个假设就是错的" },
+        { "id": "H3", "statement": "预算年底要花完", "prior": 0.2, "action": "先确认预算规则", "falsifier": "如果预算不受年度限制，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "现在的瓶颈是活干不完，还是有活干不了？", "branches": { "干不完": ["H1"], "干不了": ["H2", "H3"] } },
+        { "id": "Q2", "text": "这个决定是因为真缺能力，还是因为预算要花掉？", "branches": { "真缺能力": ["H2"], "预算要花掉": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["外包"], "unacceptable_substitutes": ["为了花钱买工具"] }
+    },
+    {
+      "id": "f6-weeklyreport-11",
+      "family": "F6",
+      "source": "constructed",
+      "stated_request": "帮我写个周报",
+      "constraints": [],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "给上级看进度", "prior": 0.45, "action": "结果与风险摘要", "falsifier": "如果周报没人看，这个假设就是错的" },
+        { "id": "H2", "statement": "留档备查", "prior": 0.3, "action": "结构化记录", "falsifier": "如果团队没有留档习惯，这个假设就是错的" },
+        { "id": "H3", "statement": "争取资源", "prior": 0.25, "action": "问题与诉求", "falsifier": "如果不缺资源，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这份周报主要是给上级看进度、留档，还是争取资源？", "branches": { "看进度": ["H1"], "留档": ["H2"], "争取资源": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["三行结果加一条风险"], "unacceptable_substitutes": ["按小时罗列"] }
+    },
+    {
+      "id": "f6-apidoc-12",
+      "family": "F6",
+      "source": "constructed",
+      "stated_request": "写个接口文档",
+      "constraints": [],
+      "classification_expected": "means",
+      "hypotheses": [
+        { "id": "H1", "statement": "给外部方对接", "prior": 0.45, "action": "契约优先加示例", "falsifier": "如果只给内部用，这个假设就是错的" },
+        { "id": "H2", "statement": "内部交接", "prior": 0.35, "action": "背景加约定", "falsifier": "如果没有人员变动，这个假设就是错的" },
+        { "id": "H3", "statement": "评审用", "prior": 0.2, "action": "设计决策与取舍", "falsifier": "如果已经定稿不需要评审，这个假设就是错的" }
+      ],
+      "questions": [
+        { "id": "Q1", "text": "这份文档是给外部对接、内部交接，还是评审？", "branches": { "外部对接": ["H1"], "内部交接": ["H2"], "评审": ["H3"] } }
+      ],
+      "answer_key": { "terminal_need": "H1", "acceptable_substitutes": ["OpenAPI 契约"], "unacceptable_substitutes": ["无示例的字段表"] }
+    },
+    {
+      "id": "f7-typo-13",
+      "family": "F7",
+      "source": "constructed",
+      "stated_request": "把 README 里那几个 typo 改掉",
+      "constraints": ["不改动其他内容"],
+      "classification_expected": "end",
+      "hypotheses": [
+        { "id": "H1", "statement": "就是修正拼写错误", "prior": 1.0, "action": "直接改", "falsifier": "如果他其实想重写 README，这个假设就是错的" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": [], "unacceptable_substitutes": [] }
+    },
+    {
+      "id": "f7-teameff-14",
+      "family": "F7",
+      "source": "constructed",
+      "stated_request": "我们团队最近效率很低，怎么提升？",
+      "constraints": [],
+      "classification_expected": "end",
+      "hypotheses": [
+        { "id": "H1", "statement": "原因未知，属于复杂域，只能先取证", "prior": 1.0, "action": "不做需求重构，先取三个具体事件", "falsifier": "如果已经能指出具体瓶颈环节，这个假设就是错的" }
+      ],
+      "questions": [],
+      "answer_key": { "terminal_need": null, "acceptable_substitutes": ["事件取证"], "unacceptable_substitutes": ["直接给出效率提升方案"] }
+    }
+  ]
+}

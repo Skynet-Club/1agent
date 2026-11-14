@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-pilot-missing-artifact",
+  "goal_id": "goal-pilot-missing-artifact",
+  "version": 1,
+  "summary": "Pilot that catches a false-success artifact claim",
+  "work_items": [
+    {
+      "id": "false-success",
+      "title": "Exit zero without artifact",
+      "objective": "Exit successfully but deliberately do not create missing.txt",
+      "required_capabilities": [
+        "shell"
+      ],
+      "required_tools": [
+        "shell"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent/target/master-pilot/workspace"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "missing.txt exists"
+      ],
+      "expected_artifacts": [
+        "missing.txt"
+      ],
+      "workspace": "/home/skynet/1-agent/target/master-pilot/workspace",
+      "budget": {
+        "max_steps": 1,
+        "timeout_ms": 30000,
+        "max_tool_calls": 1
+      },
+      "deadline_unix_ms": null,
+      "risk": "medium",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 1,
+  "approved": false
+}

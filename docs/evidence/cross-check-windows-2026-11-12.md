@@ -1,0 +1,84 @@
+# Windows Cross-Check — Evidence (2026-11-12)
+
+Status: **Windows GNU check passed; macOS check blocked by host toolchain**  
+Scope: cross-target compilation of the current tree, not runtime behavior.
+
+## Commands
+
+```bash
+./scripts/cross-check.sh
+RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu
+cargo check --offline --target aarch64-apple-darwin
+cargo test --offline
+```
+
+`./scripts/cross-check.sh` requires the Windows check and attempts macOS,
+reporting a host C-toolchain block unless `--require-macos` is passed.
+
+## Results
+
+Windows GNU target, library and binary:
+
+```text
+Checking first-principles-agent v0.96.1
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.17s
+```
+
+Windows GNU target, all targets including tests:
+
+```text
+RUSTFLAGS="-D warnings" cargo check --offline --all-targets --target x86_64-pc-windows-gnu
+Finished
+```
+
+No warnings under `-D warnings`. Fixes required for the all-targets check:
+
+- `read_key_hex(path, secret)` consumes `secret` on non-Unix targets.
+- Unix-only test modules are `#[cfg(all(test, unix))]` (documents, workshop
+  worker).
+- Unix-only test cases and imports are `#[cfg(unix)]` (task-graph store,
+  terminal tools, MCP).
+- Unix-only permission/symlink helpers are no longer compiled on Windows.
+
+macOS arm64 target:
+
+```text
+error occurred in cc-rs: ... "-arch" "arm64" ... ring-0.17.14/crypto/curve25519/curve25519.c
+```
+
+The failure is the host C toolchain lacking a macOS SDK/arm64 compiler for
+`ring`'s C code, not a Rust type or API error in this repository. It is not
+counted as a macOS pass.
+
+Windows MSVC target:
+
+```text
+error occurred in cc-rs: failed to find tool "lib.exe": No such file or directory
+```
+
+The host has no MSVC build tools, so `ring`'s C code cannot be compiled for
+`x86_64-pc-windows-msvc`. This is also a host-toolchain block, not a Rust type
+or API failure; the GNU target remains the verified Windows compile.
+
+Linux full tests after the change: 954 passed, 0 failed, 5 ignored.
+
+## What this proves
+
+- The Rust tree and all test targets compile for `x86_64-pc-windows-gnu` with
+  warnings denied.
+- Non-Unix cfg branches do not reference Unix-only APIs in a way that breaks
+  compilation.
+- The Linux suite still passes (961 passed, 0 failed, 5 ignored).
+
+## What this does not prove
+
+- That the Windows binary links, installs or runs.
+- PTY/ConPTY, path, permission or signal behavior on Windows.
+- That macOS compiles or runs; the host toolchain blocked the check.
+- Installer, signing, notarization or CI matrix execution.
+
+## Files
+
+- `src/main.rs` (`read_key_hex` non-Unix handling)
+- `docs/evidence/cross-check-windows-2026-11-12.md`
+- `CHANGELOG.md`, `docs/claims.md`

@@ -1,0 +1,13 @@
+/target
+/dist
+.journal/
+.journal*/
+*.jsonl
+!evals/golden-set-v1.jsonl
+!.journal/.gitkeep
+.experience/
+.env
+__pycache__/
+*.pyc
+
+/.1a/

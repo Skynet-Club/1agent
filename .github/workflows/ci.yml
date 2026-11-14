@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-gates:
+    name: Linux full gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+      - name: Local software gates
+        run: ./scripts/verify.sh
+
+  windows-check:
+    name: Windows all-targets check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+      - name: Compile all targets
+        run: cargo check --locked --all-targets
+      - name: Compile tests
+        run: cargo test --locked --no-run
+
+  macos-check:
+    name: macOS all-targets check
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+      - name: Compile all targets
+        run: cargo check --locked --all-targets
+      - name: Compile tests
+        run: cargo test --locked --no-run

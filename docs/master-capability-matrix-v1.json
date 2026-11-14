@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "observed_on": "2026-11-03",
+  "environment": "managed Linux sandbox plus Skynet Workshop persistent PTY",
+  "suite": {
+    "name": "agent-core-capability-v1",
+    "prompt": "Exact-output and JSON-object tasks with tools disabled where the runtime supports it.",
+    "timeout_seconds": 60,
+    "tasks_per_runtime": 2,
+    "result_rule": "Only passed results increase measured successes. Blocked results are excluded from capability statistics; failures remain explicit."
+  },
+  "runtimes": [
+    {
+      "runtime": "pi",
+      "version": "1.5.0",
+      "installed": true,
+      "authentication": "deepseek provider configuration present",
+      "attempted_runs": 2,
+      "measured_runs": 0,
+      "measured_successes": 0,
+      "status": "blocked",
+      "failure_kinds": ["blocked_network", "blocked_network"],
+      "report": "docs/master-capability-probe-run-20261103.json"
+    },
+    {
+      "runtime": "hermes",
+      "version": "0.22.5+3133.gc419cf7",
+      "installed": true,
+      "authentication": "DeepSeek credential configured",
+      "attempted_runs": 2,
+      "measured_runs": 0,
+      "measured_successes": 0,
+      "status": "blocked",
+      "failure_kinds": ["timeout", "timeout"],
+      "report": "docs/master-capability-probe-run-20261103.json"
+    },
+    {
+      "runtime": "claude",
+      "version": "2.1.314",
+      "installed": true,
+      "authentication": "OAuth login present",
+      "attempted_runs": 2,
+      "measured_runs": 0,
+      "measured_successes": 0,
+      "status": "blocked",
+      "failure_kinds": ["timeout", "timeout"],
+      "report": "docs/master-capability-probe-run-20261103.json"
+    },
+    {
+      "runtime": "codex",
+      "version": "0.166.0",
+      "installed": true,
+      "authentication": "not logged in",
+      "attempted_runs": 2,
+      "measured_runs": 0,
+      "measured_successes": 0,
+      "status": "blocked",
+      "failure_kinds": ["blocked_filesystem", "blocked_filesystem"],
+      "report": "docs/master-capability-probe-codex-20261103.json"
+    },
+    {
+      "runtime": "deepseek-1agent",
+      "version": "deepseek-flash via 1A OpenAI-compatible adapter",
+      "installed": true,
+      "authentication": "Pi DeepSeek credential loaded by launcher",
+      "attempted_runs": 2,
+      "measured_runs": 0,
+      "measured_successes": 0,
+      "status": "blocked",
+      "failure_kinds": ["blocked_network", "blocked_network"],
+      "report": "docs/master-capability-probe-deepseek-20261103.json"
+    }
+  ],
+  "workshop_control_plane": {
+    "agents_read": true,
+    "agent_records": 13,
+    "jobs_read": true,
+    "job_records": 7,
+    "job_statuses": {
+      "ok": 4,
+      "fail": 1,
+      "cancelled": 2
+    },
+    "bounded_events_read": true
+  },
+  "current_read_probe": {
+    "workshop_read": "blocked",
+    "reason": "The launcher's writable-lock problem can be overridden, but skynet-term requires a graphical display even for read-only CLI commands. Xvfb cannot create an X11 socket because /tmp/.X11-unix is unavailable in this sandbox."
+  },
+  "environment_diagnostics": {
+    "network": {
+      "status": "blocked",
+      "reason": "DNS resolution for api.deepseek.com fails under the managed sandbox network policy."
+    },
+    "authentication": {
+      "pi": "deepseek api_key ready",
+      "hermes": "deepseek logged in",
+      "claude": "oauth_token logged in",
+      "codex": "not logged in",
+      "deepseek-1agent": "deepseek api_key ready"
+    },
+    "display": {
+      "status": "blocked",
+      "reason": "GTK/Wayland display unavailable; Xvfb listener creation is denied by the sandbox."
+    }
+  },
+  "capability_probe": {
+    "command": "1agent master capability-probe --manifest configs/capability-probes.example.json --output capability-report.json",
+    "runtime_filter": "1agent master capability-probe --manifest configs/capability-probes.example.json --runtime deepseek-1agent --output deepseek-report.json",
+    "raw_output_persisted": false,
+    "success_rules": [
+      "exact",
+      "contains",
+      "json_object",
+      "json_path_equals",
+      "json_path_json_object"
+    ],
+    "statuses": ["passed", "failed", "blocked"],
+    "blocked_kinds": [
+      "authentication",
+      "network",
+      "filesystem",
+      "timeout"
+    ]
+  },
+  "declared_matrix": "../../configs/master-agents.example.json",
+  "promotion_rule": "Declared capabilities remain unmeasured until a writable, authenticated environment completes the suite. Measured runs and successes must only increase from observed passed artifacts."
+}

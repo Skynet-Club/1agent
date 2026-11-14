@@ -1,0 +1,6046 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
+use crate::authority::PolicyOutcome;
+use crate::context::{compact_messages_at_tokens, estimate_tokens};
+use crate::domain::{
+    AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
+    MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
+    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason,
+    TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
+};
+use crate::execution_gate::{ExecutionGate, ToolCallRequest};
+use crate::experience::ExperienceStore;
+use crate::journal::{
+    Journal, JournalEventKind, ModelRequestLog, ProviderFailure, ResumablePrefix, RetryOutcome,
+    RetryTiming, ToolRequestDenial, find_resumable_prefix, read_events,
+};
+use crate::provider::{
+    ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
+    chat_system_prompt,
+};
+use crate::provider_health::ProviderHealth;
+use crate::router::{
+    PolicyValueSource, PrivacyClass, ProviderManifest, RouteObjective, RoutePolicySources,
+    RouteRequest, Router,
+};
+use crate::task_graph::MandateStrength;
+use crate::tools::{ToolCapability, ToolRegistry};
+
+/// Bounded evidence re-planning: a completed draft that lacks the evidence its
+/// own task assessment calls for gets at most this many corrections.
+const MAX_EVIDENCE_REPLANS: usize = 2;
+
+#[derive(Clone)]
+pub struct ProviderCandidate {
+    pub provider: Arc<dyn ModelProvider>,
+    pub manifest: ProviderManifest,
+}
+
+/// Receives content fragments from a streaming provider as they arrive.
+pub type StreamSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[derive(Clone)]
+struct ToolGateContext {
+    gate: ExecutionGate,
+    actor_id: String,
+    scope: String,
+    strength: MandateStrength,
+    now_ms: u128,
+}
+
+#[derive(Clone)]
+pub struct AgentRuntime {
+    providers: Vec<ProviderCandidate>,
+    router: Router,
+    tools: ToolRegistry,
+    journal_dir: PathBuf,
+    experience_dir: Option<PathBuf>,
+    shadow_experience: Vec<crate::experience::ExperienceCandidate>,
+    route_objective: Option<RouteObjective>,
+    route_policy_sources: RoutePolicySources,
+    selected_route: Option<ProviderRouteKey>,
+    tool_gate: Option<ToolGateContext>,
+    kill_switch: Option<PathBuf>,
+    provider_health: Option<Arc<Mutex<ProviderHealth>>>,
+    alerts: Option<Arc<Mutex<AlertLog>>>,
+    alert_webhook: Option<Arc<AlertWebhook>>,
+    voice_mode: crate::user_model::VoiceMode,
+    tool_query: Option<String>,
+    attachments: Vec<crate::attachment::Attachment>,
+    stream_sink: Option<StreamSink>,
+}
+
+struct AnswerRepairContext<'a> {
+    journal: &'a mut Journal,
+    model_request_log: &'a mut ModelRequestLog,
+    journal_path: PathBuf,
+    request: &'a TaskRequest,
+    model_request: &'a ModelRequest,
+    provider_id: String,
+    model: String,
+    invalid_content: String,
+    failure: String,
+    initial_elapsed: Duration,
+}
+
+struct RepairedAnswer {
+    answer: AgentAnswer,
+    stop_reason: Option<StopReason>,
+}
+
+impl AgentRuntime {
+    pub fn new(
+        providers: Vec<ProviderCandidate>,
+        tools: ToolRegistry,
+        journal_dir: impl Into<PathBuf>,
+    ) -> Self {
+        let router = Router::new(
+            providers
+                .iter()
+                .map(|candidate| candidate.manifest.clone())
+                .collect(),
+        );
+        Self {
+            providers,
+            router,
+            tools,
+            journal_dir: journal_dir.into(),
+            experience_dir: None,
+            shadow_experience: Vec::new(),
+            route_objective: None,
+            route_policy_sources: RoutePolicySources {
+                objective: PolicyValueSource::RuntimeDefault,
+                latency_budget: PolicyValueSource::Unset,
+                unit_cost_budget: PolicyValueSource::Unset,
+            },
+            selected_route: None,
+            tool_gate: None,
+            kill_switch: None,
+            provider_health: None,
+            alerts: None,
+            alert_webhook: None,
+            voice_mode: crate::user_model::VoiceMode::Operator,
+            tool_query: None,
+            attachments: Vec::new(),
+            stream_sink: None,
+        }
+    }
+
+    pub fn with_attachments(mut self, attachments: Vec<crate::attachment::Attachment>) -> Self {
+        self.attachments = attachments;
+        self
+    }
+
+    /// Report content fragments from the first provider attempt as they
+    /// arrive. Retries stay non-streaming so a failed attempt cannot duplicate
+    /// or interleave partial text with the fallback answer.
+    pub fn with_stream_sink(mut self, sink: StreamSink) -> Self {
+        self.stream_sink = Some(sink);
+        self
+    }
+
+    pub fn with_voice_mode(mut self, mode: crate::user_model::VoiceMode) -> Self {
+        self.voice_mode = mode;
+        self
+    }
+
+    pub fn with_tool_query(mut self, query: impl Into<String>) -> Self {
+        self.tool_query = Some(query.into());
+        self
+    }
+
+    pub fn with_provider_health(mut self, health: Arc<Mutex<ProviderHealth>>) -> Self {
+        self.provider_health = Some(health);
+        self
+    }
+
+    pub fn with_alert_log(mut self, alerts: Arc<Mutex<AlertLog>>) -> Self {
+        self.alerts = Some(alerts);
+        self
+    }
+
+    pub fn with_alert_webhook(mut self, webhook: Arc<AlertWebhook>) -> Self {
+        self.alert_webhook = Some(webhook);
+        self
+    }
+
+    /// Refuse write-capable tools while this file exists. Read-only tools stay
+    /// available so an operator can inspect the run without side effects.
+    pub fn with_kill_switch(mut self, path: impl Into<PathBuf>) -> Self {
+        self.kill_switch = Some(path.into());
+        self
+    }
+
+    /// Require an Authority/Policy check before every tool call. The gate is
+    /// opt-in so the read-only V0 runtime remains unchanged by default.
+    pub fn with_execution_gate(
+        mut self,
+        gate: ExecutionGate,
+        actor_id: impl Into<String>,
+        scope: impl Into<String>,
+        strength: MandateStrength,
+        now_ms: u128,
+    ) -> Self {
+        self.tool_gate = Some(ToolGateContext {
+            gate,
+            actor_id: actor_id.into(),
+            scope: scope.into(),
+            strength,
+            now_ms,
+        });
+        self
+    }
+
+    pub fn with_route_objective(mut self, objective: RouteObjective) -> Self {
+        self.route_objective = Some(objective);
+        self
+    }
+
+    pub fn with_route_policy_sources(mut self, sources: RoutePolicySources) -> Self {
+        self.route_policy_sources = sources;
+        self
+    }
+
+    pub fn set_route_objective(&mut self, objective: RouteObjective) {
+        self.route_objective = Some(objective);
+    }
+
+    pub fn route_objective(&self) -> RouteObjective {
+        self.route_objective.unwrap_or_default()
+    }
+
+    pub fn select_provider(&mut self, provider_id: &str, model: &str) -> bool {
+        let Some(candidate) = self.providers.iter().find(|candidate| {
+            candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+        }) else {
+            return false;
+        };
+        self.selected_route = Some(ProviderRouteKey {
+            provider_id: candidate.manifest.provider_id.clone(),
+            model: candidate.manifest.model.clone(),
+        });
+        true
+    }
+
+    pub fn selected_provider(&self) -> Option<&ProviderManifest> {
+        let selected = self.selected_route.as_ref()?;
+        self.providers
+            .iter()
+            .find(|candidate| {
+                candidate.manifest.provider_id == selected.provider_id
+                    && candidate.manifest.model == selected.model
+            })
+            .map(|candidate| &candidate.manifest)
+    }
+
+    pub fn provider_candidate(&self, provider_id: &str, model: &str) -> Option<ProviderCandidate> {
+        self.providers
+            .iter()
+            .find(|candidate| {
+                candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+            })
+            .cloned()
+    }
+
+    pub fn replace_provider(&mut self, candidate: ProviderCandidate) -> bool {
+        // The TUI provider panel replaces the route for a provider id; the
+        // selected model may have changed, so do not require the old model to
+        // match.
+        let Some(existing) = self
+            .providers
+            .iter_mut()
+            .find(|existing| existing.manifest.provider_id == candidate.manifest.provider_id)
+        else {
+            return false;
+        };
+        *existing = candidate;
+        self.selected_route = None;
+        true
+    }
+
+    pub fn provider_manifests(&self) -> Vec<ProviderManifest> {
+        self.providers
+            .iter()
+            .map(|candidate| candidate.manifest.clone())
+            .collect()
+    }
+
+    pub fn journal_dir(&self) -> &std::path::Path {
+        &self.journal_dir
+    }
+
+    pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
+        self.tools.capabilities()
+    }
+
+    async fn execute_tool(
+        &self,
+        call: &crate::domain::ToolCall,
+        permissions: &crate::domain::PermissionSet,
+        cancellation: &CancellationToken,
+    ) -> ToolObservation {
+        if let Some(path) = &self.kill_switch
+            && path.exists()
+            && self.tools.requires_write(&call.name)
+        {
+            return ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status: ToolStatus::PermissionDenied,
+                summary: "kill switch is active; write tools are disabled".into(),
+                content: String::new(),
+                error_code: Some("kill_switch_active".into()),
+                metadata: Default::default(),
+            };
+        }
+        if let Some(context) = &self.tool_gate {
+            let authorization = context.gate.authorize(
+                &ToolCallRequest {
+                    actor_id: context.actor_id.clone(),
+                    tool: call.name.clone(),
+                    scope: context.scope.clone(),
+                    strength: context.strength,
+                    risk: RiskLevel::Low,
+                },
+                context.now_ms,
+            );
+            match authorization {
+                Ok(authorization) if authorization.outcome == PolicyOutcome::Allow => {}
+                Ok(authorization) => {
+                    return ToolObservation {
+                        call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        status: ToolStatus::PermissionDenied,
+                        summary: format!(
+                            "tool {} requires approval: {}",
+                            call.name, authorization.reason
+                        ),
+                        content: String::new(),
+                        error_code: Some("approval_required".into()),
+                        metadata: Default::default(),
+                    };
+                }
+                Err(error) => {
+                    return ToolObservation {
+                        call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        status: ToolStatus::PermissionDenied,
+                        summary: error.to_string(),
+                        content: String::new(),
+                        error_code: Some("authority_denied".into()),
+                        metadata: Default::default(),
+                    };
+                }
+            }
+        }
+        self.tools.execute(call, permissions, cancellation).await
+    }
+
+    /// Run a batch of parallel-safe tool calls concurrently. Results are
+    /// returned in call order, so journal observations stay deterministic.
+    async fn execute_tools_parallel(
+        &self,
+        calls: &[ToolCall],
+        permissions: &crate::domain::PermissionSet,
+        cancellation: &CancellationToken,
+    ) -> Vec<ToolObservation> {
+        futures_util::future::join_all(
+            calls
+                .iter()
+                .map(|call| self.execute_tool(call, permissions, cancellation)),
+        )
+        .await
+    }
+
+    pub fn register_tool(&mut self, tool: Arc<dyn crate::tools::AgentTool>) {
+        self.tools.register(tool);
+    }
+
+    fn describe_self_observation(
+        &self,
+        call: &ToolCall,
+        permissions: &crate::domain::PermissionSet,
+        budget: &crate::domain::RunBudget,
+        provider_id: &str,
+        model: &str,
+        capabilities: &[ToolCapability],
+    ) -> ToolObservation {
+        ToolObservation {
+            call_id: call.id.clone(),
+            tool: call.name.clone(),
+            status: ToolStatus::Ok,
+            summary: format!(
+                "live self model: {} tools, {}/{}",
+                capabilities.len(),
+                provider_id,
+                model
+            ),
+            content: crate::dynamic_tools::render_self_model(
+                provider_id,
+                model,
+                permissions,
+                budget,
+                capabilities,
+            ),
+            error_code: None,
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    fn request_tools_observation(
+        &self,
+        call: &ToolCall,
+        permissions: &crate::domain::PermissionSet,
+        tool_specs: &mut Vec<ToolSpec>,
+    ) -> (ToolObservation, Option<JournalEventKind>) {
+        let args = match crate::dynamic_tools::parse_request_tools(&call.arguments) {
+            Ok(args) => args,
+            Err(message) => {
+                return (
+                    ToolObservation {
+                        call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        status: ToolStatus::InvalidArguments,
+                        summary: message.clone(),
+                        content: String::new(),
+                        error_code: Some("invalid_arguments".into()),
+                        metadata: BTreeMap::new(),
+                    },
+                    None,
+                );
+            }
+        };
+        let all_capabilities = self.tools.capabilities();
+        let mut granted = Vec::new();
+        let mut denied = Vec::new();
+        for name in &args.tools {
+            if crate::dynamic_tools::is_virtual(name)
+                || tool_specs.iter().any(|spec| &spec.name == name)
+            {
+                granted.push(name.clone());
+                continue;
+            }
+            let Some(capability) = all_capabilities
+                .iter()
+                .find(|capability| &capability.name == name)
+            else {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "unknown_tool".into(),
+                    message: format!("unknown tool '{name}'"),
+                });
+                continue;
+            };
+            if capability.requires_write && !permissions.allow_write {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "write_not_allowed".into(),
+                    message: "write permission is disabled".into(),
+                });
+                continue;
+            }
+            if crate::dynamic_tools::NETWORK_TOOLS.contains(&name.as_str())
+                && !permissions.allow_network
+            {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "network_not_allowed".into(),
+                    message: "network permission is disabled".into(),
+                });
+                continue;
+            }
+            if !tool_specs.iter().any(|spec| &spec.name == name) {
+                tool_specs.push(ToolSpec {
+                    name: capability.name.clone(),
+                    description: capability.description.clone(),
+                    parameters: capability.parameters.clone(),
+                });
+            }
+            granted.push(name.clone());
+        }
+        tool_specs.sort_by(|left, right| left.name.cmp(&right.name));
+        let status = if granted.is_empty() && !denied.is_empty() {
+            ToolStatus::PermissionDenied
+        } else {
+            ToolStatus::Ok
+        };
+        let summary = format!("granted {} tool(s); denied {}", granted.len(), denied.len());
+        let content = serde_json::to_string_pretty(&serde_json::json!({
+            "requested": args.tools,
+            "granted": granted,
+            "denied": denied.iter().map(|denial| serde_json::json!({
+                "name": denial.name,
+                "code": denial.code,
+                "message": denial.message,
+            })).collect::<Vec<_>>(),
+            "reason": args.reason,
+        }))
+        .unwrap_or_default();
+        let event = JournalEventKind::ToolsRequested {
+            requested: args.tools,
+            granted: granted.clone(),
+            denied: denied.clone(),
+            reason: args.reason,
+        };
+        (
+            ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status,
+                summary,
+                content,
+                error_code: (status == ToolStatus::PermissionDenied)
+                    .then(|| "permission_denied".into()),
+                metadata: BTreeMap::new(),
+            },
+            Some(event),
+        )
+    }
+
+    pub fn with_experience_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.experience_dir = Some(dir.into());
+        self
+    }
+
+    pub fn with_shadow_experience_candidates(
+        mut self,
+        candidates: Vec<crate::experience::ExperienceCandidate>,
+    ) -> Self {
+        self.shadow_experience = candidates;
+        self
+    }
+
+    /// Record a successful tool-using run as an inert strategy draft. The
+    /// store's review/verify/activate/rollback lifecycle decides whether it
+    /// ever influences a later run. The content holds task features and the
+    /// tool sequence, never the user's text or the answer.
+    fn record_strategy(&self, request: &TaskRequest, result: &RunResult) {
+        let Some(directory) = &self.experience_dir else {
+            return;
+        };
+        if !matches!(
+            result.answer.status,
+            AnswerStatus::Completed | AnswerStatus::Conditional
+        ) {
+            return;
+        }
+        let Ok(events) = read_events(&result.journal_path) else {
+            return;
+        };
+        let mut mode = None;
+        let mut tool_sequence = Vec::new();
+        let mut evidence_event_seqs = Vec::new();
+        let mut verification_rounds = 0usize;
+        for event in &events {
+            match &event.event {
+                JournalEventKind::RunStarted { mode: started, .. } => mode = Some(*started),
+                JournalEventKind::ResumeStarted { checkpoint, .. } => {
+                    mode = Some(checkpoint.mode);
+                }
+                JournalEventKind::ToolCalled { call } => {
+                    tool_sequence.push(call.name.clone());
+                }
+                JournalEventKind::ToolObserved { .. } | JournalEventKind::AnswerProduced { .. } => {
+                    evidence_event_seqs.push(event.seq);
+                }
+                JournalEventKind::AnswerVerificationFailed { .. } => {
+                    verification_rounds = verification_rounds.saturating_add(1);
+                }
+                _ => {}
+            }
+        }
+        let Some(mode) = mode else {
+            return;
+        };
+        if tool_sequence.is_empty() || evidence_event_seqs.is_empty() {
+            return;
+        }
+        let scope = request
+            .experience_scope
+            .clone()
+            .unwrap_or_else(|| "*".into());
+        let tool_call_count = tool_sequence.len();
+        tool_sequence.truncate(64);
+        while evidence_event_seqs.len() > 32 {
+            evidence_event_seqs.remove(0);
+        }
+        let content = serde_json::json!({
+            "task_features": {
+                "mode": mode,
+                "objective_sha256": hex::encode(Sha256::digest(request.objective.as_bytes())),
+                "objective_chars": request.objective.chars().count(),
+                "task_need": result.answer.task_need,
+            },
+            "tool_sequence": tool_sequence,
+            "tool_call_count": tool_call_count,
+            "outcome": {
+                "status": result.answer.status,
+                "stop_reason": result.stop_reason,
+                "verification_rounds": verification_rounds,
+            },
+            "success": result.answer.status == AnswerStatus::Completed,
+        })
+        .to_string();
+        let title = format!(
+            "Strategy: {mode:?} · {tool_call_count} tool call(s) · {:?}",
+            result.answer.status
+        );
+        let Ok(mut store) = ExperienceStore::open(directory) else {
+            return;
+        };
+        if store.candidates().is_ok_and(|candidates| {
+            candidates
+                .values()
+                .any(|candidate| candidate.scope == scope && candidate.content == content)
+        }) {
+            return;
+        }
+        let spec = crate::experience::ExperienceCandidateSpec {
+            kind: crate::experience::ExperienceKind::Strategy,
+            title,
+            content,
+            scope,
+            evidence_event_seqs,
+            sensitive: false,
+            applicable_modes: vec![mode],
+            expires_at_unix_ms: None,
+            supersedes: None,
+        };
+        let _ = store.propose(spec, &events);
+    }
+
+    async fn repair_answer(
+        &self,
+        context: AnswerRepairContext<'_>,
+        provider_attempts_used: &mut usize,
+        started_at: Instant,
+        cancellation: &CancellationToken,
+    ) -> Result<RepairedAnswer, RuntimeError> {
+        const MAX_REPAIR_CONTENT_CHARS: usize = 20_000;
+        let AnswerRepairContext {
+            journal,
+            model_request_log,
+            journal_path,
+            request,
+            model_request,
+            provider_id,
+            model,
+            mut invalid_content,
+            failure,
+            initial_elapsed,
+        } = context;
+        if request.budget.max_provider_attempts != 0
+            && *provider_attempts_used >= request.budget.max_provider_attempts
+        {
+            return Err(RuntimeError::InvalidOutput {
+                path: journal_path,
+                message: format!("{failure}; provider-attempt budget exhausted before repair"),
+            });
+        }
+        *provider_attempts_used += 1;
+        let candidate = self
+            .providers
+            .iter()
+            .find(|candidate| {
+                candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+            })
+            .ok_or_else(|| RuntimeError::NoRoute {
+                path: journal_path.clone(),
+                mode: model_request.mode,
+            })?;
+        if invalid_content.chars().count() > MAX_REPAIR_CONTENT_CHARS {
+            invalid_content = invalid_content
+                .chars()
+                .take(MAX_REPAIR_CONTENT_CHARS)
+                .collect::<String>();
+            invalid_content.push_str("\n…（原始响应过长，已截断）");
+        }
+        let mut repair_messages = model_request.messages.clone();
+        repair_messages.push(ModelMessage::assistant(invalid_content, Vec::new()));
+        repair_messages.push(ModelMessage::user(format!(
+            "{failure}. Return exactly one corrected AgentAnswer JSON object with no prose or \
+             outer Markdown fence. Markdown and code fences requested by the user may appear only \
+             inside the JSON conclusion string. Preserve the intended answer. Required invariants: \
+             every evidence.source must exactly equal one entry in the sources array of every \
+             referenced claim; evidence must reference an existing claim exactly once; a verified \
+             claim needs a source; a derived or assumed claim needs a non-empty scope; a \
+             conflicting claim needs at least two distinct sources; a model_prior claim needs \
+             empty sources; every conflict claim id must reference an existing claim and the pair \
+             must be distinct. If the answer depends on a high-impact assumption, do not return \
+             completed; set status to conditional or needs_evidence and declare the assumption. \
+             Use null for unknown evidence timestamps. Read-only action_receipts must be empty."
+        )));
+        let repair_request = ModelRequest {
+            run_id: model_request.run_id,
+            mode: model_request.mode,
+            messages: repair_messages,
+            tools: Vec::new(),
+        };
+        model_request_log
+            .append(journal, repair_request.clone())
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let repair_result = if request.budget.timeout_ms == 0 {
+            Ok(candidate
+                .provider
+                .complete(repair_request, cancellation)
+                .await)
+        } else {
+            let Some(remaining) =
+                remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+            else {
+                return Ok(RepairedAnswer {
+                    answer: budget_answer("answer repair timeout exhausted"),
+                    stop_reason: Some(StopReason::BudgetExhausted),
+                });
+            };
+            tokio::time::timeout(
+                remaining,
+                candidate.provider.complete(repair_request, cancellation),
+            )
+            .await
+        };
+        let mut repair_response = match repair_result {
+            Err(_) => {
+                return Ok(RepairedAnswer {
+                    answer: budget_answer("answer repair call timed out"),
+                    stop_reason: Some(StopReason::BudgetExhausted),
+                });
+            }
+            Ok(Ok(response)) => response,
+            Ok(Err(source)) => {
+                append_provider_failure(journal, &journal_path, &provider_id, &model, &source)?;
+                let _ = journal.append(JournalEventKind::RunStopped {
+                    reason: if source.code == crate::provider::ProviderErrorCode::Cancelled {
+                        StopReason::Cancelled
+                    } else {
+                        StopReason::ProviderError
+                    },
+                });
+                return if source.code == crate::provider::ProviderErrorCode::Cancelled {
+                    Err(RuntimeError::Cancelled { path: journal_path })
+                } else {
+                    Err(RuntimeError::Provider {
+                        path: journal_path,
+                        source,
+                    })
+                };
+            }
+        };
+        if repair_response.provider_id != provider_id || repair_response.model != model {
+            return Err(RuntimeError::InvalidOutput {
+                path: journal_path,
+                message: "repair response changed provider identity".into(),
+            });
+        }
+        apply_manifest_cost(&mut repair_response, &candidate.manifest);
+        journal
+            .append(JournalEventKind::ModelResponded {
+                response: repair_response.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let answer = match repair_response.turn {
+            ModelTurn::Final { answer } => answer,
+            ModelTurn::InvalidFinal { error, .. } => {
+                return Err(RuntimeError::InvalidOutput {
+                    path: journal_path,
+                    message: format!(
+                        "automatic repair did not produce valid AgentAnswer JSON: {error}"
+                    ),
+                });
+            }
+            ModelTurn::ToolCalls { .. } => {
+                return Err(RuntimeError::InvalidOutput {
+                    path: journal_path,
+                    message: "answer repair returned tool calls instead of final JSON".into(),
+                });
+            }
+        };
+        answer
+            .validate(request)
+            .map_err(|error| RuntimeError::InvalidOutput {
+                path: journal_path,
+                message: format!("{error}; automatic repair did not produce a valid answer"),
+            })?;
+        Ok(RepairedAnswer {
+            answer,
+            stop_reason: None,
+        })
+    }
+
+    /// Give the model one final, tool-free turn when the tool budget is
+    /// exhausted, so gathered evidence is not thrown away behind a canned
+    /// "budget exhausted" answer. Any failure falls back to that answer; the
+    /// journal still records the attempt.
+    #[allow(clippy::too_many_arguments)]
+    async fn answer_at_budget(
+        &self,
+        journal: &mut Journal,
+        model_request_log: &mut ModelRequestLog,
+        journal_path: &Path,
+        request: &TaskRequest,
+        model_request: &ModelRequest,
+        provider_id: &str,
+        model: &str,
+        provider_attempts_used: &mut usize,
+        started_at: Instant,
+        initial_elapsed: Duration,
+        cancellation: &CancellationToken,
+        reason: &str,
+    ) -> crate::domain::AgentAnswer {
+        if request.budget.max_provider_attempts != 0
+            && *provider_attempts_used >= request.budget.max_provider_attempts
+        {
+            return budget_answer(reason);
+        }
+        let Some(candidate) = self.providers.iter().find(|candidate| {
+            candidate.manifest.provider_id == provider_id && candidate.manifest.model == model
+        }) else {
+            return budget_answer(reason);
+        };
+        *provider_attempts_used += 1;
+        let mut messages = model_request.messages.clone();
+        messages.push(ModelMessage::user(
+            "You have reached the tool-call budget. Do not request tools and do not claim \
+             any action that was not executed. Using only the conversation and evidence \
+             above, return exactly one valid AgentAnswer JSON object now, with no prose or \
+             outer Markdown fence. If the evidence is insufficient, set status to \
+             needs_evidence and state what is missing."
+                .to_string(),
+        ));
+        let final_request = ModelRequest {
+            run_id: model_request.run_id,
+            mode: model_request.mode,
+            messages,
+            tools: Vec::new(),
+        };
+        if model_request_log
+            .append(journal, final_request.clone())
+            .is_err()
+        {
+            return budget_answer(reason);
+        }
+        let result = if request.budget.timeout_ms == 0 {
+            Ok(candidate
+                .provider
+                .complete(final_request, cancellation)
+                .await)
+        } else {
+            let Some(remaining) =
+                remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+            else {
+                return budget_answer(reason);
+            };
+            tokio::time::timeout(
+                remaining,
+                candidate.provider.complete(final_request, cancellation),
+            )
+            .await
+        };
+        let mut response = match result {
+            Ok(Ok(response)) => response,
+            Ok(Err(source)) => {
+                let _ = append_provider_failure(journal, journal_path, provider_id, model, &source);
+                return budget_answer(reason);
+            }
+            Err(_) => return budget_answer(reason),
+        };
+        if response.provider_id != provider_id || response.model != model {
+            return budget_answer(reason);
+        }
+        apply_manifest_cost(&mut response, &candidate.manifest);
+        if journal
+            .append(JournalEventKind::ModelResponded {
+                response: response.clone(),
+            })
+            .is_err()
+        {
+            return budget_answer(reason);
+        }
+        let answer = match response.turn {
+            ModelTurn::Final { answer } => answer,
+            _ => return budget_answer(reason),
+        };
+        let validation_error = match answer.validate(request) {
+            Ok(()) => return answer,
+            Err(error) => error,
+        };
+        let invalid_content = match serde_json::to_string(&answer) {
+            Ok(content) => content,
+            Err(_) => return budget_answer(reason),
+        };
+        let context = AnswerRepairContext {
+            journal,
+            model_request_log,
+            journal_path: journal_path.to_path_buf(),
+            request,
+            model_request,
+            provider_id: provider_id.to_string(),
+            model: model.to_string(),
+            invalid_content,
+            failure: format!("The final answer failed validation: {validation_error}"),
+            initial_elapsed,
+        };
+        match self
+            .repair_answer(context, provider_attempts_used, started_at, cancellation)
+            .await
+        {
+            Ok(repaired) => repaired.answer,
+            Err(_) => budget_answer(reason),
+        }
+    }
+
+    pub async fn run(
+        &self,
+        request: TaskRequest,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        self.run_internal(request, None, None, None, cancellation, false)
+            .await
+    }
+
+    pub async fn run_with_mode(
+        &self,
+        request: TaskRequest,
+        mode: CognitiveMode,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        let refers_to_context = !request.known_facts.is_empty()
+            && crate::domain::has_context_reference(&request.objective);
+        let fast_chat = mode == CognitiveMode::DirectAnswer
+            && self.attachments.is_empty()
+            && self.tool_query.is_none()
+            && !refers_to_context
+            && !crate::domain::asks_about_capabilities(&request.objective)
+            && crate::domain::looks_like_chat(&request.objective);
+        if !fast_chat {
+            return self
+                .run_internal(request, None, Some(mode), None, cancellation, false)
+                .await;
+        }
+        let fast_result = self
+            .run_internal(
+                request.clone(),
+                None,
+                Some(mode),
+                None,
+                cancellation.clone(),
+                true,
+            )
+            .await?;
+        if fast_result.answer.status == AnswerStatus::NeedsEvidence
+            || answer_needs_evidence_replan(&fast_result.answer, &request.objective).is_some()
+        {
+            // The cheap path admitted that it needed evidence, or its own task
+            // assessment says it does. Give the full agent one chance.
+            return self
+                .run_internal(request, None, Some(mode), None, cancellation, false)
+                .await;
+        }
+        Ok(fast_result)
+    }
+
+    pub async fn run_with_client_request_id(
+        &self,
+        request: TaskRequest,
+        client_request_id: impl Into<String>,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        let client_request_id = client_request_id.into();
+        if client_request_id.trim().is_empty() {
+            return Err(RuntimeError::Resume(
+                "client request id must not be empty".into(),
+            ));
+        }
+        self.run_internal(
+            request,
+            None,
+            None,
+            Some(client_request_id),
+            cancellation,
+            false,
+        )
+        .await
+    }
+
+    pub async fn resume(
+        &self,
+        journal_path: impl AsRef<Path>,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        let events = read_events(journal_path.as_ref())
+            .map_err(|error| RuntimeError::Resume(error.to_string()))?;
+        let prefix = find_resumable_prefix(&events)
+            .map_err(|error| RuntimeError::Resume(error.to_string()))?;
+        self.run_internal(
+            prefix.request.clone(),
+            Some(prefix),
+            None,
+            None,
+            cancellation,
+            false,
+        )
+        .await
+    }
+
+    async fn run_internal(
+        &self,
+        request: TaskRequest,
+        resume: Option<ResumablePrefix>,
+        requested_mode: Option<CognitiveMode>,
+        client_request_id: Option<String>,
+        cancellation: CancellationToken,
+        fast_chat: bool,
+    ) -> Result<RunResult, RuntimeError> {
+        let strategy_request = request.clone();
+        let result = self
+            .run_internal_inner(
+                request,
+                resume,
+                requested_mode,
+                client_request_id,
+                cancellation,
+                fast_chat,
+            )
+            .await?;
+        self.record_strategy(&strategy_request, &result);
+        Ok(result)
+    }
+
+    async fn run_internal_inner(
+        &self,
+        request: TaskRequest,
+        resume: Option<ResumablePrefix>,
+        requested_mode: Option<CognitiveMode>,
+        client_request_id: Option<String>,
+        cancellation: CancellationToken,
+        fast_chat: bool,
+    ) -> Result<RunResult, RuntimeError> {
+        let run_id = Uuid::new_v4();
+        let journal_path = self.journal_dir.join(format!("{run_id}.jsonl"));
+        let mut journal =
+            Journal::create(&journal_path, run_id).map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let mut model_request_log = ModelRequestLog::default();
+        let mode = resume
+            .as_ref()
+            .map(|prefix| prefix.checkpoint.mode)
+            .or(requested_mode)
+            .unwrap_or_else(|| crate::domain::infer_mode(&request));
+        let fast_chat = fast_chat && resume.is_none();
+        if let Some(prefix) = &resume {
+            journal
+                .append(JournalEventKind::ResumeStarted {
+                    original_run_id: prefix.original_run_id,
+                    checkpoint_seq: prefix.checkpoint_seq,
+                    request: request.clone(),
+                    checkpoint: prefix.checkpoint.clone(),
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+        } else {
+            journal
+                .append(JournalEventKind::RunStarted {
+                    request: request.clone(),
+                    mode,
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            if let Some(client_request_id) = client_request_id {
+                journal
+                    .append(JournalEventKind::ClientRequestLinked { client_request_id })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+            }
+        }
+
+        let mut available_capabilities = self.tools.capabilities_for(&request.permissions);
+        if !fast_chat {
+            available_capabilities.extend(crate::dynamic_tools::virtual_capabilities());
+            available_capabilities.sort_by(|left, right| left.name.cmp(&right.name));
+        }
+        let tool_capabilities =
+            crate::tools::ToolCapabilitySnapshot::from_capabilities(available_capabilities.clone())
+                .map_err(|message| RuntimeError::ToolCapabilities {
+                    path: journal_path.clone(),
+                    message,
+                })?;
+        if let Some(prefix) = &resume
+            && let Some(expected) = &prefix.checkpoint.tool_capabilities_sha256
+            && expected != &tool_capabilities.sha256
+        {
+            return Err(RuntimeError::Resume(
+                "tool capabilities changed since checkpoint".into(),
+            ));
+        }
+        journal
+            .append(JournalEventKind::ToolCapabilitiesAdvertised {
+                snapshot: tool_capabilities.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+
+        if cancellation.is_cancelled() {
+            journal
+                .append(JournalEventKind::RunStopped {
+                    reason: StopReason::Cancelled,
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            return Err(RuntimeError::Cancelled { path: journal_path });
+        }
+
+        if resume.is_none()
+            && mode == CognitiveMode::Execute
+            && !request.permissions.allow_write
+            && !crate::domain::asks_about_capabilities(&request.objective)
+        {
+            let answer = authorization_answer();
+            journal
+                .append(JournalEventKind::AnswerProduced {
+                    answer: answer.clone(),
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            journal
+                .append(JournalEventKind::RunStopped {
+                    reason: StopReason::NeedsAuthorization,
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            return Ok(RunResult {
+                run_id,
+                journal_path,
+                answer,
+                stop_reason: StopReason::NeedsAuthorization,
+            });
+        }
+
+        let mut tool_specs = if fast_chat {
+            Vec::new()
+        } else {
+            match &self.tool_query {
+                Some(query) => {
+                    crate::tool_search::select(query, self.tools.specs_for(&request.permissions), 8)
+                }
+                None => self.tools.specs_for(&request.permissions),
+            }
+        };
+        if !fast_chat {
+            tool_specs.extend(crate::dynamic_tools::virtual_specs());
+            tool_specs.sort_by(|left, right| left.name.cmp(&right.name));
+        }
+        let stored_objective = resume
+            .as_ref()
+            .and_then(|prefix| prefix.checkpoint.route_objective);
+        if let (Some(requested), Some(stored)) = (self.route_objective, stored_objective)
+            && requested != stored
+        {
+            return Err(RuntimeError::Resume(
+                "route objective changed since checkpoint".into(),
+            ));
+        }
+        let route_objective = self
+            .route_objective
+            .or(stored_objective)
+            .unwrap_or(RouteObjective::Quality);
+        let route_request = RouteRequest {
+            mode,
+            risk: risk_for_mode(mode),
+            requires_tools: !tool_specs.is_empty(),
+            requires_structured_output: true,
+            allow_remote: request.permissions.allow_network,
+            objective: route_objective,
+            max_provider_p95_latency_ms: request.budget.max_provider_p95_latency_ms,
+            max_unit_cost_micros_per_k: request.budget.max_unit_cost_micros_per_k,
+        };
+        let mut route_plan = self.router.plan(&route_request);
+        if let Some(selected) = &self.selected_route {
+            route_plan.ranked.retain(|decision| {
+                decision.manifest.provider_id == selected.provider_id
+                    && decision.manifest.model == selected.model
+            });
+        }
+        let stored_sources = resume
+            .as_ref()
+            .and_then(|prefix| prefix.checkpoint.route_policy_sources.clone());
+        let mut route_policy_sources = stored_sources
+            .clone()
+            .unwrap_or_else(|| self.route_policy_sources.clone());
+        if self.route_objective.is_some()
+            && self.route_policy_sources.objective == PolicyValueSource::CliOverride
+        {
+            route_policy_sources.objective = PolicyValueSource::CliOverride;
+        }
+        if resume.is_none() && route_policy_sources.latency_budget == PolicyValueSource::Unset {
+            route_policy_sources.latency_budget =
+                if request.budget.max_provider_p95_latency_ms.is_some() {
+                    PolicyValueSource::TaskRequest
+                } else {
+                    PolicyValueSource::Unset
+                };
+        }
+        if resume.is_none() && route_policy_sources.unit_cost_budget == PolicyValueSource::Unset {
+            route_policy_sources.unit_cost_budget =
+                if request.budget.max_unit_cost_micros_per_k.is_some() {
+                    PolicyValueSource::TaskRequest
+                } else {
+                    PolicyValueSource::Unset
+                };
+        }
+        let route_plan_digest =
+            route_plan_digest(&route_plan, &route_policy_sources).map_err(|message| {
+                RuntimeError::RoutePlan {
+                    path: journal_path.clone(),
+                    message,
+                }
+            })?;
+        if let Some(prefix) = &resume
+            && let Some(expected) = &prefix.checkpoint.route_plan_sha256
+            && expected != &route_plan_digest
+        {
+            return Err(RuntimeError::Resume(
+                "route plan or policy changed since checkpoint".into(),
+            ));
+        }
+        journal
+            .append(JournalEventKind::RoutePlanned {
+                plan: route_plan.clone(),
+                sources: route_policy_sources.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        let routes = route_plan.ranked;
+        if routes.is_empty() {
+            return Err(RuntimeError::NoRoute {
+                path: journal_path.clone(),
+                mode,
+            });
+        }
+
+        let started_at = Instant::now();
+        let (
+            mut messages,
+            mut tool_calls,
+            mut unavailable_routes,
+            mut provider_attempts_used,
+            start_step,
+            initial_elapsed,
+        ) = if let Some(prefix) = resume {
+            (
+                prefix.checkpoint.messages,
+                prefix.checkpoint.tool_calls_used,
+                prefix
+                    .checkpoint
+                    .unavailable_routes
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+                prefix.checkpoint.provider_attempts_used,
+                prefix.checkpoint.next_step,
+                Duration::from_millis(prefix.checkpoint.elapsed_ms),
+            )
+        } else {
+            let system_prompt = if fast_chat {
+                crate::voice::with_voice_form(
+                    chat_system_prompt(),
+                    self.voice_mode,
+                    crate::voice::VoiceForm::for_task(mode),
+                )
+            } else {
+                agent_system_prompt_for_form(
+                    self.voice_mode,
+                    crate::voice::VoiceForm::for_task(mode),
+                )
+            };
+            let mut initial_messages = vec![ModelMessage::system(system_prompt)];
+            if !request.known_facts.is_empty() {
+                initial_messages.push(ModelMessage::system(format!(
+                    "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Treat these facts as user-asserted context for this task: do not search the workspace or web merely to re-verify them. Search only when the task explicitly needs a fresher or external fact. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
+                    request.known_facts.join("\n")
+                )));
+            }
+            if !self.attachments.is_empty() {
+                initial_messages.push(ModelMessage::system(
+                    crate::attachment::format_attachment_block(&self.attachments),
+                ));
+            }
+            if fast_chat {
+                initial_messages.push(ModelMessage::user(format!(
+                    "User message:\n{}",
+                    request.objective
+                )));
+            } else {
+                initial_messages.push(ModelMessage::user(format!(
+                    "Task objective:\n{}\n\nStructured task:\n{}",
+                    request.objective,
+                    serde_json::to_string_pretty(&request)
+                        .unwrap_or_else(|_| request.objective.clone())
+                )));
+            }
+            if !fast_chat && let Some(scope) = &request.experience_scope {
+                let mut selected = if let Some(experience_dir) = &self.experience_dir {
+                    let store = ExperienceStore::open(experience_dir)
+                        .map_err(|error| RuntimeError::Experience(error.to_string()))?;
+                    store
+                        .retrieve_active(mode, scope, request.budget.max_context_tokens.min(4_000))
+                        .map_err(|error| RuntimeError::Experience(error.to_string()))?
+                } else {
+                    Vec::new()
+                };
+                selected.extend(
+                    self.shadow_experience
+                        .iter()
+                        .filter(|candidate| {
+                            candidate.status == crate::experience::ExperienceStatus::Reviewed
+                                && candidate.applicable_modes.contains(&mode)
+                                && (candidate.scope == "*" || candidate.scope == scope.as_str())
+                        })
+                        .cloned(),
+                );
+                selected.sort_by(|left, right| {
+                    right
+                        .updated_unix_ms
+                        .cmp(&left.updated_unix_ms)
+                        .then_with(|| left.id.cmp(&right.id))
+                });
+                let mut bounded = Vec::new();
+                let mut used_tokens = 0usize;
+                for candidate in selected {
+                    let cost = estimate_tokens(&candidate.title)
+                        .saturating_add(estimate_tokens(&candidate.content));
+                    if used_tokens + cost > request.budget.max_context_tokens.min(4_000) {
+                        continue;
+                    }
+                    used_tokens += cost;
+                    bounded.push(candidate);
+                }
+                let selected = bounded;
+                if !selected.is_empty() {
+                    let guidance = selected
+                        .iter()
+                        .map(|candidate| {
+                            format!(
+                                "- [{} v{}] {}: {}",
+                                experience_kind_label(candidate.kind),
+                                candidate.version,
+                                candidate.title,
+                                candidate.content
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    initial_messages.push(ModelMessage::system(format!(
+                            "EXPERIENCE GUIDANCE\nThis is approved but unverified policy guidance, not factual evidence. Apply only within the stated scope and never override current task constraints.\n{guidance}"
+                        )));
+                    journal
+                        .append(JournalEventKind::ExperienceInjected {
+                            injected: selected
+                                .iter()
+                                .map(|candidate| InjectedExperience {
+                                    id: candidate.id,
+                                    version: candidate.version,
+                                    reason: format!(
+                                        "{}{}; mode={mode:?}; scope={}",
+                                        if candidate.status
+                                            == crate::experience::ExperienceStatus::Active
+                                        {
+                                            "active"
+                                        } else {
+                                            "shadow-reviewed"
+                                        },
+                                        "",
+                                        candidate.scope
+                                    ),
+                                })
+                                .collect(),
+                        })
+                        .map_err(|source| RuntimeError::Journal {
+                            path: journal_path.clone(),
+                            source,
+                        })?;
+                }
+            }
+            (initial_messages, 0, BTreeSet::new(), 0, 0, Duration::ZERO)
+        };
+        let max_provider_attempts = match request.budget.max_provider_attempts {
+            0 => usize::MAX,
+            value => value.clamp(1, 4096),
+        };
+        let mut routes = routes;
+        if let Some(health) = &self.provider_health {
+            let now_ms = initial_elapsed
+                .saturating_add(started_at.elapsed())
+                .as_millis();
+            let available: Vec<_> = routes
+                .iter()
+                .filter(|route| {
+                    health
+                        .lock()
+                        .map(|health| {
+                            health.available(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                now_ms,
+                            )
+                        })
+                        .unwrap_or(true)
+                })
+                .cloned()
+                .collect();
+            if !available.is_empty() {
+                routes = available;
+            }
+        }
+
+        let max_steps = if fast_chat {
+            1
+        } else {
+            match request.budget.max_steps {
+                0 => usize::MAX,
+                value => value,
+            }
+        };
+        let mut spent_cost_micros = 0u64;
+        let mut spent_tokens = 0u64;
+        let mut evidence_replans = 0usize;
+        // (event seq of the last checkpoint, messages already covered by it)
+        let mut checkpoint_state: Option<(u64, usize)> = None;
+        for step in start_step..max_steps {
+            if cancellation.is_cancelled() {
+                journal
+                    .append(JournalEventKind::RunStopped {
+                        reason: StopReason::Cancelled,
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                return Err(RuntimeError::Cancelled { path: journal_path });
+            }
+            if request.budget.timeout_ms != 0
+                && remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+                    .is_none()
+            {
+                return finish_with_answer(
+                    &mut journal,
+                    run_id,
+                    journal_path,
+                    budget_answer("run timeout exhausted"),
+                    StopReason::BudgetExhausted,
+                );
+            }
+
+            let trigger_tokens = request
+                .budget
+                .auto_compact_tokens
+                .min(request.budget.max_context_tokens);
+            let (model_messages, context_compaction) =
+                compact_messages_at_tokens(&messages, trigger_tokens, 4);
+            if let Some(compaction) = context_compaction {
+                journal
+                    .append(JournalEventKind::ContextCompacted {
+                        before_tokens: compaction.before_tokens,
+                        after_tokens: compaction.after_tokens,
+                        before_chars: compaction.before_chars,
+                        after_chars: compaction.after_chars,
+                        compacted_tool_results: compaction.compacted_tool_results,
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+            }
+            let model_request = ModelRequest {
+                run_id,
+                mode,
+                messages: model_messages,
+                tools: tool_specs.clone(),
+            };
+            let mut response = None;
+            let mut last_retryable_error = None;
+            let mut attempt_limit_reached = false;
+            for (attempt, route) in routes.iter().enumerate() {
+                let route_key = ProviderRouteKey {
+                    provider_id: route.manifest.provider_id.clone(),
+                    model: route.manifest.model.clone(),
+                };
+                if unavailable_routes.contains(&route_key) {
+                    continue;
+                }
+                if provider_attempts_used >= max_provider_attempts {
+                    attempt_limit_reached = true;
+                    break;
+                }
+                provider_attempts_used += 1;
+                let candidate = self
+                    .providers
+                    .iter()
+                    .find(|candidate| {
+                        candidate.manifest.provider_id == route.manifest.provider_id
+                            && candidate.manifest.model == route.manifest.model
+                    })
+                    .ok_or_else(|| RuntimeError::NoRoute {
+                        path: journal_path.clone(),
+                        mode,
+                    })?;
+                let reason = if attempt == 0 {
+                    route.reason.clone()
+                } else {
+                    format!("fallback attempt {}: {}", attempt + 1, route.reason)
+                };
+                journal
+                    .append(JournalEventKind::RouteSelected {
+                        provider_id: route.manifest.provider_id.clone(),
+                        model: route.manifest.model.clone(),
+                        reason,
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                model_request_log
+                    .append(&mut journal, model_request.clone())
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                let attempt_started = Instant::now();
+                let first_token_ms = Arc::new(AtomicU64::new(u64::MAX));
+                let sink = if attempt == 0 {
+                    self.stream_sink.clone().map(|sink| {
+                        let first_token_ms = first_token_ms.clone();
+                        Arc::new(move |text: &str| {
+                            let elapsed_ms = attempt_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u128::from(u64::MAX))
+                                as u64;
+                            let _ = first_token_ms.compare_exchange(
+                                u64::MAX,
+                                elapsed_ms,
+                                Ordering::Relaxed,
+                                Ordering::Relaxed,
+                            );
+                            sink(text);
+                        }) as StreamSink
+                    })
+                } else {
+                    None
+                };
+                let provider_future = complete_with_stream(
+                    candidate.provider.clone(),
+                    model_request.clone(),
+                    &cancellation,
+                    sink,
+                );
+                let provider_result = if request.budget.timeout_ms == 0 {
+                    Ok(provider_future.await)
+                } else {
+                    let Some(remaining) =
+                        remaining_budget(started_at, request.budget.timeout_ms, initial_elapsed)
+                    else {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            budget_answer("provider fallback timeout exhausted"),
+                            StopReason::BudgetExhausted,
+                        );
+                    };
+                    tokio::time::timeout(remaining, provider_future).await
+                };
+                let first_token_ms = first_token_ms.load(Ordering::Relaxed);
+                if first_token_ms != u64::MAX {
+                    journal
+                        .append(JournalEventKind::StreamFirstToken {
+                            provider_id: route.manifest.provider_id.clone(),
+                            model: route.manifest.model.clone(),
+                            elapsed_ms: first_token_ms,
+                        })
+                        .map_err(|source| RuntimeError::Journal {
+                            path: journal_path.clone(),
+                            source,
+                        })?;
+                }
+                match provider_result {
+                    Err(_) => {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            budget_answer("provider call timeout exhausted"),
+                            StopReason::BudgetExhausted,
+                        );
+                    }
+                    Ok(Ok(mut candidate_response)) => {
+                        if candidate_response.provider_id != route.manifest.provider_id
+                            || candidate_response.model != route.manifest.model
+                        {
+                            let _ = journal.append(JournalEventKind::RunStopped {
+                                reason: StopReason::InvalidOutput,
+                            });
+                            return Err(RuntimeError::InvalidOutput {
+                                path: journal_path,
+                                message: format!(
+                                    "provider identity mismatch: expected {}/{}, got {}/{}",
+                                    route.manifest.provider_id,
+                                    route.manifest.model,
+                                    candidate_response.provider_id,
+                                    candidate_response.model
+                                ),
+                            });
+                        }
+                        apply_manifest_cost(&mut candidate_response, &route.manifest);
+                        if let Some(health) = &self.provider_health
+                            && let Ok(mut health) = health.lock()
+                        {
+                            let now_ms = initial_elapsed
+                                .saturating_add(started_at.elapsed())
+                                .as_millis();
+                            health.record_success(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                now_ms,
+                            );
+                        }
+                        response = Some(candidate_response);
+                        break;
+                    }
+                    Ok(Err(source)) if source.retryable => {
+                        let health_now_ms = initial_elapsed
+                            .saturating_add(started_at.elapsed())
+                            .as_millis();
+                        let mut alert_info = None;
+                        if let Some(health) = &self.provider_health
+                            && let Ok(mut health) = health.lock()
+                        {
+                            let crossed = health.record_failure(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                health_now_ms,
+                            );
+                            if crossed {
+                                let failures = health
+                                    .snapshot()
+                                    .into_iter()
+                                    .find(|entry| {
+                                        entry.provider_id == route.manifest.provider_id
+                                            && entry.model == route.manifest.model
+                                    })
+                                    .map(|entry| entry.consecutive_failures)
+                                    .unwrap_or(1);
+                                alert_info = Some((failures, health.policy().failure_threshold));
+                            }
+                        }
+                        if let Some((failures, threshold)) = alert_info {
+                            let alert = provider_health_alert(
+                                &route.manifest.provider_id,
+                                &route.manifest.model,
+                                health_now_ms,
+                                failures,
+                                threshold,
+                            );
+                            if let Some(alerts) = &self.alerts
+                                && let Ok(alerts) = alerts.lock()
+                            {
+                                let _ = alerts.append(&alert);
+                            }
+                            if let Some(webhook) = &self.alert_webhook {
+                                let _ = tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    webhook.send(&alert),
+                                )
+                                .await;
+                            }
+                        }
+                        append_provider_failure(
+                            &mut journal,
+                            &journal_path,
+                            &route.manifest.provider_id,
+                            &route.manifest.model,
+                            &source,
+                        )?;
+                        unavailable_routes.insert(route_key);
+                        last_retryable_error = Some(source);
+                        let next_route = routes.iter().skip(attempt + 1).find(|route| {
+                            !unavailable_routes.contains(&ProviderRouteKey {
+                                provider_id: route.manifest.provider_id.clone(),
+                                model: route.manifest.model.clone(),
+                            })
+                        });
+                        if let Some(next_route) = next_route
+                            && provider_attempts_used < max_provider_attempts
+                        {
+                            let delay_ms = provider_retry_backoff_ms(
+                                request.budget.provider_retry_backoff_ms,
+                                attempt + 1,
+                            );
+                            let delay = Duration::from_millis(delay_ms);
+                            if request.budget.timeout_ms != 0 {
+                                let Some(remaining) = remaining_budget(
+                                    started_at,
+                                    request.budget.timeout_ms,
+                                    initial_elapsed,
+                                ) else {
+                                    return finish_with_answer(
+                                        &mut journal,
+                                        run_id,
+                                        journal_path,
+                                        budget_answer("retry backoff exhausted run time"),
+                                        StopReason::BudgetExhausted,
+                                    );
+                                };
+                                if remaining <= delay {
+                                    return finish_with_answer(
+                                        &mut journal,
+                                        run_id,
+                                        journal_path,
+                                        budget_answer("retry backoff exceeds remaining run time"),
+                                        StopReason::BudgetExhausted,
+                                    );
+                                }
+                            }
+                            journal
+                                .append(JournalEventKind::ProviderRetryScheduled {
+                                    delay_ms,
+                                    next_provider_id: next_route.manifest.provider_id.clone(),
+                                    next_model: next_route.manifest.model.clone(),
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            let sleep_started = Instant::now();
+                            let outcome = tokio::select! {
+                                _ = cancellation.cancelled() => {
+                                    RetryOutcome::Cancelled
+                                }
+                                _ = tokio::time::sleep(delay) => RetryOutcome::Completed
+                            };
+                            journal
+                                .append(JournalEventKind::ProviderRetryElapsed {
+                                    timing: RetryTiming {
+                                        delay_ms,
+                                        elapsed_ms: sleep_started
+                                            .elapsed()
+                                            .as_millis()
+                                            .min(u128::from(u64::MAX))
+                                            as u64,
+                                        outcome,
+                                    },
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            if outcome == RetryOutcome::Cancelled {
+                                journal
+                                    .append(JournalEventKind::RunStopped {
+                                        reason: StopReason::Cancelled,
+                                    })
+                                    .map_err(|source| RuntimeError::Journal {
+                                        path: journal_path.clone(),
+                                        source,
+                                    })?;
+                                return Err(RuntimeError::Cancelled {
+                                    path: journal_path.clone(),
+                                });
+                            }
+                        }
+                    }
+                    Ok(Err(source))
+                        if source.code == crate::provider::ProviderErrorCode::Cancelled =>
+                    {
+                        let _ = journal.append(JournalEventKind::RunStopped {
+                            reason: StopReason::Cancelled,
+                        });
+                        return Err(RuntimeError::Cancelled {
+                            path: journal_path.clone(),
+                        });
+                    }
+                    Ok(Err(source)) => {
+                        append_provider_failure(
+                            &mut journal,
+                            &journal_path,
+                            &route.manifest.provider_id,
+                            &route.manifest.model,
+                            &source,
+                        )?;
+                        let _ = journal.append(JournalEventKind::RunStopped {
+                            reason: StopReason::ProviderError,
+                        });
+                        return Err(RuntimeError::Provider {
+                            path: journal_path.clone(),
+                            source,
+                        });
+                    }
+                }
+            }
+            let response = match response {
+                Some(response) => response,
+                None => {
+                    if attempt_limit_reached {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            budget_answer("provider attempt budget exhausted"),
+                            StopReason::BudgetExhausted,
+                        );
+                    }
+                    let _ = journal.append(JournalEventKind::RunStopped {
+                        reason: StopReason::ProviderError,
+                    });
+                    return Err(RuntimeError::Provider {
+                        path: journal_path.clone(),
+                        source: last_retryable_error.unwrap_or_else(|| ProviderError {
+                            code: crate::provider::ProviderErrorCode::ProviderUnavailable,
+                            message: "all provider candidates failed".into(),
+                            retryable: false,
+                        }),
+                    });
+                }
+            };
+            journal
+                .append(JournalEventKind::ModelResponded {
+                    response: response.clone(),
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            spent_cost_micros = spent_cost_micros.saturating_add(response.usage.cost_micros);
+            spent_tokens = spent_tokens
+                .saturating_add(response.usage.input_tokens)
+                .saturating_add(response.usage.output_tokens);
+            if let Some(limit) = request.budget.max_cost_micros
+                && spent_cost_micros > limit
+            {
+                return finish_with_answer(
+                    &mut journal,
+                    run_id,
+                    journal_path,
+                    budget_answer("cost budget exhausted"),
+                    StopReason::BudgetExhausted,
+                );
+            }
+            if let Some(limit) = request.budget.max_tokens
+                && spent_tokens > limit
+            {
+                return finish_with_answer(
+                    &mut journal,
+                    run_id,
+                    journal_path,
+                    budget_answer("token budget exhausted"),
+                    StopReason::BudgetExhausted,
+                );
+            }
+            let response_provider_id = response.provider_id.clone();
+            let response_model = response.model.clone();
+
+            match response.turn {
+                ModelTurn::Final { answer } => {
+                    let mut answer = answer;
+                    if let Err(validation_error) = answer.validate(&request) {
+                        let invalid_json = serde_json::to_string(&answer).map_err(|error| {
+                            RuntimeError::InvalidOutput {
+                                path: journal_path.clone(),
+                                message: format!(
+                                    "cannot serialize invalid answer for repair: {error}"
+                                ),
+                            }
+                        })?;
+                        let repaired = match self
+                            .repair_answer(
+                                AnswerRepairContext {
+                                    journal: &mut journal,
+                                    model_request_log: &mut model_request_log,
+                                    journal_path: journal_path.clone(),
+                                    request: &request,
+                                    model_request: &model_request,
+                                    provider_id: response_provider_id,
+                                    model: response_model,
+                                    invalid_content: invalid_json,
+                                    failure: format!(
+                                        "Your previous JSON failed validation: {validation_error}"
+                                    ),
+                                    initial_elapsed,
+                                },
+                                &mut provider_attempts_used,
+                                started_at,
+                                &cancellation,
+                            )
+                            .await
+                        {
+                            Ok(repaired) => repaired,
+                            Err(RuntimeError::InvalidOutput { .. }) => {
+                                return finish_with_answer(
+                                    &mut journal,
+                                    run_id,
+                                    journal_path,
+                                    unrepairable_answer(),
+                                    StopReason::NeedsEvidence,
+                                );
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        answer = repaired.answer;
+                        if let Some(stop_reason) = repaired.stop_reason {
+                            return finish_with_answer(
+                                &mut journal,
+                                run_id,
+                                journal_path,
+                                answer,
+                                stop_reason,
+                            );
+                        }
+                    }
+                    if let Some(reason) = answer_needs_evidence_replan(&answer, &request.objective)
+                    {
+                        if evidence_replans < MAX_EVIDENCE_REPLANS {
+                            evidence_replans += 1;
+                            journal
+                                .append(JournalEventKind::AnswerVerificationFailed {
+                                    reason: reason.clone(),
+                                    round: evidence_replans,
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            let draft = serde_json::to_string(&answer).map_err(|error| {
+                                RuntimeError::InvalidOutput {
+                                    path: journal_path.clone(),
+                                    message: format!(
+                                        "cannot serialize answer draft for evidence re-plan: {error}"
+                                    ),
+                                }
+                            })?;
+                            messages.push(ModelMessage::assistant(draft, Vec::new()));
+                            messages.push(ModelMessage::user(evidence_replan_prompt(
+                                &reason,
+                                evidence_replans,
+                            )));
+                            continue;
+                        }
+                        journal
+                            .append(JournalEventKind::AnswerVerificationExhausted {
+                                reason: reason.clone(),
+                                rounds: evidence_replans,
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
+                        answer.status = AnswerStatus::NeedsEvidence;
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            answer,
+                            StopReason::NeedsEvidence,
+                        );
+                    }
+                    let stop_reason = stop_reason_for_answer(answer.status);
+                    return finish_with_answer(
+                        &mut journal,
+                        run_id,
+                        journal_path,
+                        answer,
+                        stop_reason,
+                    );
+                }
+                ModelTurn::InvalidFinal { content, error } => {
+                    if fast_chat
+                        && let Some(answer) = plain_text_chat_answer(&content)
+                        && answer.validate(&request).is_ok()
+                    {
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            answer,
+                            StopReason::Completed,
+                        );
+                    }
+                    let repaired = match self
+                        .repair_answer(
+                            AnswerRepairContext {
+                                journal: &mut journal,
+                                model_request_log: &mut model_request_log,
+                                journal_path: journal_path.clone(),
+                                request: &request,
+                                model_request: &model_request,
+                                provider_id: response_provider_id,
+                                model: response_model,
+                                invalid_content: content,
+                                failure: format!(
+                                    "Your previous response could not be parsed as a valid \
+                                     AgentAnswer JSON object: {error}"
+                                ),
+                                initial_elapsed,
+                            },
+                            &mut provider_attempts_used,
+                            started_at,
+                            &cancellation,
+                        )
+                        .await
+                    {
+                        Ok(repaired) => repaired,
+                        Err(RuntimeError::InvalidOutput { .. }) => {
+                            return finish_with_answer(
+                                &mut journal,
+                                run_id,
+                                journal_path,
+                                unrepairable_answer(),
+                                StopReason::NeedsEvidence,
+                            );
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    let stop_reason = repaired
+                        .stop_reason
+                        .unwrap_or_else(|| stop_reason_for_answer(repaired.answer.status));
+                    return finish_with_answer(
+                        &mut journal,
+                        run_id,
+                        journal_path,
+                        repaired.answer,
+                        stop_reason,
+                    );
+                }
+                ModelTurn::ToolCalls { calls } => {
+                    if calls.is_empty() {
+                        return Err(RuntimeError::InvalidOutput {
+                            path: journal_path,
+                            message: "model returned an empty tool-call list".into(),
+                        });
+                    }
+                    if request.budget.max_tool_calls != 0
+                        && tool_calls.saturating_add(calls.len()) > request.budget.max_tool_calls
+                    {
+                        let answer = self
+                            .answer_at_budget(
+                                &mut journal,
+                                &mut model_request_log,
+                                &journal_path,
+                                &request,
+                                &model_request,
+                                &response_provider_id,
+                                &response_model,
+                                &mut provider_attempts_used,
+                                started_at,
+                                initial_elapsed,
+                                &cancellation,
+                                "tool-call budget exhausted",
+                            )
+                            .await;
+                        let stop_reason = if answer.status == AnswerStatus::Completed {
+                            StopReason::Completed
+                        } else {
+                            StopReason::BudgetExhausted
+                        };
+                        journal
+                            .append(JournalEventKind::AnswerProduced {
+                                answer: answer.clone(),
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
+                        journal
+                            .append(JournalEventKind::RunStopped {
+                                reason: stop_reason,
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
+                        return Ok(RunResult {
+                            run_id,
+                            journal_path,
+                            answer,
+                            stop_reason,
+                        });
+                    }
+                    tool_calls = tool_calls.saturating_add(calls.len());
+                    messages.push(ModelMessage::assistant("", calls.clone()));
+
+                    for (start, end) in tool_groups(&calls, &self.tools) {
+                        if request.budget.timeout_ms != 0
+                            && remaining_budget(
+                                started_at,
+                                request.budget.timeout_ms,
+                                initial_elapsed,
+                            )
+                            .is_none()
+                        {
+                            return finish_with_answer(
+                                &mut journal,
+                                run_id,
+                                journal_path,
+                                budget_answer("tool phase timeout exhausted"),
+                                StopReason::BudgetExhausted,
+                            );
+                        }
+                        let group = &calls[start..end];
+                        for call in group {
+                            journal
+                                .append(JournalEventKind::ToolCalled { call: call.clone() })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                        }
+                        let has_virtual = group
+                            .iter()
+                            .any(|call| crate::dynamic_tools::is_virtual(&call.name));
+                        let observations = if has_virtual {
+                            let mut observations = Vec::with_capacity(group.len());
+                            for call in group {
+                                let observation = match call.name.as_str() {
+                                    crate::dynamic_tools::DESCRIBE_SELF => self
+                                        .describe_self_observation(
+                                            call,
+                                            &request.permissions,
+                                            &request.budget,
+                                            &response_provider_id,
+                                            &response_model,
+                                            &available_capabilities,
+                                        ),
+                                    crate::dynamic_tools::REQUEST_TOOLS => {
+                                        let (observation, event) = self.request_tools_observation(
+                                            call,
+                                            &request.permissions,
+                                            &mut tool_specs,
+                                        );
+                                        if let Some(event) = event {
+                                            journal.append(event).map_err(|source| {
+                                                RuntimeError::Journal {
+                                                    path: journal_path.clone(),
+                                                    source,
+                                                }
+                                            })?;
+                                        }
+                                        observation
+                                    }
+                                    _ => {
+                                        self.execute_tool(call, &request.permissions, &cancellation)
+                                            .await
+                                    }
+                                };
+                                observations.push(observation);
+                            }
+                            observations
+                        } else if group.len() > 1 {
+                            self.execute_tools_parallel(group, &request.permissions, &cancellation)
+                                .await
+                        } else {
+                            vec![
+                                self.execute_tool(&group[0], &request.permissions, &cancellation)
+                                    .await,
+                            ]
+                        };
+                        for (call, observation) in group.iter().zip(observations) {
+                            journal
+                                .append(JournalEventKind::ToolObserved {
+                                    observation: observation.clone(),
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            messages.push(ModelMessage::tool(
+                                call.id.clone(),
+                                observation.model_content(),
+                            ));
+                        }
+                    }
+                    let elapsed_ms = initial_elapsed
+                        .saturating_add(started_at.elapsed())
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    let checkpoint_event_seq = match checkpoint_state {
+                        Some((base_seq, message_count)) if message_count <= messages.len() => {
+                            journal
+                                .append(JournalEventKind::CheckpointDelta {
+                                    checkpoint: RuntimeCheckpointDelta {
+                                        base_seq,
+                                        messages: messages[message_count..].to_vec(),
+                                        tool_calls_used: tool_calls,
+                                        provider_attempts_used,
+                                        unavailable_routes: unavailable_routes
+                                            .iter()
+                                            .cloned()
+                                            .collect(),
+                                        next_step: step + 1,
+                                        elapsed_ms,
+                                        route_plan_sha256: Some(route_plan_digest.clone()),
+                                        route_policy_sources: Some(route_policy_sources.clone()),
+                                        route_objective: Some(route_request.objective),
+                                        tool_capabilities_sha256: Some(
+                                            tool_capabilities.sha256.clone(),
+                                        ),
+                                    },
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?
+                        }
+                        _ => journal
+                            .append(JournalEventKind::Checkpoint {
+                                checkpoint: RuntimeCheckpoint {
+                                    mode,
+                                    messages: messages.clone(),
+                                    tool_calls_used: tool_calls,
+                                    provider_attempts_used,
+                                    unavailable_routes: unavailable_routes
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    next_step: step + 1,
+                                    elapsed_ms,
+                                    route_plan_sha256: Some(route_plan_digest.clone()),
+                                    route_policy_sources: Some(route_policy_sources.clone()),
+                                    route_objective: Some(route_request.objective),
+                                    tool_capabilities_sha256: Some(
+                                        tool_capabilities.sha256.clone(),
+                                    ),
+                                },
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?,
+                    };
+                    checkpoint_state = Some((checkpoint_event_seq, messages.len()));
+                }
+            }
+        }
+
+        let answer = budget_answer("step budget exhausted");
+        journal
+            .append(JournalEventKind::AnswerProduced {
+                answer: answer.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        journal
+            .append(JournalEventKind::RunStopped {
+                reason: StopReason::BudgetExhausted,
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
+        Ok(RunResult {
+            run_id,
+            journal_path,
+            answer,
+            stop_reason: StopReason::BudgetExhausted,
+        })
+    }
+}
+
+pub fn local_manifest() -> ProviderManifest {
+    ProviderManifest {
+        provider_id: "deterministic".into(),
+        model: "offline-v1".into(),
+        privacy: PrivacyClass::Local,
+        supported_modes: vec![
+            CognitiveMode::DirectAnswer,
+            CognitiveMode::EvidenceResearch,
+            CognitiveMode::DecisionAnalysis,
+            CognitiveMode::Execute,
+            CognitiveMode::Diagnosis,
+            CognitiveMode::Escalate,
+        ],
+        supports_tools: true,
+        supports_structured_output: true,
+        max_risk: RiskLevel::High,
+        quality_score: 1,
+        input_cost_micros_per_k: 0,
+        output_cost_micros_per_k: 0,
+        p95_latency_ms: 0,
+    }
+}
+
+fn apply_manifest_cost(response: &mut ModelResponse, manifest: &ProviderManifest) {
+    if response.usage.cost_micros != 0 {
+        return;
+    }
+    let input_cost = response
+        .usage
+        .input_tokens
+        .saturating_mul(manifest.input_cost_micros_per_k)
+        .div_ceil(1_000);
+    let output_cost = response
+        .usage
+        .output_tokens
+        .saturating_mul(manifest.output_cost_micros_per_k)
+        .div_ceil(1_000);
+    response.usage.cost_micros = input_cost.saturating_add(output_cost);
+}
+
+pub fn remote_manifest(
+    provider_id: impl Into<String>,
+    model: impl Into<String>,
+) -> ProviderManifest {
+    ProviderManifest {
+        provider_id: provider_id.into(),
+        model: model.into(),
+        privacy: PrivacyClass::Remote,
+        supported_modes: vec![
+            CognitiveMode::DirectAnswer,
+            CognitiveMode::EvidenceResearch,
+            CognitiveMode::DecisionAnalysis,
+            CognitiveMode::Execute,
+            CognitiveMode::Diagnosis,
+            CognitiveMode::Escalate,
+        ],
+        supports_tools: true,
+        supports_structured_output: true,
+        max_risk: RiskLevel::High,
+        quality_score: 100,
+        input_cost_micros_per_k: 1,
+        output_cost_micros_per_k: 1,
+        p95_latency_ms: 1_000,
+    }
+}
+
+pub fn risk_for_mode(mode: CognitiveMode) -> RiskLevel {
+    match mode {
+        CognitiveMode::Execute => RiskLevel::High,
+        CognitiveMode::DecisionAnalysis | CognitiveMode::Diagnosis => RiskLevel::Medium,
+        CognitiveMode::DirectAnswer | CognitiveMode::EvidenceResearch | CognitiveMode::Escalate => {
+            RiskLevel::Low
+        }
+    }
+}
+
+/// Return a human-readable reason when a completed answer is not supported by
+/// the evidence its own `task_need` assessment calls for. `None` means the
+/// answer can be returned as-is. Answers without an assessment keep the
+/// pre-AG-23 behavior.
+fn answer_needs_evidence_replan(answer: &AgentAnswer, objective: &str) -> Option<String> {
+    if answer.status != AnswerStatus::Completed {
+        return None;
+    }
+    if let Some(need) = answer.task_need {
+        if need.freshness.requires_evidence() && answer.evidence.is_empty() {
+            return Some("the task needs current facts but the answer has no evidence".into());
+        }
+        if need.locality.requires_evidence() && answer.evidence.is_empty() {
+            return Some("the task needs local facts but the answer has no evidence".into());
+        }
+        if need.action.requires_evidence() && answer.action_receipts.is_empty() {
+            return Some("the task asks for an action but the answer has no action receipt".into());
+        }
+        if need.ambiguity == crate::domain::NeedLevel::High && answer.unknowns.is_empty() {
+            return Some("the task is ambiguous but the answer does not declare an unknown".into());
+        }
+    } else if crate::domain::looks_like_current_facts(objective) && answer.evidence.is_empty() {
+        return Some(
+            "the task looks like it needs current facts but the answer has no evidence".into(),
+        );
+    }
+    if answer.evidence.is_empty()
+        && answer
+            .unknowns
+            .iter()
+            .any(|unknown| unknown.impact == ImpactLevel::High)
+    {
+        return Some("high-impact unknowns are not backed by evidence".into());
+    }
+    None
+}
+
+fn evidence_replan_prompt(reason: &str, round: usize) -> String {
+    format!(
+        "EVIDENCE CHECK FAILED ({round}/{MAX_EVIDENCE_REPLANS}): {reason}\n\
+         Re-check the task now. If it needs current or local facts, call a tool. If the \
+         evidence is still unavailable, return an AgentAnswer with status \"needs_evidence\" \
+         and state what is missing. If it needs an action, call the tool or return \
+         \"needs_authorization\". Do not repeat the same answer without changing the evidence \
+         or status."
+    )
+}
+
+fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
+    match status {
+        AnswerStatus::Completed | AnswerStatus::Conditional => StopReason::Completed,
+        AnswerStatus::NeedsEvidence => StopReason::NeedsEvidence,
+        AnswerStatus::NeedsAuthorization => StopReason::NeedsAuthorization,
+        AnswerStatus::Failed => StopReason::InvalidOutput,
+    }
+}
+
+fn provider_retry_backoff_ms(base_ms: u64, retry_number: usize) -> u64 {
+    let exponent = retry_number.saturating_sub(1).min(5) as u32;
+    base_ms
+        .min(MAX_PROVIDER_RETRY_BACKOFF_MS)
+        .saturating_mul(1_u64 << exponent)
+        .min(MAX_PROVIDER_RETRY_BACKOFF_MS)
+}
+
+fn append_provider_failure(
+    journal: &mut Journal,
+    journal_path: &Path,
+    provider_id: &str,
+    model: &str,
+    error: &ProviderError,
+) -> Result<(), RuntimeError> {
+    journal
+        .append(JournalEventKind::ProviderFailed {
+            failure: ProviderFailure::from_error(provider_id, model, error),
+        })
+        .map_err(|source| RuntimeError::Journal {
+            path: journal_path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
+}
+
+fn authorization_answer() -> crate::domain::AgentAnswer {
+    crate::domain::AgentAnswer {
+        task_need: None,
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::NeedsAuthorization,
+        conclusion: "当前任务被识别为执行操作，但本次运行被设为只读；未执行任何外部动作。在 TUI 输入 /permissions write on 后重试，或去掉 --read-only 后重新运行。".into(),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: vec!["allow_write=false".into()],
+        unknowns: vec![UnknownItem {
+            id: "authorization-scope".into(),
+            description: "缺少明确的写入权限和审批范围".into(),
+            impact: ImpactLevel::High,
+            why_it_matters: Some("没有授权就无法安全执行副作用动作".into()),
+            reduction_method: Some(
+                "在 TUI 输入 /permissions write on，或去掉 --read-only，并限定具体动作、范围和回滚条件"
+                    .into(),
+            ),
+        }],
+        conflicts: Vec::new(),
+        flip_conditions: vec![FlipCondition {
+            if_observed: "用户授权具体低风险动作及其作用范围".into(),
+            then: "可以进入受控执行流程".into(),
+            target_ids: vec!["authorization-scope".into()],
+        }],
+        action_receipts: Vec::new(),
+    }
+}
+
+fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
+    crate::domain::AgentAnswer {
+        task_need: None,
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::NeedsEvidence,
+        conclusion: format!("本轮未形成可验证结论：{reason}。"),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: vec![reason.into()],
+        unknowns: vec![UnknownItem {
+            id: "budget-verification".into(),
+            description: "任务尚未完成验证".into(),
+            impact: ImpactLevel::High,
+            why_it_matters: Some("预算停止时不能把部分工作报告为成功".into()),
+            reduction_method: Some("提高预算或缩小任务范围后重新运行".into()),
+        }],
+        conflicts: Vec::new(),
+        flip_conditions: vec![FlipCondition {
+            if_observed: "在更高预算下完成外部验证".into(),
+            then: "应重新评估是否形成结论".into(),
+            target_ids: vec!["budget-verification".into()],
+        }],
+        action_receipts: Vec::new(),
+    }
+}
+
+/// An answer-repair attempt can fail because the model keeps returning an
+/// invalid answer shape. Convert that dead end into an auditable
+/// `needs_evidence` answer instead of a runtime error; no action is claimed
+/// and the original invalid response remains in the journal.
+fn unrepairable_answer() -> crate::domain::AgentAnswer {
+    crate::domain::AgentAnswer {
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::NeedsEvidence,
+        conclusion:
+            "模型返回的答案结构无法修复，已降级为需要证据；本轮没有执行任何外部动作。请重试或缩小任务范围。"
+                .into(),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: vec!["answer repair failed".into()],
+        unknowns: vec![UnknownItem {
+            id: "repair-failed".into(),
+            description: "模型输出未通过答案结构校验".into(),
+            impact: ImpactLevel::Low,
+            why_it_matters: Some("结构无效的答案不能当作完成".into()),
+            reduction_method: Some("重试或缩小任务范围".into()),
+        }],
+        conflicts: Vec::new(),
+        flip_conditions: Vec::new(),
+        action_receipts: Vec::new(),
+        task_need: None,
+    }
+}
+
+fn remaining_budget(
+    started_at: Instant,
+    timeout_ms: u64,
+    initial_elapsed: Duration,
+) -> Option<Duration> {
+    Duration::from_millis(timeout_ms)
+        .checked_sub(initial_elapsed.saturating_add(started_at.elapsed()))
+        .filter(|remaining| !remaining.is_zero())
+}
+
+fn finish_with_answer(
+    journal: &mut Journal,
+    run_id: Uuid,
+    journal_path: PathBuf,
+    answer: crate::domain::AgentAnswer,
+    stop_reason: StopReason,
+) -> Result<RunResult, RuntimeError> {
+    journal
+        .append(JournalEventKind::AnswerProduced {
+            answer: answer.clone(),
+        })
+        .map_err(|source| RuntimeError::Journal {
+            path: journal_path.clone(),
+            source,
+        })?;
+    journal
+        .append(JournalEventKind::RunStopped {
+            reason: stop_reason,
+        })
+        .map_err(|source| RuntimeError::Journal {
+            path: journal_path.clone(),
+            source,
+        })?;
+    Ok(RunResult {
+        run_id,
+        journal_path,
+        answer,
+        stop_reason,
+    })
+}
+
+/// A chat model occasionally returns prose instead of the requested JSON.
+/// On the lightweight path, accept clear prose as the conclusion rather than
+/// spending a second call on repair. Malformed JSON and fences still go
+/// through the normal repair path.
+fn plain_text_chat_answer(content: &str) -> Option<AgentAnswer> {
+    let conclusion = content.trim();
+    if conclusion.is_empty()
+        || conclusion.starts_with('{')
+        || conclusion.starts_with('[')
+        || conclusion.starts_with("```")
+    {
+        return None;
+    }
+    Some(AgentAnswer {
+        task_need: None,
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::Completed,
+        conclusion: conclusion.to_string(),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: Vec::new(),
+        unknowns: Vec::new(),
+        conflicts: Vec::new(),
+        flip_conditions: Vec::new(),
+        action_receipts: Vec::new(),
+    })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RuntimeError {
+    #[error("journal operation failed at {path}: {source}")]
+    Journal {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("provider failed for run {path}: {source}")]
+    Provider {
+        path: PathBuf,
+        #[source]
+        source: ProviderError,
+    },
+    #[error("no provider route for mode {mode:?}; journal: {path}")]
+    NoRoute { path: PathBuf, mode: CognitiveMode },
+    #[error("invalid model output: {message}; journal: {path}")]
+    InvalidOutput { path: PathBuf, message: String },
+    #[error("run cancelled; journal: {path}")]
+    Cancelled { path: PathBuf },
+    #[error("run cannot be resumed: {0}")]
+    Resume(String),
+    #[error("route plan failed: {message}; journal: {path}")]
+    RoutePlan { path: PathBuf, message: String },
+    #[error("tool capability snapshot failed: {message}; journal: {path}")]
+    ToolCapabilities { path: PathBuf, message: String },
+    #[error("experience loading failed: {0}")]
+    Experience(String),
+    #[error("reframe failed: {0}")]
+    Reframe(String),
+}
+
+impl RuntimeError {
+    pub fn journal_path(&self) -> &Path {
+        match self {
+            Self::Journal { path, .. }
+            | Self::Provider { path, .. }
+            | Self::NoRoute { path, .. }
+            | Self::InvalidOutput { path, .. }
+            | Self::RoutePlan { path, .. }
+            | Self::ToolCapabilities { path, .. }
+            | Self::Cancelled { path } => path,
+            Self::Resume(_) => Path::new(""),
+            Self::Experience(_) => Path::new(""),
+            Self::Reframe(_) => Path::new(""),
+        }
+    }
+
+    /// A short, actionable next step for CLI/TUI callers. Hints describe
+    /// recovery options; they never change the error or expand authority.
+    pub fn recovery_hint(&self) -> &'static str {
+        match self {
+            Self::Journal { .. } => {
+                "check that the journal directory is writable and has free space, then re-run"
+            }
+            Self::Provider { source, .. } => match source.code {
+                ProviderErrorCode::Authentication => {
+                    "check the API key and provider account, or switch provider"
+                }
+                ProviderErrorCode::RateLimited => {
+                    "wait for the retry window or switch provider/model"
+                }
+                ProviderErrorCode::Timeout | ProviderErrorCode::Network => {
+                    "check connectivity or proxy settings, raise --timeout-seconds, then retry"
+                }
+                ProviderErrorCode::InvalidResponse => {
+                    "retry; if it persists, switch model or simplify the task"
+                }
+                ProviderErrorCode::UnsupportedCapability => {
+                    "choose a provider/model that supports the requested capability"
+                }
+                ProviderErrorCode::InvalidConfiguration => {
+                    "check --provider, --base-url, --model and credential settings"
+                }
+                ProviderErrorCode::ProviderUnavailable => {
+                    "retry later or configure a fallback provider"
+                }
+                ProviderErrorCode::Cancelled => {
+                    "re-run, or use `1agent resume --journal PATH` to continue from the checkpoint"
+                }
+                ProviderErrorCode::ResponseTooLarge => {
+                    "reduce context or tool output, or use a provider with a larger response limit"
+                }
+            },
+            Self::NoRoute { .. } => {
+                "check the provider/model and route objective; the journal records the route plan"
+            }
+            Self::InvalidOutput { .. } => {
+                "retry; if it persists, switch model or split the task into smaller steps"
+            }
+            Self::Cancelled { .. } => {
+                "re-run, or use `1agent resume --journal PATH` to continue from the checkpoint"
+            }
+            Self::Resume(_) => {
+                "run `1agent resume-status --journal PATH` to inspect the checkpoint and tool pairing"
+            }
+            Self::RoutePlan { .. } => "check provider manifests and route budgets",
+            Self::ToolCapabilities { .. } => "check tool configuration and permissions",
+            Self::Experience(_) => "check the experience directory or disable it",
+            Self::Reframe(_) => {
+                "retry the reframe request; if it persists, choose a literal option"
+            }
+        }
+    }
+}
+
+impl AgentRuntime {
+    /// Ask the routed provider for a reframe proposal.
+    ///
+    /// No journal is written here: an undecided proposal is a fork, not a fact.
+    /// The caller records the decision, and that entry then carries both.
+    pub async fn reframe(
+        &self,
+        task: &str,
+        constraints: &[String],
+        cancellation: &CancellationToken,
+    ) -> Result<crate::reframe::ReframeProposal, RuntimeError> {
+        let candidate = match &self.selected_route {
+            Some(key) => self.providers.iter().find(|candidate| {
+                candidate.manifest.provider_id == key.provider_id
+                    && candidate.manifest.model == key.model
+            }),
+            None => self.providers.first(),
+        }
+        .ok_or_else(|| RuntimeError::Reframe("no provider is configured".into()))?;
+
+        let text = candidate
+            .provider
+            .complete_text(
+                crate::reframe::REFRAME_SYSTEM_PROMPT,
+                &crate::reframe::build_user_message(task, constraints),
+                cancellation,
+            )
+            .await
+            .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
+
+        let proposal = crate::reframe::parse_model_output(&text)
+            .and_then(|parsed| parsed.into_proposal(task))
+            .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
+        proposal
+            .validate()
+            .map_err(|error| RuntimeError::Reframe(error.to_string()))?;
+        Ok(proposal)
+    }
+}
+
+/// Split a model batch into ordered groups. Consecutive parallel-safe calls
+/// form one concurrent group; every other call is its own ordered group.
+fn tool_groups(calls: &[ToolCall], tools: &ToolRegistry) -> Vec<(usize, usize)> {
+    let mut groups = Vec::new();
+    let mut start = 0;
+    while start < calls.len() {
+        if tools.parallel_safe(&calls[start].name) {
+            let mut end = start + 1;
+            while end < calls.len() && tools.parallel_safe(&calls[end].name) {
+                end += 1;
+            }
+            groups.push((start, end));
+            start = end;
+        } else {
+            groups.push((start, start + 1));
+            start += 1;
+        }
+    }
+    groups
+}
+
+async fn complete_with_stream(
+    provider: Arc<dyn ModelProvider>,
+    request: ModelRequest,
+    cancellation: &CancellationToken,
+    sink: Option<StreamSink>,
+) -> Result<ModelResponse, ProviderError> {
+    match sink {
+        Some(sink) => {
+            let mut on_text = move |text: &str| sink(text);
+            provider
+                .complete_streaming(request, cancellation, &mut on_text)
+                .await
+        }
+        None => provider.complete(request, cancellation).await,
+    }
+}
+
+fn route_plan_digest(
+    plan: &crate::router::RoutePlan,
+    sources: &RoutePolicySources,
+) -> Result<String, String> {
+    let bytes = serde_json::to_vec(&(plan, sources)).map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(bytes)))
+}
+
+fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static str {
+    use crate::experience::ExperienceKind;
+    match kind {
+        ExperienceKind::Memory => "memory",
+        ExperienceKind::Skill => "skill",
+        ExperienceKind::RoutePolicy => "route-policy",
+        ExperienceKind::Strategy => "strategy",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::authority::{AuthorityProfile, AuthorityRegistry};
+    use crate::domain::{
+        AgentAnswer, AnswerStatus, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage,
+    };
+    use crate::execution_gate::ExecutionGate;
+    use crate::experience::{
+        ExperienceCandidateSpec, ExperienceKind, ExperienceStore, ExperienceVerificationInput,
+    };
+    use crate::journal::{audit_events, read_events, replay_events, summarize_route_trace};
+    use crate::provider::{DeterministicProvider, ModelProvider, ProviderError, ProviderErrorCode};
+    use crate::tools::{EchoTool, ToolRegistry, default_registry};
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ReframeStub;
+
+    #[async_trait]
+    impl ModelProvider for ReframeStub {
+        fn id(&self) -> &str {
+            "reframe-stub"
+        }
+        fn model(&self) -> &str {
+            "stub-v1"
+        }
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Err(ProviderError {
+                code: ProviderErrorCode::InvalidResponse,
+                message: "not used by reframe".into(),
+                retryable: false,
+            })
+        }
+        async fn complete_text(
+            &self,
+            _system: &str,
+            user: &str,
+            _cancellation: &CancellationToken,
+        ) -> Result<String, ProviderError> {
+            assert!(user.contains("电钻"), "user message must carry the request");
+            Ok(r#"{"classification":"means","question":"穿线还是挂东西？","options":["穿线","挂东西"],"substitutes":["路由器"],"confidence":0.8}"#.into())
+        }
+    }
+
+    fn reframe_runtime(
+        workspace: &std::path::Path,
+        provider: Arc<dyn ModelProvider>,
+    ) -> AgentRuntime {
+        let mut manifest = local_manifest();
+        manifest.provider_id = provider.id().into();
+        manifest.model = provider.model().into();
+        AgentRuntime::new(
+            vec![ProviderCandidate { provider, manifest }],
+            default_registry(),
+            workspace.join(".journal"),
+        )
+    }
+
+    #[tokio::test]
+    async fn reframe_returns_a_validated_proposal_from_the_provider() {
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = reframe_runtime(workspace.path(), Arc::new(ReframeStub));
+        let proposal = runtime
+            .reframe("我要买个电钻", &[], &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(proposal.classification, crate::reframe::RequestRole::Means);
+        assert_eq!(
+            proposal.stop_rule_source,
+            crate::reframe::StopRuleSource::Derived
+        );
+        assert_eq!(proposal.stated_request, "我要买个电钻");
+        assert_eq!(proposal.validate(), Ok(()));
+    }
+
+    struct NoRawTextProvider;
+
+    #[async_trait]
+    impl ModelProvider for NoRawTextProvider {
+        fn id(&self) -> &str {
+            "no-raw-text"
+        }
+        fn model(&self) -> &str {
+            "v1"
+        }
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Err(ProviderError {
+                code: ProviderErrorCode::InvalidResponse,
+                message: "not used".into(),
+                retryable: false,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn reframe_reports_a_provider_without_raw_text_support() {
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = reframe_runtime(workspace.path(), Arc::new(NoRawTextProvider));
+        let error = runtime
+            .reframe("x", &[], &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, RuntimeError::Reframe(_)), "got {error:?}");
+    }
+
+    struct RetryableFailureProvider;
+
+    fn gated_runtime(dir: &std::path::Path, allowed_tool: &str) -> AgentRuntime {
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "tool-profile".into(),
+                actor_id: "owner-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: crate::task_graph::MandateStrength::ReadOnly,
+                allowed_tools: vec![allowed_tool.into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::Low,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("owner-1", "tool-profile").unwrap();
+        let mut registry = default_registry();
+        registry.register(std::sync::Arc::new(EchoTool));
+        let gate = ExecutionGate::new(authority, &registry);
+        AgentRuntime::new(Vec::new(), registry, dir.join(".journal")).with_execution_gate(
+            gate,
+            "owner-1",
+            "repo:1-agent",
+            crate::task_graph::MandateStrength::ReadOnly,
+            10,
+        )
+    }
+
+    #[tokio::test]
+    async fn execution_gate_denies_tools_before_they_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let denied = gated_runtime(dir.path(), "read_file")
+            .execute_tool(
+                &ToolCall {
+                    id: "call-1".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "hi"}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(denied.status, ToolStatus::PermissionDenied);
+        assert_eq!(denied.error_code.as_deref(), Some("authority_denied"));
+
+        let allowed = gated_runtime(dir.path(), "echo")
+            .execute_tool(
+                &ToolCall {
+                    id: "call-2".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({"text": "hi"}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(allowed.status, ToolStatus::Ok, "{allowed:?}");
+    }
+
+    #[test]
+    fn manifest_pricing_is_applied_when_provider_cost_is_unknown() {
+        let mut manifest = local_manifest();
+        manifest.input_cost_micros_per_k = 1_000;
+        manifest.output_cost_micros_per_k = 2_000;
+        let mut response = ModelResponse {
+            provider_id: manifest.provider_id.clone(),
+            model: manifest.model.clone(),
+            turn: ModelTurn::ToolCalls { calls: Vec::new() },
+            usage: Usage {
+                input_tokens: 1_500,
+                output_tokens: 500,
+                cost_micros: 0,
+                cache_hit_tokens: 0,
+                cache_miss_tokens: 0,
+            },
+        };
+        apply_manifest_cost(&mut response, &manifest);
+        assert_eq!(response.usage.cost_micros, 2_500);
+        response.usage.cost_micros = 7;
+        apply_manifest_cost(&mut response, &manifest);
+        assert_eq!(response.usage.cost_micros, 7);
+    }
+
+    #[async_trait]
+    impl ModelProvider for RetryableFailureProvider {
+        fn id(&self) -> &str {
+            "failing"
+        }
+
+        fn model(&self) -> &str {
+            "fail-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            Err(ProviderError {
+                code: ProviderErrorCode::ProviderUnavailable,
+                message: "injected failure".into(),
+                retryable: true,
+            })
+        }
+    }
+
+    struct NonRetryableFailureProvider {
+        calls: AtomicUsize,
+    }
+
+    struct RepairingProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for RepairingProvider {
+        fn id(&self) -> &str {
+            "repairing"
+        }
+
+        fn model(&self) -> &str {
+            "repair-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call == 1 {
+                assert!(
+                    request
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.content.contains("failed validation"))
+                );
+                assert!(request.tools.is_empty(), "repair must not offer tools");
+                assert!(
+                    request
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.content.contains("high-impact assumption"))
+                );
+            }
+            let evidence_source = if call == 0 { "wrong.source" } else { "task" };
+            let answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+                "schema_version": 2,
+                "status": "completed",
+                "conclusion": "repaired",
+                "claims": [{
+                    "id": "c1",
+                    "text": "read-only",
+                    "status": "verified",
+                    "sources": ["task"],
+                    "scope": "test"
+                }],
+                "evidence": [{
+                    "source": evidence_source,
+                    "statement": "read-only",
+                    "observed_unix_ms": null,
+                    "expires_unix_ms": null,
+                    "claim_ids": ["c1"]
+                }],
+                "assumptions": [],
+                "constraints": [],
+                "unknowns": [],
+                "conflicts": [],
+                "flip_conditions": [],
+                "action_receipts": []
+            }))
+            .unwrap();
+            Ok(crate::domain::ModelResponse {
+                provider_id: "repairing".into(),
+                model: "repair-v1".into(),
+                turn: ModelTurn::Final { answer },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    struct ParsingRepairProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ParsingRepairProvider {
+        fn id(&self) -> &str {
+            "parsing-repair"
+        }
+
+        fn model(&self) -> &str {
+            "parsing-repair-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let turn = if call == 0 {
+                ModelTurn::InvalidFinal {
+                    content: "c\n#include <stdio.h>\nint main(void) { return 0; }".into(),
+                    error: "provider answer is not valid AgentAnswer JSON: expected value".into(),
+                }
+            } else {
+                assert!(
+                    request
+                        .messages
+                        .last()
+                        .is_some_and(|message| message.content.contains("could not be parsed"))
+                );
+                assert!(request.tools.is_empty(), "repair must not offer tools");
+                assert!(
+                    request
+                        .messages
+                        .iter()
+                        .any(|message| message.content.contains("#include <stdio.h>"))
+                );
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion:
+                            "C uses #include and main; Python, Java and Rust use their own entry syntax."
+                                .into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(crate::domain::ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl ModelProvider for NonRetryableFailureProvider {
+        fn id(&self) -> &str {
+            "unauthorized"
+        }
+
+        fn model(&self) -> &str {
+            "unauthorized-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::domain::ModelResponse, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(ProviderError {
+                code: ProviderErrorCode::Authentication,
+                message: format!("auth\u{202e}{}", "x".repeat(1_000)),
+                retryable: false,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_final_answer_is_repaired_once_and_revalidated() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let mut manifest = local_manifest();
+        manifest.provider_id = "repairing".into();
+        manifest.model = "repair-v1".into();
+        let provider = Arc::new(RepairingProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: provider.clone(),
+                manifest,
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let request =
+            TaskRequest::from_objective("repair invalid output", workspace.path().to_path_buf());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.answer.conclusion, "repaired");
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+        let audit = audit_events(&read_events(&result.journal_path).unwrap());
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn unparseable_provider_text_is_preserved_and_repaired() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let mut manifest = local_manifest();
+        manifest.provider_id = "parsing-repair".into();
+        manifest.model = "parsing-repair-v1".into();
+        let provider = Arc::new(ParsingRepairProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: provider.clone(),
+                manifest,
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let request = TaskRequest::from_objective(
+            "使用 C、Python、Java、Rust 输出 Hello! World.",
+            workspace.path().to_path_buf(),
+        );
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+        assert!(result.answer.conclusion.contains("C uses"));
+        let events = read_events(&result.journal_path).unwrap();
+        let mut chain = crate::journal::ModelRequestChain::new();
+        let reconstructed = events
+            .iter()
+            .filter_map(|event| chain.apply(event).ok().flatten().cloned())
+            .collect::<Vec<_>>();
+        assert_eq!(reconstructed.len(), 2);
+        assert!(reconstructed[1].messages.len() > reconstructed[0].messages.len());
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ModelResponded {
+                response: crate::domain::ModelResponse {
+                    turn: ModelTurn::InvalidFinal { content, .. },
+                    ..
+                }
+            } if content.contains("#include <stdio.h>")
+        )));
+        assert!(audit_events(&events).ok);
+    }
+
+    #[tokio::test]
+    async fn deterministic_runtime_reads_evidence_and_writes_auditable_journal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(
+            &evidence,
+            "A is preferred because its verified cost is lower.",
+        )
+        .unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let request = TaskRequest {
+            objective: format!("Compare A and B using @read-file:{}", evidence.display()),
+            deliverable: Some("decision".into()),
+            known_facts: Vec::new(),
+            constraints: vec!["read only".into()],
+            unknowns: Vec::new(),
+            decision_criteria: vec!["verified cost".into()],
+            success_criteria: vec!["cite evidence".into()],
+            evidence_max_age_ms: None,
+            experience_scope: None,
+            permissions: PermissionSet {
+                read_roots: vec![workspace.path().to_path_buf()],
+                allow_network: false,
+                allow_write: false,
+            },
+            budget: RunBudget::default(),
+        };
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.evidence.len(), 1);
+        let events = read_events(&result.journal_path).unwrap();
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+        let planned = events.iter().find_map(|event| match &event.event {
+            JournalEventKind::RoutePlanned { plan, sources } => Some((plan, sources)),
+            _ => None,
+        });
+        let (plan, sources) = planned.expect("route plan should be journaled");
+        assert_eq!(plan.ranked.len(), 1);
+        assert_eq!(sources.objective, PolicyValueSource::RuntimeDefault);
+        let replay = replay_events(&events).unwrap();
+        assert_eq!(replay.route_plan.as_ref(), Some(plan));
+        assert_eq!(replay.route_policy_sources.as_ref(), Some(sources));
+        let capabilities = replay
+            .tool_capabilities
+            .as_ref()
+            .expect("tool capabilities should be journaled");
+        for tool in ["read_file", "search_files", "fetch_url"] {
+            assert!(
+                capabilities.tools.iter().any(|name| name == tool),
+                "missing {tool}"
+            );
+        }
+        assert!(
+            !capabilities.tools.iter().any(|name| name == "write_file"),
+            "write tools must be hidden in a read-only run"
+        );
+        let summary = summarize_route_trace(&events).unwrap();
+        assert_eq!(summary.candidates, 1);
+        assert_eq!(summary.rejected, 0);
+        assert_eq!(summary.fallback_attempts, 1);
+        assert_eq!(
+            summary.selected_provider_id.as_deref(),
+            Some("deterministic")
+        );
+        let mut bounded = summary;
+        bounded.selection_reason = Some("x".repeat(300));
+        let rendered = bounded.render();
+        assert!(rendered.contains('…'));
+        assert!(!rendered.contains(&"x".repeat(241)));
+    }
+
+    #[tokio::test]
+    async fn execute_mode_requires_authorization_without_calling_provider() {
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request =
+            TaskRequest::from_objective("Delete the stale files", workspace.path().into());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::NeedsAuthorization);
+        assert!(result.answer.action_receipts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn provider_failure_records_health_alert_and_falls_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified evidence").unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let health = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::provider_health::ProviderHealth::new(
+                crate::provider_health::ProviderHealthPolicy {
+                    failure_threshold: 1,
+                    cooldown_ms: 60_000,
+                },
+            )
+            .unwrap(),
+        ));
+        let alert_path = workspace.path().join("alerts.jsonl");
+        let alerts = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::alerts::AlertLog::open(&alert_path).unwrap(),
+        ));
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_provider_health(health.clone())
+        .with_alert_log(alerts);
+        let mut request = TaskRequest::from_objective(
+            format!(
+                "Compare options using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            workspace.path().into(),
+        );
+        request.budget.provider_retry_backoff_ms = 0;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let alerts = crate::alerts::AlertLog::open(&alert_path).unwrap();
+        let records = alerts.read().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].kind, "provider_health");
+        let health = health.lock().unwrap();
+        assert!(
+            !health.available("failing", "fail-v1", 1),
+            "failing provider should be demoted"
+        );
+    }
+
+    #[tokio::test]
+    async fn retryable_provider_failure_falls_back_and_is_journaled() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified evidence").unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest {
+            objective: format!(
+                "Compare options using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            deliverable: None,
+            known_facts: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            decision_criteria: Vec::new(),
+            success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
+            experience_scope: None,
+            permissions: PermissionSet {
+                read_roots: vec![workspace.path().to_path_buf()],
+                allow_network: false,
+                allow_write: false,
+            },
+            budget: RunBudget::default(),
+        };
+        request.budget.provider_retry_backoff_ms = 0;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(audit_events(&events).ok);
+        let failing_attempts = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    JournalEventKind::RouteSelected { provider_id, .. }
+                        if provider_id == "failing"
+                )
+            })
+            .count();
+        let deterministic_attempts = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    JournalEventKind::RouteSelected { provider_id, .. }
+                        if provider_id == "deterministic"
+                )
+            })
+            .count();
+        assert_eq!(failing_attempts, 1);
+        assert_eq!(deterministic_attempts, 2);
+        let summary = summarize_route_trace(&events).unwrap();
+        assert_eq!(summary.fallback_attempts, 2);
+        assert_eq!(summary.provider_failures, 1);
+        assert_eq!(
+            summary.failure_codes,
+            vec![crate::provider::ProviderErrorCode::ProviderUnavailable]
+        );
+        assert_eq!(summary.selected_provider_id.as_deref(), Some("failing"));
+        let failures = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ProviderFailed { failure } => Some(failure),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].provider_id, "failing");
+        assert_eq!(
+            failures[0].code,
+            crate::provider::ProviderErrorCode::ProviderUnavailable
+        );
+        assert!(failures[0].retryable);
+        let replay = replay_events(&events).unwrap();
+        assert_eq!(replay.provider_failures.len(), 1);
+        assert_eq!(replay.retry_delays_ms, vec![0]);
+        assert_eq!(replay.retry_timings.len(), 1);
+        assert_eq!(replay.retry_timings[0].delay_ms, 0);
+        assert_eq!(replay.retry_timings[0].outcome, RetryOutcome::Completed);
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ProviderRetryScheduled { delay_ms: 0, .. }
+        )));
+    }
+
+    struct CountingToolProvider {
+        calls: AtomicUsize,
+        tool_steps: usize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for CountingToolProvider {
+        fn id(&self) -> &str {
+            "counting-tool"
+        }
+
+        fn model(&self) -> &str {
+            "counting-tool-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let turn = if call < self.tool_steps {
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: format!("call-{call}"),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "tick"}),
+                    }],
+                }
+            } else {
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "长任务完成".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    struct HistoryAwareToolProvider {
+        tool_steps: usize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for HistoryAwareToolProvider {
+        fn id(&self) -> &str {
+            "history-tool"
+        }
+
+        fn model(&self) -> &str {
+            "history-tool-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let observed = request
+                .messages
+                .iter()
+                .filter(|message| message.role == crate::domain::MessageRole::Tool)
+                .count();
+            let turn = if observed < self.tool_steps {
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: format!("call-{observed}"),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "tick"}),
+                    }],
+                }
+            } else {
+                ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "delta resume complete".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn checkpoint_deltas_resume_to_the_same_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "history-tool".into();
+        manifest.model = "history-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(HistoryAwareToolProvider { tool_steps: 3 }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("keep working", workspace.path().into());
+
+        let complete = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(complete.stop_reason, StopReason::Completed);
+        let events = read_events(&complete.journal_path).unwrap();
+        let full_checkpoints = events
+            .iter()
+            .filter(|event| matches!(event.event, JournalEventKind::Checkpoint { .. }))
+            .count();
+        let deltas = events
+            .iter()
+            .filter(|event| matches!(event.event, JournalEventKind::CheckpointDelta { .. }))
+            .count();
+        assert_eq!(full_checkpoints, 1, "the first checkpoint is full");
+        assert_eq!(deltas, 2, "later checkpoints should be deltas");
+
+        let last_checkpoint = events
+            .iter()
+            .rposition(|event| {
+                matches!(
+                    event.event,
+                    JournalEventKind::Checkpoint { .. } | JournalEventKind::CheckpointDelta { .. }
+                )
+            })
+            .unwrap();
+        let interrupted_path = workspace.path().join("interrupted.jsonl");
+        let mut interrupted = Journal::create(&interrupted_path, Uuid::new_v4()).unwrap();
+        for event in &events[..=last_checkpoint] {
+            interrupted.append(event.event.clone()).unwrap();
+        }
+        drop(interrupted);
+
+        let resumed = runtime
+            .resume(&interrupted_path, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(resumed.stop_reason, complete.stop_reason);
+        assert_eq!(resumed.answer.conclusion, complete.answer.conclusion);
+        assert_eq!(resumed.answer.evidence, complete.answer.evidence);
+        let resumed_events = read_events(&resumed.journal_path).unwrap();
+        let audit = audit_events(&resumed_events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn compacted_run_replays_and_audits() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "counting-tool".into();
+        manifest.model = "counting-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(CountingToolProvider {
+                    calls: AtomicUsize::new(0),
+                    tool_steps: 4,
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("keep working", workspace.path().into());
+        request.budget.max_steps = 0;
+        request.budget.max_tool_calls = 0;
+        request.budget.max_provider_attempts = 0;
+        request.budget.auto_compact_tokens = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event.event, JournalEventKind::ContextCompacted { .. })),
+            "the run should have compacted context"
+        );
+        assert!(replay_events(&events).is_ok());
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+        let metrics = crate::metrics::summarize_journal_events([events.as_slice()]);
+        assert_eq!(metrics.compacted_runs, 1);
+        assert_eq!(metrics.compacted_replay_ok, 1);
+        assert_eq!(metrics.compacted_replay_bps, Some(10_000));
+    }
+
+    #[tokio::test]
+    #[ignore = "size probe; run with --ignored --nocapture"]
+    async fn delta_checkpoints_keep_the_journal_linear() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "history-tool".into();
+        manifest.model = "history-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(HistoryAwareToolProvider { tool_steps: 100 }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("keep working", workspace.path().into());
+        request.budget.max_steps = 0;
+        request.budget.max_tool_calls = 0;
+        request.budget.max_provider_attempts = 0;
+        let complete = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(complete.stop_reason, StopReason::Completed);
+
+        let events = read_events(&complete.journal_path).unwrap();
+        let mut messages = Vec::new();
+        let mut full_checkpoint_bytes = 0usize;
+        let mut actual_checkpoint_bytes = 0usize;
+        let mut model_requests = crate::journal::ModelRequestChain::new();
+        let mut full_model_request_bytes = 0usize;
+        let mut actual_model_request_bytes = 0usize;
+        for event in &events {
+            match &event.event {
+                JournalEventKind::ModelRequested { .. }
+                | JournalEventKind::ModelRequestDelta { .. } => {
+                    if let Ok(Some(request)) = model_requests.apply(event) {
+                        full_model_request_bytes += serde_json::to_vec(request).unwrap().len();
+                        actual_model_request_bytes += serde_json::to_vec(event).unwrap().len();
+                    }
+                }
+                JournalEventKind::Checkpoint { checkpoint } => {
+                    messages = checkpoint.messages.clone();
+                    full_checkpoint_bytes += serde_json::to_vec(&messages).unwrap().len();
+                    actual_checkpoint_bytes += serde_json::to_vec(event).unwrap().len();
+                }
+                JournalEventKind::CheckpointDelta { checkpoint } => {
+                    messages.extend(checkpoint.messages.iter().cloned());
+                    full_checkpoint_bytes += serde_json::to_vec(&messages).unwrap().len();
+                    actual_checkpoint_bytes += serde_json::to_vec(event).unwrap().len();
+                }
+                _ => {}
+            }
+        }
+        let total = std::fs::metadata(&complete.journal_path).unwrap().len() as usize;
+        eprintln!(
+            "journal total={total} checkpoint actual={actual_checkpoint_bytes} full-checkpoint estimate={full_checkpoint_bytes} ratio={:.3}",
+            actual_checkpoint_bytes as f64 / full_checkpoint_bytes.max(1) as f64
+        );
+        eprintln!(
+            "model-request actual={actual_model_request_bytes} full-request estimate={full_model_request_bytes} ratio={:.3}",
+            actual_model_request_bytes as f64 / full_model_request_bytes.max(1) as f64
+        );
+        assert!(
+            actual_checkpoint_bytes * 2 < full_checkpoint_bytes,
+            "delta checkpoints should be much smaller than full checkpoints"
+        );
+        assert!(
+            actual_model_request_bytes * 2 < full_model_request_bytes,
+            "delta model requests should be much smaller than full requests"
+        );
+    }
+
+    #[tokio::test]
+    async fn zero_budgets_do_not_stop_a_long_run() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "counting-tool".into();
+        manifest.model = "counting-tool-v1".into();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(EchoTool));
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(CountingToolProvider {
+                    calls: AtomicUsize::new(0),
+                    tool_steps: 17,
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("keep working", workspace.path().into());
+        request.budget = RunBudget {
+            max_steps: 0,
+            max_tool_calls: 0,
+            max_provider_attempts: 0,
+            timeout_ms: 0,
+            ..RunBudget::default()
+        };
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.conclusion, "长任务完成");
+    }
+
+    struct StreamingProvider;
+
+    #[async_trait]
+    impl ModelProvider for StreamingProvider {
+        fn id(&self) -> &str {
+            "streaming"
+        }
+
+        fn model(&self) -> &str {
+            "streaming-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            panic!("streaming provider must be called through complete_streaming")
+        }
+
+        async fn complete_streaming(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+            on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        ) -> Result<ModelResponse, ProviderError> {
+            on_text("streamed ");
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "streamed answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_sink_receives_deltas_before_the_final_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "streaming".into();
+        manifest.model = "streaming-v1".into();
+        let deltas = Arc::new(Mutex::new(Vec::new()));
+        let collected = deltas.clone();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(StreamingProvider),
+                manifest,
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_stream_sink(Arc::new(move |text: &str| {
+            collected.lock().unwrap().push(text.to_string());
+        }));
+        let request = TaskRequest::from_objective("stream a final answer", workspace.path().into());
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.conclusion, "streamed answer");
+        assert_eq!(*deltas.lock().unwrap(), ["streamed "]);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event.event, JournalEventKind::StreamFirstToken { .. })),
+            "a streaming attempt should journal its first-token timing"
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    struct PartialStreamFailureProvider;
+
+    #[async_trait]
+    impl ModelProvider for PartialStreamFailureProvider {
+        fn id(&self) -> &str {
+            "partial-stream"
+        }
+
+        fn model(&self) -> &str {
+            "partial-stream-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            panic!("first attempt must use complete_streaming")
+        }
+
+        async fn complete_streaming(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+            on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        ) -> Result<ModelResponse, ProviderError> {
+            on_text("partial ");
+            Err(ProviderError {
+                code: ProviderErrorCode::ProviderUnavailable,
+                message: "stream failed".into(),
+                retryable: true,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_after_partial_stream_does_not_replay_or_stream_the_fallback() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "partial-stream".into();
+        failing_manifest.model = "partial-stream-v1".into();
+        failing_manifest.quality_score = 100;
+        let deltas = Arc::new(Mutex::new(Vec::new()));
+        let collected = deltas.clone();
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(PartialStreamFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_stream_sink(Arc::new(move |text: &str| {
+            collected.lock().unwrap().push(text.to_string());
+        }));
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified evidence").unwrap();
+        let mut request = TaskRequest::from_objective(
+            format!(
+                "Compare options using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            workspace.path().into(),
+        );
+        request.budget.provider_retry_backoff_ms = 0;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(*deltas.lock().unwrap(), ["partial "]);
+        assert_ne!(result.answer.conclusion, "partial ");
+    }
+
+    struct TimedTool {
+        name: &'static str,
+        delay_ms: u64,
+        parallel_safe: bool,
+        requires_write: bool,
+        active: Arc<AtomicUsize>,
+        max_active: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl crate::tools::AgentTool for TimedTool {
+        fn spec(&self) -> crate::domain::ToolSpec {
+            crate::domain::ToolSpec {
+                name: self.name.into(),
+                description: "timed test tool".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": true
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn requires_write(&self) -> bool {
+            self.requires_write
+        }
+
+        fn parallel_safe(&self) -> bool {
+            self.parallel_safe
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &crate::domain::PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolOutcome {
+                summary: self.name.into(),
+                content: self.name.into(),
+                metadata: Default::default(),
+            })
+        }
+    }
+
+    struct ToolBatchProvider {
+        calls: Mutex<Vec<ToolCall>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ToolBatchProvider {
+        fn id(&self) -> &str {
+            "tool-batch"
+        }
+
+        fn model(&self) -> &str {
+            "tool-batch-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let mut calls = self.calls.lock().unwrap();
+            if !calls.is_empty() {
+                let batch = std::mem::take(&mut *calls);
+                return Ok(ModelResponse {
+                    provider_id: self.id().into(),
+                    model: self.model().into(),
+                    turn: ModelTurn::ToolCalls { calls: batch },
+                    usage: Usage::default(),
+                });
+            }
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "tools finished".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    fn tool_call(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn tool_groups_split_parallel_runs_around_ordered_calls() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: active.clone(),
+            max_active: max_active.clone(),
+        }));
+        tools.register(Arc::new(TimedTool {
+            name: "write_one",
+            delay_ms: 0,
+            parallel_safe: false,
+            requires_write: true,
+            active,
+            max_active,
+        }));
+        let calls = vec![
+            tool_call("call-1", "read_one"),
+            tool_call("call-2", "read_one"),
+            tool_call("call-3", "write_one"),
+            tool_call("call-4", "read_one"),
+        ];
+        assert_eq!(tool_groups(&calls, &tools), vec![(0, 2), (2, 3), (3, 4)]);
+    }
+
+    #[tokio::test]
+    async fn parallel_safe_tool_calls_overlap_and_journal_in_model_order() {
+        let workspace = tempfile::tempdir().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 120,
+            parallel_safe: true,
+            requires_write: false,
+            active: active.clone(),
+            max_active: max_active.clone(),
+        }));
+        tools.register(Arc::new(TimedTool {
+            name: "read_two",
+            delay_ms: 10,
+            parallel_safe: true,
+            requires_write: false,
+            active,
+            max_active: max_active.clone(),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "read_two"),
+                    ]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("read two things", workspace.path().into());
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(
+            max_active.load(Ordering::SeqCst),
+            2,
+            "parallel-safe reads did not overlap"
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let called = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolCalled { call } => Some(call.id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let observed = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation.call_id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(called, ["call-1", "call-2"]);
+        assert_eq!(
+            observed,
+            ["call-1", "call-2"],
+            "observations must keep model order even when the second call finishes first"
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn write_tools_do_not_overlap_with_reads() {
+        let workspace = tempfile::tempdir().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 60,
+            parallel_safe: true,
+            requires_write: false,
+            active: active.clone(),
+            max_active: max_active.clone(),
+        }));
+        tools.register(Arc::new(TimedTool {
+            name: "write_one",
+            delay_ms: 60,
+            parallel_safe: false,
+            requires_write: true,
+            active,
+            max_active: max_active.clone(),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "write_one"),
+                        tool_call("call-3", "read_one"),
+                    ]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("read then write", workspace.path().into());
+        request.permissions.allow_write = true;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(
+            max_active.load(Ordering::SeqCst),
+            1,
+            "write tools must not overlap with reads"
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let observed = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation.call_id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observed, ["call-1", "call-2", "call-3"]);
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn provider_attempt_budget_stops_further_fallback() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("Compare A and B", workspace.path().into());
+        request.budget.max_provider_attempts = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        assert!(result.answer.conclusion.contains("provider attempt budget"));
+        let events = read_events(&result.journal_path).unwrap();
+        let selected = events
+            .iter()
+            .filter(|event| matches!(&event.event, JournalEventKind::RouteSelected { .. }))
+            .count();
+        assert_eq!(selected, 1);
+        let summary = summarize_route_trace(&events).unwrap();
+        assert_eq!(summary.provider_failures, 1);
+        assert_eq!(
+            summary.failure_codes,
+            vec![crate::provider::ProviderErrorCode::ProviderUnavailable]
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn tool_budget_gets_one_final_tool_free_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: Arc::new(AtomicUsize::new(0)),
+            max_active: Arc::new(AtomicUsize::new(0)),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "read_one"),
+                    ]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("read two things", workspace.path().into());
+        request.budget.max_tool_calls = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(result.answer.conclusion, "tools finished");
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(&event.event, JournalEventKind::ToolCalled { .. })),
+            "the over-budget batch must not execute"
+        );
+        let audit = audit_events(&events);
+        assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn execution_gate_denies_tools_that_require_approval() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: Arc::new(AtomicUsize::new(0)),
+            max_active: Arc::new(AtomicUsize::new(0)),
+        }));
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "approval-profile".into(),
+                actor_id: "actor-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: MandateStrength::Write,
+                allowed_tools: vec!["read_one".into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::Low,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("actor-1", "approval-profile").unwrap();
+        let gate = ExecutionGate::new(authority, &tools);
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![tool_call("call-1", "read_one")]),
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        )
+        .with_execution_gate(gate, "actor-1", "repo:1-agent", MandateStrength::Write, 0);
+
+        let request = TaskRequest::from_objective("read one thing", workspace.path().into());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation),
+                _ => None,
+            })
+            .expect("expected a denied observation");
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("approval_required"));
+    }
+
+    #[test]
+    fn explicit_provider_selection_tracks_manifest_and_tools() {
+        let manifest = local_manifest();
+        let mut runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: manifest.clone(),
+            }],
+            default_registry(),
+            std::env::temp_dir(),
+        );
+        assert!(runtime.select_provider(&manifest.provider_id, &manifest.model));
+        assert_eq!(
+            runtime
+                .selected_provider()
+                .map(|value| value.model.as_str()),
+            Some(manifest.model.as_str())
+        );
+        assert!(
+            runtime
+                .tool_capabilities()
+                .iter()
+                .any(|tool| tool.name == "read_file")
+        );
+        runtime.set_route_objective(RouteObjective::Balanced);
+        assert_eq!(runtime.route_objective(), RouteObjective::Balanced);
+    }
+
+    #[tokio::test]
+    async fn non_retryable_provider_failure_does_not_fall_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let failing = Arc::new(NonRetryableFailureProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let mut unauthorized_manifest = local_manifest();
+        unauthorized_manifest.provider_id = "unauthorized".into();
+        unauthorized_manifest.model = "unauthorized-v1".into();
+        unauthorized_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: failing.clone(),
+                    manifest: unauthorized_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("Compare A and B", workspace.path().into());
+
+        let error = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap_err();
+        let path = match error {
+            RuntimeError::Provider { path, source } => {
+                assert_eq!(source.code, ProviderErrorCode::Authentication);
+                assert!(!source.retryable);
+                path
+            }
+            other => panic!("expected provider error, got {other:?}"),
+        };
+        assert_eq!(failing.calls.load(Ordering::SeqCst), 1);
+        let events = read_events(path).unwrap();
+        let failures = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ProviderFailed { failure } => Some(failure),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].provider_id, "unauthorized");
+        assert_eq!(failures[0].code, ProviderErrorCode::Authentication);
+        assert!(!failures[0].retryable);
+        assert!(failures[0].message.chars().count() <= 512);
+        assert!(!crate::safety::contains_disallowed_control(
+            &failures[0].message
+        ));
+    }
+
+    #[tokio::test]
+    async fn retry_backoff_is_bounded_deterministic_and_cancellable() {
+        assert_eq!(provider_retry_backoff_ms(0, 1), 0);
+        assert_eq!(provider_retry_backoff_ms(50, 1), 50);
+        assert_eq!(provider_retry_backoff_ms(50, 2), 100);
+        assert_eq!(provider_retry_backoff_ms(50, 20), 1_000);
+        assert_eq!(provider_retry_backoff_ms(5_000, 1), 1_000);
+
+        let workspace = tempfile::tempdir().unwrap();
+        let mut failing_manifest = local_manifest();
+        failing_manifest.provider_id = "failing".into();
+        failing_manifest.model = "fail-v1".into();
+        failing_manifest.quality_score = 100;
+        let runtime = AgentRuntime::new(
+            vec![
+                ProviderCandidate {
+                    provider: Arc::new(RetryableFailureProvider),
+                    manifest: failing_manifest,
+                },
+                ProviderCandidate {
+                    provider: Arc::new(DeterministicProvider::new()),
+                    manifest: local_manifest(),
+                },
+            ],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("Compare A and B", workspace.path().into());
+        request.budget.provider_retry_backoff_ms = 1_000;
+        let cancellation = CancellationToken::new();
+        let signal = cancellation.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            signal.cancel();
+        });
+
+        let error = runtime
+            .run(request, cancellation)
+            .await
+            .expect_err("backoff should be cancelled");
+        let path = match error {
+            RuntimeError::Cancelled { path } => path,
+            other => panic!("expected cancellation, got {other:?}"),
+        };
+        let events = read_events(path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ProviderRetryScheduled { delay_ms: 1000, .. }
+        )));
+        assert_eq!(summarize_route_trace(&events).unwrap().provider_failures, 1);
+        let timings = replay_events(&events).unwrap().retry_timings;
+        assert_eq!(timings.len(), 1);
+        assert_eq!(timings[0].outcome, RetryOutcome::Cancelled);
+        assert!(timings[0].elapsed_ms <= crate::domain::MAX_PROVIDER_RETRY_ELAPSED_MS);
+        assert!(audit_events(&events).ok);
+    }
+
+    #[tokio::test]
+    async fn interrupted_run_resumes_from_checkpoint_with_same_observable_answer() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified checkpoint evidence").unwrap();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest {
+            objective: format!("Research @read-file:\"{}\"", evidence.display()),
+            deliverable: None,
+            known_facts: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            decision_criteria: Vec::new(),
+            success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
+            experience_scope: None,
+            permissions: PermissionSet {
+                read_roots: vec![workspace.path().to_path_buf()],
+                allow_network: false,
+                allow_write: false,
+            },
+            budget: RunBudget::default(),
+        };
+        let complete = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        let events = read_events(&complete.journal_path).unwrap();
+        let checkpoint_index = events
+            .iter()
+            .position(|event| matches!(event.event, JournalEventKind::Checkpoint { .. }))
+            .unwrap();
+        let checkpoint = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::Checkpoint { checkpoint } => Some(checkpoint),
+                _ => None,
+            })
+            .unwrap();
+        assert!(checkpoint.route_plan_sha256.is_some());
+        assert!(checkpoint.route_policy_sources.is_some());
+        assert!(checkpoint.tool_capabilities_sha256.is_some());
+        assert_eq!(checkpoint.provider_attempts_used, 1);
+        let interrupted_path = workspace.path().join("interrupted.jsonl");
+        let mut interrupted = Journal::create(&interrupted_path, Uuid::new_v4()).unwrap();
+        for event in &events[..=checkpoint_index] {
+            interrupted.append(event.event.clone()).unwrap();
+        }
+        drop(interrupted);
+
+        let changed_policy = runtime.clone().with_route_objective(RouteObjective::Cost);
+        assert!(matches!(
+            changed_policy
+                .resume(&interrupted_path, CancellationToken::new())
+                .await,
+            Err(RuntimeError::Resume(message))
+                if message.contains("route objective changed")
+                    || message.contains("route plan or policy changed")
+        ));
+        let mut changed_tools = default_registry();
+        changed_tools.register(Arc::new(EchoTool));
+        let changed_capabilities = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            changed_tools,
+            workspace.path().join(".changed-journal"),
+        );
+        assert!(matches!(
+            changed_capabilities
+                .resume(&interrupted_path, CancellationToken::new())
+                .await,
+            Err(RuntimeError::Resume(message))
+                if message.contains("tool capabilities changed")
+        ));
+        let resumed = runtime
+            .resume(&interrupted_path, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(resumed.stop_reason, complete.stop_reason);
+        assert_eq!(resumed.answer.status, complete.answer.status);
+        assert_eq!(resumed.answer.conclusion, complete.answer.conclusion);
+        assert_eq!(resumed.answer.evidence, complete.answer.evidence);
+        let resumed_events = read_events(&resumed.journal_path).unwrap();
+        assert!(audit_events(&resumed_events).ok);
+        assert!(matches!(
+            resumed_events.first().map(|event| &event.event),
+            Some(JournalEventKind::ResumeStarted { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn active_experience_is_injected_but_unverified_drafts_are_not() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "verified evidence").unwrap();
+        let source_runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            default_registry(),
+            workspace.path().join(".source-journal"),
+        );
+        let source_request = TaskRequest {
+            objective: format!(
+                "Compare options using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            deliverable: None,
+            known_facts: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            decision_criteria: vec!["verified cost".into()],
+            success_criteria: Vec::new(),
+            evidence_max_age_ms: None,
+            experience_scope: Some("repository decisions".into()),
+            permissions: PermissionSet {
+                read_roots: vec![workspace.path().to_path_buf()],
+                allow_network: false,
+                allow_write: false,
+            },
+            budget: RunBudget::default(),
+        };
+        let source = source_runtime
+            .run(source_request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        let source_events = read_events(&source.journal_path).unwrap();
+        let evidence_seq = source_events
+            .iter()
+            .find(|event| matches!(event.event, JournalEventKind::ToolObserved { .. }))
+            .unwrap()
+            .seq;
+        let experience_dir = workspace.path().join(".experience");
+        let mut store = ExperienceStore::open(&experience_dir).unwrap();
+        let active = store
+            .propose(
+                ExperienceCandidateSpec {
+                    kind: ExperienceKind::Skill,
+                    title: "Inspect evidence first".into(),
+                    content: "Read the cited source before making a repository decision.".into(),
+                    scope: "repository decisions".into(),
+                    evidence_event_seqs: vec![evidence_seq],
+                    sensitive: false,
+                    applicable_modes: vec![CognitiveMode::DecisionAnalysis],
+                    expires_at_unix_ms: None,
+                    supersedes: None,
+                },
+                &source_events,
+            )
+            .unwrap();
+        store
+            .review_with_source(active.id, "reviewer", Some(&source_events))
+            .unwrap();
+        store
+            .verify(
+                active.id,
+                ExperienceVerificationInput {
+                    suite_id: "heldout-runtime-v1".into(),
+                    suite_version: "1".into(),
+                    case_ids: vec!["runtime-case-1".into()],
+                    suite_sha256: "b".repeat(64),
+                    training_group: "A".into(),
+                    evaluation_group: "B".into(),
+                    baseline_success_bps: 5_000,
+                    learned_success_bps: 6_000,
+                    baseline_unsupported_bps: 1_000,
+                    learned_unsupported_bps: 900,
+                    cost_delta_bps: 100,
+                    evidence: "runtime injection report".into(),
+                },
+            )
+            .unwrap();
+        store
+            .approve_with_source(active.id, "owner", Some(&source_events))
+            .unwrap();
+        store
+            .activate_with_source(active.id, Some(&source_events))
+            .unwrap();
+        store
+            .propose(
+                ExperienceCandidateSpec {
+                    kind: ExperienceKind::Memory,
+                    title: "Draft should not be used".into(),
+                    content: "This draft must not be injected.".into(),
+                    scope: "repository decisions".into(),
+                    evidence_event_seqs: vec![evidence_seq],
+                    sensitive: false,
+                    applicable_modes: vec![CognitiveMode::DecisionAnalysis],
+                    expires_at_unix_ms: None,
+                    supersedes: None,
+                },
+                &source_events,
+            )
+            .unwrap();
+
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_experience_dir(&experience_dir);
+        let result = runtime
+            .run(source_request, CancellationToken::new())
+            .await
+            .unwrap();
+        let events = read_events(&result.journal_path).unwrap();
+        let injection = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ExperienceInjected { injected } => Some(injected),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(injection.len(), 1);
+        assert_eq!(injection[0].id, active.id);
+        let first_model_request = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ModelRequested { request } => Some(request),
+                _ => None,
+            })
+            .unwrap();
+        let model_context = first_model_request
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(model_context.contains("EXPERIENCE GUIDANCE"));
+        assert!(model_context.contains("Inspect evidence first"));
+        assert!(!model_context.contains("Draft should not be used"));
+    }
+
+    #[test]
+    fn authorization_answer_names_the_write_permission_switch() {
+        let answer = authorization_answer();
+        assert_eq!(answer.status, AnswerStatus::NeedsAuthorization);
+        assert!(answer.conclusion.contains("/permissions write on"));
+        assert!(answer.conclusion.contains("--read-only"));
+    }
+
+    #[test]
+    fn runtime_errors_carry_actionable_hints() {
+        let provider = |code| RuntimeError::Provider {
+            path: PathBuf::from("journal.jsonl"),
+            source: ProviderError {
+                code,
+                message: "failed".into(),
+                retryable: true,
+            },
+        };
+        assert!(
+            provider(ProviderErrorCode::Authentication)
+                .recovery_hint()
+                .contains("API key")
+        );
+        assert!(
+            provider(ProviderErrorCode::Network)
+                .recovery_hint()
+                .contains("connectivity")
+        );
+        assert!(
+            RuntimeError::Cancelled {
+                path: PathBuf::from("journal.jsonl")
+            }
+            .recovery_hint()
+            .contains("resume")
+        );
+        assert!(
+            RuntimeError::Resume("bad checkpoint".into())
+                .recovery_hint()
+                .contains("resume-status")
+        );
+        assert!(
+            RuntimeError::Journal {
+                path: PathBuf::from("journal.jsonl"),
+                source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+            }
+            .recovery_hint()
+            .contains("writable")
+        );
+    }
+
+    struct UsageProvider;
+
+    #[async_trait]
+    impl ModelProvider for UsageProvider {
+        fn id(&self) -> &str {
+            "usage-provider"
+        }
+
+        fn model(&self) -> &str {
+            "usage-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "usage answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage {
+                    input_tokens: 50,
+                    output_tokens: 50,
+                    cost_micros: 100,
+                    ..Usage::default()
+                },
+            })
+        }
+    }
+
+    async fn run_with_usage_budget(budget: RunBudget) -> RunResult {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join(".journal");
+        let mut manifest = local_manifest();
+        manifest.provider_id = "usage-provider".into();
+        manifest.model = "usage-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(UsageProvider),
+                manifest,
+            }],
+            default_registry(),
+            &journal_dir,
+        );
+        let mut request =
+            TaskRequest::from_objective("usage budget", workspace.path().to_path_buf());
+        request.budget = budget;
+        runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn cost_budget_stops_after_usage_exceeds_limit() {
+        let result = run_with_usage_budget(RunBudget {
+            max_cost_micros: Some(10),
+            ..RunBudget::default()
+        })
+        .await;
+        assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
+        assert!(result.answer.conclusion.contains("cost budget"));
+    }
+
+    #[tokio::test]
+    async fn token_budget_stops_after_usage_exceeds_limit() {
+        let result = run_with_usage_budget(RunBudget {
+            max_tokens: Some(10),
+            ..RunBudget::default()
+        })
+        .await;
+        assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
+        assert!(result.answer.conclusion.contains("token budget"));
+    }
+
+    struct ChatCaptureProvider {
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ChatCaptureProvider {
+        fn id(&self) -> &str {
+            "chat-capture"
+        }
+
+        fn model(&self) -> &str {
+            "chat-capture-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status: AnswerStatus::Completed,
+                        conclusion: "chat answer".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    fn chat_capture_runtime(
+        workspace: &std::path::Path,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    ) -> AgentRuntime {
+        let mut manifest = local_manifest();
+        manifest.provider_id = "chat-capture".into();
+        manifest.model = "chat-capture-v1".into();
+        AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ChatCaptureProvider { requests }),
+                manifest,
+            }],
+            default_registry(),
+            workspace.join(".journal"),
+        )
+    }
+
+    #[tokio::test]
+    async fn direct_answer_chat_uses_one_tool_free_compact_call() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        let request = TaskRequest::from_objective("你好", workspace.path().to_path_buf());
+        let result = runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.conclusion, "chat answer");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .starts_with(chat_system_prompt())
+        );
+        assert!(requests[0].messages[0].content.contains("VOICE:"));
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .any(|message| message.content.contains("User message:")),
+            "chat user message should not carry the structured task JSON"
+        );
+    }
+
+    struct PlainTextChatProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for PlainTextChatProvider {
+        fn id(&self) -> &str {
+            "plain-chat"
+        }
+
+        fn model(&self) -> &str {
+            "plain-chat-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::InvalidFinal {
+                    content: "我是 1-Agent，能陪你聊天，也能查资料、读文件和跑命令。".into(),
+                    error: "provider returned prose, not JSON".into(),
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn plain_text_chat_reply_is_accepted_without_repair() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut manifest = local_manifest();
+        manifest.provider_id = "plain-chat".into();
+        manifest.model = "plain-chat-v1".into();
+        let provider = Arc::new(PlainTextChatProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: provider.clone(),
+                manifest,
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("你好", workspace.path().to_path_buf());
+        let result = runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert!(result.answer.conclusion.contains("1-Agent"));
+    }
+
+    #[tokio::test]
+    async fn capability_questions_skip_fast_chat_and_offer_describe_self() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective(
+                    "介绍一下你自己都有哪些功能",
+                    workspace.path().to_path_buf(),
+                ),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective("你好", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == crate::dynamic_tools::DESCRIBE_SELF)
+        );
+        assert!(
+            requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == crate::dynamic_tools::REQUEST_TOOLS)
+        );
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .all(|message| !message.content.contains("1-AGENT CAPABILITY CATALOG"))
+        );
+        assert!(requests[1].tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn product_mode_question_uses_the_chat_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective("如何切换模式？", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .starts_with(chat_system_prompt())
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_request_carries_a_fraction_of_the_work_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective("你好", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective(
+                    "帮我读取 src/main.rs 并总结",
+                    workspace.path().to_path_buf(),
+                ),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        let chat_tokens =
+            crate::context::total_request_tokens(&requests[0].messages, &requests[0].tools);
+        let work_tokens =
+            crate::context::total_request_tokens(&requests[1].messages, &requests[1].tools);
+        assert!(
+            chat_tokens.saturating_mul(3) <= work_tokens,
+            "chat request {chat_tokens} should be far below work request {work_tokens}"
+        );
+    }
+
+    struct EscalatingChatProvider {
+        calls: AtomicUsize,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for EscalatingChatProvider {
+        fn id(&self) -> &str {
+            "escalating-chat"
+        }
+
+        fn model(&self) -> &str {
+            "escalating-chat-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let (status, conclusion) = if call == 0 {
+                (AnswerStatus::NeedsEvidence, "缺少实时信息")
+            } else {
+                (AnswerStatus::Completed, "完整回答")
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+                        status,
+                        conclusion: conclusion.into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn needs_evidence_from_chat_escalates_to_the_full_agent_once() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "escalating-chat".into();
+        manifest.model = "escalating-chat-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(EscalatingChatProvider {
+                    calls: AtomicUsize::new(0),
+                    requests: requests.clone(),
+                }),
+                manifest,
+            }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("最近怎么样？", workspace.path().to_path_buf());
+        let result = runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.answer.conclusion, "完整回答");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].tools.is_empty());
+        assert!(!requests[1].tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn context_follow_ups_keep_tools_even_when_phrased_as_questions() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        let mut request =
+            TaskRequest::from_objective("它有什么优点？", workspace.path().to_path_buf());
+        request.known_facts = vec!["Earlier turn: the user asked about a local project".into()];
+        runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .contains("evidence-accountable")
+        );
+    }
+
+    #[tokio::test]
+    async fn action_objectives_keep_the_work_prompt_and_tools() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        let request =
+            TaskRequest::from_objective("帮我安装 DeepTutor", workspace.path().to_path_buf());
+        runtime
+            .run_with_mode(
+                request,
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0].messages[0]
+                .content
+                .contains("evidence-accountable")
+        );
+    }
+
+    #[tokio::test]
+    async fn kill_switch_blocks_writes_but_keeps_reads_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let kill = dir.path().join("KILL");
+        let evidence = dir.path().join("evidence.txt");
+        std::fs::write(&evidence, "evidence").unwrap();
+        let target = dir.path().join("out.txt");
+        let runtime =
+            AgentRuntime::new(Vec::new(), default_registry(), dir.path().join("journals"))
+                .with_kill_switch(&kill);
+        let permissions = PermissionSet {
+            read_roots: vec![dir.path().to_path_buf()],
+            allow_network: false,
+            allow_write: true,
+        };
+        let cancellation = CancellationToken::new();
+        let read_call = || ToolCall {
+            id: "read-1".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": evidence}),
+        };
+        let write_call = || ToolCall {
+            id: "write-1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": target, "content": "x"}),
+        };
+
+        let read = runtime
+            .execute_tool(&read_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(read.status, ToolStatus::Ok);
+        let write = runtime
+            .execute_tool(&write_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(write.status, ToolStatus::Ok);
+        std::fs::remove_file(&target).unwrap();
+
+        std::fs::write(&kill, b"stop").unwrap();
+        let write = runtime
+            .execute_tool(&write_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(write.status, ToolStatus::PermissionDenied);
+        assert_eq!(write.error_code.as_deref(), Some("kill_switch_active"));
+        let read = runtime
+            .execute_tool(&read_call(), &permissions, &cancellation)
+            .await;
+        assert_eq!(read.status, ToolStatus::Ok);
+    }
+
+    struct ScriptedProvider {
+        steps: Mutex<Vec<ModelTurn>>,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+    }
+
+    impl ScriptedProvider {
+        fn new(steps: Vec<ModelTurn>, requests: Arc<Mutex<Vec<ModelRequest>>>) -> Self {
+            Self {
+                steps: Mutex::new(steps),
+                requests,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ModelProvider for ScriptedProvider {
+        fn id(&self) -> &str {
+            "scripted"
+        }
+
+        fn model(&self) -> &str {
+            "scripted-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            let turn = self
+                .steps
+                .lock()
+                .unwrap()
+                .drain(..1)
+                .next()
+                .expect("scripted provider ran out of steps");
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    fn completed_answer(conclusion: &str) -> AgentAnswer {
+        AgentAnswer {
+            task_need: None,
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Completed,
+            conclusion: conclusion.into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        }
+    }
+
+    fn scripted_runtime(
+        workspace: &std::path::Path,
+        provider: Arc<ScriptedProvider>,
+        registry: ToolRegistry,
+    ) -> AgentRuntime {
+        let mut manifest = local_manifest();
+        manifest.provider_id = provider.id().into();
+        manifest.model = provider.model().into();
+        AgentRuntime::new(
+            vec![ProviderCandidate { provider, manifest }],
+            registry,
+            workspace.join(".journal"),
+        )
+    }
+
+    #[tokio::test]
+    async fn describe_self_reports_the_live_registry() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-self".into(),
+                        name: crate::dynamic_tools::DESCRIBE_SELF.into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("你能做什么？", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation }
+                    if observation.tool == crate::dynamic_tools::DESCRIBE_SELF =>
+                {
+                    Some(observation)
+                }
+                _ => None,
+            })
+            .expect("describe_self observation");
+        let value: serde_json::Value = serde_json::from_str(&observation.content).unwrap();
+        let tools = value["tools"].as_array().unwrap();
+        assert!(tools.iter().any(|tool| tool["name"] == "echo"));
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool["name"] == crate::dynamic_tools::DESCRIBE_SELF)
+        );
+        assert_eq!(value["provider"], "scripted");
+        assert_eq!(value["model"], "scripted-v1");
+        assert!(value["budgets"]["max_steps"].is_number());
+    }
+
+    #[tokio::test]
+    async fn request_tools_adds_permitted_schemas_to_the_next_request() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-tools".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["web_search"],
+                            "reason": "need current facts"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_tool_query("read");
+        let mut request =
+            TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf());
+        request.permissions.allow_network = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            !requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search")
+        );
+        assert!(
+            requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search")
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ToolsRequested { granted, .. } if granted.iter().any(|name| name == "web_search")
+        )));
+    }
+
+    fn answer_with_need(
+        status: AnswerStatus,
+        conclusion: &str,
+        need: crate::domain::TaskNeed,
+    ) -> AgentAnswer {
+        let mut answer = completed_answer(conclusion);
+        answer.status = status;
+        answer.task_need = Some(need);
+        answer
+    }
+
+    fn high_freshness_need() -> crate::domain::TaskNeed {
+        crate::domain::TaskNeed {
+            freshness: crate::domain::NeedLevel::High,
+            locality: crate::domain::NeedLevel::None,
+            action: crate::domain::NeedLevel::None,
+            risk: RiskLevel::Low,
+            ambiguity: crate::domain::NeedLevel::None,
+            budget: crate::domain::NeedLevel::Low,
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_answer_with_current_need_and_no_evidence_gets_a_replan() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft answer",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::NeedsEvidence,
+                        "missing current evidence",
+                        high_freshness_need(),
+                    ),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1]
+                .messages
+                .iter()
+                .any(|message| { message.content.contains("EVIDENCE CHECK FAILED (1/2)") })
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::AnswerVerificationFailed { round: 1, .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn evidence_replan_is_bounded_and_downgrades_to_needs_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft one",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft two",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "draft three",
+                        high_freshness_need(),
+                    ),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("今天有什么大事件？", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(requests.lock().unwrap().len(), 3);
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        let events = read_events(&result.journal_path).unwrap();
+        let failed = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.event,
+                    JournalEventKind::AnswerVerificationFailed { .. }
+                )
+            })
+            .count();
+        assert_eq!(failed, MAX_EVIDENCE_REPLANS);
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::AnswerVerificationExhausted { rounds: 2, .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn fast_chat_escalates_when_its_task_assessment_needs_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "chat draft",
+                        high_freshness_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("full answer"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run_with_mode(
+                TaskRequest::from_objective("你好", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.conclusion, "full answer");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].tools.is_empty());
+        assert!(!requests[1].tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn request_tools_denies_write_tools_without_write_permission() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-tools".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["write_file"],
+                            "reason": "need to write a file"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_tool_query("read");
+        let mut request = TaskRequest::from_objective("写一个文件", workspace.path().to_path_buf());
+        request.permissions.allow_write = false;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(
+            !requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "write_file")
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation }
+                    if observation.tool == crate::dynamic_tools::REQUEST_TOOLS =>
+                {
+                    Some(observation)
+                }
+                _ => None,
+            })
+            .expect("request_tools observation");
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert!(observation.content.contains("write_not_allowed"));
+    }
+
+    #[tokio::test]
+    async fn strategy_draft_records_tool_sequence_without_user_text() {
+        let workspace = tempfile::tempdir().unwrap();
+        let experience_dir = workspace.path().join("experience");
+        let mut registry = default_registry();
+        registry.register(Arc::new(EchoTool));
+        let objective = "build a release plan";
+
+        for _ in 0..2 {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let provider = Arc::new(ScriptedProvider::new(
+                vec![
+                    ModelTurn::ToolCalls {
+                        calls: vec![ToolCall {
+                            id: "call-echo".into(),
+                            name: "echo".into(),
+                            arguments: serde_json::json!({"text": "plan"}),
+                        }],
+                    },
+                    ModelTurn::Final {
+                        answer: completed_answer("plan ready"),
+                    },
+                ],
+                requests,
+            ));
+            let runtime = scripted_runtime(workspace.path(), provider, registry.clone())
+                .with_experience_dir(&experience_dir);
+            runtime
+                .run(
+                    TaskRequest::from_objective(objective, workspace.path().to_path_buf()),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let store = ExperienceStore::open(&experience_dir).unwrap();
+        let candidates = store.candidates().unwrap();
+        let strategies = candidates
+            .values()
+            .filter(|candidate| candidate.kind == ExperienceKind::Strategy)
+            .collect::<Vec<_>>();
+        assert_eq!(strategies.len(), 1, "identical strategy drafts are deduped");
+        let strategy = strategies[0];
+        assert_eq!(strategy.status, crate::experience::ExperienceStatus::Draft);
+        assert!(strategy.content.contains("\"echo\""));
+        assert!(strategy.content.contains("\"tool_call_count\":1"));
+        assert!(
+            !strategy.content.contains(objective),
+            "strategy content must not store the user's text"
+        );
+    }
+
+    #[tokio::test]
+    async fn irreparable_answer_output_becomes_needs_evidence() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: completed_answer(""),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer(""),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        assert!(result.answer.conclusion.contains("无法修复"));
+        assert_eq!(requests.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn capability_question_in_execute_mode_does_not_short_circuit() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("ok"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("你能执行终端命令吗？", workspace.path().to_path_buf());
+        request.permissions.allow_write = false;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.conclusion, "ok");
+        assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn destructive_task_without_write_permission_still_short_circuits() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("should not run"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("删除工作区所有文件", workspace.path().to_path_buf());
+        request.permissions.allow_write = false;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsAuthorization);
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn request_tools_denies_network_tools_without_network_permission() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-tools".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["web_search"],
+                            "reason": "need current facts"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_tool_query("read");
+        let mut request =
+            TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf());
+        request.permissions.allow_network = false;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(
+            !requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search")
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation }
+                    if observation.tool == crate::dynamic_tools::REQUEST_TOOLS =>
+                {
+                    Some(observation)
+                }
+                _ => None,
+            })
+            .expect("request_tools observation");
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("permission_denied"));
+    }
+}

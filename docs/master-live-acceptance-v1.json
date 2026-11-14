@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "observed_on": "2026-11-03",
+  "workshop_version": "0.11.0",
+  "agent_version": "0.93.0",
+  "natural_language_plan": {
+    "provider": "pi-openai-compatible/deepseek-flash",
+    "plan_id": "plan-0b58c6ef-5371-4473-9d67-ba7ed1fbeff8",
+    "status": "validated-unapproved",
+    "work_items": 2,
+    "dependency_edge": "create-plan-demo -> verify-plan-demo",
+    "high_risk_preserved": true,
+    "read_roots_within_workspace": true,
+    "planner_journal": "target/master-live/planner-journal/plan-0b58c6ef-5371-4473-9d67-ba7ed1fbeff8.jsonl"
+  },
+  "final_execution": {
+    "trace_id": "trace-final-bounded-20261103",
+    "session_id": "term-1793636352398-530889-18",
+    "state": "verified",
+    "artifact": "result.txt",
+    "artifact_sha256": "4db03012bc6c0d59c1d05739bb9c9ec592d33d62a3a190f768a0a4cd9e7606bc",
+    "journal_events": 7,
+    "journal_audit": "ok"
+  },
+  "async_supervision": {
+    "trace_id": "trace-live-running2-20261103",
+    "session_id": "term-1793635550991-530889-15",
+    "observed_states": [
+      "running",
+      "artifact_ready",
+      "verified"
+    ],
+    "journal_events": 8,
+    "journal_audit": "ok"
+  },
+  "false_success_pilot": {
+    "trace_id": "trace-pilot-missing-20261103",
+    "execution_status": "completed",
+    "exit_code": 0,
+    "verification_status": "rejected",
+    "failure_reason": "artifact is missing or is not a file: missing.txt",
+    "journal_events": 6,
+    "journal_audit": "ok"
+  },
+  "workshop_reads": {
+    "agent_records": 13,
+    "job_records": 7,
+    "job_status_counts": {
+      "ok": 4,
+      "fail": 1,
+      "cancelled": 2
+    },
+    "event_read_bounded": true
+  }
+}
