@@ -21,7 +21,8 @@
 > **项目仍在持续开发。** 当前版本 **0.97.0**（2026-11-14 更新），R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
 > 本版重点：AG-23 智能闭环（`describe_self`/`request_tools`/证据再规划）；≤1h 真实任务门 M1 97.08%；本地 8h 运行时 soak 0 崩溃；成本治理与一轮独立代码级安全评审。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
-> 当前 Linux 0.97.0 RC 为本地打包候选，尚未公开发布；公开发布前仍需重建干净历史并确认发布资产。
+> 当前 Linux 0.97.0 RC 为本地打包候选，尚未公开发布；公开发布前仍需重建干净历史并确认发布资产。  
+> 功能与使用入口：[RELEASE_0.97.md](docs/release/RELEASE_0.97.md) · [功能矩阵](docs/release/FEATURES-0.97.md)
 
 ---
 

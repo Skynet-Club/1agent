@@ -236,7 +236,7 @@ Provider 告警历史：
  • 模型思考 Thinking · 第 1 步
    ⎿ 请求 8 条消息 · 上下文 12400 tokens · 工具 12 个
    ⎿ 返回工具调用 · read_file
- • 读取 Reading · read_file · /home/skynet/1-agent/README.md
+ • 读取 Reading · read_file · $HOME/1-agent/README.md
    ⎿ read README.md (999 bytes)
 ```
 
@@ -416,7 +416,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 配置格式：
 
 ```json
-{"servers":[{"name":"filesystem","command":["npx","-y","@modelcontextprotocol/server-filesystem","/home/skynet"],"env":{}}]}
+{"servers":[{"name":"filesystem","command":["npx","-y","@modelcontextprotocol/server-filesystem","$HOME"],"env":{}}]}
 ```
 
 支持 stdio 和 streamable HTTP；工具市场未实现。所有 MCP 工具都按写工具处理，不信任 server 的 `readOnlyHint`；`destructiveHint: true` 仅用于提高风险等级。stdio server 只继承最小环境变量（`PATH`/`HOME`/`TMPDIR`/locale）和配置里的 `env`，不会继承 provider key 或 token。输入 schema 由 MCP server 校验，1Agent 只做进程、权限、超时和 journal 边界。
