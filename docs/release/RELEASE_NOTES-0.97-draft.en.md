@@ -190,10 +190,15 @@ the cross-platform P-Gate remain 0.98–1.0 work.
 4. The `~/.1a/KILL` kill switch blocks write tools; it does not kill a process,
    restart a daemon or clear locks.
 
-## Release assets (not generated)
+## Release assets (local candidate)
 
 - `1agent-0.97.0-linux-x86_64.tar.gz` — Linux x86_64 package;
 - `SHA256SUMS` — archive and provenance checksums;
 - `linux-x86_64.json` — Linux build provenance.
 
-The assets are not generated; this file is not a release announcement.
+The local package is built and verified: binary SHA-256
+`36c6e44faa15e4011261f20b735738cd7fb05a9b9818ddd0340e0fad482ee3fb`,
+`package.sh --linux-only` built twice with `reproducible=true`, and inner/outer
+`SHA256SUMS`, provenance, `--version`, init/doctor and a temp-prefix install all
+passed. This is a local release candidate, not a public announcement; a public
+release still needs rebuilt clean history and asset confirmation.
