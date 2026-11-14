@@ -46,10 +46,27 @@ if [[ ! -x "$binary" ]]; then
   exit 1
 fi
 
+package_dir="$(cd "$(dirname "$binary")/.." && pwd)"
+if [[ -f "$package_dir/SHA256SUMS" ]]; then
+  if ! (cd "$package_dir" && grep -F 'linux-x86_64/1agent' SHA256SUMS | sha256sum -c - >/dev/null); then
+    echo "packaged binary failed SHA256SUMS verification: $binary" >&2
+    exit 1
+  fi
+fi
+
 bindir="$prefix/bin"
 mkdir -p "$bindir"
-install -m 0755 "$binary" "$bindir/1agent"
-installed_version="$("$bindir/1agent" --version)"
+staged="$bindir/.1agent.new.$$"
+if ! install -m 0755 "$binary" "$staged"; then
+  rm -f "$staged"
+  exit 1
+fi
+if ! staged_version="$("$staged" --version)"; then
+  rm -f "$staged"
+  echo "staged binary failed its version check; nothing was installed" >&2
+  exit 1
+fi
+mv -f "$staged" "$bindir/1agent"
 printf 'installed %s\n' "$bindir/1agent"
-printf '%s\n' "$installed_version"
+printf '%s\n' "$staged_version"
 printf 'next: 1agent init\n'

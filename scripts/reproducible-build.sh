@@ -26,6 +26,18 @@ trap 'rm -rf "$dir_a" "$dir_b"' EXIT
 common_rustflags="--remap-path-prefix=$project_dir=/src"
 common_rustflags+=" --remap-path-prefix=$dir_a=/target"
 common_rustflags+=" --remap-path-prefix=$dir_b=/target"
+cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+common_rustflags+=" --remap-path-prefix=$cargo_home=/cargo"
+common_rustflags+=" --remap-path-prefix=$rustup_home=/rustup"
+# Registry source directories carry a host-specific hash suffix (for example
+# `index.crates.io-...` vs a mirror). Map every registry tree to one stable
+# path so a different builder does not embed its own hash in the binary.
+for registry_dir in "$cargo_home"/registry/src/* "$cargo_home"/registry/cache/*; do
+  [[ -d "$registry_dir" ]] || continue
+  stable_name="$(basename "$(dirname "$registry_dir")")"
+  common_rustflags+=" --remap-path-prefix=$registry_dir=/cargo/registry/$stable_name"
+done
 
 for target_dir in "$dir_a" "$dir_b"; do
   CARGO_TARGET_DIR="$target_dir" \

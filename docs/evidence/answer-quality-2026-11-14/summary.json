@@ -1,0 +1,601 @@
+{
+  "samples": 40,
+  "first_answer_usable_bps": 8500,
+  "pairwise_compared": 39,
+  "pairwise_wins": 2,
+  "pairwise_win_bps": 513,
+  "over_structured_bps": 250,
+  "unnecessary_followup_bps": 0,
+  "followups": 0,
+  "followup_adopted": 0,
+  "followup_adoption_bps": null,
+  "wins_by_side": {
+    "a": 11,
+    "b": 12,
+    "c": 7,
+    "d": 9
+  },
+  "comparable_by_side": {
+    "a": 40,
+    "b": 40,
+    "c": 40,
+    "d": 40
+  },
+  "skipped": [],
+  "details": [
+    {
+      "id": "chat-01",
+      "oneagent_side": "A",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-02",
+      "oneagent_side": "B",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-03",
+      "oneagent_side": "C",
+      "first_choice": "B",
+      "oneagent_issues": [
+        "过度结构化"
+      ],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": true,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-04",
+      "oneagent_side": "B",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": true,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-05",
+      "oneagent_side": "A",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-06",
+      "oneagent_side": "C",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-07",
+      "oneagent_side": "D",
+      "first_choice": "平局",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": null,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "chat-08",
+      "oneagent_side": "C",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-01",
+      "oneagent_side": "D",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-02",
+      "oneagent_side": "D",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-03",
+      "oneagent_side": "C",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-04",
+      "oneagent_side": "B",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-05",
+      "oneagent_side": "C",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-06",
+      "oneagent_side": "A",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-07",
+      "oneagent_side": "B",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "fact-08",
+      "oneagent_side": "B",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-01",
+      "oneagent_side": "D",
+      "first_choice": "C",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-02",
+      "oneagent_side": "A",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-03",
+      "oneagent_side": "D",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-04",
+      "oneagent_side": "D",
+      "first_choice": "C",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-05",
+      "oneagent_side": "A",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-06",
+      "oneagent_side": "A",
+      "first_choice": "B",
+      "oneagent_issues": [
+        "首答不可用"
+      ],
+      "sample": {
+        "first_answer_usable": false,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-07",
+      "oneagent_side": "D",
+      "first_choice": "C",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "decision-08",
+      "oneagent_side": "B",
+      "first_choice": "C",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-01",
+      "oneagent_side": "B",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-02",
+      "oneagent_side": "C",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-03",
+      "oneagent_side": "A",
+      "first_choice": "C",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-04",
+      "oneagent_side": "C",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-05",
+      "oneagent_side": "B",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-06",
+      "oneagent_side": "D",
+      "first_choice": "C",
+      "oneagent_issues": [
+        "首答不可用"
+      ],
+      "sample": {
+        "first_answer_usable": false,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-07",
+      "oneagent_side": "D",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "research-08",
+      "oneagent_side": "A",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-01",
+      "oneagent_side": "B",
+      "first_choice": "A",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-02",
+      "oneagent_side": "D",
+      "first_choice": "D",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": true,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-03",
+      "oneagent_side": "C",
+      "first_choice": "D",
+      "oneagent_issues": [
+        "首答不可用"
+      ],
+      "sample": {
+        "first_answer_usable": false,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-04",
+      "oneagent_side": "A",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-05",
+      "oneagent_side": "A",
+      "first_choice": "C",
+      "oneagent_issues": [
+        "首答不可用"
+      ],
+      "sample": {
+        "first_answer_usable": false,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-06",
+      "oneagent_side": "D",
+      "first_choice": "B",
+      "oneagent_issues": [
+        "首答不可用"
+      ],
+      "sample": {
+        "first_answer_usable": false,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-07",
+      "oneagent_side": "D",
+      "first_choice": "B",
+      "oneagent_issues": [],
+      "sample": {
+        "first_answer_usable": true,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    },
+    {
+      "id": "execution-08",
+      "oneagent_side": "C",
+      "first_choice": "D",
+      "oneagent_issues": [
+        "首答不可用"
+      ],
+      "sample": {
+        "first_answer_usable": false,
+        "pairwise_win": false,
+        "over_structured": false,
+        "unnecessary_followup": false,
+        "followup": false,
+        "followup_adopted": false
+      }
+    }
+  ]
+}

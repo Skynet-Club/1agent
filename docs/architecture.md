@@ -627,10 +627,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   both), and does not follow HTTP redirects. `timeout_seconds` (1..=300, default 20) bounds each
   request and the tool execution timeout; responses are capped at 2 MiB
   before further allocation (stdio lines are read in bounded chunks) and
-  non-UTF-8 bodies fail closed. A tool is write-gated unless the server declares
-  `readOnlyHint: true`; `destructiveHint: true` raises its risk. The MCP server
-  validates its own input schema; 1Agent owns process, permission, timeout and
-  journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
+  non-UTF-8 bodies fail closed. Every MCP tool is write-gated: a server-provided
+  `readOnlyHint` is untrusted and cannot lower the local permission;
+  `destructiveHint: true` raises its risk. Stdio servers are started with a
+  cleared environment plus a minimal allowlist (`PATH`, `HOME`, `TMPDIR`,
+  locale) and the operator-supplied `env`, so they do not inherit provider
+  keys or tokens. The MCP server validates its own input schema; 1Agent owns
+  process, permission, timeout and journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
   metadata for the journal. `1agent mcp-token-exchange` obtains a short-lived
   bearer token through an RFC 8693-style loopback/HTTPS exchange and writes it
   to a new 0600 file for `bearer_token_file`; that file is refreshed manually.
@@ -640,7 +643,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, requested write/network
   permissions are intersected with the parent's (they can only restrict), and
-  the child is killed with the parent process.
+  the child is killed with the parent process. The spawn itself is classified
+  as write-capable, so read-only mode, the kill switch and write-level
+  Authority checks run before any child starts.
 - `schedule` persists interval jobs under the runtime home and `daemon` runs
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`

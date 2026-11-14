@@ -1131,6 +1131,51 @@ pub struct InjectedExperience {
     pub reason: String,
 }
 
+/// A question about a concept or consequence is not an instruction to perform
+/// the action it mentions. "BufWriter 不 flush 会怎样" and "追加写入的区别"
+/// must not be short-circuited by the read-only authorization path.
+fn looks_conceptual(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    let question_shape = trimmed.ends_with('?')
+        || trimmed.ends_with('？')
+        || contains_any(
+            text,
+            &[
+                "什么是",
+                "是什么",
+                "为什么",
+                "区别",
+                "差异",
+                "原理",
+                "机制",
+                "后果",
+                "解释",
+                "怎么理解",
+                "如何理解",
+                "what is",
+                "why ",
+                "difference",
+                "explain",
+            ],
+        );
+    let imperative = contains_any(
+        text,
+        &[
+            "帮我",
+            "替我",
+            "给我",
+            "请帮我",
+            "立刻",
+            "马上",
+            "现在就",
+            "do it",
+            "go ahead",
+            "please ",
+        ],
+    );
+    question_shape && !imperative
+}
+
 pub fn infer_mode(request: &TaskRequest) -> CognitiveMode {
     let text = format!(
         "{} {} {}",
@@ -1171,13 +1216,15 @@ pub fn infer_mode(request: &TaskRequest) -> CognitiveMode {
     ) {
         return CognitiveMode::DecisionAnalysis;
     }
-    if contains_any(
-        &text,
-        &[
-            "execute", "write", "delete", "send", "buy", "执行", "写入", "删除", "删了", "删掉",
-            "清空", "清理", "移除", "发送", "购买",
-        ],
-    ) {
+    if !looks_conceptual(&text)
+        && (contains_any_word(&text, &["execute", "write", "delete", "send", "buy"])
+            || contains_any(
+                &text,
+                &[
+                    "执行", "写入", "删除", "删了", "删掉", "清空", "清理", "移除", "发送", "购买",
+                ],
+            ))
+    {
         return CognitiveMode::Execute;
     }
     if !request.unknowns.is_empty()
@@ -1717,6 +1764,13 @@ mod tests {
         request.objective = "你把工作区文件删了".into();
         assert_eq!(infer_mode(&request), CognitiveMode::Execute);
         assert!(!asks_about_capabilities(&request.objective));
+
+        request.objective = "BufWriter 不显式 flush 可能带来什么后果？".into();
+        assert_eq!(infer_mode(&request), CognitiveMode::DirectAnswer);
+        request.objective = "JSONL 和 JSON 数组在追加写入上的主要区别是什么？".into();
+        assert_eq!(infer_mode(&request), CognitiveMode::DirectAnswer);
+        request.objective = "把工作区里的临时文件删掉".into();
+        assert_eq!(infer_mode(&request), CognitiveMode::Execute);
     }
 
     #[test]

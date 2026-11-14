@@ -1460,6 +1460,7 @@ pub fn find_resumable_prefix(events: &[JournalEvent]) -> Result<ResumablePrefix,
     let mut checkpoint_seq = 0;
     let mut calls = std::collections::BTreeSet::new();
     let mut observations = std::collections::BTreeSet::new();
+    let mut last_tool_seq = None;
 
     for (index, event) in events.iter().enumerate() {
         if event.seq != index as u64 || event.run_id != original_run_id {
@@ -1488,6 +1489,7 @@ pub fn find_resumable_prefix(events: &[JournalEvent]) -> Result<ResumablePrefix,
                 if !calls.insert(call.id.clone()) {
                     return Err(ResumeError::InvalidToolPairing);
                 }
+                last_tool_seq = Some(event.seq);
             }
             JournalEventKind::ToolObserved { observation } => {
                 if !observations.insert(observation.call_id.clone()) {
@@ -1512,6 +1514,14 @@ pub fn find_resumable_prefix(events: &[JournalEvent]) -> Result<ResumablePrefix,
     }
     if calls != observations {
         return Err(ResumeError::InvalidToolPairing);
+    }
+    if let Some(seq) = last_tool_seq
+        && seq > checkpoint_seq
+    {
+        // The tool already ran, but its step was never checkpointed. Resuming
+        // from the earlier checkpoint would let the model repeat the side
+        // effect with a fresh call id; fail closed instead.
+        return Err(ResumeError::UncheckpointedToolCall);
     }
     Ok(ResumablePrefix {
         original_run_id,
@@ -1555,6 +1565,8 @@ pub enum ResumeError {
     InvalidCheckpointDelta,
     #[error("execute-mode run is not safely resumable")]
     UnsafeExecuteMode,
+    #[error("a tool ran after the last checkpoint; resuming could repeat its side effect")]
+    UncheckpointedToolCall,
 }
 
 #[cfg(test)]
@@ -2409,10 +2421,11 @@ mod tests {
 #[cfg(test)]
 mod reframe_journal_tests {
     use super::*;
-    use crate::domain::{AnswerStatus, CognitiveMode};
+    use crate::domain::{AnswerStatus, CognitiveMode, ToolStatus};
     use crate::reframe::{
         ReframeChoice, ReframeProposal, RejectedReason, RequestRole, StopRule, StopRuleSource,
     };
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     fn proposal() -> ReframeProposal {
@@ -2855,6 +2868,36 @@ mod reframe_journal_tests {
         assert_eq!(prefix.checkpoint_seq, 2);
         assert_eq!(prefix.checkpoint.messages.len(), 2);
         assert_eq!(prefix.checkpoint.next_step, 2);
+    }
+
+    #[test]
+    fn resume_rejects_a_tool_call_after_the_last_checkpoint() {
+        let call = ToolCall {
+            id: "call-1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "x"}),
+        };
+        let events = journal_prefix(vec![
+            JournalEventKind::Checkpoint {
+                checkpoint: checkpoint(),
+            },
+            JournalEventKind::ToolCalled { call: call.clone() },
+            JournalEventKind::ToolObserved {
+                observation: ToolObservation {
+                    call_id: call.id,
+                    tool: call.name,
+                    status: ToolStatus::Ok,
+                    summary: "wrote".into(),
+                    content: String::new(),
+                    error_code: None,
+                    metadata: BTreeMap::new(),
+                },
+            },
+        ]);
+        assert!(matches!(
+            find_resumable_prefix(&events),
+            Err(ResumeError::UncheckpointedToolCall)
+        ));
     }
 
     #[test]

@@ -419,7 +419,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 {"servers":[{"name":"filesystem","command":["npx","-y","@modelcontextprotocol/server-filesystem","/home/skynet"],"env":{}}]}
 ```
 
-只支持 stdio；HTTP/SSE 和工具市场未实现。MCP 工具默认按写工具处理，只有 server 声明 `readOnlyHint: true` 才不要求写权限；`destructiveHint: true` 标记为 high risk。输入 schema 由 MCP server 校验，1Agent 只做进程、权限、超时和 journal 边界。
+支持 stdio 和 streamable HTTP；工具市场未实现。所有 MCP 工具都按写工具处理，不信任 server 的 `readOnlyHint`；`destructiveHint: true` 仅用于提高风险等级。stdio server 只继承最小环境变量（`PATH`/`HOME`/`TMPDIR`/locale）和配置里的 `env`，不会继承 provider key 或 token。输入 schema 由 MCP server 校验，1Agent 只做进程、权限、超时和 journal 边界。
 
 ### 定时任务与 daemon（实验）
 
