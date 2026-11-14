@@ -1,9 +1,11 @@
 # 0.97 Status and Metric Review (2026-11-13, evening CST)
 
 - Status: **local review; 0.97 is not release-ready — the M1 20-run short
-  regression passes (task 93.12%, suite 55%, M5 100%), but the 8h long gate,
-  human review, external audit and release packaging remain. AG-23 is
-  implemented and its final 100-question run is archived (96/100).**
+  regression passes (task 93.12%, suite 55%, M5 100%) and the 8h local-model
+  runtime soak passes (56 runs, 0 crashes, 234/234 replay), but the 8h
+  model-quality M1 on DeepSeek, human review, external audit and release
+  packaging remain. AG-23 is implemented and its final 100-question run is
+  archived (96/100).**
 - Latest feature commit: `f77ddc1` (Windows/claim fix), after `a3060a3`
   (routing, evidence fallback and file listing), `a04686a` (100-question eval
   harness), `55ccb22` (strategy drafts), `5465c2a` (evidence re-plan),
@@ -167,9 +169,13 @@ release blocker; cost governance cannot mask a quality failure.
    (0.97 ≥50%), **154/154 completed-run replay** (100%), **100% crash-free**,
    CLI `passed = true`. Run 1 with the six-step default measured 146/160
    (91.25%) and 8/20 (40%) suite-level; the eight-step change cleared the
-   suite-level gate. The 8h long gate still must be rerun with this binary;
-   per-case diagnosis of the old 320-run is impossible because those journals
-   were not preserved.
+   suite-level gate. A separate **8h local-model runtime soak** (Ollama
+   `qwen3-8b-16k`, 56 runs / 448 tasks) also passed: **0 crashes**,
+   **234/234 completed-run replay**, actual duration **8h26m51s**. Its task
+   quality was 21.2% because the local 8B model is weak; that is a
+   model-quality limit, not the M1 gate. The 8h **model-quality** M1 on
+   DeepSeek still must be run before release; per-case diagnosis of the old
+   320-run is impossible because those journals were not preserved.
 2. **AG-23 intelligent loop**: the implementation landed in `c76a2d4`,
    `5465c2a`, `55ccb22` and `a04686a`: live `describe_self`, dynamic
    `request_tools`, `task_need`, bounded evidence re-plan, strategy drafts and
