@@ -87,7 +87,7 @@ cargo fmt --all --check
 cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline -j 2
 ./scripts/verify.sh
-./scripts/check-attribution.sh   # expected red on local main until rebuilt history
+./scripts/check-attribution.sh   # red on local main until rebuilt history; clean on release/0.97.0
 ```
 
 Targeted regressions:
