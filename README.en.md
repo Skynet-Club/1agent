@@ -19,7 +19,8 @@ Most agents hand you a polished drill recommendation.
 > **This project is under active development.** Current version **0.97.0** (updated 2026-11-14), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
 > This release: the AG-23 intelligent loop (`describe_self`/`request_tools`/evidence re-plan); a ≤1h real-task gate at M1 97.08%; an 8h local runtime soak with zero crashes; cost governance and one independent code-level security review.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> The Linux 0.97.0 RC is a local packaging candidate, not published yet; a public release still needs rebuilt clean history and release-asset confirmation.
+> The Linux 0.97.0 RC is a local packaging candidate, not published yet; a public release still needs rebuilt clean history and release-asset confirmation.  
+> Features and usage: [RELEASE_0.97.en.md](docs/release/RELEASE_0.97.en.md) · [feature matrix](docs/release/FEATURES-0.97.md)
 
 ---
 

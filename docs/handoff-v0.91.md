@@ -38,7 +38,7 @@ Release hashes are recorded in [`status-v0.91.md`](status-v0.91.md).
 ## Run
 
 ```bash
-cd /home/skynet/1-agent
+cd ~/1-agent
 cargo run --offline -- tui
 ```
 

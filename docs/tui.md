@@ -547,7 +547,7 @@ A new bare `1agent tui` starts a new session. Run the printed command to restore
 1agent tui --session ses_...
 ```
 
-In the current workspace, `/home/skynet/.local/bin/1agent` launches the release binary with the Pi
+In the current workspace, `$HOME/.local/bin/1agent` launches the release binary with the Pi
 DeepSeek credential and `deepseek-flash`. The launcher references Pi's credential at runtime and
 does not duplicate the secret.
 

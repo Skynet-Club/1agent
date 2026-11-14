@@ -6,7 +6,7 @@
         "npx",
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/home/skynet"
+        "/path/to/workspace"
       ],
       "env": {}
     }

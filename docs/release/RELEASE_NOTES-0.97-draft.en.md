@@ -1,6 +1,7 @@
 # Release Notes — 0.97.0 Reliable Loop (Draft)
 
-[简体中文](RELEASE_NOTES-0.97-draft.md) · [English](RELEASE_NOTES-0.97-draft.en.md)
+[简体中文](RELEASE_NOTES-0.97-draft.md) · [English](RELEASE_NOTES-0.97-draft.en.md)  
+Features and usage: [RELEASE_0.97.en.md](RELEASE_0.97.en.md) · [feature matrix](FEATURES-0.97.md)
 
 Date: 2026-11-14
 

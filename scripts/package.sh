@@ -91,7 +91,14 @@ install -m 0644 README.md README.en.md LICENSE CHANGELOG.md SECURITY.md PRIVACY.
 cp -R LICENSES "$package_root/"
 mkdir -p "$package_root/scripts"
 install -m 0755 scripts/install.sh "$package_root/scripts/install.sh"
-cp -R docs evals configs "$package_root/"
+cp -R evals configs "$package_root/"
+# Raw evidence contains build-host absolute paths and full journals; keep it in
+# the source repository and ship only the documentation in the public package.
+mkdir -p "$package_root/docs"
+(
+  cd docs
+  find . -path './evidence' -prune -o -type f -print0 | tar --null -T - -cf -
+) | tar -xf - -C "$package_root/docs"
 find "$package_root" -type d -exec chmod 0755 {} +
 find "$package_root" -type f -exec chmod 0644 {} +
 chmod 0755 "$linux_dir/1agent" "$package_root/scripts/install.sh"
