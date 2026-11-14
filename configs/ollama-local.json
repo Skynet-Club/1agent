@@ -1,0 +1,17 @@
+{
+  "providers": [
+    {
+      "id": "ollama-local",
+      "adapter": "open_ai_compatible",
+      "model": "qwen3-8b-16k",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "input_cost_micros_per_k": 0,
+      "output_cost_micros_per_k": 0,
+      "privacy": "local",
+      "quality_score": 40,
+      "max_risk": "high",
+      "supports_tools": true,
+      "supports_structured_output": true
+    }
+  ]
+}
