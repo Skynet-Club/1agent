@@ -2672,6 +2672,7 @@ fn routine_skill_is_gated_by_activation_and_composed_by_the_daemon() {
             "routine-demo",
             "--version",
             "1.0.0",
+            "--force",
             "--json",
         ])
         .output()

@@ -5,6 +5,8 @@
 //! budget and an optional p95 latency ceiling. Applying a decision goes through
 //! `SkillService`, so activation and rollback remain journaled.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -29,6 +31,8 @@ pub enum SkillCanaryError {
     TooManySamples(usize),
     #[error("canary sample line {line} is invalid: {message}")]
     InvalidSample { line: usize, message: String },
+    #[error("canary state is invalid: {0}")]
+    StateInvalid(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -118,7 +122,8 @@ impl CanaryState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SkillCanary {
     name: String,
     version: String,
@@ -158,6 +163,52 @@ impl SkillCanary {
             latencies: Vec::new(),
             state: CanaryState::Running,
         })
+    }
+
+    pub fn load(path: &Path) -> Result<Option<Self>, SkillCanaryError> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(SkillCanaryError::StateInvalid(format!(
+                    "cannot read {}: {error}",
+                    path.display()
+                )));
+            }
+        };
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| SkillCanaryError::StateInvalid(format!("{}: {error}", path.display())))
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), SkillCanaryError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                SkillCanaryError::StateInvalid(format!(
+                    "cannot create {}: {error}",
+                    parent.display()
+                ))
+            })?;
+        }
+        let bytes = serde_json::to_vec_pretty(self).map_err(|error| {
+            SkillCanaryError::StateInvalid(format!("cannot serialize canary state: {error}"))
+        })?;
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        std::fs::write(&temporary, bytes).map_err(|error| {
+            SkillCanaryError::StateInvalid(format!("cannot write {}: {error}", temporary.display()))
+        })?;
+        std::fs::rename(&temporary, path).map_err(|error| {
+            SkillCanaryError::StateInvalid(format!("cannot replace {}: {error}", path.display()))
+        })?;
+        Ok(())
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
     }
 
     pub fn state(&self) -> CanaryState {
@@ -379,6 +430,26 @@ mod tests {
             SkillCanary::start(&skills, "release", "9.9.9", policy(), 10).unwrap_err(),
             SkillCanaryError::UnknownVersion(_, _)
         ));
+    }
+
+    #[test]
+    fn canary_state_round_trips_across_invocations() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = skills(dir.path());
+        let mut canary = SkillCanary::start(&service, "release", "1.1.0", policy(), 1).unwrap();
+        canary.record(true, 10).unwrap();
+        let path = dir.path().join("canary.json");
+        canary.save(&path).unwrap();
+        let loaded = SkillCanary::load(&path).unwrap().unwrap();
+        assert_eq!(loaded.samples(), 1);
+        assert_eq!(loaded.name(), "release");
+        assert_eq!(loaded.version(), "1.1.0");
+        assert_eq!(loaded.state(), CanaryState::Running);
+        assert!(
+            SkillCanary::load(&dir.path().join("missing.json"))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

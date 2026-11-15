@@ -31,7 +31,7 @@ fn activate(store: &std::path::Path, version: &str) {
     let output = Command::new(bin())
         .args(["skill", "activate", "--store"])
         .arg(store)
-        .args(["--name", "release", "--version", version])
+        .args(["--name", "release", "--version", version, "--force"])
         .output()
         .unwrap();
     assert!(

@@ -1,0 +1,63 @@
+$ cargo test --offline --lib browser::
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 14 tests
+test browser::egress::tests::allowlist_supports_exact_and_wildcard_entries ... ok
+test browser::policy::tests::high_risk_untrusted_argument_is_denied ... ok
+test browser::credentials::tests::malformed_references_fail_closed ... ok
+test browser::egress::tests::global_ip_classification_covers_private_and_metadata_ranges ... ok
+test browser::policy::tests::irreversible_action_always_gets_a_card ... ok
+test browser::policy::tests::reversible_trusted_action_is_allowed ... ok
+test browser::policy::tests::card_store_rejects_substitution_and_expiry ... ok
+test browser::credentials::tests::secrets_are_origin_bound_private_and_listed_without_values ... ok
+test browser::policy::tests::standalone_irreversible_action_gets_a_card ... ok
+test tools::browser::tests::network_permission_is_required ... ok
+test tools::browser::tests::non_https_urls_are_rejected ... ok
+test browser::policy::tests::card_store_approves_and_consumes_once ... ok
+test browser::egress::tests::proxy_denies_loopback_when_not_explicitly_allowed ... ok
+test tools::browser::tests::renders_dom_and_extracts_text ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 1006 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --test browser_e2e
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/browser_e2e.rs (target/debug/deps/browser_e2e-6710dd8e5b4b8ed9)
+
+running 2 tests
+test browser_navigates_reads_clicks_types_and_screenshots ... ok
+test browser_records_a_bounded_screencast ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.98s
+
+
+$ cargo test --offline --test browser_tool_approval
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/browser_tool_approval.rs (target/debug/deps/browser_tool_approval-baba1bf3155698a2)
+
+running 1 test
+test irreversible_click_requires_and_consumes_an_action_card ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+
+$ cargo test --offline --test browser_approvals_cli
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/browser_approvals_cli.rs (target/debug/deps/browser_approvals_cli-69612aa444b7ce46)
+
+running 1 test
+test approvals_are_listed_approved_and_denied_from_the_cli ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+$ cargo test --offline --test browser_cli
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/browser_cli.rs (target/debug/deps/browser_cli-23dec1e012372d37)
+
+running 1 test
+test browser_probe_returns_title_and_text ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+

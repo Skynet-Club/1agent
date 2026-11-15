@@ -1,0 +1,213 @@
+$ 1agent setup --non-interactive --provider deterministic --model wrong --permission-preset safe --workspace <tmp>/work --skip-probe --skip-smoke --json
+{
+  "data": {
+    "checks": [
+      {
+        "detail": "deterministic (offline-v1)",
+        "id": "provider",
+        "status": "ok"
+      },
+      {
+        "detail": "runtime home initialized",
+        "id": "home",
+        "status": "ok"
+      },
+      {
+        "detail": "provider does not require a key",
+        "id": "credentials",
+        "status": "ok"
+      },
+      {
+        "detail": "deterministic provider",
+        "id": "provider_probe",
+        "status": "skipped"
+      },
+      {
+        "detail": "offline-v1",
+        "id": "model",
+        "status": "ok"
+      },
+      {
+        "detail": "safe (write: true, network: false)",
+        "id": "permissions",
+        "status": "ok"
+      },
+      {
+        "detail": "/tmp/tmp.R6Mmk4xFSP/work",
+        "id": "workspace",
+        "status": "ok"
+      },
+      {
+        "detail": "--skip-smoke",
+        "id": "smoke",
+        "status": "skipped"
+      },
+      {
+        "detail": "overall: Ok",
+        "id": "doctor",
+        "status": "ok"
+      }
+    ],
+    "config": "/tmp/tmp.R6Mmk4xFSP/home/config.json",
+    "next": "1agent run --task \"...\"",
+    "ok": true,
+    "permissions": {
+      "allow_network": false,
+      "allow_write": true,
+      "preset": "safe",
+      "read_roots": [
+        "/tmp/tmp.R6Mmk4xFSP/work"
+      ]
+    },
+    "provider": {
+      "adapter": "deterministic",
+      "credential": "not_required",
+      "id": "deterministic",
+      "model": "offline-v1"
+    },
+    "root": "/tmp/tmp.R6Mmk4xFSP/home"
+  },
+  "ok": true,
+  "schema": "1agent.cli/v1"
+}
+
+$ 1agent status --json
+{
+  "schema": "1agent.status/v1",
+  "ok": true,
+  "version": "0.98.0-dev",
+  "platform": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "home": "/tmp/tmp.R6Mmk4xFSP/home",
+  "config": "/tmp/tmp.R6Mmk4xFSP/home/config.json",
+  "provider": {
+    "id": "deterministic",
+    "model": "offline-v1",
+    "adapter": "deterministic",
+    "credential": "not_required"
+  },
+  "permissions": {
+    "preset": "safe",
+    "allow_write": true,
+    "allow_network": false,
+    "read_roots": [
+      "/tmp/tmp.R6Mmk4xFSP/work"
+    ]
+  },
+  "last_run": null,
+  "next": "1agent run --task \"...\"",
+  "error": null
+}
+
+$ 1agent run --task "用一句话回答 1+1" --json
+{
+  "run_id": "703a4229-c824-4da9-b1fe-e2ff6e036e96",
+  "journal_path": "/tmp/tmp.R6Mmk4xFSP/home/journals/703a4229-c824-4da9-b1fe-e2ff6e036e96.jsonl",
+  "answer": {
+    "schema_version": 2,
+    "status": "needs_evidence",
+    "conclusion": "当前离线 Provider 不对自然语言任务作可靠性判断；请配置推理 Provider，或使用 @read-file:<path> 验证只读证据链路。",
+    "claims": [],
+    "evidence": [],
+    "assumptions": [],
+    "constraints": [
+      "protocol_context_chars=8268"
+    ],
+    "unknowns": [
+      {
+        "id": "reasoning-provider",
+        "description": "缺少能够回答当前任务的推理模型",
+        "impact": "high",
+        "why_it_matters": "离线确定性 Provider 只能验证运行时链路，不能替代真实推理。",
+        "reduction_method": "配置 OpenAI-compatible Provider"
+      }
+    ],
+    "conflicts": [],
+    "flip_conditions": [
+      {
+        "if_observed": "配置并验证可用推理 Provider",
+        "then": "应重新运行任务并基于其证据输出结论",
+        "target_ids": [
+          "reasoning-provider"
+        ]
+      }
+    ],
+    "action_receipts": []
+  },
+  "stop_reason": "needs_evidence"
+}
+
+$ 1agent doctor --json
+{
+  "root": "/tmp/tmp.R6Mmk4xFSP/home",
+  "status": "ok",
+  "checks": [
+    {
+      "id": "root",
+      "status": "ok",
+      "detail": "home directory exists"
+    },
+    {
+      "id": "home_marker",
+      "status": "ok",
+      "detail": "home.json schema is valid (version 2)"
+    },
+    {
+      "id": "root_private",
+      "status": "ok",
+      "detail": "home mode 700 is private"
+    },
+    {
+      "id": "journals",
+      "status": "ok",
+      "detail": "present"
+    },
+    {
+      "id": "payloads",
+      "status": "ok",
+      "detail": "present"
+    },
+    {
+      "id": "backups",
+      "status": "ok",
+      "detail": "present"
+    },
+    {
+      "id": "keys",
+      "status": "ok",
+      "detail": "present"
+    },
+    {
+      "id": "master_key",
+      "status": "ok",
+      "detail": "keys/memory.key is not created yet"
+    },
+    {
+      "id": "kek_ledger",
+      "status": "ok",
+      "detail": "keys/memory.key-keks.json is not created yet"
+    },
+    {
+      "id": "task_graph_journal",
+      "status": "ok",
+      "detail": "task-graph.jsonl is not present yet"
+    },
+    {
+      "id": "memory_journal",
+      "status": "ok",
+      "detail": "memory-journal.jsonl is not present yet"
+    },
+    {
+      "id": "skill_journal",
+      "status": "ok",
+      "detail": "skill-journal.jsonl is not present yet"
+    },
+    {
+      "id": "writable",
+      "status": "ok",
+      "detail": "home is writable"
+    }
+  ]
+}

@@ -317,19 +317,18 @@ pub async fn list_provider_models(
                 false,
             )
         })?;
-    let response = client
-        .get(&endpoint)
-        .bearer_auth(api_key)
-        .send()
-        .await
-        .map_err(|error| {
-            let code = if error.is_timeout() {
-                ProviderErrorCode::Timeout
-            } else {
-                ProviderErrorCode::Network
-            };
-            ProviderError::new(code, format!("model discovery failed: {error}"), true)
-        })?;
+    let mut request = client.get(&endpoint);
+    if !api_key.trim().is_empty() {
+        request = request.bearer_auth(api_key);
+    }
+    let response = request.send().await.map_err(|error| {
+        let code = if error.is_timeout() {
+            ProviderErrorCode::Timeout
+        } else {
+            ProviderErrorCode::Network
+        };
+        ProviderError::new(code, format!("model discovery failed: {error}"), true)
+    })?;
     let status = response.status();
     if !status.is_success() {
         let code = match status.as_u16() {

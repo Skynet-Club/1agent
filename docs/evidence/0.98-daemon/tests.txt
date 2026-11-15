@@ -1,0 +1,43 @@
+$ cargo test --offline --lib schedule_ledger
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 5 tests
+test schedule_ledger::tests::torn_tail_is_ignored ... ok
+test schedule_ledger::tests::completed_slots_are_not_interrupted ... ok
+test schedule_ledger::tests::claim_is_durable_and_idempotent ... ok
+test schedule_ledger::tests::reconcile_marks_claimed_and_running_interrupted_once ... ok
+test schedule_ledger::tests::hundred_claimed_slots_reconcile_once_without_duplicates ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1013 filtered out; finished in 0.03s
+
+
+$ cargo test --offline --test ledger_crash
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/ledger_crash.rs (target/debug/deps/ledger_crash-e0e396f08b6ee106)
+
+running 2 tests
+test ledger_child_claims_then_exits_hard ... ok
+test one_hundred_hard_crashes_never_duplicate_a_claimed_slot ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+
+$ cargo test --offline --test watchdog_cli
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/watchdog_cli.rs (target/debug/deps/watchdog_cli-42bd985c605a14bf)
+
+running 10 tests
+test watchdog_watch_rejects_a_sub_100ms_interval ... ok
+test invalid_policy_thresholds_are_rejected ... ok
+test watchdog_watch_refuses_automatic_resume ... ok
+test invalid_heartbeat_json_is_rejected ... ok
+test watchdog_execute_pauses_a_matching_process ... ok
+test watchdog_execute_refuses_a_command_mismatch ... ok
+test daemon_once_writes_a_fresh_heartbeat ... ok
+test missing_and_stale_heartbeats_fail ... ok
+test policy_escalates_and_records_only_transitions ... ok
+test watchdog_watch_pauses_once_and_keeps_watching ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+

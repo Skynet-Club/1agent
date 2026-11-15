@@ -1,0 +1,40 @@
+$ cargo test --offline --test setup_cli
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/setup_cli.rs (target/debug/deps/setup_cli-f3bf07166859c105)
+
+running 11 tests
+test setup_non_interactive_requires_explicit_provider ... ok
+test status_json_contract_on_unconfigured_home ... ok
+test setup_rejects_api_key_argument ... ok
+test setup_check_on_fresh_home_is_read_only ... ok
+test help_advanced_lists_groups ... ok
+test completions_are_generated ... ok
+test model_list_marks_default_provider ... ok
+test setup_check_does_not_write_setup_state ... ok
+test setup_deterministic_is_idempotent_and_status_ready ... ok
+test permissions_show_and_set_are_config_backed ... ok
+test setup_check_is_ready_and_run_uses_default_config ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+
+$ cargo test --offline --lib config::tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 12 tests
+test config::tests::newer_config_schema_fails_closed ... ok
+test config::tests::builds_deterministic_candidate ... ok
+test config::tests::key_file_is_private_and_readable ... ok
+test config::tests::v1_config_loads_with_defaults ... ok
+test config::tests::rejects_openai_adapter_without_base_url ... ok
+test config::tests::permission_presets_map_to_expected_gates ... ok
+test config::tests::missing_declared_credential_fails_before_runtime ... ok
+test config::tests::rejects_duplicate_provider_identity ... ok
+test config::tests::v2_config_resolves_default_provider_and_permissions ... ok
+test config::tests::openai_adapter_without_declared_key_allows_local_endpoint ... ok
+test config::tests::readiness_rejects_remote_http_with_declared_credentials ... ok
+test config::tests::readiness_reports_credentials_without_loading_providers ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 1008 filtered out; finished in 0.00s
+

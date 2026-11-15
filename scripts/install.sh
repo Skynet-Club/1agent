@@ -67,6 +67,16 @@ if ! staged_version="$("$staged" --version)"; then
   exit 1
 fi
 mv -f "$staged" "$bindir/1agent"
+if [[ -d "$package_dir/share/completions" ]]; then
+  install -d "$prefix/share/1agent/completions"
+  for completion in "$package_dir"/share/completions/*; do
+    [[ -f "$completion" ]] && install -m 0644 "$completion" "$prefix/share/1agent/completions/"
+  done
+fi
+if [[ -f "$package_dir/share/man/man1/1agent.1" ]]; then
+  install -d "$prefix/share/man/man1"
+  install -m 0644 "$package_dir/share/man/man1/1agent.1" "$prefix/share/man/man1/1agent.1"
+fi
 printf 'installed %s\n' "$bindir/1agent"
 printf '%s\n' "$staged_version"
-printf 'next: 1agent init\n'
+printf 'next: 1agent setup\n'

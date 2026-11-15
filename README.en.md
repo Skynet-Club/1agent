@@ -16,7 +16,8 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** Current version **0.97.0** (updated 2026-11-14), an R1 release candidate, not a finished product. Testing, feedback and contributions are welcome.  
+> **This project is under active development.** Stable candidate: **0.97.0** (2026-11-14). Development branch: **0.98.0-dev** (2026-11-15), not released. Testing, feedback and contributions are welcome.  
+> 0.98-dev adds guided `setup`/`status`, a sandboxed CDP browser with mandatory human action cards, MCP dual-era transport with OAuth/PKCE, CIMD, tool-definition pinning and Tasks/MRTR gating, skill execution eval/blind comparison/lockfile/bwrap script sandbox, and a durable scheduled-run ledger with a 100-process crash matrix. Release gates still require real workflows, provider-backed M1/soak runs, adaptive red team and owner approval.  
 > This release: the AG-23 intelligent loop (`describe_self`/`request_tools`/evidence re-plan); a ≤1h real-task gate at M1 97.08%; an 8h local runtime soak with zero crashes; cost governance and one independent code-level security review.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
 > The Linux 0.97.0 RC is a local packaging candidate, not published yet; a public release still needs rebuilt clean history and release-asset confirmation.  
@@ -47,17 +48,17 @@ Read the full design trade-offs in [Design Philosophy](docs/design-philosophy.en
 - **Headless runs**: `1agent run` for scripts, CI and batch work.
 - **Evidence-backed tasks**: task graph, tickets, mandates, approvals, side effects, reports and receipts.
 - **Local memory and user model**: four layers, scope/taint/TTL, encrypted payloads, soft/hard forget; `UserModel` 2.0 records preferences, boundaries, autonomy, voice mode and memory consent (inspect with `1agent user-model`).
-- **Skill lifecycle**: SKILL.md, versions, scanning, static evaluation, runtime canary and rollback.
+- **Skill lifecycle**: SKILL.md validation, versions, execution eval, blind A/B comparison, active lockfile, bwrap script sandbox, runtime canary and rollback.
 - **Long-lived context**: goals/commitments, deterministic attention basics, personal context graph and delegation profiles.
 - **Self-summary and evolution**: reflection/lesson, evolution proposals, ledger, human approval and rollback.
 - **Model routing**: deterministic and OpenAI-compatible providers, cost/latency ledger, shadow execution.
 - **Audit**: hash-chained journal, replay, receipts, paginated query and export.
 - **Execution substrate**: with Skynet Workshop, controlled Session/sandbox execution and Artifact verification.
-- **Tool surface**: `read_file` / `read_pdf` / `search_files`, `write_file` / `edit_file`, real PTY terminal, `fetch_url` / `web_search` / `browser_read`, stdio MCP and `spawn_agent`.
-- **Always-on skills**: `schedule` / `daemon` / `schedule health`, `--routine-skill`, SHA-256-gated `skill export/import` and Ed25519 bundle signing.
+- **Tool surface**: `read_file` / `read_pdf` / `search_files`, `write_file` / `edit_file`, real PTY terminal, `fetch_url` / `web_search` / `browser_read`, CDP `browser` with action cards, stdio/HTTP MCP (dual-era, pinning, OAuth/CIMD) and `spawn_agent`.
+- **Always-on skills**: `schedule` / `daemon` / `schedule health`, durable run ledger, systemd user unit + `sd_notify`, `--routine-skill`, SHA-256-gated `skill export/import` and Ed25519 bundle signing.
 - **Observability**: `cost` by provider/model/task/tool, `digest` (runs/schedules/health/alerts) and a static HTML `dashboard`.
 
-**Not available today**: computer-use clicks/screenshots, voice/image understanding, automatic watchdog escalation, mobile and Bot.  
+**Not available today on 0.97 stable**: computer-use clicks/screenshots, voice/image understanding, automatic watchdog escalation, mobile and Bot. On 0.98-dev these browser features exist behind action cards; bwrap/Landlock around Chrome, a remote OAuth server evidence run, adaptive red team and the release gates remain open.  
 These are listed honestly in [Status & Roadmap](docs/status.en.md).
 
 ---

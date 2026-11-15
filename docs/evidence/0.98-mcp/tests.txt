@@ -1,0 +1,52 @@
+$ cargo test --offline --lib tools::mcp
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 20 tests
+test tools::mcp::tests::capped_line_reader_bounds_memory ... ok
+test tools::mcp::tests::sse_messages_are_parsed ... ok
+test tools::mcp::tests::mcp_argument_schema_validation_fails_closed ... ok
+test tools::mcp::tests::response_body_cap_fails_closed ... ok
+test tools::mcp::tests::x_mcp_header_annotations_are_validated_and_scalarized ... ok
+test tools::mcp::tests::tool_hashes_are_canonical_and_pin_files_round_trip ... ok
+test tools::mcp::tests::invalid_http_configs_fail_closed ... ok
+test tools::mcp::tests::http_mcp_rejects_unsafe_bearer_token_files ... ok
+test tools::mcp::tests::mrtr_input_required_fails_closed_without_echoing_state ... ok
+test tools::mcp::tests::modern_stateless_mcp_negotiates_and_sends_headers ... ok
+test tools::mcp::tests::tasks_are_refused_when_not_enabled ... ok
+test tools::mcp::tests::http_mcp_reads_a_bearer_token_from_a_private_file ... ok
+test tools::mcp::tests::http_mcp_exchanges_a_subject_token_at_spawn ... ok
+test tools::mcp::tests::http_mcp_discovers_and_calls_tools ... ok
+test tools::mcp::tests::discovers_and_calls_mcp_tools ... ok
+test tools::mcp::tests::http_mcp_refreshes_an_exchanged_token_on_401 ... ok
+test tools::mcp::tests::write_mcp_tools_are_denied_without_write_permission ... ok
+test tools::mcp::tests::in_task_input_required_fails_closed ... ok
+test tools::mcp::tests::tasks_poll_to_completion_when_enabled ... ok
+test tools::mcp::tests::http_mcp_refreshes_before_expiry ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 1000 filtered out; finished in 1.53s
+
+
+$ cargo test --offline --lib mcp_oauth
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 4 tests
+test mcp_oauth::tests::issuer_check_accepts_absent_policy_or_exact_match ... ok
+test mcp_oauth::tests::token_expiry_honors_skew ... ok
+test mcp_oauth::tests::pkce_matches_the_rfc7636_vector ... ok
+test mcp_oauth::tests::cimd_document_is_validated_and_used_as_client_id ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1016 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --test mcp_real_servers -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/mcp_real_servers.rs (target/debug/deps/mcp_real_servers-0af8b150e845c8fe)
+
+running 2 tests
+test mirrors_x_mcp_header_parameters_to_a_real_http_server ... ok
+test calls_three_real_mcp_server_configurations ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+

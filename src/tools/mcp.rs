@@ -10,15 +10,16 @@
 
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
@@ -27,13 +28,19 @@ use tokio_util::sync::CancellationToken;
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
 
-const PROTOCOL_VERSION: &str = "2024-11-05";
+const PROTOCOL_VERSION: &str = "2025-11-25";
+const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_CONFIG_BYTES: usize = 1024 * 1024;
 const MAX_SERVERS: usize = 16;
 const MAX_TOOLS_PER_SERVER: usize = 64;
 const MAX_TOOL_DESCRIPTION_CHARS: usize = 2000;
+const MAX_TOOL_SCHEMA_BYTES: usize = 16 * 1024;
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_TASK_WAIT: Duration = Duration::from_secs(120);
+const MAX_TASK_POLLS: usize = 120;
+const TASK_POLL_MIN_MS: u64 = 250;
+const TASK_POLL_MAX_MS: u64 = 5_000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,9 +67,20 @@ pub struct McpServerConfig {
     /// Exchange a subject token for an HTTP bearer token at spawn time.
     #[serde(default)]
     pub token_exchange: Option<crate::mcp_exchange::TokenExchangeConfig>,
+    /// OAuth 2.1 authorization-code + PKCE for a remote HTTP server.
+    #[serde(default)]
+    pub oauth: Option<crate::mcp_oauth::OAuthConfig>,
     /// Per-request timeout in seconds (1..=300, default 20).
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
+    /// Opt in to the `io.modelcontextprotocol/tasks` extension for modern
+    /// servers. Task polling is bounded; in-task input still fails closed.
+    #[serde(default)]
+    pub tasks: bool,
+    /// Optional tool-definition pin file. First use writes it 0600; later
+    /// connections fail closed if any tool definition changed.
+    #[serde(default)]
+    pub pin_file: Option<PathBuf>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -79,6 +97,7 @@ enum Transport {
         bearer_token: Mutex<Option<String>>,
         token_expires_at_ms: Mutex<Option<u128>>,
         exchange: Option<crate::mcp_exchange::TokenExchangeConfig>,
+        oauth: Option<crate::mcp_oauth::OAuthConfig>,
     },
 }
 
@@ -88,6 +107,10 @@ struct McpClient {
     request_lock: Mutex<()>,
     server_name: String,
     timeout: Duration,
+    modern: AtomicBool,
+    tasks: bool,
+    protocol_version: Mutex<String>,
+    pin_file: Option<PathBuf>,
 }
 
 fn read_bearer_token_file(path: &std::path::Path, server: &str) -> Result<String, ToolError> {
@@ -163,9 +186,19 @@ impl McpClient {
             )));
         }
         let timeout = Duration::from_secs(timeout_seconds);
-        if server.command.is_some() && server.token_exchange.is_some() {
+        if server.command.is_some() && (server.token_exchange.is_some() || server.oauth.is_some()) {
             return Err(ToolError::InvalidArguments(format!(
-                "MCP server '{}' token_exchange is only valid for HTTP servers",
+                "MCP server '{}' token_exchange/oauth is only valid for HTTP servers",
+                server.name
+            )));
+        }
+        if server.oauth.is_some()
+            && (server.token_exchange.is_some()
+                || server.bearer_token_env.is_some()
+                || server.bearer_token_file.is_some())
+        {
+            return Err(ToolError::InvalidArguments(format!(
+                "MCP server '{}' must set only one authentication source",
                 server.name
             )));
         }
@@ -185,8 +218,12 @@ impl McpClient {
             request_lock: Mutex::new(()),
             server_name: server.name.clone(),
             timeout,
+            modern: AtomicBool::new(false),
+            tasks: server.tasks,
+            protocol_version: Mutex::new(PROTOCOL_VERSION.into()),
+            pin_file: server.pin_file.clone(),
         });
-        client.initialize().await?;
+        client.negotiate().await?;
         Ok(client)
     }
 
@@ -264,6 +301,11 @@ impl McpClient {
                 server.name
             )));
         }
+        if !loopback {
+            // Close the MCP HTTP SSRF gap: reject private, link-local and
+            // metadata addresses before reqwest resolves the host.
+            super::web::resolve_public(&parsed).await?;
+        }
         if server.bearer_token_env.is_some() && server.bearer_token_file.is_some() {
             return Err(ToolError::InvalidArguments(format!(
                 "MCP server '{}' must set only one of bearer_token_env or bearer_token_file",
@@ -278,7 +320,17 @@ impl McpClient {
                 server.name
             )));
         }
-        let (bearer_token, token_expires_at_ms) = if let Some(exchange) = &server.token_exchange {
+        let (bearer_token, token_expires_at_ms) = if let Some(oauth) = &server.oauth {
+            let token = crate::mcp_oauth::access_token(oauth)
+                .await
+                .map_err(|error| {
+                    ToolError::InvalidArguments(format!(
+                        "MCP server '{}' OAuth failed: {error}",
+                        server.name
+                    ))
+                })?;
+            (Some(token.access_token), Some(token.expires_at_ms))
+        } else if let Some(exchange) = &server.token_exchange {
             let token = crate::mcp_exchange::exchange(exchange)
                 .await
                 .map_err(|error| {
@@ -339,10 +391,18 @@ impl McpClient {
             bearer_token: Mutex::new(bearer_token),
             token_expires_at_ms: Mutex::new(token_expires_at_ms),
             exchange: server.token_exchange.clone(),
+            oauth: server.oauth.clone(),
         })
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<(), ToolError> {
+        let modern = self.modern.load(Ordering::SeqCst);
+        let version = self.protocol_version.lock().await.clone();
+        let params = if modern {
+            with_modern_meta(params, &version, self.tasks)
+        } else {
+            params
+        };
         let message = json!({"jsonrpc": "2.0", "method": method, "params": params});
         match &self.transport {
             Transport::Stdio { stdin, .. } => {
@@ -370,6 +430,7 @@ impl McpClient {
                 bearer_token,
                 token_expires_at_ms,
                 exchange,
+                oauth,
             } => {
                 let response = self
                     .http_post_with_refresh(
@@ -379,11 +440,18 @@ impl McpClient {
                         bearer_token,
                         token_expires_at_ms,
                         exchange.as_ref(),
+                        oauth.as_ref(),
                         &message,
+                        method,
+                        None,
+                        modern,
+                        &version,
+                        &[],
                     )
                     .await?;
                 let status = response.status();
-                if let Some(value) = response.headers().get("Mcp-Session-Id")
+                if !modern
+                    && let Some(value) = response.headers().get("Mcp-Session-Id")
                     && let Ok(value) = value.to_str()
                 {
                     *session_id.lock().await = Some(value.to_string());
@@ -404,8 +472,34 @@ impl McpClient {
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value, ToolError> {
+        self.request_with_headers(method, params, &[]).await
+    }
+
+    async fn request_with_headers(
+        &self,
+        method: &str,
+        params: Value,
+        extra_headers: &[(String, String)],
+    ) -> Result<Value, ToolError> {
         let _guard = self.request_lock.lock().await;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let modern = self.modern.load(Ordering::SeqCst) || method == "server/discover";
+        let version = if method == "server/discover" {
+            // The probe itself must announce the modern version; the cached
+            // negotiated version is still legacy until discover succeeds.
+            MODERN_PROTOCOL_VERSION.to_string()
+        } else {
+            self.protocol_version.lock().await.clone()
+        };
+        let tool_name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let params = if modern {
+            with_modern_meta(params, &version, self.tasks)
+        } else {
+            params
+        };
         let message = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
         match &self.transport {
             Transport::Stdio { stdin, stdout, .. } => {
@@ -463,6 +557,7 @@ impl McpClient {
                 bearer_token,
                 token_expires_at_ms,
                 exchange,
+                oauth,
             } => {
                 let response = self
                     .http_post_with_refresh(
@@ -472,7 +567,13 @@ impl McpClient {
                         bearer_token,
                         token_expires_at_ms,
                         exchange.as_ref(),
+                        oauth.as_ref(),
                         &message,
+                        method,
+                        tool_name.as_deref(),
+                        modern,
+                        &version,
+                        extra_headers,
                     )
                     .await?;
                 let status = response.status();
@@ -482,7 +583,8 @@ impl McpClient {
                     .and_then(|value| value.to_str().ok())
                     .unwrap_or("")
                     .to_string();
-                if let Some(value) = response.headers().get("Mcp-Session-Id")
+                if !modern
+                    && let Some(value) = response.headers().get("Mcp-Session-Id")
                     && let Ok(value) = value.to_str()
                 {
                     *session_id.lock().await = Some(value.to_string());
@@ -504,6 +606,7 @@ impl McpClient {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn http_post(
         &self,
         client: &reqwest::Client,
@@ -511,6 +614,11 @@ impl McpClient {
         session_id: &Mutex<Option<String>>,
         bearer_token: &Mutex<Option<String>>,
         message: &Value,
+        method: &str,
+        tool_name: Option<&str>,
+        modern: bool,
+        protocol_version: &str,
+        extra_headers: &[(String, String)],
     ) -> Result<reqwest::Response, ToolError> {
         let mut request = client
             .post(url)
@@ -522,8 +630,18 @@ impl McpClient {
         if let Some(token) = bearer_token.lock().await.clone() {
             request = request.bearer_auth(token);
         }
-        if let Some(session) = session_id.lock().await.clone() {
+        if modern {
+            request = request
+                .header("MCP-Protocol-Version", protocol_version)
+                .header("Mcp-Method", method);
+            if let Some(tool_name) = tool_name {
+                request = request.header("Mcp-Name", tool_name);
+            }
+        } else if let Some(session) = session_id.lock().await.clone() {
             request = request.header("Mcp-Session-Id", session);
+        }
+        for (name, value) in extra_headers {
+            request = request.header(name, value);
         }
         request.send().await.map_err(|error| {
             ToolError::Failed(format!(
@@ -553,6 +671,25 @@ impl McpClient {
         Ok(())
     }
 
+    async fn refresh_oauth(
+        &self,
+        config: &crate::mcp_oauth::OAuthConfig,
+        bearer_token: &Mutex<Option<String>>,
+        token_expires_at_ms: &Mutex<Option<u128>>,
+    ) -> Result<(), ToolError> {
+        let token = crate::mcp_oauth::access_token(config)
+            .await
+            .map_err(|error| {
+                ToolError::Failed(format!(
+                    "MCP server '{}' OAuth refresh failed: {error}",
+                    self.server_name
+                ))
+            })?;
+        *token_expires_at_ms.lock().await = Some(token.expires_at_ms);
+        *bearer_token.lock().await = Some(token.access_token);
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn http_post_with_refresh(
         &self,
@@ -562,61 +699,523 @@ impl McpClient {
         bearer_token: &Mutex<Option<String>>,
         token_expires_at_ms: &Mutex<Option<u128>>,
         exchange: Option<&crate::mcp_exchange::TokenExchangeConfig>,
+        oauth: Option<&crate::mcp_oauth::OAuthConfig>,
         message: &Value,
+        method: &str,
+        tool_name: Option<&str>,
+        modern: bool,
+        protocol_version: &str,
+        extra_headers: &[(String, String)],
     ) -> Result<reqwest::Response, ToolError> {
+        let expiring = token_expires_at_ms
+            .lock()
+            .await
+            .is_some_and(|expires| expires <= crate::current_time_ms() + 30_000);
         if let Some(config) = exchange
-            && token_expires_at_ms
-                .lock()
-                .await
-                .is_some_and(|expires| expires <= crate::current_time_ms() + 30_000)
+            && expiring
         {
             self.refresh_token(config, bearer_token, token_expires_at_ms)
+                .await?;
+        } else if let Some(config) = oauth
+            && expiring
+        {
+            self.refresh_oauth(config, bearer_token, token_expires_at_ms)
                 .await?;
         }
         let mut response = self
-            .http_post(client, url, session_id, bearer_token, message)
+            .http_post(
+                client,
+                url,
+                session_id,
+                bearer_token,
+                message,
+                method,
+                tool_name,
+                modern,
+                protocol_version,
+                extra_headers,
+            )
             .await?;
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            && let Some(config) = exchange
-        {
-            self.refresh_token(config, bearer_token, token_expires_at_ms)
-                .await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            if let Some(config) = exchange {
+                self.refresh_token(config, bearer_token, token_expires_at_ms)
+                    .await?;
+            } else if let Some(config) = oauth {
+                self.refresh_oauth(config, bearer_token, token_expires_at_ms)
+                    .await?;
+            } else {
+                return Ok(response);
+            }
             response = self
-                .http_post(client, url, session_id, bearer_token, message)
+                .http_post(
+                    client,
+                    url,
+                    session_id,
+                    bearer_token,
+                    message,
+                    method,
+                    tool_name,
+                    modern,
+                    protocol_version,
+                    extra_headers,
+                )
                 .await?;
         }
         Ok(response)
     }
 
-    async fn initialize(&self) -> Result<(), ToolError> {
-        self.request(
-            "initialize",
-            json!({
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "1agent",
-                    "version": env!("CARGO_PKG_VERSION")
+    async fn negotiate(&self) -> Result<(), ToolError> {
+        // Modern servers answer server/discover without a session. Legacy
+        // servers reject it, and we fall back to the initialize handshake.
+        if let Ok(result) = self.request("server/discover", json!({})).await {
+            self.modern.store(true, Ordering::SeqCst);
+            let version = result
+                .get("protocolVersion")
+                .and_then(Value::as_str)
+                .unwrap_or(MODERN_PROTOCOL_VERSION);
+            *self.protocol_version.lock().await = version.to_string();
+            return Ok(());
+        }
+        let mut last_error = None;
+        for version in [PROTOCOL_VERSION, "2025-06-18", "2024-11-05"] {
+            match self
+                .request(
+                    "initialize",
+                    json!({
+                        "protocolVersion": version,
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "1agent",
+                            "version": env!("CARGO_PKG_VERSION")
+                        }
+                    }),
+                )
+                .await
+            {
+                Ok(result) => {
+                    let negotiated = result
+                        .get("protocolVersion")
+                        .and_then(Value::as_str)
+                        .unwrap_or(version);
+                    *self.protocol_version.lock().await = negotiated.to_string();
+                    self.notify("notifications/initialized", json!({})).await?;
+                    return Ok(());
                 }
-            }),
-        )
-        .await?;
-        self.notify("notifications/initialized", json!({})).await
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            ToolError::Failed(format!(
+                "MCP server '{}' did not negotiate a protocol version",
+                self.server_name
+            ))
+        }))
     }
 
     async fn list_tools(&self) -> Result<Vec<Value>, ToolError> {
         let result = self.request("tools/list", json!({})).await?;
-        Ok(result
+        let tools = result
             .get("tools")
             .and_then(Value::as_array)
             .cloned()
-            .unwrap_or_default())
+            .unwrap_or_default();
+        if let Some(path) = &self.pin_file {
+            self.verify_tool_pins(path, &tools)?;
+        }
+        Ok(tools)
+    }
+
+    fn verify_tool_pins(&self, path: &Path, tools: &[Value]) -> Result<(), ToolError> {
+        let current = tool_hashes(tools)?;
+        let pinned = match read_tool_pins(path)? {
+            Some(pinned) => pinned,
+            None => {
+                let pinned = ToolPinFile {
+                    schema_version: 1,
+                    server: self.server_name.clone(),
+                    tools: current,
+                };
+                write_tool_pins(path, &pinned)?;
+                return Ok(());
+            }
+        };
+        if pinned.server != self.server_name {
+            return Err(ToolError::Failed(format!(
+                "MCP pin file {} belongs to server '{}', not '{}'",
+                path.display(),
+                pinned.server,
+                self.server_name
+            )));
+        }
+        if pinned.tools == current {
+            return Ok(());
+        }
+        let added = current
+            .keys()
+            .filter(|name| !pinned.tools.contains_key(*name))
+            .cloned()
+            .collect::<Vec<_>>();
+        let removed = pinned
+            .tools
+            .keys()
+            .filter(|name| !current.contains_key(*name))
+            .cloned()
+            .collect::<Vec<_>>();
+        let changed = current
+            .iter()
+            .filter(|(name, hash)| {
+                pinned
+                    .tools
+                    .get(*name)
+                    .is_some_and(|old_hash| old_hash != *hash)
+            })
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        Err(ToolError::Failed(format!(
+            "MCP tool definitions changed; refusing to continue (added={added:?}, removed={removed:?}, changed={changed:?}). Review and delete {} to re-pin.",
+            path.display()
+        )))
     }
 
     async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, ToolError> {
-        self.request("tools/call", json!({"name": name, "arguments": arguments}))
-            .await
+        self.call_tool_with_headers(name, arguments, &[]).await
     }
+
+    async fn call_tool_with_headers(
+        &self,
+        name: &str,
+        arguments: Value,
+        extra_headers: &[(String, String)],
+    ) -> Result<Value, ToolError> {
+        let result = self
+            .request_with_headers(
+                "tools/call",
+                json!({"name": name, "arguments": arguments}),
+                extra_headers,
+            )
+            .await?;
+        self.resolve_tool_result(result, name).await
+    }
+
+    async fn resolve_tool_result(&self, result: Value, tool: &str) -> Result<Value, ToolError> {
+        match result
+            .get("resultType")
+            .and_then(Value::as_str)
+            .unwrap_or("complete")
+        {
+            "complete" => Ok(result),
+            "input_required" => Err(ToolError::InputRequired(input_required_description(
+                &result,
+                tool,
+                "tools/call",
+            ))),
+            "task" => {
+                if !self.tasks {
+                    return Err(ToolError::Failed(format!(
+                        "MCP server '{}' returned a task for '{tool}' but tasks is not enabled for this server; set \"tasks\": true or use a server that completes synchronously. The task was not polled.",
+                        self.server_name
+                    )));
+                }
+                self.poll_task(result, tool).await
+            }
+            other => Err(ToolError::Failed(format!(
+                "MCP server '{}' returned unsupported resultType '{other}' for '{tool}'; refusing to guess",
+                self.server_name
+            ))),
+        }
+    }
+
+    /// Bounded `tasks/get` polling. The task id is treated as an untrusted
+    /// handle; in-task input fails closed and never auto-answers elicitation.
+    async fn poll_task(&self, created: Value, tool: &str) -> Result<Value, ToolError> {
+        let task_id = created
+            .get("taskId")
+            .and_then(Value::as_str)
+            .filter(|id| {
+                !id.is_empty()
+                    && id.chars().count() <= 128
+                    && id.chars().all(|ch| ch.is_ascii_graphic())
+            })
+            .ok_or_else(|| {
+                ToolError::Failed(format!(
+                    "MCP server '{}' returned a task without a safe taskId",
+                    self.server_name
+                ))
+            })?
+            .to_string();
+        let ttl_ms = created
+            .get("ttlMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(60_000)
+            .min(MAX_TASK_WAIT.as_millis() as u64);
+        let interval_ms = created
+            .get("pollIntervalMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(1_000)
+            .clamp(TASK_POLL_MIN_MS, TASK_POLL_MAX_MS);
+        let deadline = std::time::Instant::now() + Duration::from_millis(ttl_ms.max(1));
+        for _ in 0..MAX_TASK_POLLS {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(interval_ms).min(remaining)).await;
+            let state = self
+                .request("tasks/get", json!({"taskId": task_id}))
+                .await?;
+            let task = state.get("task").unwrap_or(&state);
+            match task.get("status").and_then(Value::as_str) {
+                Some("working") => continue,
+                Some("input_required") => {
+                    return Err(ToolError::InputRequired(format!(
+                        "MCP task {task_id} for '{tool}' needs input during execution: {}",
+                        input_request_details(task)
+                    )));
+                }
+                Some("completed") => {
+                    return task.get("result").cloned().ok_or_else(|| {
+                        ToolError::Failed(format!(
+                            "MCP task {task_id} for '{tool}' completed without a result"
+                        ))
+                    });
+                }
+                Some("failed") => {
+                    return Err(ToolError::Failed(format!(
+                        "MCP task {task_id} for '{tool}' failed: {}",
+                        bounded(
+                            &task
+                                .get("error")
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                                .to_string(),
+                            300
+                        )
+                    )));
+                }
+                Some("cancelled") => {
+                    return Err(ToolError::Failed(format!(
+                        "MCP task {task_id} for '{tool}' was cancelled"
+                    )));
+                }
+                other => {
+                    return Err(ToolError::Failed(format!(
+                        "MCP task {task_id} for '{tool}' returned an invalid status {other:?}; refusing to continue"
+                    )));
+                }
+            }
+        }
+        let _ = self
+            .request("tasks/cancel", json!({"taskId": task_id}))
+            .await;
+        Err(ToolError::Failed(format!(
+            "MCP task {task_id} for '{tool}' did not finish within {} ms; cancellation requested",
+            ttl_ms
+        )))
+    }
+}
+
+fn input_required_description(result: &Value, tool: &str, method: &str) -> String {
+    format!(
+        "MCP tool '{tool}' returned {method} input_required: {}. Interactive elicitation/sampling/roots input is refused; no input was sent. Ask the human to handle it out-of-band.",
+        input_request_details(result)
+    )
+}
+
+fn input_request_details(result: &Value) -> String {
+    let mut details = Vec::new();
+    if let Some(requests) = result.get("inputRequests").and_then(Value::as_object) {
+        for (key, request) in requests.iter().take(8) {
+            let key: String = key.chars().take(64).collect();
+            let method = request
+                .get("method")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            let mut detail = format!("{key} ({method})");
+            if let Some(url) = request
+                .get("params")
+                .and_then(|params| params.get("url"))
+                .and_then(Value::as_str)
+                && let Ok(parsed) = reqwest::Url::parse(url)
+            {
+                detail.push_str(&format!(
+                    " url-origin={}",
+                    parsed.origin().ascii_serialization()
+                ));
+            }
+            details.push(detail);
+        }
+    }
+    if result.get("requestState").is_some() {
+        details.push("requestState present (not echoed or inspected)".into());
+    }
+    if details.is_empty() {
+        "no inputRequests; the server returned an empty input_required result".into()
+    } else {
+        details.join("; ")
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ToolPinFile {
+    schema_version: u32,
+    server: String,
+    tools: BTreeMap<String, String>,
+}
+
+fn tool_hashes(tools: &[Value]) -> Result<BTreeMap<String, String>, ToolError> {
+    let mut hashes = BTreeMap::new();
+    for tool in tools {
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| ToolError::Failed("MCP tool has no name".into()))?;
+        let canonical = canonical_json(tool);
+        let bytes = serde_json::to_vec(&canonical)
+            .map_err(|error| ToolError::Failed(format!("cannot canonicalize MCP tool: {error}")))?;
+        hashes.insert(name.to_string(), hex::encode(Sha256::digest(&bytes)));
+    }
+    Ok(hashes)
+}
+
+fn canonical_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort();
+            let mut sorted = serde_json::Map::new();
+            for key in keys {
+                let value = map.get(key).cloned().unwrap_or(Value::Null);
+                sorted.insert(key.clone(), canonical_json(&value));
+            }
+            Value::Object(sorted)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical_json).collect()),
+        other => other.clone(),
+    }
+}
+
+fn read_tool_pins(path: &Path) -> Result<Option<ToolPinFile>, ToolError> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(ToolError::Failed(format!(
+                "cannot read MCP pin file {}: {error}",
+                path.display()
+            )));
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(ToolError::Failed(format!(
+            "MCP pin file {} must be a regular non-symlink file",
+            path.display()
+        )));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(ToolError::Failed(format!(
+                "MCP pin file {} must be private (chmod 600)",
+                path.display()
+            )));
+        }
+    }
+    let bytes = std::fs::read(path).map_err(|error| {
+        ToolError::Failed(format!(
+            "cannot read MCP pin file {}: {error}",
+            path.display()
+        ))
+    })?;
+    let pinned: ToolPinFile = serde_json::from_slice(&bytes).map_err(|error| {
+        ToolError::Failed(format!("invalid MCP pin file {}: {error}", path.display()))
+    })?;
+    if pinned.schema_version != 1 {
+        return Err(ToolError::Failed(format!(
+            "unsupported MCP pin schema {} in {}",
+            pinned.schema_version,
+            path.display()
+        )));
+    }
+    Ok(Some(pinned))
+}
+
+fn write_tool_pins(path: &Path, pins: &ToolPinFile) -> Result<(), ToolError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            ToolError::Failed(format!(
+                "cannot create MCP pin directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    let bytes = serde_json::to_vec_pretty(pins)
+        .map_err(|error| ToolError::Failed(format!("cannot serialize MCP pins: {error}")))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|error| {
+                ToolError::Failed(format!(
+                    "cannot create MCP pin file {}: {error}",
+                    path.display()
+                ))
+            })?;
+        use std::io::Write;
+        file.write_all(&bytes).map_err(|error| {
+            ToolError::Failed(format!(
+                "cannot write MCP pin file {}: {error}",
+                path.display()
+            ))
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, bytes).map_err(|error| {
+            ToolError::Failed(format!(
+                "cannot write MCP pin file {}: {error}",
+                path.display()
+            ))
+        })?;
+    }
+    Ok(())
+}
+
+fn with_modern_meta(params: Value, protocol_version: &str, tasks: bool) -> Value {
+    let mut object = match params {
+        Value::Object(map) => map,
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("value".into(), other);
+            map
+        }
+    };
+    let capabilities = if tasks {
+        json!({"extensions": {"io.modelcontextprotocol/tasks": {}}})
+    } else {
+        json!({})
+    };
+    object.insert(
+        "_meta".into(),
+        json!({
+            "io.modelcontextprotocol/protocolVersion": protocol_version,
+            "io.modelcontextprotocol/clientInfo": {
+                "name": "1agent",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+            "io.modelcontextprotocol/clientCapabilities": capabilities,
+        }),
+    );
+    Value::Object(object)
 }
 
 async fn read_line_capped<R>(
@@ -786,10 +1385,81 @@ fn tool_requires_write(_tool: &Value) -> bool {
     true
 }
 
+fn validate_tool_arguments(schema: &Value, arguments: &Value) -> Result<(), ToolError> {
+    let Some(object) = arguments.as_object() else {
+        if schema.get("type").and_then(Value::as_str) == Some("object") {
+            return Err(ToolError::InvalidArguments(
+                "MCP arguments must be a JSON object".into(),
+            ));
+        }
+        return Ok(());
+    };
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        for name in required.iter().filter_map(Value::as_str) {
+            if !object.contains_key(name) {
+                return Err(ToolError::InvalidArguments(format!(
+                    "missing required argument '{name}'"
+                )));
+            }
+        }
+    }
+    let properties = schema.get("properties").and_then(Value::as_object);
+    if let Some(properties) = properties {
+        for (name, value) in object {
+            match properties.get(name) {
+                Some(property) => validate_value_type(property, value, name)?,
+                None if schema.get("additionalProperties").and_then(Value::as_bool)
+                    == Some(false) =>
+                {
+                    return Err(ToolError::InvalidArguments(format!(
+                        "unknown argument '{name}'"
+                    )));
+                }
+                None => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_value_type(schema: &Value, value: &Value, path: &str) -> Result<(), ToolError> {
+    let Some(expected) = schema.get("type").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let valid = match expected {
+        "string" => value.is_string(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "number" => value.is_number(),
+        "boolean" => value.is_boolean(),
+        "array" => value.is_array(),
+        "object" => value.is_object(),
+        "null" => value.is_null(),
+        _ => true,
+    };
+    if !valid {
+        return Err(ToolError::InvalidArguments(format!(
+            "argument '{path}' must be a {expected}"
+        )));
+    }
+    if expected == "array"
+        && let Some(items) = schema.get("items")
+        && let Some(array) = value.as_array()
+    {
+        for (index, item) in array.iter().enumerate() {
+            validate_value_type(items, item, &format!("{path}[{index}]"))?;
+        }
+    }
+    Ok(())
+}
+
 struct McpTool {
     client: Arc<McpClient>,
     remote_name: String,
     spec: ToolSpec,
+    input_schema: Value,
+    /// `argument name -> HTTP header name` from the modern `x-mcp-header`
+    /// schema annotation.
+    header_map: BTreeMap<String, String>,
     risk: RiskLevel,
     requires_write: bool,
 }
@@ -809,7 +1479,11 @@ impl AgentTool for McpTool {
     }
 
     fn timeout(&self) -> Duration {
-        self.client.timeout + Duration::from_secs(5)
+        if self.client.tasks {
+            self.client.timeout + MAX_TASK_WAIT + Duration::from_secs(5)
+        } else {
+            self.client.timeout + Duration::from_secs(5)
+        }
     }
 
     async fn execute(
@@ -823,7 +1497,15 @@ impl AgentTool for McpTool {
                 "MCP tools require --allow-network".into(),
             ));
         }
-        let result = self.client.call_tool(&self.remote_name, arguments).await?;
+        validate_tool_arguments(&self.input_schema, &arguments)?;
+        let headers = tool_header_values(&self.header_map, &arguments)?;
+        let result = if headers.is_empty() {
+            self.client.call_tool(&self.remote_name, arguments).await?
+        } else {
+            self.client
+                .call_tool_with_headers(&self.remote_name, arguments, &headers)
+                .await?
+        };
         let is_error = result
             .get("isError")
             .and_then(Value::as_bool)
@@ -860,6 +1542,128 @@ impl AgentTool for McpTool {
     }
 }
 
+fn tool_header_map(schema: &Value) -> Result<BTreeMap<String, String>, ToolError> {
+    let mut headers = BTreeMap::new();
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return Ok(headers);
+    };
+    for (argument, property) in properties {
+        let Some(header) = property.get("x-mcp-header").and_then(Value::as_str) else {
+            continue;
+        };
+        if !valid_header_name(header) {
+            return Err(ToolError::Failed(format!(
+                "MCP tool declares an unsafe x-mcp-header name '{header}' for argument '{argument}'"
+            )));
+        }
+        let header = format!("Mcp-Param-{header}");
+        if reserved_header(&header) {
+            return Err(ToolError::Failed(format!(
+                "MCP tool declares a reserved x-mcp-header name '{header}' for argument '{argument}'"
+            )));
+        }
+        if headers.len() >= 16 {
+            return Err(ToolError::Failed(
+                "MCP tool declares more than 16 x-mcp-header parameters".into(),
+            ));
+        }
+        headers.insert(argument.clone(), header);
+    }
+    Ok(headers)
+}
+
+fn tool_header_values(
+    header_map: &BTreeMap<String, String>,
+    arguments: &Value,
+) -> Result<Vec<(String, String)>, ToolError> {
+    let mut headers = Vec::with_capacity(header_map.len());
+    for (argument, header) in header_map {
+        let Some(value) = arguments.get(argument) else {
+            continue;
+        };
+        let text = match value {
+            Value::String(value) => value.clone(),
+            Value::Number(value) => value.to_string(),
+            Value::Bool(value) => value.to_string(),
+            _ => {
+                return Err(ToolError::InvalidArguments(format!(
+                    "x-mcp-header argument '{argument}' must be a string, number or boolean"
+                )));
+            }
+        };
+        if text.len() > 4096
+            || text
+                .chars()
+                .any(|character| character.is_control() && character != '\t')
+        {
+            return Err(ToolError::InvalidArguments(format!(
+                "x-mcp-header argument '{argument}' contains an unsafe value"
+            )));
+        }
+        headers.push((header.clone(), mirrored_header_value(&text)));
+    }
+    Ok(headers)
+}
+
+fn valid_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+}
+
+fn mirrored_header_value(value: &str) -> String {
+    if value == value.trim()
+        && value
+            .chars()
+            .all(|character| (' '..='~').contains(&character))
+        && !value.starts_with("=?base64?")
+        && !value.ends_with("?=")
+    {
+        return value.to_string();
+    }
+    use base64::Engine;
+    format!(
+        "=?base64?{}?=",
+        base64::engine::general_purpose::STANDARD.encode(value.as_bytes())
+    )
+}
+
+fn reserved_header(name: &str) -> bool {
+    [
+        "mcp-protocol-version",
+        "mcp-method",
+        "mcp-name",
+        "authorization",
+        "host",
+        "content-length",
+        "content-type",
+        "connection",
+        "transfer-encoding",
+        "cookie",
+    ]
+    .iter()
+    .any(|reserved| name.eq_ignore_ascii_case(reserved))
+}
+
 fn build_tool(
     client: Arc<McpClient>,
     server_name: &str,
@@ -878,6 +1682,14 @@ fn build_tool(
         .get("inputSchema")
         .cloned()
         .unwrap_or_else(|| json!({"type": "object"}));
+    let schema_is_bounded = serde_json::to_vec(&schema)
+        .map(|bytes| bytes.len() <= MAX_TOOL_SCHEMA_BYTES)
+        .unwrap_or(false);
+    let presented_schema = if schema_is_bounded {
+        schema.clone()
+    } else {
+        json!({"type": "object", "additionalProperties": true})
+    };
     let description = format!(
         "{description}\nMCP server: {server_name}. Input schema: {}",
         bounded(&schema.to_string(), MAX_TOOL_DESCRIPTION_CHARS)
@@ -892,8 +1704,10 @@ fn build_tool(
                 sanitize_name(remote_name)
             ),
             description,
-            parameters: json!({"type": "object", "additionalProperties": true}),
+            parameters: presented_schema,
         },
+        header_map: tool_header_map(&schema)?,
+        input_schema: schema,
         risk: tool_risk(tool),
         requires_write: tool_requires_write(tool),
     })
@@ -960,6 +1774,398 @@ mod tests {
     #[cfg(unix)]
     use crate::tools::ToolRegistry;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn mcp_argument_schema_validation_fails_closed() {
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+                "count": {"type": "integer"}
+            }
+        });
+        assert!(validate_tool_arguments(&schema, &json!({"text": "x"})).is_ok());
+        assert!(validate_tool_arguments(&schema, &json!({})).is_err());
+        assert!(validate_tool_arguments(&schema, &json!({"text": 1})).is_err());
+        assert!(validate_tool_arguments(&schema, &json!({"text": "x", "extra": true})).is_err());
+    }
+
+    #[test]
+    fn x_mcp_header_annotations_are_validated_and_scalarized() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "region": {"type": "string", "x-mcp-header": "Region"},
+                "attempt": {"type": "integer", "x-mcp-header": "Attempt"},
+                "flag": {"type": "boolean", "x-mcp-header": "Flag"}
+            }
+        });
+        let map = tool_header_map(&schema).unwrap();
+        assert_eq!(
+            map.get("region").map(String::as_str),
+            Some("Mcp-Param-Region")
+        );
+        let headers =
+            tool_header_values(&map, &json!({"region": "eu", "attempt": 2, "flag": true})).unwrap();
+        assert!(headers.contains(&("Mcp-Param-Region".into(), "eu".into())));
+        assert!(headers.contains(&("Mcp-Param-Attempt".into(), "2".into())));
+        assert!(headers.contains(&("Mcp-Param-Flag".into(), "true".into())));
+        let encoded = tool_header_values(&map, &json!({"region": "café"})).unwrap();
+        assert!(encoded[0].1.starts_with("=?base64?"));
+        assert!(encoded[0].1.ends_with("?="));
+        assert!(
+            tool_header_values(&map, &json!({"region": 1.5}))
+                .unwrap()
+                .iter()
+                .any(|(_, value)| value == "1.5")
+        );
+        assert!(tool_header_values(&map, &json!({"region": ["nested"]})).is_err());
+        assert!(
+            tool_header_map(&json!({
+                "type": "object",
+                "properties": {"x": {"x-mcp-header": "Bad\nName"}}
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn tool_hashes_are_canonical_and_pin_files_round_trip() {
+        let left = json!({
+            "name": "echo",
+            "description": "echo",
+            "inputSchema": {"type": "object", "properties": {"b": {"type": "string"}, "a": {"type": "integer"}}}
+        });
+        let right = json!({
+            "inputSchema": {"properties": {"a": {"type": "integer"}, "b": {"type": "string"}}, "type": "object"},
+            "description": "echo",
+            "name": "echo"
+        });
+        assert_eq!(
+            tool_hashes(&[left]).unwrap(),
+            tool_hashes(std::slice::from_ref(&right)).unwrap()
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pins.json");
+        let pins = ToolPinFile {
+            schema_version: 1,
+            server: "fake".into(),
+            tools: tool_hashes(std::slice::from_ref(&right)).unwrap(),
+        };
+        write_tool_pins(&path, &pins).unwrap();
+        let loaded = read_tool_pins(&path).unwrap().unwrap();
+        assert_eq!(loaded.tools, pins.tools);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+
+    async fn fake_modern_http_server() -> (std::net::SocketAddr, Arc<std::sync::Mutex<Vec<String>>>)
+    {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_for_server = captured.clone();
+        let task_polls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let task_polls_for_server = task_polls.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let captured = captured_for_server.clone();
+                let task_polls = task_polls_for_server.clone();
+                tokio::spawn(async move {
+                    let mut buffer = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    loop {
+                        let read = socket.read(&mut chunk).await.unwrap_or(0);
+                        if read == 0 {
+                            return;
+                        }
+                        buffer.extend_from_slice(&chunk[..read]);
+                        let Some(end) = buffer.windows(4).position(|window| window == b"\r\n\r\n")
+                        else {
+                            continue;
+                        };
+                        let headers = String::from_utf8_lossy(&buffer[..end]).to_string();
+                        let length = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (key, value) = line.split_once(':')?;
+                                key.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                            .unwrap_or(0);
+                        if buffer.len() < end + 4 + length {
+                            continue;
+                        }
+                        captured.lock().unwrap().push(headers.to_ascii_lowercase());
+                        let message: Value =
+                            serde_json::from_slice(&buffer[end + 4..end + 4 + length])
+                                .unwrap_or(Value::Null);
+                        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+                        let id = message.get("id").cloned().unwrap_or(Value::Null);
+                        let result = match method {
+                            "server/discover" => json!({
+                                "protocolVersion": MODERN_PROTOCOL_VERSION,
+                                "capabilities": {"tools": {}},
+                                "serverInfo": {"name": "modern", "version": "1"},
+                            }),
+                            "tools/list" => json!({
+                                "tools": [{
+                                    "name": "echo",
+                                    "description": "echo",
+                                    "inputSchema": {"type": "object", "properties": {"text": {"type": "string", "x-mcp-header": "X-Test-Text"}}}
+                                }]
+                            }),
+                            "tools/call" => {
+                                let text = message
+                                    .pointer("/params/arguments/text")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                match text {
+                                    "input" => json!({
+                                        "resultType": "input_required",
+                                        "inputRequests": {
+                                            "confirm": {
+                                                "method": "elicitation/create",
+                                                "params": {
+                                                    "message": "Approve?",
+                                                    "url": "https://example.com/secret?q=1"
+                                                }
+                                            }
+                                        },
+                                        "requestState": "opaque-state"
+                                    }),
+                                    "task" | "task-input" => json!({
+                                        "resultType": "task",
+                                        "taskId": if text == "task" { "task-1" } else { "task-input-1" },
+                                        "status": "working",
+                                        "ttlMs": 5000,
+                                        "pollIntervalMs": 1,
+                                        "createdAt": "2026-01-01T00:00:00Z",
+                                        "lastUpdatedAt": "2026-01-01T00:00:00Z"
+                                    }),
+                                    _ => {
+                                        json!({"content": [{"type": "text", "text": format!("echo:{text}")}]})
+                                    }
+                                }
+                            }
+                            "tasks/get" => {
+                                let task_id = message
+                                    .pointer("/params/taskId")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                if task_id.contains("input") {
+                                    json!({
+                                        "taskId": task_id,
+                                        "status": "input_required",
+                                        "inputRequests": {
+                                            "confirm": {
+                                                "method": "elicitation/create",
+                                                "params": {"message": "Approve?"}
+                                            }
+                                        }
+                                    })
+                                } else if task_polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                                    json!({"taskId": task_id, "status": "working"})
+                                } else {
+                                    json!({
+                                        "taskId": task_id,
+                                        "status": "completed",
+                                        "result": {"content": [{"type": "text", "text": "task:done"}]}
+                                    })
+                                }
+                            }
+                            "tasks/cancel" => json!({}),
+                            other => json!({"error": {"code": -32601, "message": other}}),
+                        };
+                        let payload = if method == "server/discover"
+                            || method == "tools/list"
+                            || method == "tools/call"
+                            || method == "tasks/get"
+                            || method == "tasks/cancel"
+                        {
+                            json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string()
+                        } else {
+                            json!({"jsonrpc": "2.0", "id": id, "error": result["error"].clone()})
+                                .to_string()
+                        };
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                            payload.len()
+                        );
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        return;
+                    }
+                });
+            }
+        });
+        (address, captured)
+    }
+
+    #[tokio::test]
+    async fn modern_stateless_mcp_negotiates_and_sends_headers() {
+        let (address, captured) = fake_modern_http_server().await;
+        let server = McpServerConfig {
+            name: "modern".into(),
+            command: None,
+            url: Some(format!("http://{address}/mcp")),
+            env: BTreeMap::new(),
+            bearer_token_env: None,
+            bearer_token_file: None,
+            token_exchange: None,
+            oauth: None,
+            timeout_seconds: None,
+            tasks: false,
+            pin_file: None,
+        };
+        let client = McpClient::spawn(&server).await.unwrap();
+        assert!(client.modern.load(Ordering::SeqCst));
+        let tools = client.list_tools().await.unwrap();
+        assert_eq!(tools.len(), 1);
+        let tool = build_tool(client.clone(), "modern", &tools[0]).unwrap();
+        let outcome = tool
+            .execute(
+                json!({"text": "hi"}),
+                &PermissionSet {
+                    allow_network: true,
+                    ..PermissionSet::default()
+                },
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.content, "echo:hi");
+        let captured = captured.lock().unwrap();
+        assert!(
+            captured
+                .iter()
+                .any(|headers| headers.contains("mcp-method: server/discover"))
+        );
+        assert!(
+            captured
+                .iter()
+                .any(|headers| headers.contains("mcp-name: echo"))
+        );
+        assert!(
+            captured
+                .iter()
+                .any(|headers| headers.contains("mcp-param-x-test-text: hi")),
+            "x-mcp-header value missing from captured headers: {captured:?}"
+        );
+        assert!(
+            captured
+                .iter()
+                .any(|headers| headers.contains("mcp-protocol-version: 2026-07-28"))
+        );
+        assert!(
+            !captured
+                .iter()
+                .any(|headers| headers.contains("mcp-session-id:"))
+        );
+    }
+
+    fn modern_server(address: std::net::SocketAddr, tasks: bool) -> McpServerConfig {
+        McpServerConfig {
+            name: "modern".into(),
+            command: None,
+            url: Some(format!("http://{address}/mcp")),
+            env: BTreeMap::new(),
+            bearer_token_env: None,
+            bearer_token_file: None,
+            token_exchange: None,
+            oauth: None,
+            timeout_seconds: None,
+            tasks,
+            pin_file: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn mrtr_input_required_fails_closed_without_echoing_state() {
+        let (address, _) = fake_modern_http_server().await;
+        let client = McpClient::spawn(&modern_server(address, false))
+            .await
+            .unwrap();
+        let error = client
+            .call_tool("echo", json!({"text": "input"}))
+            .await
+            .unwrap_err();
+        let ToolError::InputRequired(message) = error else {
+            panic!("expected input_required, got {error:?}");
+        };
+        assert!(message.contains("elicitation/create"), "{message}");
+        assert!(
+            message.contains("url-origin=https://example.com"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("secret"),
+            "URL path must not leak: {message}"
+        );
+        assert!(
+            !message.contains("opaque-state"),
+            "requestState must not leak"
+        );
+    }
+
+    #[tokio::test]
+    async fn tasks_poll_to_completion_when_enabled() {
+        let (address, _) = fake_modern_http_server().await;
+        let client = McpClient::spawn(&modern_server(address, true))
+            .await
+            .unwrap();
+        let result = client
+            .call_tool("echo", json!({"text": "task"}))
+            .await
+            .unwrap();
+        assert_eq!(result["content"][0]["text"], "task:done");
+    }
+
+    #[tokio::test]
+    async fn tasks_are_refused_when_not_enabled() {
+        let (address, _) = fake_modern_http_server().await;
+        let client = McpClient::spawn(&modern_server(address, false))
+            .await
+            .unwrap();
+        let error = client
+            .call_tool("echo", json!({"text": "task"}))
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("tasks is not enabled"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn in_task_input_required_fails_closed() {
+        let (address, _) = fake_modern_http_server().await;
+        let client = McpClient::spawn(&modern_server(address, true))
+            .await
+            .unwrap();
+        let error = client
+            .call_tool("echo", json!({"text": "task-input"}))
+            .await
+            .unwrap_err();
+        let ToolError::InputRequired(message) = error else {
+            panic!("expected input_required, got {error:?}");
+        };
+        assert!(
+            message.contains("needs input during execution"),
+            "{message}"
+        );
+        assert!(message.contains("elicitation/create"), "{message}");
+    }
 
     async fn fake_http_server() -> (std::net::SocketAddr, Arc<std::sync::Mutex<Vec<String>>>) {
         fake_http_server_with_token(None).await

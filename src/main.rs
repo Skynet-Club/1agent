@@ -1,9 +1,14 @@
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use first_principles_agent::onboarding::{
+    CLI_SCHEMA, SetupError, SetupOptions, SetupReport, StatusReport, credential_label, load_config,
+    run_setup, save_config, status as onboarding_status,
+};
 use first_principles_agent::tui_prompts::{PromptLanguage, prompt_view};
 use first_principles_agent::{
     AgentAnswer, AgentConfig, AgentProfile, AgentRuntime, AnnotationLabel, AnnotationRecord,
@@ -51,6 +56,7 @@ use first_principles_agent::{
     verify_snapshot_chain, verify_snapshot_chain_with_anchor, write_capability_report,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -60,7 +66,8 @@ use uuid::Uuid;
 #[command(
     name = "1agent",
     version,
-    about = "Evidence-accountable decision agent"
+    about = "Evidence-accountable decision agent",
+    disable_help_subcommand = true
 )]
 struct Cli {
     #[command(subcommand)]
@@ -70,6 +77,13 @@ struct Cli {
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum Command {
+    /// Public, grouped help; advanced commands stay discoverable.
+    Help {
+        /// `advanced` lists the advanced groups; a command name prints its help.
+        topic: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
     Run {
         #[arg(long, conflicts_with = "input")]
         task: Option<String>,
@@ -552,6 +566,19 @@ enum Command {
     Daemon {
         #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
         store: PathBuf,
+        /// Durable scheduled-run claims; survives restarts and prevents duplicate slots.
+        #[arg(long, default_value_os_t = home_or_legacy("schedule-runs.jsonl", ".1a/schedule-runs.jsonl"))]
+        run_ledger: PathBuf,
+        /// Print a hardened systemd user unit and exit.
+        #[arg(long)]
+        print_unit: bool,
+        /// Write a hardened systemd user unit and exit.
+        #[arg(long)]
+        write_unit: Option<PathBuf>,
+        /// Skip a missed interval slot when it is this many seconds late;
+        /// default catches up the latest overdue slot.
+        #[arg(long)]
+        missed_run_skip_after_seconds: Option<u64>,
         #[arg(long, default_value_os_t = home_or_legacy("daemon/journals", ".1a/daemon/journals"))]
         journal_dir: PathBuf,
         #[arg(long)]
@@ -1277,6 +1304,82 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Guided first run: provider, credential, model, permissions, smoke.
+    Setup {
+        #[arg(long)]
+        check: bool,
+        /// With --check, allow the provider /v1/models probe.
+        #[arg(long)]
+        probe: bool,
+        #[arg(long)]
+        non_interactive: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        resume: bool,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        /// Read the API key from stdin; never pass it on the command line.
+        #[arg(long)]
+        api_key_stdin: bool,
+        /// Deprecated. Setup rejects this so the key never enters argv.
+        #[arg(long, hide = true)]
+        api_key: Option<String>,
+        #[arg(long, value_name = "read-only|safe|full-local")]
+        permission_preset: Option<String>,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long)]
+        read_root: Vec<PathBuf>,
+        #[arg(long)]
+        skip_probe: bool,
+        #[arg(long)]
+        skip_smoke: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Readiness, provider, permission and last-run summary.
+    Status {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Local browser sandbox probe (advanced).
+    Browser {
+        #[command(subcommand)]
+        command: BrowserCommand,
+    },
+    /// Model-blind browser credentials (advanced).
+    Secret {
+        #[command(subcommand)]
+        command: SecretCommand,
+    },
+    /// Show, explain or set the read-only/safe/full-local preset.
+    Permissions {
+        #[command(subcommand)]
+        command: PermissionsCommand,
+    },
+    /// List, show, select or test the configured provider.
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
+    },
+    /// Generate shell completion scripts.
+    Completions {
+        #[arg(value_name = "bash|zsh|fish|powershell|elvish")]
+        shell: String,
+    },
+    /// Print a roff man page.
+    Man,
     Init {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1322,6 +1425,167 @@ enum Command {
         purge: bool,
         #[arg(long)]
         yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecretCommand {
+    Set {
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        origin: String,
+        /// Read the value from stdin; never pass it on the command line.
+        #[arg(long)]
+        value_stdin: bool,
+        #[arg(long)]
+        store: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    List {
+        #[arg(long)]
+        store: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Remove {
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        store: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum BrowserCommand {
+    /// Launch a headed browser and hold it for human takeover.
+    Open {
+        #[arg(long)]
+        url: String,
+        #[arg(long = "allow")]
+        allow: Vec<String>,
+        #[arg(long)]
+        allow_loopback: bool,
+        /// Auto-close after this many seconds; default waits for Ctrl+C.
+        #[arg(long)]
+        seconds: Option<u64>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Record a bounded screencast to numbered JPEG frames + index.json.
+    Record {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 5)]
+        seconds: u64,
+        #[arg(long = "allow")]
+        allow: Vec<String>,
+        #[arg(long)]
+        allow_loopback: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List persistent browser action cards.
+    Approvals {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Approve one pending action card after showing its ground-truth descriptor.
+    Approve {
+        card_id: String,
+        /// Skip the interactive prompt (still an explicit human declaration).
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Deny one pending action card.
+    Deny {
+        card_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Launch Chrome, navigate, and report title/text/AX nodes.
+    Probe {
+        #[arg(long)]
+        url: String,
+        /// Repeatable exact host allowlist entry; defaults to the URL host.
+        #[arg(long = "allow")]
+        allow: Vec<String>,
+        #[arg(long)]
+        allow_loopback: bool,
+        #[arg(long)]
+        headed: bool,
+        #[arg(long)]
+        screenshot: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum PermissionsCommand {
+    Show {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Explain {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Set {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long, value_name = "read-only|safe|full-local")]
+        preset: String,
+        #[arg(long, value_name = "on|off")]
+        network: Option<String>,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long)]
+        read_root: Vec<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelCommand {
+    List {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Show {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    Use {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        provider: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Test {
+        #[arg(long)]
+        root: Option<PathBuf>,
+        #[arg(long)]
+        provider: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -2172,6 +2436,52 @@ enum OrgAuditCommand {
 
 #[derive(Subcommand)]
 enum SkillCommand {
+    List {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Write a lockfile pinning every active skill name/version/content hash.
+    Lock {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify that the store's active set exactly matches a lockfile.
+    VerifyLock {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        lock: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Validate {
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run a bundled skill script under bwrap (no network, no host home).
+    RunScript {
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        script: String,
+        #[arg(long, default_value_t = 30)]
+        timeout_seconds: u64,
+        #[arg(long)]
+        max_output_bytes: Option<usize>,
+        /// Arguments after `--`; passed without a shell.
+        #[arg(last = true)]
+        args: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
     Scan {
         #[arg(long)]
         path: PathBuf,
@@ -2214,6 +2524,39 @@ enum SkillCommand {
         version: String,
         #[arg(long)]
         suite: PathBuf,
+        /// Persist the eval report for `skill activate --eval-report`.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    EvalRuntime {
+        #[arg(long, default_value_os_t = default_skill_store())]
+        store: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        suite: PathBuf,
+        /// Provider config; defaults to $ONEAGENT_HOME/config.json.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Provider id; defaults to the first configured provider.
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Blind A/B comparison over a JSON suite of baseline/candidate outputs.
+    Compare {
+        #[arg(long)]
+        suite: PathBuf,
+        /// Fail unless the conservative 95% lift lower bound is at least this.
+        #[arg(long, default_value_t = 0)]
+        min_delta_bps: i32,
+        #[arg(long)]
+        out: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -2248,6 +2591,9 @@ enum SkillCommand {
         /// Apply a promote/rollback decision to the registry.
         #[arg(long)]
         apply: bool,
+        /// Persist canary progress across invocations.
+        #[arg(long)]
+        state: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -2294,6 +2640,12 @@ enum SkillCommand {
         name: String,
         #[arg(long)]
         version: String,
+        /// Passing eval report produced by `skill eval --out`.
+        #[arg(long)]
+        eval_report: Option<PathBuf>,
+        /// Explicitly bypass the eval report (audited in stderr).
+        #[arg(long)]
+        force: bool,
         #[arg(long)]
         json: bool,
     },
@@ -3093,6 +3445,15 @@ fn read_skill_eval_suite(path: &Path) -> Result<first_principles_agent::SkillEva
         .with_context(|| format!("invalid skill eval suite {}", path.display()))
 }
 
+fn read_skill_runtime_suite(
+    path: &Path,
+) -> Result<first_principles_agent::skill_eval::SkillRuntimeSuite> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("read skill runtime suite {}", path.display()))?;
+    serde_json::from_str(&raw)
+        .with_context(|| format!("invalid skill runtime suite {}", path.display()))
+}
+
 fn append_canary_sample(path: &Path, success: bool, latency_ms: u64) -> Result<()> {
     use std::io::Write;
     if let Some(parent) = path.parent()
@@ -3275,9 +3636,32 @@ async fn run_scheduled_job(
     (status, journal)
 }
 
+#[cfg(unix)]
+fn notify_systemd(payload: &str) {
+    let Some(path) = std::env::var_os("NOTIFY_SOCKET") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    // User units use a filesystem socket. Abstract sockets are not supported
+    // here; the daemon still runs, but systemd's watchdog is not armed.
+    if !path.is_absolute() {
+        return;
+    }
+    if let Ok(socket) = std::os::unix::net::UnixDatagram::unbound() {
+        let _ = socket.send_to(payload.as_bytes(), &path);
+    }
+}
+
+#[cfg(not(unix))]
+fn notify_systemd(_payload: &str) {}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_daemon(
     store: PathBuf,
+    run_ledger: PathBuf,
+    print_unit: bool,
+    write_unit: Option<PathBuf>,
+    missed_run_skip_after_seconds: Option<u64>,
     journal_dir: PathBuf,
     once: bool,
     poll_seconds: u64,
@@ -3306,6 +3690,27 @@ async fn run_daemon(
     digest_state: Option<PathBuf>,
     digest_escalation_step: Vec<String>,
 ) -> Result<()> {
+    if print_unit || write_unit.is_some() {
+        let executable = std::env::current_exe().context("cannot resolve 1agent executable")?;
+        let unit = first_principles_agent::service_unit::render_user_unit(
+            &executable,
+            &store,
+            &journal_dir,
+            &run_ledger,
+            &first_principles_agent::default_home(),
+        );
+        if let Some(path) = write_unit {
+            first_principles_agent::service_unit::write_user_unit(&path, &unit)?;
+            println!("wrote systemd user unit: {}", path.display());
+            println!(
+                "next: systemctl --user daemon-reload && systemctl --user enable --now 1agent"
+            );
+            println!("note: lingering is a separate, explicit user decision");
+        } else {
+            print!("{unit}");
+        }
+        return Ok(());
+    }
     if poll_seconds == 0 || poll_seconds > 300 {
         bail!("--poll-seconds must be 1..=300");
     }
@@ -3409,11 +3814,24 @@ async fn run_daemon(
         .and_then(|(_, _, _, _, _, state)| state.as_ref().map(|(_, state)| state.last_sent_ms))
         .unwrap_or(0);
     let _lock = DaemonLock::acquire(store.with_extension("daemon.lock"))?;
+    notify_systemd("READY=1\nSTATUS=1Agent daemon started");
+    let run_ledger = first_principles_agent::RunLedger::new(run_ledger);
+    match run_ledger.reconcile(current_time_ms()) {
+        Ok(records) if !records.is_empty() => {
+            eprintln!(
+                "[daemon] marked {} interrupted scheduled run(s); they will not be retried automatically",
+                records.len()
+            );
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("[daemon] cannot reconcile schedule ledger: {error}"),
+    }
     loop {
         let now = current_time_ms();
         if let Some(path) = &heartbeat {
             first_principles_agent::watchdog::touch(path, std::process::id(), now)?;
         }
+        notify_systemd("WATCHDOG=1");
         if let Some(quiet) = quiet_hours.filter(|quiet| {
             quiet.contains(first_principles_agent::autonomy::local_minute(
                 now,
@@ -3438,7 +3856,95 @@ async fn run_daemon(
         }
         for job in first_principles_agent::scheduler::due(&store, now)? {
             let trigger_mtime = first_principles_agent::scheduler::trigger_mtime(&job);
+            if trigger_mtime.is_none()
+                && let Some(seconds) = missed_run_skip_after_seconds.filter(|seconds| *seconds > 0)
+                && now.saturating_sub(job.next_run_ms) > u128::from(seconds) * 1_000
+            {
+                eprintln!(
+                    "[daemon] {} missed slot by more than {seconds}s; skipping",
+                    job.id
+                );
+                first_principles_agent::scheduler::mark_run(
+                    &store,
+                    &job.id,
+                    current_time_ms(),
+                    "missed-skipped",
+                    None,
+                    None,
+                )?;
+                let _ = first_principles_agent::scheduler::add_jitter(&store, &job.id);
+                continue;
+            }
+            let scheduled_at_ms = trigger_mtime.unwrap_or(job.next_run_ms);
+            let run_id = Uuid::new_v4().to_string();
+            match run_ledger.claim(&job.id, scheduled_at_ms, &run_id, now) {
+                Ok(first_principles_agent::ClaimOutcome::AlreadyClaimed(record)) => {
+                    eprintln!(
+                        "[daemon] {} slot {} already claimed by run {}; skipping",
+                        job.id, scheduled_at_ms, record.run_id
+                    );
+                    first_principles_agent::scheduler::mark_run(
+                        &store,
+                        &job.id,
+                        current_time_ms(),
+                        "duplicate-skipped",
+                        None,
+                        trigger_mtime,
+                    )?;
+                    let _ = first_principles_agent::scheduler::add_jitter(&store, &job.id);
+                    continue;
+                }
+                Ok(first_principles_agent::ClaimOutcome::Claimed(_)) => {}
+                Err(error) => {
+                    eprintln!("[daemon] cannot claim {} slot: {error}", job.id);
+                    first_principles_agent::scheduler::mark_run(
+                        &store,
+                        &job.id,
+                        current_time_ms(),
+                        "failed",
+                        None,
+                        trigger_mtime,
+                    )?;
+                    continue;
+                }
+            }
+            if let Err(error) = run_ledger.mark(
+                &job.id,
+                scheduled_at_ms,
+                &run_id,
+                first_principles_agent::RunStatus::Running,
+                current_time_ms(),
+                None,
+                None,
+            ) {
+                eprintln!("[daemon] cannot mark {} running: {error}", job.id);
+                first_principles_agent::scheduler::mark_run(
+                    &store,
+                    &job.id,
+                    current_time_ms(),
+                    "failed",
+                    None,
+                    trigger_mtime,
+                )?;
+                continue;
+            }
             let (status, journal) = run_scheduled_job(&job, &journal_dir).await;
+            let ledger_status = if matches!(status.as_str(), "failed" | "timeout") {
+                first_principles_agent::RunStatus::Failed
+            } else {
+                first_principles_agent::RunStatus::Completed
+            };
+            if let Err(error) = run_ledger.mark(
+                &job.id,
+                scheduled_at_ms,
+                &run_id,
+                ledger_status,
+                current_time_ms(),
+                journal.as_deref(),
+                None,
+            ) {
+                eprintln!("[daemon] cannot finish {} ledger record: {error}", job.id);
+            }
             first_principles_agent::scheduler::mark_run(
                 &store,
                 &job.id,
@@ -3447,6 +3953,7 @@ async fn run_daemon(
                 journal.as_deref(),
                 trigger_mtime,
             )?;
+            let _ = first_principles_agent::scheduler::add_jitter(&store, &job.id);
             if matches!(status.as_str(), "failed" | "timeout") {
                 let record = first_principles_agent::AlertRecord {
                     alert_id: format!("schedule-alert-{}", Uuid::new_v4()),
@@ -4014,6 +4521,1149 @@ async fn run_watchdog_watch(
     Ok(())
 }
 
+const PUBLIC_COMMANDS: &[(&str, &str)] = &[
+    (
+        "setup",
+        "guided first run: provider, credential, model, permissions",
+    ),
+    (
+        "status",
+        "version, provider, permissions, data dir and last run",
+    ),
+    ("tui", "interactive terminal UI"),
+    ("run", "run one headless task"),
+    ("doctor", "local diagnostics"),
+    ("model", "list, show, select or test the provider"),
+    ("permissions", "show, explain or set the permission preset"),
+    ("audit", "audit a run journal"),
+    ("replay", "structurally replay a run journal"),
+    (
+        "skills",
+        "skill lifecycle: list, eval, activate, canary, rollback",
+    ),
+    ("schedule", "local schedules and health"),
+    ("serve", "local HTTP surface"),
+    ("uninstall", "remove the runtime home"),
+];
+
+const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
+    (
+        "provider",
+        &[
+            "providers",
+            "route-plan",
+            "cost",
+            "metrics",
+            "budget-check",
+            "provider-alerts",
+        ],
+    ),
+    (
+        "memory",
+        &[
+            "memory",
+            "user-model",
+            "task-graph",
+            "inbox",
+            "idempotency",
+            "chat-bridge",
+            "inbox-notify",
+        ],
+    ),
+    (
+        "trust",
+        &[
+            "approval",
+            "verification",
+            "trust-center",
+            "agent-card",
+            "card-trust",
+            "org-audit",
+            "provenance",
+            "release",
+            "handoff",
+            "secret",
+        ],
+    ),
+    (
+        "ops",
+        &[
+            "daemon",
+            "watchdog",
+            "browser",
+            "notify",
+            "digest",
+            "away-digest",
+            "retention",
+            "escalate",
+            "alarm-budget",
+        ],
+    ),
+    (
+        "master",
+        &[
+            "master",
+            "team-check",
+            "autonomy",
+            "autonomy-for",
+            "surface",
+        ],
+    ),
+    (
+        "evolution",
+        &[
+            "skill",
+            "experience",
+            "eval",
+            "eval-inspect",
+            "benchmark",
+            "benchmark-run",
+            "answer-quality",
+            "golden-check",
+        ],
+    ),
+    (
+        "protocol",
+        &[
+            "mcp-token-check",
+            "mcp-token-exchange",
+            "otel",
+            "otel-export",
+            "platform",
+        ],
+    ),
+    (
+        "eval",
+        &[
+            "annotate",
+            "reframe",
+            "receipt",
+            "receipt-index",
+            "history",
+            "dashboard",
+            "unit-economics",
+            "value-report",
+            "repair-plan",
+            "repair-mark",
+            "resume",
+            "resume-status",
+            "cua-check",
+            "cascade-check",
+            "cascade-bench",
+            "clarify",
+        ],
+    ),
+];
+
+fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
+    if all {
+        print_public_help();
+        println!();
+        print_advanced_groups(true);
+        return Ok(());
+    }
+    match topic.map(str::trim).filter(|topic| !topic.is_empty()) {
+        None => print_public_help(),
+        Some("advanced") => print_advanced_groups(false),
+        Some(name) => {
+            let mut command = Cli::command();
+            if let Some(subcommand) = command.find_subcommand_mut(name) {
+                subcommand.print_help()?;
+                println!();
+            } else {
+                eprintln!("error: unknown help topic '{name}'");
+                eprintln!("next: 1agent help advanced");
+                std::process::exit(2);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_public_help() {
+    println!("1Agent — evidence-accountable agent runtime");
+    println!();
+    println!("Usage: 1agent <command> [options]");
+    println!();
+    println!("Commands:");
+    for (name, description) in PUBLIC_COMMANDS {
+        println!("  {name:<12} {description}");
+    }
+    println!();
+    println!("Advanced commands: 1agent help advanced");
+    println!("All commands:      1agent help --all");
+    println!("Run `1agent <command> --help` for command options.");
+}
+
+fn print_advanced_groups(all: bool) {
+    println!("Advanced commands (grouped; `1agent <command> --help` for options)");
+    let mut listed = std::collections::BTreeSet::new();
+    for (group, commands) in ADVANCED_GROUPS {
+        println!();
+        println!("{group}:");
+        for command in *commands {
+            listed.insert(*command);
+            println!("  {command}");
+        }
+    }
+    if all {
+        let mut command = Cli::command();
+        let mut other = Vec::new();
+        for subcommand in command.get_subcommands_mut() {
+            let name = subcommand.get_name().to_string();
+            if name == "help" || PUBLIC_COMMANDS.iter().any(|(public, _)| *public == name) {
+                continue;
+            }
+            if !listed.contains(name.as_str()) {
+                other.push(name);
+            }
+        }
+        if !other.is_empty() {
+            println!();
+            println!("other:");
+            for name in other {
+                println!("  {name}");
+            }
+        }
+    }
+}
+
+fn default_config_path() -> Option<PathBuf> {
+    let path = default_home().join("config.json");
+    path.is_file().then_some(path)
+}
+
+fn prompt_line(prompt: &str, default: &str) -> Result<String> {
+    use std::io::Write;
+    print!("{prompt}");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let line = line.trim().to_string();
+    Ok(if line.is_empty() {
+        default.to_string()
+    } else {
+        line
+    })
+}
+
+fn prompt_provider() -> Result<String> {
+    println!("Select provider:");
+    println!("  1) DeepSeek (recommended)");
+    println!("  2) OpenAI-compatible");
+    println!("  3) Ollama (local)");
+    let choice = prompt_line("Provider [1]: ", "1")?;
+    match choice.trim().to_ascii_lowercase().as_str() {
+        "1" | "deepseek" => Ok("deepseek".into()),
+        "2" | "openai" | "openai-compatible" => Ok("openai-compatible".into()),
+        "3" | "ollama" => Ok("ollama".into()),
+        other => bail!("error: unknown provider '{other}'\nnext: use 1, 2 or 3"),
+    }
+}
+
+fn prompt_masked(prompt: &str) -> Result<String> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use crossterm::terminal;
+    use std::io::Write;
+
+    print!("{prompt}");
+    std::io::stdout().flush()?;
+    terminal::enable_raw_mode().context("cannot enable raw mode")?;
+    let result = (|| -> Result<String> {
+        let mut value = String::new();
+        loop {
+            match event::read().context("cannot read terminal event")? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+                    KeyCode::Enter => return Ok(value),
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        bail!("setup cancelled");
+                    }
+                    KeyCode::Char(character) => {
+                        value.push(character);
+                        print!("*");
+                        std::io::stdout().flush()?;
+                    }
+                    KeyCode::Backspace => {
+                        if value.pop().is_some() {
+                            print!("\u{8} \u{8}");
+                            std::io::stdout().flush()?;
+                        }
+                    }
+                    KeyCode::Esc => bail!("setup cancelled"),
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+    })();
+    let _ = terminal::disable_raw_mode();
+    println!();
+    result
+}
+
+fn emit_cli_error(error: &SetupError, json_output: bool, exit_code: i32) -> ! {
+    if json_output {
+        let body = json!({
+            "schema": CLI_SCHEMA,
+            "ok": false,
+            "error": {
+                "code": error.code,
+                "message": error.message,
+                "next": error.next,
+                "details": error.details,
+            }
+        });
+        match serde_json::to_string_pretty(&body) {
+            Ok(text) => println!("{text}"),
+            Err(_) => println!("{body}"),
+        }
+    } else {
+        eprintln!("error: {}", error.message);
+        eprintln!("next: {}", error.next);
+    }
+    std::process::exit(exit_code);
+}
+
+fn is_setup_usage_error(code: &str) -> bool {
+    matches!(
+        code,
+        "setup.missing_provider"
+            | "setup.unknown_provider"
+            | "setup.missing_base_url"
+            | "setup.model_required"
+            | "setup.api_key_argv_forbidden"
+            | "setup.invalid_permission_preset"
+            | "setup.invalid_api_key"
+    )
+}
+
+fn print_setup_report(report: &SetupReport) {
+    println!(
+        "1Agent setup: {}",
+        if report.ok { "ready" } else { "not ready" }
+    );
+    println!("home: {}", report.root.display());
+    println!("config: {}", report.config.display());
+    if let Some(provider) = &report.provider {
+        println!(
+            "provider: {} / {} (credential: {})",
+            provider.id, provider.model, provider.credential
+        );
+    }
+    if let Some(permissions) = &report.permissions {
+        println!(
+            "permissions: {} (write: {}, network: {})",
+            permissions.preset, permissions.allow_write, permissions.allow_network
+        );
+    }
+    for check in &report.checks {
+        println!("[{:?}] {}: {}", check.status, check.id, check.detail);
+    }
+    if let Some(next) = &report.next {
+        println!("next: {next}");
+    }
+}
+
+fn print_status_report(report: &StatusReport) {
+    println!(
+        "1Agent {} ({}/{})",
+        report.version, report.platform.os, report.platform.arch
+    );
+    println!("home:        {}", report.home.display());
+    println!("config:      {}", report.config.display());
+    if let Some(provider) = &report.provider {
+        println!(
+            "provider:    {} / {} (credential: {})",
+            provider.id, provider.model, provider.credential
+        );
+    } else {
+        println!("provider:    not configured");
+    }
+    if let Some(permissions) = &report.permissions {
+        println!(
+            "permissions: {} (write: {}, network: {})",
+            permissions.preset, permissions.allow_write, permissions.allow_network
+        );
+    } else {
+        println!("permissions: not configured");
+    }
+    if let Some(last_run) = &report.last_run {
+        println!("last run:    {} ({})", last_run.status, last_run.journal);
+    } else {
+        println!("last run:    none");
+    }
+    if let Some(error) = &report.error {
+        println!("error:       {error}");
+    }
+    if let Some(next) = &report.next {
+        println!("next:        {next}");
+    }
+}
+
+fn handle_secret(command: SecretCommand) -> Result<()> {
+    let default_store = || default_home().join("secrets.json");
+    match command {
+        SecretCommand::Set {
+            label,
+            origin,
+            value_stdin,
+            store,
+            json,
+        } => {
+            let store_path = store.unwrap_or_else(default_store);
+            let value = if value_stdin {
+                let mut value = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut value)
+                    .context("cannot read secret from stdin")?;
+                value.trim_end_matches(['\r', '\n']).to_string()
+            } else if std::io::stdin().is_terminal() {
+                prompt_masked("Secret value (input hidden): ")?
+            } else {
+                bail!(
+                    "error: no TTY; use --value-stdin\nnext: 1agent secret set --label ... --origin ... --value-stdin"
+                );
+            };
+            if value.is_empty() {
+                bail!("error: secret value is empty");
+            }
+            let mut store = first_principles_agent::browser::SecretStore::open(&store_path)?;
+            store.set(&label, &origin, &value)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "label": label,
+                        "origin": origin,
+                        "stored": true,
+                        "store": store_path,
+                    }))?
+                );
+            } else {
+                println!("stored secret '{label}' for {origin}");
+            }
+        }
+        SecretCommand::List { store, json } => {
+            let store = first_principles_agent::browser::SecretStore::open(
+                store.unwrap_or_else(default_store),
+            )?;
+            let items = store.list();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items)?);
+            } else if items.is_empty() {
+                println!("no secrets configured");
+            } else {
+                for item in items {
+                    println!("{} -> {}", item.label, item.origin);
+                }
+            }
+        }
+        SecretCommand::Remove { label, store, json } => {
+            let mut store = first_principles_agent::browser::SecretStore::open(
+                store.unwrap_or_else(default_store),
+            )?;
+            let removed = store.remove(&label)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({"label": label, "removed": removed}))?
+                );
+            } else if removed {
+                println!("removed secret '{label}'");
+            } else {
+                println!("secret '{label}' was not configured");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_browser(command: BrowserCommand) -> Result<()> {
+    match command {
+        BrowserCommand::Open {
+            url,
+            allow,
+            allow_loopback,
+            seconds,
+            json,
+        } => {
+            let mut allowlist = allow;
+            if allowlist.is_empty() {
+                let parsed =
+                    reqwest::Url::parse(&url).with_context(|| format!("invalid URL '{url}'"))?;
+                allowlist.push(
+                    parsed
+                        .host_str()
+                        .ok_or_else(|| anyhow::anyhow!("URL has no host"))?
+                        .to_string(),
+                );
+            }
+            let config = first_principles_agent::browser::BrowserConfig {
+                headless: false,
+                allowlist,
+                allow_loopback,
+                chrome_path: None,
+                profile_root: None,
+                download_dir: None,
+            };
+            let session = first_principles_agent::browser::BrowserSession::launch(config).await?;
+            session.navigate(&url).await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok": true,
+                        "url": url,
+                        "mode": "human_takeover",
+                        "seconds": seconds,
+                    }))?
+                );
+            } else {
+                println!("browser opened for human takeover: {url}");
+                println!("operate the Chrome window directly; close it or press Ctrl+C to end");
+            }
+            match seconds {
+                Some(seconds) => tokio::time::sleep(Duration::from_secs(seconds)).await,
+                None => {
+                    tokio::signal::ctrl_c().await?;
+                }
+            }
+            session.close().await;
+            if !json {
+                println!("browser closed");
+            }
+        }
+        BrowserCommand::Record {
+            url,
+            out,
+            seconds,
+            allow,
+            allow_loopback,
+            json,
+        } => {
+            let mut allowlist = allow;
+            if allowlist.is_empty() {
+                let parsed =
+                    reqwest::Url::parse(&url).with_context(|| format!("invalid URL '{url}'"))?;
+                allowlist.push(
+                    parsed
+                        .host_str()
+                        .ok_or_else(|| anyhow::anyhow!("URL has no host"))?
+                        .to_string(),
+                );
+            }
+            let config = first_principles_agent::browser::BrowserConfig {
+                headless: true,
+                allowlist,
+                allow_loopback,
+                chrome_path: None,
+                profile_root: None,
+                download_dir: None,
+            };
+            let session = first_principles_agent::browser::BrowserSession::launch(config).await?;
+            let outcome = async {
+                session.navigate(&url).await?;
+                session
+                    .record_screencast(&out, Duration::from_secs(seconds.min(120)))
+                    .await
+            }
+            .await;
+            session.close().await;
+            let frames = outcome?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok": true,
+                        "url": url,
+                        "out": out,
+                        "frames": frames,
+                        "seconds": seconds.min(120),
+                    }))?
+                );
+            } else {
+                println!("recorded {frames} frame(s) to {}", out.display());
+            }
+        }
+        BrowserCommand::Approvals { json } => {
+            let store = first_principles_agent::browser::ActionCardStore::default_store();
+            let cards = store.list()?;
+            if json {
+                let items = cards
+                    .iter()
+                    .map(|stored| {
+                        let mut value = serde_json::to_value(stored)?;
+                        value["expired"] = json!(now_ms() > stored.card.expires_at_ms);
+                        Ok(value)
+                    })
+                    .collect::<Result<Vec<_>, serde_json::Error>>()?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({"cards": items}))?
+                );
+            } else if cards.is_empty() {
+                println!("no browser action cards");
+            } else {
+                for stored in &cards {
+                    print_action_card(stored);
+                }
+            }
+        }
+        BrowserCommand::Approve { card_id, yes, json } => {
+            let store = first_principles_agent::browser::ActionCardStore::default_store();
+            let stored = store
+                .get(&card_id)?
+                .ok_or_else(|| anyhow::anyhow!("action card {card_id} not found"))?;
+            if stored.status != first_principles_agent::browser::CardStatus::Pending {
+                anyhow::bail!("action card {card_id} is {:?}, not pending", stored.status);
+            }
+            if now_ms() > stored.card.expires_at_ms {
+                anyhow::bail!("action card {card_id} expired; ask the agent to retry the action");
+            }
+            if !json {
+                print_action_card(&stored);
+            }
+            if !yes && !confirm_action_card(&stored)? {
+                anyhow::bail!("action card {card_id} not approved");
+            }
+            let card = store.approve(&card_id, now_ms())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok": true,
+                        "status": "approved",
+                        "card": card,
+                    }))?
+                );
+            } else {
+                println!(
+                    "approved {}; the agent can retry the action with approval_id {}",
+                    card.card_id, card.card_id
+                );
+            }
+        }
+        BrowserCommand::Deny { card_id, json } => {
+            let store = first_principles_agent::browser::ActionCardStore::default_store();
+            let card = store.deny(&card_id, now_ms())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok": true,
+                        "status": "denied",
+                        "card": card,
+                    }))?
+                );
+            } else {
+                println!("denied {}", card.card_id);
+            }
+        }
+        BrowserCommand::Probe {
+            url,
+            allow,
+            allow_loopback,
+            headed,
+            screenshot,
+            json,
+        } => {
+            let mut allowlist = allow;
+            if allowlist.is_empty() {
+                let parsed =
+                    reqwest::Url::parse(&url).with_context(|| format!("invalid URL '{url}'"))?;
+                let host = parsed
+                    .host_str()
+                    .ok_or_else(|| anyhow::anyhow!("URL has no host"))?;
+                allowlist.push(host.to_string());
+            }
+            let config = first_principles_agent::browser::BrowserConfig {
+                headless: !headed,
+                allowlist,
+                allow_loopback,
+                chrome_path: None,
+                profile_root: None,
+                download_dir: None,
+            };
+            let session = first_principles_agent::browser::BrowserSession::launch(config).await?;
+            let outcome = probe_browser_session(&session, &url, screenshot.as_deref()).await;
+            let profile = session.profile_dir().display().to_string();
+            let proxy = session.proxy_url();
+            session.close().await;
+            let mut report = outcome?;
+            report["profile"] = json!(profile);
+            report["proxy"] = json!(proxy);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("url:     {}", report["url"].as_str().unwrap_or(""));
+                println!("title:   {}", report["title"].as_str().unwrap_or(""));
+                println!(
+                    "ax:      {} node(s)",
+                    report["ax_nodes"].as_u64().unwrap_or(0)
+                );
+                if let Some(path) = report["screenshot"].as_str() {
+                    println!("shot:    {path}");
+                }
+                println!();
+                println!("{}", report["text"].as_str().unwrap_or(""));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+fn print_action_card(stored: &first_principles_agent::browser::StoredActionCard) {
+    let card = &stored.card;
+    let expired = now_ms() > card.expires_at_ms;
+    println!(
+        "{}  {}  [{}]{}",
+        card.card_id,
+        card.action,
+        match stored.status {
+            first_principles_agent::browser::CardStatus::Pending => "pending",
+            first_principles_agent::browser::CardStatus::Approved => "approved",
+            first_principles_agent::browser::CardStatus::Denied => "denied",
+            first_principles_agent::browser::CardStatus::Consumed => "consumed",
+        },
+        if expired { " EXPIRED" } else { "" }
+    );
+    println!("  origin:  {}", card.origin);
+    println!("  target:  {}", card.summary);
+    println!(
+        "  risk:    {:?} · reversible={} · expires in {}s",
+        card.risk,
+        card.reversible,
+        card.expires_at_ms.saturating_sub(now_ms()) / 1000
+    );
+    println!("  binding: {}", card.target);
+}
+
+fn confirm_action_card(stored: &first_principles_agent::browser::StoredActionCard) -> Result<bool> {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!(
+            "`browser approve` needs an interactive TTY; refusing to approve without a human at the terminal"
+        );
+    }
+    print!(
+        "Approve {} on {}? This executes the exact action shown above. [y/N] ",
+        stored.card.action, stored.card.origin
+    );
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(matches!(line.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
+}
+
+async fn probe_browser_session(
+    session: &first_principles_agent::browser::BrowserSession,
+    url: &str,
+    screenshot: Option<&Path>,
+) -> Result<Value> {
+    session.navigate(url).await?;
+    let title = session.title().await?;
+    let text = session.visible_text().await?;
+    let ax = session.accessibility_tree().await?;
+    let ax_nodes = ax
+        .get("nodes")
+        .and_then(Value::as_array)
+        .map(|nodes| nodes.len())
+        .unwrap_or(0);
+    let mut report = json!({
+        "url": url,
+        "title": title,
+        "text": text.chars().take(8_000).collect::<String>(),
+        "text_truncated": text.chars().count() > 8_000,
+        "ax_nodes": ax_nodes,
+    });
+    if let Some(path) = screenshot {
+        let bytes = session.screenshot(path).await?;
+        report["screenshot"] = json!(path.display().to_string());
+        report["screenshot_bytes"] = json!(bytes);
+    }
+    Ok(report)
+}
+
+fn handle_permissions(command: PermissionsCommand) -> Result<()> {
+    match command {
+        PermissionsCommand::Show { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let config = permission_config(&root)?;
+            let value = permission_json(&config);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!(
+                    "preset:      {}",
+                    value["preset"].as_str().unwrap_or("default")
+                );
+                println!("write:       {}", value["allow_write"]);
+                println!("network:     {}", value["allow_network"]);
+                println!("read roots:  {}", value["read_roots"]);
+            }
+        }
+        PermissionsCommand::Explain { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let config = permission_config(&root)?;
+            let mut value = permission_json(&config);
+            let allow_write = value["allow_write"].as_bool().unwrap_or(false);
+            let allow_network = value["allow_network"].as_bool().unwrap_or(false);
+            value["tools"] = json!({
+                "write": if allow_write { "enabled" } else { "hidden" },
+                "terminal": if allow_write { "enabled" } else { "hidden" },
+                "network": if allow_network { "enabled" } else { "requires approval" },
+                "irreversible": "always_confirm",
+            });
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!(
+                    "preset:      {}",
+                    value["preset"].as_str().unwrap_or("default")
+                );
+                println!("write:       {}", allow_write);
+                println!("network:     {}", allow_network);
+                println!(
+                    "write tools: {}",
+                    value["tools"]["write"].as_str().unwrap_or("")
+                );
+                println!(
+                    "terminal:    {}",
+                    value["tools"]["terminal"].as_str().unwrap_or("")
+                );
+                println!(
+                    "network:     {}",
+                    value["tools"]["network"].as_str().unwrap_or("")
+                );
+                println!("irreversible: always_confirm");
+                println!("read roots:  {}", value["read_roots"]);
+            }
+        }
+        PermissionsCommand::Set {
+            root,
+            preset,
+            network,
+            workspace,
+            read_root,
+            json,
+        } => {
+            let root = root.unwrap_or_else(default_home);
+            let preset = first_principles_agent::PermissionPreset::parse(&preset).ok_or_else(
+                || {
+                    anyhow::anyhow!(
+                        "error: unknown permission preset '{preset}'\nnext: use read-only, safe, or full-local"
+                    )
+                },
+            )?;
+            let allow_network = match network.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some("on" | "true" | "yes" | "1") => Some(true),
+                Some("off" | "false" | "no" | "0") => Some(false),
+                Some(value) => {
+                    bail!("error: invalid --network '{value}'\nnext: use on or off");
+                }
+            };
+            let mut config = permission_config(&root)?;
+            let mut permissions = config.permissions.clone().unwrap_or_default();
+            permissions.preset = preset;
+            if let Some(allow_network) = allow_network {
+                permissions.allow_network = allow_network;
+            }
+            if !read_root.is_empty() {
+                permissions.read_roots = read_root.iter().map(canonical_or_original).collect();
+            }
+            if let Some(workspace) = workspace {
+                config.workspace = Some(canonical_or_original(&workspace));
+            }
+            config.permissions = Some(permissions);
+            save_config(&root, &config)?;
+            let value = permission_json(&config);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!(
+                    "permissions set to {} (write: {}, network: {})",
+                    value["preset"].as_str().unwrap_or(""),
+                    value["allow_write"],
+                    value["allow_network"]
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_model(command: ModelCommand) -> Result<()> {
+    match command {
+        ModelCommand::List { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let config = model_config(&root)?;
+            let default_id = config.default_provider.as_deref().or_else(|| {
+                config
+                    .providers
+                    .first()
+                    .map(|provider| provider.id.as_str())
+            });
+            let items = config
+                .providers
+                .iter()
+                .map(|provider| {
+                    json!({
+                        "id": provider.id,
+                        "model": provider.model,
+                        "adapter": match provider.adapter {
+                            ProviderAdapter::Deterministic => "deterministic",
+                            ProviderAdapter::OpenAiCompatible => "open_ai_compatible",
+                        },
+                        "credential": credential_label(provider),
+                        "default": Some(provider.id.as_str()) == default_id,
+                    })
+                })
+                .collect::<Vec<_>>();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&json!(items))?);
+            } else {
+                for provider in &config.providers {
+                    println!(
+                        "{} {} / {} (credential: {})",
+                        if Some(provider.id.as_str()) == default_id {
+                            "*"
+                        } else {
+                            " "
+                        },
+                        provider.id,
+                        provider.model,
+                        credential_label(provider)
+                    );
+                }
+            }
+        }
+        ModelCommand::Show { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let report = onboarding_status(&root);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "provider": report.provider,
+                        "permissions": report.permissions,
+                    }))?
+                );
+            } else if let Some(provider) = report.provider {
+                println!("provider:    {}", provider.id);
+                println!("model:       {}", provider.model);
+                println!("adapter:     {}", provider.adapter);
+                println!("credential:  {}", provider.credential);
+            } else {
+                println!("provider:    not configured");
+                println!("next:        1agent setup");
+            }
+        }
+        ModelCommand::Use {
+            root,
+            provider,
+            json,
+        } => {
+            let root = root.unwrap_or_else(default_home);
+            let mut config = model_config(&root)?;
+            if !config.providers.iter().any(|item| item.id == provider) {
+                bail!("error: unknown provider '{provider}'\nnext: 1agent model list");
+            }
+            config.default_provider = Some(provider.clone());
+            save_config(&root, &config)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({"default_provider": provider}))?
+                );
+            } else {
+                println!("default provider: {provider}");
+            }
+        }
+        ModelCommand::Test {
+            root,
+            provider,
+            json,
+        } => {
+            let root = root.unwrap_or_else(default_home);
+            let config = model_config(&root)?;
+            let provider = provider
+                .as_deref()
+                .and_then(|id| config.providers.iter().find(|item| item.id == id))
+                .or_else(|| config.default_provider())
+                .ok_or_else(|| anyhow::anyhow!("error: provider not configured"))?;
+            if provider.adapter == ProviderAdapter::Deterministic {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &json!({"provider": provider.id, "ok": true, "models": []})
+                        )?
+                    );
+                } else {
+                    println!("{}: deterministic provider, no network probe", provider.id);
+                }
+                return Ok(());
+            }
+            let base_url = provider
+                .base_url
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("error: provider has no base_url"))?;
+            let key = provider
+                .read_api_key()
+                .map_err(|error| anyhow::anyhow!("error: {error}"))?;
+            let models = list_provider_models(
+                base_url,
+                key.as_deref().unwrap_or_default(),
+                Duration::from_secs(5),
+            )
+            .await
+            .map_err(|error| anyhow::anyhow!("error: model discovery failed: {error}"))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "provider": provider.id,
+                        "ok": true,
+                        "models": models,
+                    }))?
+                );
+            } else {
+                println!("{}: {} model(s)", provider.id, models.len());
+                for model in models {
+                    println!("  {model}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn permission_config(root: &Path) -> Result<AgentConfig> {
+    load_config(root)?.ok_or_else(|| {
+        anyhow::anyhow!("error: no config at {}\nnext: 1agent setup", root.display())
+    })
+}
+
+fn model_config(root: &Path) -> Result<AgentConfig> {
+    load_config(root)?
+        .ok_or_else(|| anyhow::anyhow!("error: no provider configured\nnext: 1agent setup"))
+}
+
+fn permission_json(config: &AgentConfig) -> Value {
+    let preset = config
+        .permissions
+        .as_ref()
+        .map(|permissions| permissions.preset.as_str())
+        .unwrap_or("default");
+    if let Some(resolved) = config.resolved_permissions() {
+        json!({
+            "preset": preset,
+            "allow_write": resolved.allow_write,
+            "allow_network": resolved.allow_network,
+            "read_roots": resolved.read_roots,
+        })
+    } else {
+        json!({
+            "preset": preset,
+            "allow_write": true,
+            "allow_network": false,
+            "read_roots": [],
+        })
+    }
+}
+
+fn render_completions(shell: &str) -> Option<String> {
+    use clap_complete::Shell;
+    let shell = match shell.trim().to_ascii_lowercase().as_str() {
+        "bash" => Shell::Bash,
+        "zsh" => Shell::Zsh,
+        "fish" => Shell::Fish,
+        "powershell" => Shell::PowerShell,
+        "elvish" => Shell::Elvish,
+        _ => return None,
+    };
+    let mut command = Cli::command();
+    let mut buffer = Vec::new();
+    clap_complete::generate(shell, &mut command, "1agent", &mut buffer);
+    String::from_utf8(buffer).ok()
+}
+
+const MAN_PAGE: &str = ".TH 1AGENT 1 \"2026-11-15\" \"1Agent 0.98\" \"User Commands\"
+.SH NAME
+1agent \\- evidence-accountable agent runtime
+.SH SYNOPSIS
+.B 1agent
+[setup|status|tui|run|doctor|model|permissions|browser|skill|schedule|daemon|audit|replay|serve|completions|man|uninstall]
+.SH DESCRIPTION
+1Agent runs tasks with a provider, tools, a policy gate and an auditable journal.
+Run \\fB1agent setup\\fR for the guided first run.
+.SH COMMANDS
+.TP
+.B setup
+Guided first run: provider, credential, model, permissions, workspace and smoke task.
+.TP
+.B status
+Show version, platform, provider, permissions, data directory and last run.
+.TP
+.B tui
+Interactive terminal UI.
+.TP
+.B run
+Run one headless task.
+.TP
+.B doctor
+Local diagnostics for the runtime home and journals.
+.TP
+.B model
+List, show, select or test the configured provider.
+.TP
+.B permissions
+Show, explain or set the read-only/safe/full-local preset.
+.TP
+.B audit
+Audit a run journal.
+.TP
+.B replay
+Structurally replay a run journal.
+.TP
+.B browser
+Probe, record or open a sandboxed browser; list/approve/deny action cards.
+.TP
+.B skill
+Skill lifecycle: validate, capture, eval, compare, lock, run-script, canary, rollback.
+.TP
+.B schedule
+Local schedules and health.
+.TP
+.B daemon
+Run due schedules with a durable run ledger; print/write a systemd user unit.
+.TP
+.B serve
+Local HTTP surface.
+.TP
+.B completions
+Print shell completions (bash, zsh, fish, powershell, elvish).
+.TP
+.B man
+Print this man page.
+.TP
+.B help
+Public command overview; \\fBhelp advanced\\fR lists advanced groups.
+.TP
+.B uninstall
+Remove the runtime home; data is kept unless --purge --yes.
+.SH SEE ALSO
+1agent help advanced
+";
+
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
@@ -4099,8 +5749,26 @@ async fn main() -> Result<()> {
                 max_cost_micros,
                 max_tokens,
             };
-            request.permissions.allow_network = allow_network;
-            request.permissions.allow_write = !read_only;
+            let config_path = config.or_else(default_config_path);
+            let loaded_config = config_path.as_ref().map(AgentConfig::load).transpose()?;
+            let resolved_permissions = loaded_config
+                .as_ref()
+                .and_then(|config| config.resolved_permissions());
+            request.permissions.allow_network = if allow_network {
+                true
+            } else {
+                resolved_permissions
+                    .as_ref()
+                    .is_some_and(|permissions| permissions.allow_network)
+            };
+            request.permissions.allow_write = if read_only {
+                false
+            } else {
+                resolved_permissions
+                    .as_ref()
+                    .map(|permissions| permissions.allow_write)
+                    .unwrap_or(true)
+            };
             if evidence_max_age_ms.is_some() {
                 request.evidence_max_age_ms = evidence_max_age_ms;
             }
@@ -4110,6 +5778,8 @@ async fn main() -> Result<()> {
             if !read_root.is_empty() {
                 request.permissions.read_roots =
                     read_root.iter().map(canonical_or_original).collect();
+            } else if let Some(permissions) = &resolved_permissions {
+                request.permissions.read_roots = permissions.read_roots.clone();
             }
             if request.permissions.read_roots.is_empty() {
                 request.permissions.read_roots =
@@ -4117,8 +5787,7 @@ async fn main() -> Result<()> {
             }
 
             let timeout = Duration::from_secs(timeout_seconds.max(1));
-            let (candidates, mut tools) = if let Some(config_path) = config {
-                let config = AgentConfig::load(&config_path)?;
+            let (candidates, mut tools) = if let Some(config) = &loaded_config {
                 (config.build_providers(timeout)?, default_registry())
             } else {
                 build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
@@ -4276,7 +5945,7 @@ async fn main() -> Result<()> {
             route_objective,
         } => {
             run_tui(
-                config,
+                config.or_else(default_config_path),
                 mcp_config,
                 provider,
                 model,
@@ -6130,6 +7799,184 @@ async fn main() -> Result<()> {
             }
         },
         Command::Skill { command } => match command {
+            SkillCommand::List { store, json } => {
+                let service = SkillService::open(&store)?;
+                let items = service.store().list();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&items)?);
+                } else if items.is_empty() {
+                    println!("no skills registered");
+                } else {
+                    for skill in items {
+                        println!(
+                            "{}@{} [{}] risk={:?}: {}",
+                            skill.name,
+                            skill.version,
+                            skill.status.as_str(),
+                            skill.risk,
+                            skill.description
+                        );
+                    }
+                }
+            }
+            SkillCommand::Lock { store, out, json } => {
+                let service = SkillService::open(&store)?;
+                let lock =
+                    first_principles_agent::skill_lock::SkillLock::from_store(service.store());
+                lock.validate()?;
+                if let Some(parent) = out.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&out, serde_json::to_vec_pretty(&lock)?)
+                    .with_context(|| format!("write {}", out.display()))?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "out": out,
+                            "skills": lock.skills.len(),
+                            "lock": lock,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "已写入 {}（{} 个 active 技能）",
+                        out.display(),
+                        lock.skills.len()
+                    );
+                }
+            }
+            SkillCommand::VerifyLock { store, lock, json } => {
+                let bytes = std::fs::read(&lock)
+                    .with_context(|| format!("read lockfile {}", lock.display()))?;
+                let lockfile: first_principles_agent::skill_lock::SkillLock =
+                    serde_json::from_slice(&bytes)
+                        .with_context(|| format!("invalid lockfile {}", lock.display()))?;
+                let service = SkillService::open(&store)?;
+                let result = lockfile.verify(service.store());
+                if json {
+                    match &result {
+                        Ok(()) => println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "skills": lockfile.skills.len(),
+                            }))?
+                        ),
+                        Err(error) => println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": false,
+                                "error": error.to_string(),
+                            }))?
+                        ),
+                    }
+                } else if let Err(error) = &result {
+                    eprintln!("lockfile mismatch: {error}");
+                } else {
+                    println!("lockfile matches {} active skill(s)", lockfile.skills.len());
+                }
+                if result.is_err() {
+                    std::process::exit(1);
+                }
+            }
+            SkillCommand::Validate { path, json } => {
+                match first_principles_agent::skill_validate::validate_skill_path(&path) {
+                    Ok(report) => {
+                        if json {
+                            println!("{}", serde_json::to_string_pretty(&report)?);
+                        } else {
+                            println!(
+                                "{}@{}: {} ({} bytes)",
+                                report.name,
+                                report.version,
+                                if report.ok { "ok" } else { "rejected" },
+                                report.size_bytes
+                            );
+                            for warning in &report.warnings {
+                                println!("warning: {warning}");
+                            }
+                            for error in &report.errors {
+                                println!("error: {error}");
+                            }
+                        }
+                        if !report.ok {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(error) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "ok": false,
+                                    "error": error.to_string(),
+                                }))?
+                            );
+                        } else {
+                            eprintln!("error: {error}");
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
+            SkillCommand::RunScript {
+                path,
+                script,
+                timeout_seconds,
+                max_output_bytes,
+                args,
+                json,
+            } => {
+                let options = first_principles_agent::skill_sandbox::ScriptRunOptions {
+                    timeout: Duration::from_secs(timeout_seconds.clamp(1, 300)),
+                    max_output_bytes: max_output_bytes
+                        .unwrap_or(1024 * 1024)
+                        .clamp(1024, 16 * 1024 * 1024),
+                };
+                match first_principles_agent::skill_sandbox::run_skill_script(
+                    &path, &script, &args, &options,
+                )
+                .await
+                {
+                    Ok(report) => {
+                        if json {
+                            println!("{}", serde_json::to_string_pretty(&report)?);
+                        } else {
+                            print!("{}", report.stdout);
+                            eprint!("{}", report.stderr);
+                            if !report.success {
+                                eprintln!(
+                                    "script exited {} (sandbox=bwrap, network=disabled)",
+                                    report
+                                        .exit_code
+                                        .map_or_else(|| "signal".into(), |code| code.to_string())
+                                );
+                            }
+                        }
+                        if !report.success {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(error) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "ok": false,
+                                    "error": error.to_string(),
+                                }))?
+                            );
+                        } else {
+                            eprintln!("error: {error}");
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
             SkillCommand::Scan { path, json } => {
                 let source = std::fs::read_to_string(&path)
                     .with_context(|| format!("read {}", path.display()))?;
@@ -6263,11 +8110,22 @@ async fn main() -> Result<()> {
                 name,
                 version,
                 suite,
+                out,
                 json,
             } => {
                 let suite = read_skill_eval_suite(&suite)?;
                 let service = SkillService::open(&store)?;
                 let report = service.evaluate(&name, &version, &suite)?;
+                if let Some(path) = &out {
+                    if let Some(parent) = path.parent()
+                        && !parent.as_os_str().is_empty()
+                    {
+                        std::fs::create_dir_all(parent)
+                            .with_context(|| format!("create {}", parent.display()))?;
+                    }
+                    std::fs::write(path, serde_json::to_vec_pretty(&report)?)
+                        .with_context(|| format!("write {}", path.display()))?;
+                }
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
@@ -6285,6 +8143,117 @@ async fn main() -> Result<()> {
                             case.case_id, case.passed, case.missing_required, case.forbidden_hits
                         );
                     }
+                }
+            }
+            SkillCommand::EvalRuntime {
+                store,
+                name,
+                version,
+                suite,
+                config,
+                provider,
+                json,
+            } => {
+                let suite = read_skill_runtime_suite(&suite)?;
+                let service = SkillService::open(&store)?;
+                let manifest = service
+                    .store()
+                    .view(&name, &version)
+                    .ok_or_else(|| anyhow::anyhow!("unknown skill {name}@{version}"))?
+                    .clone();
+                let config_path = config.or_else(default_config_path).ok_or_else(|| {
+                    anyhow::anyhow!("error: no provider config; run 1agent setup")
+                })?;
+                let config = AgentConfig::load(&config_path)?;
+                let candidates = config.build_providers(Duration::from_secs(60))?;
+                let candidate = provider
+                    .as_deref()
+                    .and_then(|id| {
+                        candidates
+                            .iter()
+                            .find(|candidate| candidate.manifest.provider_id == id)
+                    })
+                    .or_else(|| candidates.first())
+                    .ok_or_else(|| anyhow::anyhow!("error: no provider configured"))?;
+                let model_provider = candidate.provider.clone();
+                let runner = move |system: String, user: String| {
+                    let model_provider = model_provider.clone();
+                    async move {
+                        model_provider
+                            .complete_text(&system, &user, &CancellationToken::new())
+                            .await
+                            .map_err(|error| error.to_string())
+                    }
+                };
+                let report = first_principles_agent::skill_eval::evaluate_skill_runtime(
+                    &manifest, &suite, runner,
+                )
+                .await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "{}@{}: passed={} score_bps={} suite={}",
+                        report.skill,
+                        report.version,
+                        report.passed,
+                        report.score_bps,
+                        report.suite_id
+                    );
+                    for case in &report.cases {
+                        println!(
+                            "- {}: passed={} missing={:?} forbidden={:?}",
+                            case.case_id, case.passed, case.missing_required, case.forbidden_hits
+                        );
+                    }
+                }
+                if !report.passed {
+                    std::process::exit(1);
+                }
+            }
+            SkillCommand::Compare {
+                suite,
+                min_delta_bps,
+                out,
+                json,
+            } => {
+                let bytes = std::fs::read(&suite)
+                    .with_context(|| format!("read blind suite {}", suite.display()))?;
+                let suite: first_principles_agent::skill_eval::BlindSuite =
+                    serde_json::from_slice(&bytes)
+                        .with_context(|| format!("invalid blind suite {}", suite.display()))?;
+                let report = suite.compare()?;
+                if let Some(path) = out {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&path, serde_json::to_vec_pretty(&report)?)?;
+                }
+                let passed = report.significant && report.delta_lower_95_bps >= min_delta_bps;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": passed,
+                            "report": report,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "blind {}: candidate={}bps baseline={}bps delta={}bps lower95={}bps wins={}/{}/{} significant={}",
+                        report.suite_id,
+                        report.candidate_bps,
+                        report.baseline_bps,
+                        report.delta_bps,
+                        report.delta_lower_95_bps,
+                        report.candidate_wins,
+                        report.baseline_wins,
+                        report.ties,
+                        report.significant
+                    );
+                }
+                if !passed {
+                    std::process::exit(1);
                 }
             }
             SkillCommand::ActivateIfPassed {
@@ -6325,6 +8294,7 @@ async fn main() -> Result<()> {
                 max_failure_bps,
                 max_p95_latency_ms,
                 apply,
+                state,
                 json,
             } => {
                 let metadata = std::fs::metadata(&samples)
@@ -6344,19 +8314,45 @@ async fn main() -> Result<()> {
                     max_failure_bps,
                     max_p95_latency_ms,
                 };
-                let mut canary = first_principles_agent::SkillCanary::start(
-                    &service,
-                    &name,
-                    &version,
-                    policy,
-                    current_time_ms(),
-                )?;
+                let mut canary = if let Some(path) = &state {
+                    match first_principles_agent::SkillCanary::load(path)? {
+                        Some(existing) => {
+                            if existing.name() != name || existing.version() != version {
+                                bail!(
+                                    "canary state at {} belongs to {}@{}, not {name}@{version}",
+                                    path.display(),
+                                    existing.name(),
+                                    existing.version()
+                                );
+                            }
+                            existing
+                        }
+                        None => first_principles_agent::SkillCanary::start(
+                            &service,
+                            &name,
+                            &version,
+                            policy,
+                            current_time_ms(),
+                        )?,
+                    }
+                } else {
+                    first_principles_agent::SkillCanary::start(
+                        &service,
+                        &name,
+                        &version,
+                        policy,
+                        current_time_ms(),
+                    )?
+                };
                 for sample in &samples {
                     canary.record(sample.success, sample.latency_ms)?;
                 }
                 let mut decision = canary.decision();
                 if apply {
                     decision = canary.apply(&mut service, current_time_ms())?;
+                }
+                if let Some(path) = &state {
+                    canary.save(path)?;
                 }
                 let state = canary.state().as_str();
                 if json {
@@ -6528,8 +8524,37 @@ async fn main() -> Result<()> {
                 store,
                 name,
                 version,
+                eval_report,
+                force,
                 json,
             } => {
+                if let Some(path) = &eval_report {
+                    let bytes =
+                        std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+                    let report: first_principles_agent::SkillEvalReport =
+                        serde_json::from_slice(&bytes)
+                            .with_context(|| format!("parse {}", path.display()))?;
+                    if !report.passed {
+                        bail!(
+                            "error: eval report for {name}@{version} did not pass\nnext: fix the skill or use --force"
+                        );
+                    }
+                    if report.skill != name || report.version != version {
+                        bail!(
+                            "error: eval report is for {}@{}, not {name}@{version}",
+                            report.skill,
+                            report.version
+                        );
+                    }
+                } else if !force {
+                    bail!(
+                        "error: activation requires a passing --eval-report or --force\nnext: 1agent skill eval --name {name} --version {version} --suite <suite> --out report.json"
+                    );
+                } else {
+                    eprintln!(
+                        "warning: activating {name}@{version} without a held-out eval report (--force)"
+                    );
+                }
                 let mut service = SkillService::open(&store)?;
                 service.activate(&name, &version, current_time_ms())?;
                 if json {
@@ -6575,6 +8600,10 @@ async fn main() -> Result<()> {
         },
         Command::Daemon {
             store,
+            run_ledger,
+            print_unit,
+            write_unit,
+            missed_run_skip_after_seconds,
             journal_dir,
             once,
             poll_seconds,
@@ -6605,6 +8634,10 @@ async fn main() -> Result<()> {
         } => {
             run_daemon(
                 store,
+                run_ledger,
+                print_unit,
+                write_unit,
+                missed_run_skip_after_seconds,
                 journal_dir,
                 once,
                 poll_seconds,
@@ -10560,6 +12593,221 @@ async fn main() -> Result<()> {
         Command::Provenance { command } => {
             handle_provenance(command)?;
         }
+        Command::Help { topic, all } => print_help(topic.as_deref(), all)?,
+        Command::Setup {
+            check,
+            probe,
+            non_interactive,
+            yes,
+            resume,
+            force,
+            root,
+            provider,
+            base_url,
+            model,
+            api_key_stdin,
+            api_key,
+            permission_preset,
+            workspace,
+            read_root,
+            skip_probe,
+            skip_smoke,
+            json,
+        } => {
+            if api_key.is_some() && api_key_stdin {
+                emit_cli_error(
+                    &SetupError::new(
+                        "setup.api_key_argv_forbidden",
+                        "--api-key and --api-key-stdin cannot be combined",
+                        "1agent setup --resume --api-key-stdin",
+                    ),
+                    json,
+                    2,
+                );
+            }
+            if api_key.is_some() {
+                emit_cli_error(
+                    &SetupError::new(
+                        "setup.api_key_argv_forbidden",
+                        "--api-key is not accepted by setup; use --api-key-stdin",
+                        "1agent setup --resume --api-key-stdin",
+                    ),
+                    json,
+                    2,
+                );
+            }
+            let mut provider =
+                provider.map(|value| match value.trim().to_ascii_lowercase().as_str() {
+                    "1" => "deepseek".to_string(),
+                    "2" => "openai-compatible".to_string(),
+                    "3" => "ollama".to_string(),
+                    _ => value,
+                });
+            let mut base_url = base_url;
+            let mut model = model;
+            let mut permission_preset = permission_preset;
+            let mut workspace = workspace;
+            let mut interactive_key = None;
+            let interactive = !check
+                && !non_interactive
+                && !yes
+                && std::io::stdin().is_terminal()
+                && std::io::stdout().is_terminal();
+            if interactive {
+                if provider.is_none() {
+                    provider = Some(prompt_provider()?);
+                }
+                let provider_name = provider
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                if provider_name == "openai-compatible" && base_url.is_none() {
+                    let value = prompt_line("Base URL (for example https://host/v1): ", "")?;
+                    if value.trim().is_empty() {
+                        bail!(
+                            "error: base URL is required\nnext: 1agent setup --resume --base-url https://..."
+                        );
+                    }
+                    base_url = Some(value);
+                }
+                if model.is_none() {
+                    let default = if provider_name == "deepseek" {
+                        "deepseek-chat"
+                    } else {
+                        ""
+                    };
+                    let value = prompt_line(&format!("Model [{default}]: "), default)?;
+                    if !value.trim().is_empty() {
+                        model = Some(value);
+                    }
+                }
+                let needs_key = matches!(
+                    provider_name.as_str(),
+                    "deepseek" | "openai-compatible" | "openai"
+                );
+                if needs_key && !api_key_stdin {
+                    let value = prompt_masked("API key (Enter to keep existing): ")?;
+                    if !value.trim().is_empty() {
+                        interactive_key = Some(value);
+                    }
+                }
+                if permission_preset.is_none() {
+                    let value = prompt_line(
+                        "Permissions [read-only/safe/full-local] (default safe): ",
+                        "safe",
+                    )?;
+                    permission_preset = Some(value);
+                }
+                if workspace.is_none() {
+                    let default = std::env::current_dir()?.display().to_string();
+                    let value = prompt_line(&format!("Workspace [{default}]: "), &default)?;
+                    workspace = Some(PathBuf::from(value));
+                }
+            }
+            let preset = match permission_preset.as_deref() {
+                None | Some("") => None,
+                Some(value) => match first_principles_agent::PermissionPreset::parse(value) {
+                    Some(preset) => Some(preset),
+                    None => emit_cli_error(
+                        &SetupError::new(
+                            "setup.invalid_permission_preset",
+                            format!("unknown permission preset '{value}'"),
+                            "use read-only, safe, or full-local",
+                        ),
+                        json,
+                        2,
+                    ),
+                },
+            };
+            let api_key = if api_key_stdin {
+                let mut key = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut key)
+                    .map_err(|error| anyhow::anyhow!("cannot read API key from stdin: {error}"))?;
+                Some(key)
+            } else {
+                interactive_key
+            };
+            let mut options = SetupOptions::new(root.unwrap_or_else(default_home));
+            options.check = check;
+            options.probe = probe;
+            options.non_interactive = non_interactive;
+            options.yes = yes;
+            options.resume = resume;
+            options.force = force;
+            options.provider = provider;
+            options.base_url = base_url;
+            options.model = model;
+            options.api_key = api_key;
+            options.permission_preset = preset;
+            options.workspace = workspace;
+            options.read_roots = read_root;
+            options.skip_probe = skip_probe;
+            options.skip_smoke = skip_smoke;
+            options.json = json;
+            match run_setup(options).await {
+                Ok(report) if report.ok => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "schema": CLI_SCHEMA,
+                                "ok": true,
+                                "data": report,
+                            }))?
+                        );
+                    } else {
+                        print_setup_report(&report);
+                    }
+                }
+                Ok(report) => {
+                    let error = SetupError::new(
+                        "setup.not_ready",
+                        "setup is not ready",
+                        report
+                            .next
+                            .clone()
+                            .unwrap_or_else(|| "1agent setup --resume".into()),
+                    )
+                    .with_details(json!({"checks": report.checks}));
+                    emit_cli_error(&error, json, 1);
+                }
+                Err(error) => {
+                    let exit = if is_setup_usage_error(error.code) {
+                        2
+                    } else {
+                        1
+                    };
+                    emit_cli_error(&error, json, exit);
+                }
+            }
+        }
+        Command::Status { root, json } => {
+            let root = root.unwrap_or_else(default_home);
+            let report = onboarding_status(&root);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_status_report(&report);
+            }
+            if !report.ok {
+                std::process::exit(1);
+            }
+        }
+        Command::Browser { command } => handle_browser(command).await?,
+        Command::Secret { command } => handle_secret(command)?,
+        Command::Permissions { command } => handle_permissions(command)?,
+        Command::Model { command } => handle_model(command).await?,
+        Command::Completions { shell } => match render_completions(&shell) {
+            Some(script) => print!("{script}"),
+            None => {
+                eprintln!("error: unsupported shell '{shell}'");
+                eprintln!("next: use bash, zsh, fish, powershell, or elvish");
+                std::process::exit(2);
+            }
+        },
+        Command::Man => print!("{MAN_PAGE}"),
         Command::Init { root, json } => {
             let root = root.unwrap_or_else(default_home);
             let outcome = init(&root, current_time_ms())?;
@@ -10584,6 +12832,22 @@ async fn main() -> Result<()> {
                     println!("{:?} {}: {}", check.status, check.id, check.detail);
                 }
                 println!("overall: {:?}", report.status);
+                let readiness = onboarding_status(&root);
+                if let Some(provider) = &readiness.provider {
+                    println!(
+                        "provider: {} / {} (credential: {})",
+                        provider.id, provider.model, provider.credential
+                    );
+                }
+                if let Some(permissions) = &readiness.permissions {
+                    println!(
+                        "permissions: {} (write: {}, network: {})",
+                        permissions.preset, permissions.allow_write, permissions.allow_network
+                    );
+                }
+                if let Some(next) = &readiness.next {
+                    println!("next: {next}");
+                }
             }
             if report.status == DoctorStatus::Fail {
                 std::process::exit(1);

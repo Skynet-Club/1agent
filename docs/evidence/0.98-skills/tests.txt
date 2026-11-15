@@ -1,0 +1,91 @@
+$ cargo test --offline --lib skill_
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 52 tests
+test skill_bundle::tests::import_rejects_bad_hashes_empty_bundles_and_unknown_schemas ... ok
+test skill_canary::tests::jsonl_samples_parse_and_fail_with_line_numbers ... ok
+test skill_bundle::tests::export_can_filter_by_name ... ok
+test skill_capture::tests::rejects_frontmatter_injection_in_metadata ... ok
+test skill_eval::tests::invalid_suites_and_empty_bodies_fail_closed ... ok
+test skill_journal::tests::read_only_journal_cannot_persist ... ok
+test skill_journal::tests::stale_writer_fails_closed ... ok
+test skill_eval::tests::runtime_eval_scores_held_out_outputs_without_storing_them ... ok
+test skill_journal::tests::tampered_skill_journal_fails_closed ... ok
+test skill_eval::tests::held_out_split_is_deterministic_and_both_sides_non_empty ... ok
+test skill_lock::tests::lock_pins_active_versions_and_detects_drift ... ok
+test skill_canary::tests::rejects_invalid_policy_and_unknown_version ... ok
+test skill::tests::parses_skill_markdown_and_indexes_without_body ... ok
+test skill_journal::tests::journal_persists_and_replays_registry_state ... ok
+test skill_canary::tests::canary_state_round_trips_across_invocations ... ok
+test skill_candidate::tests::failed_evaluation_cannot_activate_and_capture_is_bounded ... ok
+test skill_capture::tests::redacts_escaped_quotes_inside_secret_values ... ok
+test skill_bundle::tests::import_rejects_a_manifest_whose_declared_hash_does_not_match_its_body ... ok
+test skill_eval::tests::evaluates_required_and_forbidden_markers ... ok
+test skill_lock::tests::lock_rejects_duplicates_bad_hashes_and_inactive_entries ... ok
+test skill_candidate::tests::candidate_store_persists_across_restarts ... ok
+test skill_capture::tests::sanitizes_assignments_and_url_credentials ... ok
+test skill_bundle::tests::import_rejects_a_tampered_bundle ... ok
+test skill_capture::tests::refuses_a_run_without_a_completed_stop ... ok
+test skill_capture::tests::sanitizes_secret_named_keys_and_avoids_quadratic_collisions ... ok
+test skill_candidate::tests::captures_only_hashes_and_activation_requires_evaluation ... ok
+test audit::tests::audits_task_graph_memory_and_skill_and_rejects_tampering ... ok
+test skill_canary::tests::rolls_back_on_failures_and_restores_baseline ... ok
+test skill_sandbox::tests::rejects_symlink_escape_and_path_traversal ... ok
+test skill_validate::tests::valid_skill_directory_passes ... ok
+test skill_validate::tests::symlink_in_bundle_fails ... ok
+test skill_capture::tests::captures_a_completed_run_with_redaction_and_generalization ... ok
+test skill_capture::tests::refuses_a_run_without_successful_tools ... ok
+test skill_validate::tests::instruction_override_marker_is_rejected ... ok
+test skill_service::tests::failed_registration_leaves_the_journal_unchanged ... ok
+test skill_service::tests::disable_is_persisted ... ok
+test skill_eval::tests::blind_comparator_hides_arms_and_reports_a_significant_lift ... ok
+test skill_service::tests::routine_requires_an_active_exact_version_and_composes_the_task ... ok
+test skill_capture::tests::rejects_an_oversized_journal_before_reading_it ... ok
+test skill_canary::tests::promotes_after_enough_healthy_samples ... ok
+test skill_service::tests::activation_gate_requires_the_held_out_score ... ok
+test skill_canary::tests::rolls_back_on_latency_and_disables_without_baseline ... ok
+test skill_bundle::tests::import_preflights_every_manifest_before_writing_any_version ... ok
+test skill_service::tests::stale_writer_reloads_and_retry_succeeds ... ok
+test skill_bundle::tests::export_and_import_round_trip_and_skip_existing_versions ... ok
+test skill_service::tests::registry_survives_restart_and_rollback ... ok
+test surface_service::tests::surface_memory_skill_audit_and_message_handlers ... ok
+test skill_bundle::tests::signed_bundles_require_the_trusted_public_key_and_reject_tampering ... ok
+test skill_capture::tests::refuses_a_run_with_too_many_steps ... ok
+test skill_sandbox::tests::runs_a_script_without_home_network_or_writes ... ok
+test skill_sandbox::tests::output_limit_fails_closed ... ok
+test skill_sandbox::tests::timeout_kills_a_hung_script ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 968 filtered out; finished in 0.51s
+
+
+$ cargo test --offline --test skill_validate_cli
+   Compiling first-principles-agent v0.98.0-dev (/home/skynet/1-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running tests/skill_validate_cli.rs (target/debug/deps/skill_validate_cli-e8bfda65ee473397)
+
+running 7 tests
+test skill_list_is_empty_for_a_fresh_store ... ok
+test skill_validate_accepts_a_well_formed_directory ... ok
+test skill_validate_rejects_a_symlink_in_scripts ... ok
+test skill_run_script_uses_bwrap_and_rejects_traversal ... ok
+test skill_compare_reports_blind_lift_and_fails_a_tie ... ok
+test skill_activate_requires_eval_or_explicit_force ... ok
+test skill_lock_pins_the_active_set_and_rejects_drift ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+$ cargo test --offline --test skill_canary_cli
+   Compiling first-principles-agent v0.98.0-dev (/home/skynet/1-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/skill_canary_cli.rs (target/debug/deps/skill_canary_cli-0ebc43d8b52526cf)
+
+running 4 tests
+test too_few_samples_stay_pending_and_do_not_apply ... ok
+test healthy_samples_promote_the_candidate ... ok
+test failures_roll_back_to_the_baseline ... ok
+test malformed_samples_fail_with_the_line_number ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

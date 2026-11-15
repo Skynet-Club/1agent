@@ -618,28 +618,30 @@ Rejected outcomes; Verified outcomes are not surfaced.
   best-effort, no-key provider. Results are bounded and deduplicated; provider
   rate limits are reported as tool failures, not fabricated results.
 - MCP tools are discovered from stdio or streamable-HTTP servers configured
-  with `--mcp-config`. Exactly one of `command` or `url` is required. HTTP
-  requires HTTPS except for loopback, rejects credentials in the URL, carries
-  the `Mcp-Session-Id` returned by initialize on every later request, accepts
-  JSON or `text/event-stream` responses, and reads a
-  bearer token from the environment variable named by `bearer_token_env` or
-  from a 0600 regular non-symlink file named by `bearer_token_file` (never
-  both), and does not follow HTTP redirects. `timeout_seconds` (1..=300, default 20) bounds each
-  request and the tool execution timeout; responses are capped at 2 MiB
-  before further allocation (stdio lines are read in bounded chunks) and
-  non-UTF-8 bodies fail closed. Every MCP tool is write-gated: a server-provided
-  `readOnlyHint` is untrusted and cannot lower the local permission;
-  `destructiveHint: true` raises its risk. Stdio servers are started with a
-  cleared environment plus a minimal allowlist (`PATH`, `HOME`, `TMPDIR`,
-  locale) and the operator-supplied `env`, so they do not inherit provider
-  keys or tokens. The MCP server validates its own input schema; 1Agent owns
-  process, permission, timeout and journal bounds. Each MCP tool outcome records `mcp_server` and `mcp_tool`
-  metadata for the journal. `1agent mcp-token-exchange` obtains a short-lived
-  bearer token through an RFC 8693-style loopback/HTTPS exchange and writes it
-  to a new 0600 file for `bearer_token_file`; that file is refreshed manually.
-  `McpServerConfig.token_exchange` exchanges at HTTP spawn, keeps the token in
-  memory, refreshes within 30 seconds of expiry and re-exchanges once on a
-  401 response.
+  with `--mcp-config`. Exactly one of `command` or `url` is required. The
+  client probes modern 2026-07-28 via `server/discover` (modern version and
+  `_meta` on the probe itself) and falls back to legacy `initialize` versions.
+  Modern requests carry `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and
+  `_meta`; legacy requests carry `Mcp-Session-Id`. `x-mcp-header` arguments
+  are mirrored as `Mcp-Param-*` (raw printable ASCII or `=?base64?...?=`) and
+  header names are validated. HTTP requires HTTPS except for loopback, rejects
+  credentials in the URL, resolves public addresses for SSRF prevention,
+  accepts JSON or `text/event-stream`, and reads a bearer token from
+  `bearer_token_env` or a 0600 non-symlink file (never both), and does not
+  follow redirects. `timeout_seconds` (1..=300, default 20) bounds each
+  request; responses are capped at 2 MiB and non-UTF-8 bodies fail closed.
+  `pin_file` writes the canonical SHA-256 of every full tool definition on
+  first use and fails closed on any later add/remove/change. Arguments are
+  checked against a conservative JSON Schema subset before the call; the
+  remote server validates its full schema afterwards. Every MCP tool is
+  write-gated: `readOnlyHint` cannot lower local permission; `destructiveHint`
+  raises risk. Stdio servers get a cleared environment plus a minimal
+  allowlist (`PATH`, `HOME`, `TMPDIR`, locale) and the operator `env`, never
+  provider keys. OAuth 2.1 authorization-code + PKCE, RFC 8707 `resource`,
+  RFC 9207 `iss`, CIMD (`client_metadata_document`) and 0600 token files are
+  supported. Tasks are opt-in (`"tasks": true`): `tasks/get` is bounded to
+  120s/120 polls; MRTR and in-task `input_required` fail closed; `requestState`
+  is never echoed. Each outcome records `mcp_server` and `mcp_tool`.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, requested write/network
   permissions are intersected with the parent's (they can only restrict), and
@@ -707,7 +709,8 @@ Rejected outcomes; Verified outcomes are not surfaced.
   baseline, and pending leaves the active version unchanged. Samples are
   bounded at 100,000/16 MiB. `run --canary-sample PATH` appends one
   success/latency sample per run (success means `Completed`, no task text), so
-  real runs can feed the gate. The command does not persist canary state.
+  real runs can feed the gate. `--state PATH` persists canary progress across
+  invocations; without it the command is stateless.
 - `cua`: computer-use provenance and branch policy. An action's arguments are
   tagged `plan`, `trusted_observation` or `untrusted_observation`; a high-risk
   action with an untrusted argument is denied, other untrusted arguments
@@ -715,8 +718,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   The planner must not see untrusted content, and a branch target must be in
   the pre-approved plan (branch-steering guard). `CuaPlan` makes the lifecycle
   single-shot: actions are denied until the plan is frozen, the frozen branch
-  must match, and replanning after freeze is denied. This is policy only; no
-  browser execution.
+  must match, and replanning after freeze is denied. The `browser` tool uses
+  the same provenance/card primitives without a fixed branch list: buttons,
+  submits, cross-origin/download links, password entry and Enter create a
+  persistent 0600 card bound to the DOM descriptor/session/origin; a human
+  approves with `browser approve`, and the card is re-checked and consumed
+  once before the CDP action.
 - `team`: role/action/scope policy. Owner allows all; approver allows
   read+approve; member allows read+write; viewer allows read. Empty scopes mean
   all; a non-empty list must contain the requested scope. Unknown actors,

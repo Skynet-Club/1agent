@@ -27,6 +27,17 @@ pub enum SkillStatus {
     Superseded,
 }
 
+impl SkillStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Active => "active",
+            Self::Disabled => "disabled",
+            Self::Superseded => "superseded",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SkillManifest {

@@ -274,6 +274,28 @@ pub fn mark_run(
     })
 }
 
+/// Add deterministic per-job jitter (0..5% of the interval) after a run.
+/// The offset depends only on the job id, so it is stable across restarts.
+pub fn add_jitter(path: &Path, id: &str) -> Result<(), ScheduleError> {
+    update(path, |state| {
+        let job = state
+            .jobs
+            .iter_mut()
+            .find(|job| job.id == id)
+            .ok_or_else(|| ScheduleError::NotFound(id.to_string()))?;
+        let window = (u128::from(job.every_seconds) * 1_000 / 20).max(1);
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in job.id.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        job.next_run_ms = job
+            .next_run_ms
+            .saturating_add(u128::from(hash % window as u64));
+        Ok(())
+    })
+}
+
 /// Return a changed trigger timestamp, or `None` when the trigger is absent or
 /// has not changed since the last run.
 pub fn trigger_mtime(job: &ScheduleJob) -> Option<u128> {

@@ -100,6 +100,12 @@ pub enum ToolError {
     InvalidArguments(String),
     #[error("permission denied: {0}")]
     PermissionDenied(String),
+    #[error(
+        "approval required: {summary} (card {card_id}; run `1agent browser approve {card_id}`)"
+    )]
+    ApprovalRequired { card_id: String, summary: String },
+    #[error("interactive input required: {0}")]
+    InputRequired(String),
     #[error("tool timed out")]
     TimedOut,
     #[error("tool cancelled")]
@@ -115,6 +121,8 @@ impl ToolError {
         match self {
             Self::InvalidArguments(_) => "invalid_arguments",
             Self::PermissionDenied(_) => "permission_denied",
+            Self::ApprovalRequired { .. } => "approval_required",
+            Self::InputRequired(_) => "input_required",
             Self::TimedOut => "timed_out",
             Self::Cancelled => "cancelled",
             Self::Failed(_) => "tool_failed",
@@ -125,7 +133,9 @@ impl ToolError {
     pub fn status(&self) -> ToolStatus {
         match self {
             Self::InvalidArguments(_) => ToolStatus::InvalidArguments,
-            Self::PermissionDenied(_) => ToolStatus::PermissionDenied,
+            Self::PermissionDenied(_) | Self::ApprovalRequired { .. } | Self::InputRequired(_) => {
+                ToolStatus::PermissionDenied
+            }
             Self::TimedOut => ToolStatus::TimedOut,
             Self::Cancelled | Self::Failed(_) | Self::UnsafeContent(_) => ToolStatus::Failed,
         }
@@ -1105,6 +1115,7 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(Arc::new(FetchUrlTool));
     registry.register(Arc::new(WebSearchTool));
     registry.register(Arc::new(BrowserReadTool::from_env()));
+    registry.register(Arc::new(BrowserTool::new()));
     registry.register(Arc::new(SpawnAgentTool::new(
         std::env::current_exe().unwrap_or_else(|_| PathBuf::from("1agent")),
     )));
