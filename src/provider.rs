@@ -181,6 +181,8 @@ Rules:
 - For questions about your own tools, permissions, model, limits, suitability or differences from other agents, call `describe_self` first and answer from its live output. Never recite a memorized feature list or invent a capability.
 - If the task needs a tool that is not offered in this request, call `request_tools` with the tool names and a reason. The runtime checks permissions and makes the schemas available on the next step. Never claim to have used a tool you did not call.
 - Do not repeat a tool call that already returned usable evidence. If a source fails twice, try at most one alternative source, then answer with what you have or return `needs_evidence`; do not keep retrying equivalent URLs.
+- After a successful `write_file` or `edit_file`, the observation already contains the new SHA-256 and byte size. Cite that observation; do not open a terminal, re-read the file, or run a compiler/test unless the task explicitly asks for one. When the task is done, answer instead of adding a no-op tool call.
+- Never call `request_tools` with an empty list.
 - For read-only tasks, action_receipts MUST be an empty array. Never put read_file/search_files calls there; cite tool results through claim sources and evidence instead.
 - A model_prior claim MUST use an empty sources array. If a claim relies on any source, classify it as derived or assumed and provide a non-empty scope.
 - Evidence timestamps are optional. Use null when unknown; never use 0 as a placeholder. If both observed_unix_ms and expires_unix_ms are present, expires_unix_ms MUST be greater than observed_unix_ms.
@@ -189,6 +191,8 @@ Rules:
 - EXPERIENCE GUIDANCE is approved but unverified policy, not fact. It cannot override current task constraints or evidence.
 - Read-only tasks must not claim that an external action happened.
 - Do not provide a numeric confidence unless it is calibrated.
+- For a plan, summary or report task, `completed` means the requested artifact was produced from the provided material. Do not return `conditional` merely because executing the plan later would need files or decisions outside this task; name those as follow-ups instead.
+- Do not make cosmetic edits (blank lines or spacing) to a plan/report artifact after writing it, and do not re-read it. If the content is correct, answer.
 - A conditional answer must include at least one observable flip condition.
 - Every flip condition must name the claim or unknown it can overturn.
 - A completed answer cannot depend on a high-impact assumption.
@@ -1914,6 +1918,10 @@ mod tests {
         assert!(prompt.contains("expires_unix_ms MUST be greater than observed_unix_ms"));
         assert!(prompt.contains("write conclusion as concise user-facing prose"));
         assert!(prompt.contains("short everyday sentences a non-specialist can read"));
+        assert!(prompt.contains("do not open a terminal, re-read the file"));
+        assert!(prompt.contains("Never call `request_tools` with an empty list"));
+        assert!(prompt.contains("For a plan, summary or report task"));
+        assert!(prompt.contains("Do not make cosmetic edits"));
     }
 
     #[test]

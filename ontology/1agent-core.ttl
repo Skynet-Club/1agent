@@ -1,0 +1,389 @@
+@prefix one:  <https://1agent.dev/ontology/0.98#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<https://1agent.dev/ontology/0.98> a owl:Ontology ;
+    rdfs:label "1Agent ontology (1AO) draft" ;
+    owl:versionInfo "0.98-draft" ;
+    rdfs:comment "Lightweight semantic layer over 1Agent journals, sessions and squad registry. The journal remains the audit source." .
+
+# Core classes
+
+one:Agent a owl:Class ;
+    rdfs:subClassOf prov:Agent ;
+    rdfs:label "Agent" .
+
+one:HumanOperator a owl:Class ;
+    rdfs:subClassOf one:Agent ;
+    rdfs:label "Human operator" .
+
+one:SquadMember a owl:Class ;
+    rdfs:subClassOf one:Agent ;
+    rdfs:label "Squad member (bounded child agent)" .
+
+one:Session a owl:Class ;
+    rdfs:label "Session" .
+
+one:Run a owl:Class ;
+    rdfs:subClassOf prov:Activity ;
+    rdfs:label "Run" .
+
+one:Task a owl:Class ;
+    rdfs:label "Task" .
+
+one:Subtask a owl:Class ;
+    rdfs:subClassOf one:Task ;
+    rdfs:label "Subtask" .
+
+one:ToolInvocation a owl:Class ;
+    rdfs:subClassOf prov:Activity ;
+    rdfs:label "Tool invocation" .
+
+one:Observation a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Tool observation" .
+
+one:Answer a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Structured answer" .
+
+one:Claim a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Claim" .
+
+one:Evidence a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Evidence" .
+
+one:Assumption a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Assumption" .
+
+one:Unknown a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Unknown" .
+
+one:Conflict a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Conflict" .
+
+one:FlipCondition a owl:Class ;
+    rdfs:label "Flip condition" .
+
+one:Artifact a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Artifact" .
+
+one:Workspace a owl:Class ;
+    rdfs:label "Workspace" .
+
+one:PermissionSet a owl:Class ;
+    rdfs:label "Permission set" .
+
+one:AuthorityProfile a owl:Class ;
+    rdfs:label "Authority profile" .
+
+one:PolicyDecision a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Policy decision" .
+
+one:Approval a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Approval" .
+
+one:Checkpoint a owl:Class ;
+    rdfs:label "Checkpoint" .
+
+one:ProviderModel a owl:Class ;
+    rdfs:label "Provider model" .
+
+one:Usage a owl:Class ;
+    rdfs:label "Usage" .
+
+# Object properties
+
+one:partOfSession a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range one:Session .
+
+one:hasRun a owl:ObjectProperty ;
+    rdfs:domain one:Session ;
+    rdfs:range one:Run ;
+    owl:inverseOf one:partOfSession .
+
+one:executedBy a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range one:Agent ;
+    rdfs:subPropertyOf prov:wasAssociatedWith .
+
+one:hasTask a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range one:Task .
+
+one:hasPermission a owl:ObjectProperty ;
+    rdfs:domain one:Task ;
+    rdfs:range one:PermissionSet .
+
+one:generated a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range prov:Entity ;
+    rdfs:subPropertyOf prov:generated .
+
+one:used a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range prov:Entity ;
+    rdfs:subPropertyOf prov:used .
+
+one:wasGeneratedBy a owl:ObjectProperty ;
+    owl:inverseOf one:generated .
+
+one:hasEvidence a owl:ObjectProperty ;
+    rdfs:domain one:Answer ;
+    rdfs:range one:Evidence .
+
+one:hasClaim a owl:ObjectProperty ;
+    rdfs:domain one:Answer ;
+    rdfs:range one:Claim .
+
+one:supportsClaim a owl:ObjectProperty ;
+    rdfs:domain one:Evidence ;
+    rdfs:range one:Claim .
+
+one:contradictsClaim a owl:ObjectProperty ;
+    rdfs:domain one:Evidence ;
+    rdfs:range one:Claim .
+
+one:cites a owl:ObjectProperty ;
+    rdfs:domain one:Claim ;
+    rdfs:range prov:Entity .
+
+one:observedBy a owl:ObjectProperty ;
+    rdfs:domain one:Evidence ;
+    rdfs:range one:ToolInvocation .
+
+one:spawnedBy a owl:ObjectProperty ;
+    rdfs:domain one:SquadMember ;
+    rdfs:range one:ToolInvocation .
+
+one:parentOf a owl:ObjectProperty ;
+    rdfs:domain one:Agent ;
+    rdfs:range one:Agent .
+
+one:resumedFrom a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range one:Checkpoint .
+
+one:forkedFrom a owl:ObjectProperty ;
+    rdfs:domain one:Session ;
+    rdfs:range one:Session .
+
+one:authorizedBy a owl:ObjectProperty ;
+    rdfs:domain one:ToolInvocation ;
+    rdfs:range one:AuthorityProfile .
+
+one:decidedBy a owl:ObjectProperty ;
+    rdfs:domain one:PolicyDecision ;
+    rdfs:range one:Agent .
+
+one:approvedBy a owl:ObjectProperty ;
+    rdfs:domain one:Approval ;
+    rdfs:range one:HumanOperator .
+
+one:usedModel a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range one:ProviderModel .
+
+one:hasUsage a owl:ObjectProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range one:Usage .
+
+one:hasFlipCondition a owl:ObjectProperty ;
+    rdfs:domain one:Answer ;
+    rdfs:range one:FlipCondition .
+
+one:supersedes a owl:ObjectProperty ;
+    rdfs:domain prov:Entity ;
+    rdfs:range prov:Entity .
+
+# Datatype properties (selection)
+
+one:objective a owl:DatatypeProperty ;
+    rdfs:domain one:Task ;
+    rdfs:range xsd:string .
+
+one:conclusion a owl:DatatypeProperty ;
+    rdfs:domain one:Answer ;
+    rdfs:range xsd:string .
+
+one:claimText a owl:DatatypeProperty ;
+    rdfs:domain one:Claim ;
+    rdfs:range xsd:string .
+
+one:claimStatus a owl:DatatypeProperty ;
+    rdfs:domain one:Claim ;
+    rdfs:range xsd:string .
+
+one:sourceKind a owl:DatatypeProperty ;
+    rdfs:domain one:Evidence ;
+    rdfs:range xsd:string .
+
+one:sourceRef a owl:DatatypeProperty ;
+    rdfs:domain one:Evidence ;
+    rdfs:range xsd:string .
+
+one:statement a owl:DatatypeProperty ;
+    rdfs:domain one:Evidence ;
+    rdfs:range xsd:string .
+
+one:sha256 a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+one:path a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+one:status a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+one:hasOutcome a owl:DatatypeProperty ;
+    rdfs:domain one:Run ;
+    rdfs:range xsd:string .
+
+one:depth a owl:DatatypeProperty ;
+    rdfs:domain one:SquadMember ;
+    rdfs:range xsd:integer .
+
+one:processId a owl:DatatypeProperty ;
+    rdfs:domain one:SquadMember ;
+    rdfs:range xsd:integer ;
+    rdfs:comment "Runtime observation only; never an identity." .
+
+one:allowWrite a owl:DatatypeProperty ;
+    rdfs:domain one:PermissionSet ;
+    rdfs:range xsd:boolean .
+
+one:allowNetwork a owl:DatatypeProperty ;
+    rdfs:domain one:PermissionSet ;
+    rdfs:range xsd:boolean .
+
+one:inputTokens a owl:DatatypeProperty ;
+    rdfs:domain one:Usage ;
+    rdfs:range xsd:integer .
+
+one:outputTokens a owl:DatatypeProperty ;
+    rdfs:domain one:Usage ;
+    rdfs:range xsd:integer .
+
+one:costMicros a owl:DatatypeProperty ;
+    rdfs:domain one:Usage ;
+    rdfs:range xsd:integer .
+
+# Operational extension: actions, bindings, security, identity, commitments
+
+one:ActionType a owl:Class ;
+    rdfs:label "Action type" ;
+    rdfs:comment "A bounded operation over objects, including reversibility, risk and required authority." .
+
+one:ActionInvocation a owl:Class ;
+    rdfs:subClassOf prov:Activity ;
+    rdfs:label "Action invocation" .
+
+one:DataSource a owl:Class ;
+    rdfs:label "Data source" .
+
+one:DataBinding a owl:Class ;
+    rdfs:label "Data binding" ;
+    rdfs:comment "Maps an ontology type/property to a concrete journal, session or registry field." .
+
+one:AccessPolicy a owl:Class ;
+    rdfs:label "Access policy" .
+
+one:Purpose a owl:Class ;
+    rdfs:label "Purpose" .
+
+one:Commitment a owl:Class ;
+    rdfs:label "Commitment" .
+
+one:Delegation a owl:Class ;
+    rdfs:label "Delegation" .
+
+one:EntityAlias a owl:Class ;
+    rdfs:label "Entity alias" .
+
+one:ConfidenceAssertion a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Confidence assertion" .
+
+one:hasActionType a owl:ObjectProperty ;
+    rdfs:domain one:ActionInvocation ;
+    rdfs:range one:ActionType .
+
+one:invokesAction a owl:ObjectProperty ;
+    rdfs:domain one:ToolInvocation ;
+    rdfs:range one:ActionInvocation .
+
+one:boundTo a owl:ObjectProperty ;
+    rdfs:domain one:DataBinding ;
+    rdfs:range one:DataSource ;
+    rdfs:comment "Concrete source is identified by sourcePath/mappingVersion." .
+
+one:hasAccessPolicy a owl:ObjectProperty ;
+    rdfs:domain one:ActionType ;
+    rdfs:range one:AccessPolicy .
+
+one:hasPurpose a owl:ObjectProperty ;
+    rdfs:domain one:ActionInvocation ;
+    rdfs:range one:Purpose .
+
+one:delegatedBy a owl:ObjectProperty ;
+    rdfs:domain one:Delegation ;
+    rdfs:range one:Agent .
+
+one:delegatedTo a owl:ObjectProperty ;
+    rdfs:domain one:Delegation ;
+    rdfs:range one:Agent .
+
+one:aliasOf a owl:ObjectProperty ;
+    rdfs:domain one:EntityAlias ;
+    rdfs:range prov:Entity .
+
+one:mergedInto a owl:ObjectProperty ;
+    rdfs:domain prov:Entity ;
+    rdfs:range prov:Entity .
+
+one:hasPolicyDecision a owl:ObjectProperty ;
+    rdfs:domain one:ActionInvocation ;
+    rdfs:range one:PolicyDecision .
+
+one:commitmentState a owl:DatatypeProperty ;
+    rdfs:domain one:Commitment ;
+    rdfs:range xsd:string .
+
+one:confidence a owl:DatatypeProperty ;
+    rdfs:domain one:ConfidenceAssertion ;
+    rdfs:range xsd:decimal .
+
+one:confidenceSource a owl:DatatypeProperty ;
+    rdfs:domain one:ConfidenceAssertion ;
+    rdfs:range xsd:string .
+
+one:sourcePath a owl:DatatypeProperty ;
+    rdfs:domain one:DataBinding ;
+    rdfs:range xsd:string .
+
+one:mappingVersion a owl:DatatypeProperty ;
+    rdfs:domain one:DataBinding ;
+    rdfs:range xsd:string .
+
+one:sensitivity a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+one:validFrom a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+one:validTo a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+one:recordedAt a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .

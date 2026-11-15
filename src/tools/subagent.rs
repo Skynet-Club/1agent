@@ -14,6 +14,9 @@ use uuid::Uuid;
 
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
+use crate::subagent_registry::{
+    RegistryGuard, SUBAGENT_ROOT_PID_ENV, SubagentRecord, SubagentStatus,
+};
 
 const MAX_TASK_CHARS: usize = 8 * 1024;
 const MAX_DEPTH: u8 = 2;
@@ -226,6 +229,33 @@ impl AgentTool for SpawnAgentTool {
             .clamp(10, MAX_TIMEOUT_SECS);
         let workspace = resolve_workspace(&arguments, permissions).await?;
         let journal_dir = workspace.join(".1agent-subagent-journal");
+        let child_write = permissions.allow_write
+            && arguments
+                .get("allow_write")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+        let child_network = permissions.allow_network
+            && arguments
+                .get("allow_network")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+        let root_pid = std::env::var(SUBAGENT_ROOT_PID_ENV)
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or_else(std::process::id);
+        let mut registry = RegistryGuard::start(SubagentRecord::new(
+            format!("sub-{}", Uuid::new_v4()),
+            root_pid,
+            std::process::id(),
+            self.depth + 1,
+            task,
+            workspace.display().to_string(),
+            journal_dir.display().to_string(),
+            child_write,
+            child_network,
+            max_steps,
+            timeout_seconds,
+        ));
 
         let mut args = vec![
             "run".to_string(),
@@ -245,58 +275,90 @@ impl AgentTool for SpawnAgentTool {
             "--timeout-seconds".to_string(),
             timeout_seconds.to_string(),
         ];
-        let child_write = permissions.allow_write
-            && arguments
-                .get("allow_write")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-        let child_network = permissions.allow_network
-            && arguments
-                .get("allow_network")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
         if !child_write {
             args.push("--read-only".into());
         }
         if child_network {
             args.push("--allow-network".into());
         }
-        args.extend(provider_arguments()?);
+        match provider_arguments() {
+            Ok(arguments) => args.extend(arguments),
+            Err(error) => {
+                registry.finish(SubagentStatus::Failed, Some(error.to_string()));
+                return Err(error);
+            }
+        }
 
         let mut command = tokio::process::Command::new(&self.program);
         command
             .args(&args)
             .current_dir(&workspace)
             .env(DEPTH_ENV, (self.depth + 1).to_string())
+            .env(SUBAGENT_ROOT_PID_ENV, root_pid.to_string())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        let run = async {
-            let child = super::spawn_with_retry(&mut command).await?;
-            child.wait_with_output().await
+        let child = match super::spawn_with_retry(&mut command).await {
+            Ok(child) => child,
+            Err(error) => {
+                registry.finish(
+                    SubagentStatus::Failed,
+                    Some(format!("cannot start subagent: {error}")),
+                );
+                return Err(ToolError::Failed(format!(
+                    "cannot start subagent {}: {error}",
+                    self.program.display()
+                )));
+            }
         };
-        let output =
-            match tokio::time::timeout(Duration::from_secs(timeout_seconds + 20), run).await {
-                Ok(Ok(output)) => output,
-                Ok(Err(error)) => {
-                    return Err(ToolError::Failed(format!(
-                        "cannot start subagent {}: {error}",
-                        self.program.display()
-                    )));
-                }
-                Err(_) => return Err(ToolError::TimedOut),
-            };
+        if let Some(child_pid) = child.id() {
+            registry.running(child_pid);
+        }
+        let output = match tokio::time::timeout(
+            Duration::from_secs(timeout_seconds + 20),
+            child.wait_with_output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => output,
+            Ok(Err(error)) => {
+                registry.finish(
+                    SubagentStatus::Failed,
+                    Some(format!("cannot wait for subagent: {error}")),
+                );
+                return Err(ToolError::Failed(format!(
+                    "cannot start subagent {}: {error}",
+                    self.program.display()
+                )));
+            }
+            Err(_) => {
+                registry.finish(SubagentStatus::TimedOut, Some("subagent timed out".into()));
+                return Err(ToolError::TimedOut);
+            }
+        };
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            registry.finish(
+                SubagentStatus::Failed,
+                Some(format!("subagent exited {}", output.status)),
+            );
             return Err(ToolError::Failed(format!(
                 "subagent exited {}: {}",
                 output.status,
                 bounded(stderr.trim(), 2_000)
             )));
         }
-        let value: Value = serde_json::from_slice(&output.stdout)
-            .map_err(|error| ToolError::Failed(format!("invalid subagent JSON: {error}")))?;
+        let value: Value = match serde_json::from_slice(&output.stdout) {
+            Ok(value) => value,
+            Err(error) => {
+                registry.finish(
+                    SubagentStatus::Failed,
+                    Some(format!("invalid subagent JSON: {error}")),
+                );
+                return Err(ToolError::Failed(format!("invalid subagent JSON: {error}")));
+            }
+        };
         let conclusion = value
             .get("answer")
             .and_then(|answer| answer.get("conclusion"))
@@ -314,6 +376,10 @@ impl AgentTool for SpawnAgentTool {
             .unwrap_or("")
             .to_string();
         if stop_reason != "completed" {
+            registry.finish(
+                SubagentStatus::Failed,
+                Some(format!("subagent stopped with {stop_reason}")),
+            );
             return Err(ToolError::Failed(format!(
                 "subagent stopped with {stop_reason}: {}",
                 bounded(conclusion.lines().next().unwrap_or("no conclusion"), 500)
@@ -333,6 +399,10 @@ impl AgentTool for SpawnAgentTool {
                     .map_err(|error| ToolError::Failed(format!("subagent journal: {error}")))?;
                 let audit = crate::journal::audit_events(&events);
                 if !audit.ok {
+                    registry.finish(
+                        SubagentStatus::Failed,
+                        Some("subagent journal audit failed".into()),
+                    );
                     return Err(ToolError::Failed(format!(
                         "subagent journal audit failed: {}",
                         audit.issues.join("; ")
@@ -356,9 +426,13 @@ impl AgentTool for SpawnAgentTool {
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
         }
+        registry.finish(
+            SubagentStatus::Completed,
+            Some(bounded(conclusion.lines().next().unwrap_or("无结论"), 160)),
+        );
         Ok(ToolOutcome {
             summary: format!(
-                "子 Agent 完成：{}",
+                "队员完成：{}",
                 bounded(conclusion.lines().next().unwrap_or("无结论"), 160)
             ),
             content: content.to_string(),

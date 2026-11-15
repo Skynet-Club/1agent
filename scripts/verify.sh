@@ -11,6 +11,11 @@ cd "$project_dir"
 export TMPDIR="$HOME/.cache/1agent-tmp"
 mkdir -p "$TMPDIR"
 
+# Tests must not inherit a developer's ~/.1a config. A configured default
+# provider makes run/TUI tests non-hermetic and can call a live model.
+export ONEAGENT_HOME="${ONEAGENT_HOME:-$TMPDIR/oneagent-home}"
+mkdir -p "$ONEAGENT_HOME"
+
 cargo fmt --check
 cargo clippy --offline --all-targets -- -D warnings
 cargo test --offline

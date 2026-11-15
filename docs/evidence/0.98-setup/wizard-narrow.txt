@@ -1,0 +1,1 @@
+  ────────────────────────────────────             1 · A G E N T   EVIDENCE-ACCOUNTABLE AGENT RUNTIME        v0.98.0-dev · REAL WORLD      Welcome. Let's get started.      •  Pick a provider and model   •  Choose permissions & workspace       •  Run a short smoke test       Enter begin · Ctrl-C quit  ────────────────────────────────────Setup cancelled.

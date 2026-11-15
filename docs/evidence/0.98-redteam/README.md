@@ -20,7 +20,8 @@ not a claim of external audit or universal prompt-injection immunity.
 | MCP argument confusion | JSON Schema subset validation | `mcp_argument_schema_validation_fails_closed` | ✅ |
 | MCP HTTP SSRF | public-IP resolution before reqwest | `http_transport` + existing web resolver | ◐ (no dedicated MCP SSRF test yet) |
 | OAuth token passthrough | audience/resource binding; CIMD client id; RFC 9207 issuer validation | PKCE/CIMD/issuer tests | ◐ (no live AS test) |
-| Malicious skill symlink/path escape | validator rejects symlinks/oversize/injection markers | `src/skill_validate.rs`, `tests/skill_validate_cli.rs` | ✅ |
+| Malicious skill symlink/path escape | validator rejects symlinks/oversize/injection markers | `src/skill_validate.rs`, `tests/skill_validate_cli.rs`, `tests/skill_malicious_corpus.rs` | ✅ |
+| Malicious skill hidden instructions/secrets/bundle abuse | scanner rejects hidden format chars/secret tokens/injection; validator rejects oversize/nesting/symlink; URLs/scripts are warnings | `tests/skill_malicious_corpus.rs` (8 cases) | ✅ structural; adaptive corpus pending |
 | Skill activation without eval | activation gate or explicit `--force` | `tests/skill_validate_cli.rs` | ✅ |
 | Scheduled duplicate side effects | run ledger claim/reconcile, at-most-once | `src/schedule_ledger.rs` tests | ✅ |
 | Daemon crash mid-run | interrupted marker, no auto-retry | `tests/ledger_crash.rs` 100 child-process crashes | ✅ |
@@ -32,7 +33,11 @@ not a claim of external audit or universal prompt-injection immunity.
 2. Action cards are a consent/audit control; a model with terminal-write permission can invoke `browser approve`. W2 must run without terminal write.
 3. No bwrap/Landlock/seccomp browser wrapper; Chrome's own sandbox is preserved and `--no-sandbox` is never used. No screenshot masking for secret text fields.
 4. MCP MRTR/Tasks tests cover fail-closed input handling and URL origin redaction; no live AS/Tasks TTL abuse or third-party server evidence.
-5. No malicious-skill corpus beyond symlink/path/injection/script fixtures.
+5. Malicious-skill corpus now has 8 structural/adversarial fixtures
+   (`tests/skill_malicious_corpus.rs`): frontmatter injection, hidden
+   zero-width/bidi, secret-like token, oversize/nesting, asset symlink,
+   mutable URL warning, script warning. It is not an adaptive model-generated
+   corpus and is not an antivirus guarantee.
 6. No consolidated OWASP Agentic Top 10 / Agentic Skills Top 10 / MCP Top 10 report with confidence intervals.
 7. No independent third-party review for 0.98.
 

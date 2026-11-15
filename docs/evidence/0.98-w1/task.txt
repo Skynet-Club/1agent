@@ -1,0 +1,10 @@
+Read docs/evidence/0.98-w1/issue.md and fix it in this repository.
+
+Implement this bounded fix in src/onboarding.rs:
+1. Add a pure helper `fn select_model(explicit: Option<String>, configured: Option<String>, advertised: &[String]) -> Option<String>` that returns `explicit`, else `configured`, else `advertised.first().cloned()`.
+2. In `run_setup`, replace the non-deterministic model selection with `select_model(options.model.clone(), spec.model.clone(), &probed_models)`.
+3. After the model is chosen and before pushing the `model` check: if `!probed_models.is_empty()` and the chosen model is not in `probed_models`, then in `options.check` mode push `SetupCheck::new("model", SetupCheckStatus::Missing, format!("{model} is not advertised by the provider"))` and return `not_ready(root, checks)`; otherwise push the same detail with `SetupCheckStatus::Warn`. If it is advertised, keep the existing `Ok` check.
+4. Add `#[cfg(test)] mod tests` at the bottom of src/onboarding.rs with unit tests for the ordering: explicit wins; configured wins over the first advertised; first advertised is used when explicit and configured are absent; `None` when all are absent.
+5. Run `cargo fmt`, `cargo test --offline --lib onboarding`, `cargo test --offline --test setup_cli`, and `cargo clippy --offline --all-targets -- -D warnings`.
+
+Do not modify unrelated files. Do not commit, push, or tag. Report the changed files, the commands used, and the test output.

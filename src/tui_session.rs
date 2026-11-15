@@ -120,6 +120,7 @@ pub struct SessionSummary {
     pub archived: bool,
     pub runs: usize,
     pub modified_unix_ms: u128,
+    pub workspace: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -515,6 +516,7 @@ impl TuiSession {
                     .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
                     .map(|duration| duration.as_millis())
                     .unwrap_or_default(),
+                workspace: record.workspace,
             });
         }
         sessions.sort_by(|left, right| {

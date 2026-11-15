@@ -95,7 +95,7 @@ Keys:
 - `Enter`: lock the selected option; once every question is locked, `Enter`
   submits the batch;
 - `S` or space: skip the current question;
-- `Esc` or `Ctrl+C`: cancel the round;
+- `Esc`: pause the round; a second `Esc` (or `Ctrl+C`) cancels it;
 - selecting `Other` opens an inline editor; `Enter` validates and locks it,
   `Esc` leaves the editor; paste is single-line and capped at 500 characters.
 
@@ -374,7 +374,23 @@ section.
 - `Ctrl+V` pastes through the host clipboard anywhere; right-click pastes only when
   the pointer is inside the composer;
 - bracketed terminal paste is inserted as one edit and replaces a selection;
-- `Left`, `Right`, `Home` and `End` edit the current input;
+- `Left`, `Right`, `Home` and `End` edit the current input; `Left` on an
+  **empty** composer opens the session picker instead;
+- the session picker supports `Tab` to switch between `会话` and `分队 Agents`; only the text changes brightness, not the background,
+  `Up`/`Down`, `Enter`/`Right` to switch sessions, `n` new, `/` search,
+  `Ctrl+R` rename, `Ctrl+D` archive (twice to confirm), `Ctrl+A` show archived,
+  and `Esc`/`Left` to close; changing the selected row refreshes the right
+  preview immediately, with no preview key;
+- `Ctrl+G` opens the read-only `分队 Agents` tab from the main screen or a run;
+  it lists `spawn_agent` child processes and previews the newest child journal
+  every 500 ms. v1 does not stop, retry or attach to a child;
+- while a run is active, the composer still accepts editing; `Enter` queues the
+  message and the queue is submitted after the run ends; `Up` on an empty
+  composer recalls the newest queued message for editing;
+- `Enter` while paused resumes the run; a second `Esc` interrupts it;
+- `Ctrl+R` on an idle, empty composer resumes the last interrupted run from its
+  last checkpoint when one exists; without a checkpoint it reports that instead
+  of pretending to resume;
 - `PageUp`, `PageDown` and the mouse wheel scroll the transcript;
 - when scrolled away from the newest output, the activity area shows
   `↓ Back to bottom · esc`; new output changes it to
@@ -517,8 +533,18 @@ Ratatui while preserving all glyphs and hierarchy.
 Each bare TUI invocation starts a new session and prints its ID/continue command on exit.
 `--session <id>` reopens an explicit session (creating it if needed). Completed runs are associated
 with that session, and the transcript is reconstructed from their journals. New requests in a
-reopened session receive a bounded summary of recent user requests and answer conclusions as
-`known_facts`; the full journal remains the audit source.
+reopened session receive a bounded context pack (recent request, answer
+conclusion/status, up to three claims and evidence statements, and up to four
+tool summaries per turn, capped at 12k characters) as `known_facts`; the full
+journal remains the audit source. The picker (`Left` on an empty composer)
+lists sessions by recent activity, previews the last conclusion without
+loading raw tool output, and restores the full visible transcript on switch.
+
+The `分队 Agents` tab is fed by the local append-only
+`~/.cache/1agent-tmp/subagents/registry.jsonl` (0600) written by
+`spawn_agent`; records are filtered by the TUI process's `root_pid`. The child
+journal remains the audit source. Parent pause does not pause an already
+running child process.
 
 Session metadata is version 2 while version 1 remains readable. Each session also has an
 append-only `events.jsonl` with contiguous sequence numbers for host binding, accepted or

@@ -21,6 +21,13 @@ boundary remains until ADR-003 is accepted.
 - [`self-evolution.md`](self-evolution.md): L2 lifecycle, evidence and promotion rules.
 - [`product-boundary.md`](product-boundary.md): supported outcomes, non-goals and claim limits.
 - [`tui.md`](tui.md): terminal interaction contract, safety and current limitations.
+- [`0.98-session-interaction.md`](0.98-session-interaction.md): session picker,
+  follow-up context/queue, interrupt/resume and Super-Agent interaction boundaries.
+- [`super-agent-ontology.md`](super-agent-ontology.md): 1AO ontology, competency
+  questions, current-data mapping, migration phases and trade-off analysis;
+  machine-readable drafts in [`../ontology`](../ontology).
+- [`0.98.2-development-plan.md`](0.98.2-development-plan.md): Semantic Lineage
+  release plan (requirements → features → tasks → gates → evidence).
 - [`master-agent.md`](master-agent.md): Master-Agent contracts, commands, safety and live evidence.
 - [`master-multi-goal-production-line.md`](master-multi-goal-production-line.md): planned
   multi-Goal, multi-Master intake, supervision, dispatch and verification program.

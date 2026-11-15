@@ -1,16 +1,58 @@
+
+     Running tests/tool_search_cli.rs (target/debug/deps/tool_search_cli-cf65ff4c64c77894)
+
+running 2 tests
+test tool_search_human_output_contains_score ... ok
+test tool_search_ranks_name_and_description_matches ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/tools_e2e.rs (target/debug/deps/tools_e2e-1cec96813f10de48)
+
+running 1 test
+test tools_command_uses_runtime_registry_and_redacts_paths ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/trust_center_cli.rs (target/debug/deps/trust_center_cli-e73461cf3a33d359)
+
+running 8 tests
+test trust_center_rejects_an_inconsistent_incident_report ... ok
+test trust_center_rejects_invalid_evaluations ... ok
+test trust_center_discloses_third_party_audit_reports ... ok
+test trust_center_rejects_an_inconsistent_audit_report ... ok
+test trust_center_accepts_and_escapes_incident_reports ... ok
+test trust_center_writes_a_disclosure_with_evaluations ... ok
+test trust_center_writes_escaped_static_html ... ok
+test trust_center_includes_a_verification_summary ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/unit_economics_cli.rs (target/debug/deps/unit_economics_cli-28ab535956a86b63)
+
+running 2 tests
+test unit_economics_cli_reports_margin_and_break_even ... ok
+test unit_economics_cli_handles_losses_and_zero_revenue ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/user_model_cli.rs (target/debug/deps/user_model_cli-b5193a4bf229daa5)
+
+running 2 tests
+test user_model_cli_human_output_is_readable ... ok
 test user_model_cli_exposes_relationship_preferences ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
 
      Running tests/value_report_cli.rs (target/debug/deps/value_report_cli-86b3fc5937738b2e)
 
 running 4 tests
+test value_report_includes_open_handoffs ... ok
 test value_report_cli_reads_a_real_journal ... ok
 test value_report_cli_human_output_is_readable ... ok
-test value_report_includes_open_handoffs ... ok
 test value_report_includes_open_inbox_items ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
 
      Running tests/verification_store_cli.rs (target/debug/deps/verification_store_cli-d89d9aed840a8332)
 
@@ -25,23 +67,23 @@ running 2 tests
 test invalid_voice_mode_fails_closed ... ok
 test voice_mode_reaches_the_journaled_system_prompt ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
 
      Running tests/watchdog_cli.rs (target/debug/deps/watchdog_cli-42bd985c605a14bf)
 
 running 10 tests
 test watchdog_watch_rejects_a_sub_100ms_interval ... ok
+test watchdog_execute_refuses_a_command_mismatch ... ok
 test invalid_policy_thresholds_are_rejected ... ok
 test invalid_heartbeat_json_is_rejected ... ok
 test watchdog_watch_refuses_automatic_resume ... ok
-test watchdog_execute_refuses_a_command_mismatch ... ok
 test watchdog_execute_pauses_a_matching_process ... ok
-test missing_and_stale_heartbeats_fail ... ok
 test daemon_once_writes_a_fresh_heartbeat ... ok
+test missing_and_stale_heartbeats_fail ... ok
 test policy_escalates_and_records_only_transitions ... ok
 test watchdog_watch_pauses_once_and_keeps_watching ... ok
 
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
 
    Doc-tests first_principles_agent
 
@@ -76,5 +118,3 @@ mode              : structure only
 
 claims table is well-formed
 verification passed
-
-[exited with code 0]

@@ -8,10 +8,11 @@ Baseline: `0.98-dev`, package version `0.98.0-dev`
 
 ### Onboarding and CLI
 
-- `1agent setup` guided first run: provider menu, masked key, `/v1/models`
-  probe, model selection, permission preset, workspace, 30s smoke, doctor
-  summary. Idempotent, resumable, `--check`, `--non-interactive`,
-  `--api-key-stdin`; `--api-key` argv is rejected.
+- `1agent setup` guided first run: military-green 1AGENT ASCII welcome,
+  arrow-key provider/model/permissions/workspace menus, masked key,
+  `/v1/models` probe with a `not advertised` warning for the current model,
+  30s smoke, doctor summary. Idempotent, resumable, `--check`,
+  `--non-interactive`, `--api-key-stdin`; `--api-key` argv is rejected.
 - `1agent status` human/JSON projection.
 - 13 public commands; advanced commands behind `help advanced` / `help --all`.
 - `model list/show/use/test`, `permissions show/explain/set`.
@@ -68,6 +69,10 @@ Baseline: `0.98-dev`, package version `0.98.0-dev`
   read-only runtime/skill dir, tmpfs `/tmp`, dropped capabilities, timeout and
   output caps; bwrap absence fails closed.
 - Existing Ed25519 bundle signing and rollback preserved.
+- Malicious-skill corpus: 8 adversarial fixtures (frontmatter injection,
+  hidden zero-width/bidi instructions, secret-like tokens, oversized/nested
+  bundles, asset symlink, mutable external URL warning, script warning).
+  `scan_text` rejects invisible format characters; ZWJ is left alone for emoji.
 
 ### Daemon
 
@@ -92,9 +97,13 @@ real Chrome E2E                                    ✅ navigate/click/type/scree
 browser action cards + secret entry + fake confirm ✅ live Chrome, single-use approval
 100-cycle process-kill ledger matrix               ✅ 0 duplicate claims
 skill blind compare + lockfile + bwrap run-script  ✅ library + CLI tests
+skill malicious corpus                             ✅ 8/8 adversarial fixtures
+setup wizard PTY E2E                               ✅ fresh/unadvertised/masked/idempotent/cancel/narrow
+W1 real repository maintenance                     ✅ agent patch + independent tests/audit/replay
 per-gate evidence                                  ✅ docs/evidence/0.98-*
 MCP legacy + modern + pin + schema + Tasks/MRTR    ✅
 MCP real stdio/modern HTTP servers                 ✅ Codex conformance + skynet-prompt
+1h M1 (deepseek-flash)                             ✅ rerun3 239/240 = 99.58%, replay 100%, 0 crashes
 ```
 
 ## Known gaps (not release-ready)
@@ -111,10 +120,12 @@ MCP real stdio/modern HTTP servers                 ✅ Codex conformance + skyne
 3. Skill blind comparator/held-out split are library primitives, not yet a
    mandatory activation gate. `skill run-script` is explicit and sandboxed;
    skill scripts are never auto-executed.
-4. W1 needs a provider key; W2/W3 need the owner's real systems/accounts; no
-   consolidated adaptive red-team report yet.
-5. No 1h M1/8h model-quality soak/100-question rerun for 0.98; 0.97 evidence
-   is preserved. A deterministic local soak can still run.
+4. W1 is complete (`docs/evidence/0.98-w1/`); W2/W3 need the owner's real
+   systems/accounts; no consolidated adaptive red-team report yet.
+5. 1h M1 is green: rerun3 239/240 = 99.58%, completed replay 100%, 0 crashes
+   (`docs/evidence/m1-1h-2026-11-15-rerun3/`). The 8h soak and 100-question
+   rerun are not done. The M1 binary predates the TUI interaction changes;
+   `benchmark-run` does not use the TUI.
 6. Packaging/SBOM/attestations/release provenance and owner publication
    approval are pending; the tree is uncommitted.
 

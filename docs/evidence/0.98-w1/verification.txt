@@ -1,0 +1,254 @@
+=== 1. write legacy-model with skip-smoke ===
+{
+  "data": {
+    "checks": [
+      {
+        "detail": "openai-compatible (legacy-model)",
+        "id": "provider",
+        "status": "ok"
+      },
+      {
+        "detail": "runtime home initialized",
+        "id": "home",
+        "status": "ok"
+      },
+      {
+        "detail": "provider does not require a key",
+        "id": "credentials",
+        "status": "ok"
+      },
+      {
+        "detail": "2 model(s) advertised",
+        "id": "provider_probe",
+        "status": "ok"
+      },
+      {
+        "detail": "legacy-model is not advertised by the provider",
+        "id": "model",
+        "status": "warn"
+      },
+      {
+        "detail": "safe (write: true, network: false)",
+        "id": "permissions",
+        "status": "ok"
+      },
+      {
+        "detail": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/workspace",
+        "id": "workspace",
+        "status": "ok"
+      },
+      {
+        "detail": "--skip-smoke",
+        "id": "smoke",
+        "status": "skipped"
+      },
+      {
+        "detail": "overall: Ok",
+        "id": "doctor",
+        "status": "ok"
+      }
+    ],
+    "config": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/root/config.json",
+    "next": "1agent run --task \"...\"",
+    "ok": true,
+    "permissions": {
+      "allow_network": false,
+      "allow_write": true,
+      "preset": "safe",
+      "read_roots": [
+        "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/workspace"
+      ]
+    },
+    "provider": {
+      "adapter": "open_ai_compatible",
+      "credential": "not_required",
+      "id": "openai-compatible",
+      "model": "legacy-model"
+    },
+    "root": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/root"
+  },
+  "ok": true,
+  "schema": "1agent.cli/v1"
+}
+exit=0
+
+=== 2. check uses configured legacy-model and reports missing ===
+{
+  "error": {
+    "code": "setup.not_ready",
+    "details": {
+      "checks": [
+        {
+          "detail": "openai-compatible (legacy-model)",
+          "id": "provider",
+          "status": "ok"
+        },
+        {
+          "detail": "runtime home exists",
+          "id": "home",
+          "status": "ok"
+        },
+        {
+          "detail": "provider does not require a key",
+          "id": "credentials",
+          "status": "ok"
+        },
+        {
+          "detail": "2 model(s) advertised",
+          "id": "provider_probe",
+          "status": "ok"
+        },
+        {
+          "detail": "legacy-model is not advertised by the provider",
+          "id": "model",
+          "status": "missing"
+        }
+      ]
+    },
+    "message": "setup is not ready",
+    "next": "1agent setup --resume"
+  },
+  "ok": false,
+  "schema": "1agent.cli/v1"
+}
+exit=1
+
+=== 3. rerun without --model preserves legacy-model (warn, no silent switch) ===
+{
+  "data": {
+    "checks": [
+      {
+        "detail": "openai-compatible (legacy-model)",
+        "id": "provider",
+        "status": "ok"
+      },
+      {
+        "detail": "runtime home exists",
+        "id": "home",
+        "status": "ok"
+      },
+      {
+        "detail": "provider does not require a key",
+        "id": "credentials",
+        "status": "ok"
+      },
+      {
+        "detail": "2 model(s) advertised",
+        "id": "provider_probe",
+        "status": "ok"
+      },
+      {
+        "detail": "legacy-model is not advertised by the provider",
+        "id": "model",
+        "status": "warn"
+      },
+      {
+        "detail": "safe (write: true, network: false)",
+        "id": "permissions",
+        "status": "ok"
+      },
+      {
+        "detail": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/workspace",
+        "id": "workspace",
+        "status": "ok"
+      },
+      {
+        "detail": "--skip-smoke",
+        "id": "smoke",
+        "status": "skipped"
+      },
+      {
+        "detail": "overall: Ok",
+        "id": "doctor",
+        "status": "ok"
+      }
+    ],
+    "config": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/root/config.json",
+    "next": "1agent run --task \"...\"",
+    "ok": true,
+    "permissions": {
+      "allow_network": false,
+      "allow_write": true,
+      "preset": "safe",
+      "read_roots": [
+        "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/workspace"
+      ]
+    },
+    "provider": {
+      "adapter": "open_ai_compatible",
+      "credential": "not_required",
+      "id": "openai-compatible",
+      "model": "legacy-model"
+    },
+    "root": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/root"
+  },
+  "ok": true,
+  "schema": "1agent.cli/v1"
+}
+exit=0
+
+=== 4. explicit --model fake-model-b wins ===
+{
+  "error": {
+    "code": "setup.not_ready",
+    "details": {
+      "checks": [
+        {
+          "detail": "openai-compatible (fake-model-b)",
+          "id": "provider",
+          "status": "ok"
+        },
+        {
+          "detail": "runtime home exists",
+          "id": "home",
+          "status": "ok"
+        },
+        {
+          "detail": "provider does not require a key",
+          "id": "credentials",
+          "status": "ok"
+        },
+        {
+          "detail": "2 model(s) advertised",
+          "id": "provider_probe",
+          "status": "ok"
+        },
+        {
+          "detail": "fake-model-b",
+          "id": "model",
+          "status": "ok"
+        },
+        {
+          "detail": "safe (write: true, network: false)",
+          "id": "permissions",
+          "status": "ok"
+        },
+        {
+          "detail": "/home/skynet/.claude/jobs/e3b0c680/tmp/w1-verify/workspace",
+          "id": "workspace",
+          "status": "ok"
+        },
+        {
+          "detail": "config.json needs to be written or updated",
+          "id": "config",
+          "status": "missing"
+        },
+        {
+          "detail": "smoke task is unverified",
+          "id": "smoke",
+          "status": "warn"
+        },
+        {
+          "detail": "overall: Ok",
+          "id": "doctor",
+          "status": "ok"
+        }
+      ]
+    },
+    "message": "setup is not ready",
+    "next": "1agent setup --resume"
+  },
+  "ok": false,
+  "schema": "1agent.cli/v1"
+}
+exit=1

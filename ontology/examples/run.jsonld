@@ -1,0 +1,86 @@
+{
+  "@context": "../1agent-context.jsonld",
+  "@graph": [
+    {
+      "@id": "urn:1agent:session:ses_example",
+      "@type": "Session",
+      "status": "active"
+    },
+    {
+      "@id": "urn:1agent:run:5f0c8f0e-0000-4000-8000-000000000001",
+      "@type": ["Run", "prov:Activity"],
+      "partOfSession": {"@id": "urn:1agent:session:ses_example"},
+      "executedBy": {"@id": "urn:1agent:agent:deepseek-primary"},
+      "startedAt": "2026-11-15T12:35:00+08:00",
+      "hasOutcome": "completed",
+      "hasTask": {"@id": "urn:1agent:task:5f0c8f0e-0000-4000-8000-000000000001:main"},
+      "generated": {"@id": "urn:1agent:answer:5f0c8f0e-0000-4000-8000-000000000001"},
+      "used": [
+        {"@id": "urn:1agent:tool-call:5f0c8f0e-0000-4000-8000-000000000001:call-1"},
+        {"@id": "urn:1agent:artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ],
+      "hasUsage": {"@id": "urn:1agent:usage:5f0c8f0e-0000-4000-8000-000000000001"}
+    },
+    {
+      "@id": "urn:1agent:task:5f0c8f0e-0000-4000-8000-000000000001:main",
+      "@type": "Task",
+      "objective": "修复 setup 模型选择 bug",
+      "hasPermission": {
+        "@type": "PermissionSet",
+        "allowWrite": true,
+        "allowNetwork": false
+      }
+    },
+    {
+      "@id": "urn:1agent:tool-call:5f0c8f0e-0000-4000-8000-000000000001:call-1",
+      "@type": "ToolInvocation",
+      "executedBy": {"@id": "urn:1agent:agent:deepseek-primary"},
+      "startedAt": "2026-11-15T12:35:10+08:00",
+      "status": "ok"
+    },
+    {
+      "@id": "urn:1agent:answer:5f0c8f0e-0000-4000-8000-000000000001",
+      "@type": "Answer",
+      "status": "completed",
+      "conclusion": "configured model wins over the first advertised model; unadvertised model is not reported ready",
+      "hasClaim": [
+        {"@id": "urn:1agent:claim:5f0c8f0e-0000-4000-8000-000000000001:c1"}
+      ],
+      "hasEvidence": [
+        {"@id": "urn:1agent:evidence:5f0c8f0e-0000-4000-8000-000000000001:12:0"}
+      ]
+    },
+    {
+      "@id": "urn:1agent:claim:5f0c8f0e-0000-4000-8000-000000000001:c1",
+      "@type": "Claim",
+      "claimText": "configured model wins over the first advertised model",
+      "claimStatus": "verified",
+      "cites": [
+        {"@id": "urn:1agent:evidence:5f0c8f0e-0000-4000-8000-000000000001:12:0"}
+      ]
+    },
+    {
+      "@id": "urn:1agent:evidence:5f0c8f0e-0000-4000-8000-000000000001:12:0",
+      "@type": "Evidence",
+      "sourceKind": "file",
+      "sourceRef": "src/onboarding.rs",
+      "statement": "resolve_setup_model prefers configured model",
+      "observedAt": "2026-11-15T12:36:00+08:00",
+      "supportsClaim": {"@id": "urn:1agent:claim:5f0c8f0e-0000-4000-8000-000000000001:c1"}
+    },
+    {
+      "@id": "urn:1agent:artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "@type": "Artifact",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "src/onboarding.rs",
+      "wasGeneratedBy": {"@id": "urn:1agent:run:5f0c8f0e-0000-4000-8000-000000000001"}
+    },
+    {
+      "@id": "urn:1agent:usage:5f0c8f0e-0000-4000-8000-000000000001",
+      "@type": "Usage",
+      "inputTokens": 1024,
+      "outputTokens": 256,
+      "costMicros": 2800
+    }
+  ]
+}

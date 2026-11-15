@@ -54,7 +54,7 @@ claim produce 0 duplicate scheduled runs (`tests/ledger_crash.rs`).
 | Agentic — goal/instruction hijack | page text is untrusted; irreversible actions need human cards; no model-text authorization | partial |
 | Agentic — tool misuse | browser write gate, MCP schema/pinning, skill activation gate | tested at policy level |
 | Agentic — identity/privilege abuse | origin-bound secrets, Authority/Policy gate, read-only/safe/full-local presets | tested elsewhere (0.97 + 0.98 setup) |
-| Agentic Skills — supply chain | validator, content hash, Ed25519 bundles, lockfile, bwrap script sandbox | no adaptive corpus |
+| Agentic Skills — supply chain | validator, content hash, Ed25519 bundles, lockfile, bwrap script sandbox, 8-case malicious corpus | structural corpus green; adaptive corpus pending |
 | MCP — tool poisoning/rug pull | full-definition pinning, annotations cannot lower permissions | synthetic + local real servers |
 | MCP — token/SSRF | public-IP resolution, RFC 8707 resource, RFC 9207 iss, CIMD validation | no live AS test |
 

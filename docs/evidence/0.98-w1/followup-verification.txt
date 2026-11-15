@@ -1,0 +1,10 @@
+=== fresh DeepSeek with no --model (provider default must lose to advertised list) ===
+{"detail":"2 model(s) advertised","id":"provider_probe","status":"ok"}
+{"detail":"fake-model-a","id":"model","status":"ok"}
+
+=== existing configured legacy-model is preserved in --check ===
+{"detail":"legacy-model is not advertised by the provider","id":"model","status":"missing"}
+
+=== rerun without --model preserves legacy-model ===
+{"detail":"legacy-model is not advertised by the provider","id":"model","status":"warn"}
+persisted: legacy-model

@@ -1,0 +1,116 @@
+diff --git a/src/onboarding.rs b/src/onboarding.rs
+index 6d91de5..10d9cca 100644
+--- a/src/onboarding.rs
++++ b/src/onboarding.rs
+@@ -471,18 +471,7 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
+         // let a guessed `--model` produce a config that fails at run time.
+         spec.model.clone().or_else(|| Some("offline-v1".into()))
+     } else {
+-        options
+-            .model
+-            .clone()
+-            .or_else(|| probed_models.first().cloned())
+-            .or_else(|| spec.model.clone())
+-            .or_else(|| {
+-                existing_config
+-                    .as_ref()
+-                    .and_then(|config| config.default_provider())
+-                    .filter(|provider| provider.id == spec.id)
+-                    .map(|provider| provider.model.clone())
+-            })
++        select_model(options.model.clone(), spec.model.clone(), &probed_models)
+     };
+     let Some(model) = model.filter(|value| !value.trim().is_empty()) else {
+         if options.check {
+@@ -499,11 +488,20 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
+             "pass `--model <id>` or run with the provider reachable",
+         ));
+     };
+-    checks.push(SetupCheck::new(
+-        "model",
+-        SetupCheckStatus::Ok,
+-        model.clone(),
+-    ));
++    if !probed_models.is_empty() && !probed_models.iter().any(|advertised| advertised == &model) {
++        let detail = format!("{model} is not advertised by the provider");
++        if options.check {
++            checks.push(SetupCheck::new("model", SetupCheckStatus::Missing, detail));
++            return Ok(not_ready(root, checks));
++        }
++        checks.push(SetupCheck::new("model", SetupCheckStatus::Warn, detail));
++    } else {
++        checks.push(SetupCheck::new(
++            "model",
++            SetupCheckStatus::Ok,
++            model.clone(),
++        ));
++    }
+ 
+     let workspace = options
+         .workspace
+@@ -781,6 +779,19 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
+     })
+ }
+ 
++/// Pick the model id in the operator's order of preference: explicit `--model`,
++/// then the already configured model, then whatever the provider advertises
++/// first. Never lets an advertised model replace an existing choice.
++fn select_model(
++    explicit: Option<String>,
++    configured: Option<String>,
++    advertised: &[String],
++) -> Option<String> {
++    explicit
++        .or(configured)
++        .or_else(|| advertised.first().cloned())
++}
++
+ fn not_ready(root: PathBuf, checks: Vec<SetupCheck>) -> SetupReport {
+     not_ready_or_ready(root, checks)
+ }
+@@ -1361,3 +1372,45 @@ fn now_ms() -> u64 {
+ pub fn default_root() -> PathBuf {
+     default_home()
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::select_model;
++
++    fn advertised() -> Vec<String> {
++        vec!["fake-model-a".into(), "fake-model-b".into()]
++    }
++
++    #[test]
++    fn explicit_model_wins_over_configured_and_advertised() {
++        assert_eq!(
++            select_model(
++                Some("explicit-model".into()),
++                Some("configured-model".into()),
++                &advertised()
++            ),
++            Some("explicit-model".into())
++        );
++    }
++
++    #[test]
++    fn configured_model_wins_over_first_advertised() {
++        assert_eq!(
++            select_model(None, Some("configured-model".into()), &advertised()),
++            Some("configured-model".into())
++        );
++    }
++
++    #[test]
++    fn first_advertised_model_is_used_without_explicit_or_configured() {
++        assert_eq!(
++            select_model(None, None, &advertised()),
++            Some("fake-model-a".into())
++        );
++    }
++
++    #[test]
++    fn no_model_when_nothing_is_known() {
++        assert_eq!(select_model(None, None, &[]), None);
++    }
++}
