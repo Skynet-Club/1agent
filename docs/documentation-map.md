@@ -28,6 +28,8 @@ boundary remains until ADR-003 is accepted.
   machine-readable drafts in [`../ontology`](../ontology).
 - [`0.98.2-development-plan.md`](0.98.2-development-plan.md): Semantic Lineage
   release plan (requirements → features → tasks → gates → evidence).
+- [`0.98.2-plan-review.md`](0.98.2-plan-review.md): plan strengths/weaknesses,
+  scope options, kill criteria and solutions.
 - [`master-agent.md`](master-agent.md): Master-Agent contracts, commands, safety and live evidence.
 - [`master-multi-goal-production-line.md`](master-multi-goal-production-line.md): planned
   multi-Goal, multi-Master intake, supervision, dispatch and verification program.
