@@ -1,6 +1,6 @@
 # 1Agent / Super-Agent 本体方案（1AO）
 
-Status: **设计草案，待评审；尚未接入运行时**  
+Status: **P0 只读投影已实现；P1/P2 设计草案，待评审**  
 Date: 2026-11-16  
 Revision: industry/academic review incorporated (Palantir, Fabric, Netflix, LinkedIn, Uber, Atlas, W3C, GraphRAG, bitemporal)  
 Scope: 0.98 现有会话、运行、证据、分队与治理数据 → Super-Agent 的可查询语义层
@@ -25,6 +25,8 @@ journal / session.json / subagent registry        （事实层，唯一审计源
 - 先回答 16 个 competency questions，再决定要不要加图数据库或推理机。
 - 本体的价值是**语义、溯源、跨会话/跨 Agent 连接**；它不会让模型结论变真，也不会替代 JSON Schema。
 - **journal 仍是事实源**；本体是可重建的投影。导出失败不能影响运行。
+- 2026-11-16：P0 已落地为 `src/ontology/` 与 `1agent ontology`；只读、
+  确定性 JSON-LD、内部校验。动作/安全全链路与 SquadMember 父链仍是 P1。
 
 ## 0.1 国际实践与论文校准（2026-11 补充）
 

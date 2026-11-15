@@ -1,6 +1,6 @@
 # 1AO — 1Agent Ontology Draft
 
-Status: **draft, not wired into the runtime**
+Status: **draft, read-only projection implemented**
 
 This directory contains the machine-readable companion to
 [`docs/super-agent-ontology.md`](../docs/super-agent-ontology.md).
@@ -15,7 +15,8 @@ This directory contains the machine-readable companion to
 
 ## What is stable
 
-- Instance IRI rules and deterministic export are design targets, not yet code.
+- Instance IRI rules and deterministic export are implemented in `src/ontology/`
+  and exposed through `1agent ontology`. The registry/bindings are versioned.
 - `journal`, `session.json` and `subagent_registry.jsonl` remain the source of
   truth. The ontology is a read-only projection.
 - The namespace `https://1agent.dev/ontology/0.98#` is provisional; instances use

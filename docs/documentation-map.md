@@ -32,6 +32,8 @@ boundary remains until ADR-003 is accepted.
   scope options, kill criteria and solutions.
 - [`0.98.2-ontology-contracts.md`](0.98.2-ontology-contracts.md): frozen P0
   export/ID/validation contract and parallel file ownership.
+- [`0.99-goal-kernel-plan.md`](0.99-goal-kernel-plan.md): GoalKernel,
+  ActionRuntime and DelegationKernel plan after 0.98.2 acceptance.
 - [`master-agent.md`](master-agent.md): Master-Agent contracts, commands, safety and live evidence.
 - [`master-multi-goal-production-line.md`](master-multi-goal-production-line.md): planned
   multi-Goal, multi-Master intake, supervision, dispatch and verification program.
@@ -113,6 +115,8 @@ boundary remains until ADR-003 is accepted.
 - [`adr/0018-deterministic-global-scheduler.md`](adr/0018-deterministic-global-scheduler.md)
 - [`adr/0019-requirement-regression.md`](adr/0019-requirement-regression.md)
 - [`adr/0020-reframe-journal-events.md`](adr/0020-reframe-journal-events.md)
+- [`adr/0139-read-only-ontology-projection.md`](adr/0139-read-only-ontology-projection.md):
+  read-only 1AO JSON-LD projection, deterministic export and validation boundary.
 
 ## Current audits and release evidence
 
