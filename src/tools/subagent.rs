@@ -243,7 +243,7 @@ impl AgentTool for SpawnAgentTool {
             .ok()
             .and_then(|value| value.parse::<u32>().ok())
             .unwrap_or_else(std::process::id);
-        let mut registry = RegistryGuard::start(SubagentRecord::new(
+        let mut record = SubagentRecord::new(
             format!("sub-{}", Uuid::new_v4()),
             root_pid,
             std::process::id(),
@@ -255,7 +255,9 @@ impl AgentTool for SpawnAgentTool {
             child_network,
             max_steps,
             timeout_seconds,
-        ));
+        );
+        record.spawn_call_id = super::TOOL_CALL_ID.try_with(Clone::clone).ok();
+        let mut registry = RegistryGuard::start(record);
 
         let mut args = vec![
             "run".to_string(),
@@ -359,6 +361,9 @@ impl AgentTool for SpawnAgentTool {
                 return Err(ToolError::Failed(format!("invalid subagent JSON: {error}")));
             }
         };
+        if let Some(child_run_id) = value.get("run_id").and_then(Value::as_str) {
+            registry.set_child_run_id(child_run_id);
+        }
         let conclusion = value
             .get("answer")
             .and_then(|answer| answer.get("conclusion"))
@@ -455,6 +460,8 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::domain::ToolStatus;
+    use crate::tools::ToolRegistry;
 
     fn fake_program_with_stop(dir: &Path, stop_reason: &str) -> PathBuf {
         let path = dir.join("fake-1agent");
@@ -503,6 +510,52 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
         assert!(args.contains("--task"));
         assert!(args.contains("child task"));
         assert!(args.contains("--read-root"));
+    }
+
+    #[tokio::test]
+    async fn registry_records_spawn_call_and_child_run_lineage() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(std::sync::Arc::new(
+            SpawnAgentTool::new(program).with_depth(0),
+        ));
+        let call_id = format!("spawn-call-{}", Uuid::new_v4());
+        let observation = registry
+            .execute(
+                &crate::domain::ToolCall {
+                    id: call_id.clone(),
+                    name: "spawn_agent".into(),
+                    arguments: json!({
+                        "task": "child task",
+                        "workspace": workspace,
+                        "allow_write": false
+                    }),
+                },
+                &permissions(dir.path(), true),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok, "{observation:?}");
+
+        let expected_workspace = std::fs::canonicalize(&workspace)
+            .unwrap()
+            .display()
+            .to_string();
+        let registry_text =
+            std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        let record = registry_text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .filter(|record| record.workspace == expected_workspace)
+            .next_back()
+            .expect("spawned record");
+        assert_eq!(record.spawn_call_id.as_deref(), Some(call_id.as_str()));
+        assert_eq!(record.child_run_id.as_deref(), Some("child"));
+        assert!(record.parent_session_id.is_none());
+        assert!(record.parent_run_id.is_none());
     }
 
     #[tokio::test]

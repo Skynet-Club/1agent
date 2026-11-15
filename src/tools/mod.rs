@@ -13,6 +13,12 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::{PermissionSet, RiskLevel, ToolCall, ToolObservation, ToolSpec, ToolStatus};
 use crate::safety::contains_disallowed_control;
 
+tokio::task_local! {
+    /// Call id of the tool invocation currently being executed. Tools use it
+    /// to attach lineage to records they write (e.g. subagent spawning).
+    pub(crate) static TOOL_CALL_ID: String;
+}
+
 mod browser;
 mod delegation;
 mod documents;
@@ -319,15 +325,19 @@ impl ToolRegistry {
         }
 
         let future = tool.execute(call.arguments.clone(), permissions, cancellation);
-        let result = tokio::select! {
-            _ = cancellation.cancelled() => Err(ToolError::Cancelled),
-            result = tokio::time::timeout(tool.timeout(), future) => {
-                match result {
-                    Ok(result) => result,
-                    Err(_) => Err(ToolError::TimedOut),
+        let result = TOOL_CALL_ID
+            .scope(call.id.clone(), async {
+                tokio::select! {
+                    _ = cancellation.cancelled() => Err(ToolError::Cancelled),
+                    result = tokio::time::timeout(tool.timeout(), future) => {
+                        match result {
+                            Ok(result) => result,
+                            Err(_) => Err(ToolError::TimedOut),
+                        }
+                    }
                 }
-            }
-        };
+            })
+            .await;
 
         match result {
             Ok(outcome) => match bound_outcome(outcome) {
@@ -348,13 +358,27 @@ impl ToolRegistry {
                     started,
                 ),
             },
-            Err(error) => failure_observation(
-                call,
-                error.status(),
-                error.code(),
-                error.to_string(),
-                started,
-            ),
+            Err(error) => {
+                let mut observation = failure_observation(
+                    call,
+                    error.status(),
+                    error.code(),
+                    error.to_string(),
+                    started,
+                );
+                if let ToolError::ApprovalRequired { card_id, summary } = &error {
+                    observation
+                        .metadata
+                        .insert("approval_card_id".into(), card_id.clone());
+                    observation
+                        .metadata
+                        .insert("policy_outcome".into(), "require_approval".into());
+                    observation
+                        .metadata
+                        .insert("policy_reason".into(), summary.clone());
+                }
+                observation
+            }
         }
     }
 }
@@ -709,12 +733,11 @@ impl AgentTool for ReadFileTool {
             .read_to_end(&mut bytes)
             .await
             .map_err(|error| ToolError::Failed(format!("cannot read file: {error}")))?;
+        let truncated = file_metadata.len() > args.max_bytes as u64;
+        let sha256 = (!truncated).then(|| hex::encode(Sha256::digest(&bytes)));
         let content = match String::from_utf8(bytes) {
             Ok(content) => content,
-            Err(error)
-                if file_metadata.len() > args.max_bytes as u64
-                    && error.utf8_error().error_len().is_none() =>
-            {
+            Err(error) if truncated && error.utf8_error().error_len().is_none() => {
                 let valid_up_to = error.utf8_error().valid_up_to();
                 let bytes = error.into_bytes();
                 String::from_utf8(bytes[..valid_up_to].to_vec())
@@ -735,10 +758,10 @@ impl AgentTool for ReadFileTool {
         let mut metadata = BTreeMap::new();
         metadata.insert("relative_path".into(), relative.clone());
         metadata.insert("bytes_read".into(), content.len().to_string());
-        metadata.insert(
-            "truncated".into(),
-            (file_metadata.len() > args.max_bytes as u64).to_string(),
-        );
+        metadata.insert("truncated".into(), truncated.to_string());
+        if let Some(sha256) = sha256 {
+            metadata.insert("sha256".into(), sha256);
+        }
         Ok(ToolOutcome {
             summary: format!("read {relative} ({} bytes)", content.len()),
             content,
@@ -898,7 +921,7 @@ impl AgentTool for SearchFilesTool {
             max_file_bytes: args.max_file_bytes,
             max_depth: args.max_depth,
         };
-        let summary = tokio::task::spawn_blocking(move || {
+        let (summary, sha256) = tokio::task::spawn_blocking(move || {
             search_path(&canonical, &root, &search, &cancellation)
         })
         .await
@@ -906,6 +929,14 @@ impl AgentTool for SearchFilesTool {
         let content = serde_json::to_string(&summary).map_err(|error| {
             ToolError::Failed(format!("cannot serialize search result: {error}"))
         })?;
+        let mut metadata = BTreeMap::from([
+            ("files_scanned".into(), summary.files_scanned.to_string()),
+            ("skipped_unsafe".into(), summary.skipped_unsafe.to_string()),
+            ("truncated".into(), summary.truncated.to_string()),
+        ]);
+        if let Some(sha256) = sha256 {
+            metadata.insert("sha256".into(), sha256);
+        }
         Ok(ToolOutcome {
             summary: if list_only {
                 format!(
@@ -930,11 +961,7 @@ impl AgentTool for SearchFilesTool {
                 )
             },
             content,
-            metadata: BTreeMap::from([
-                ("files_scanned".into(), summary.files_scanned.to_string()),
-                ("skipped_unsafe".into(), summary.skipped_unsafe.to_string()),
-                ("truncated".into(), summary.truncated.to_string()),
-            ]),
+            metadata,
         })
     }
 }
@@ -952,13 +979,14 @@ fn search_path(
     root: &Path,
     search: &SearchPolicy,
     cancellation: &CancellationToken,
-) -> Result<SearchSummary, ToolError> {
+) -> Result<(SearchSummary, Option<String>), ToolError> {
     let mut summary = SearchSummary {
         hits: Vec::new(),
         files_scanned: 0,
         skipped_unsafe: 0,
         truncated: false,
     };
+    let mut read_sha256 = Vec::new();
     let mut pending = vec![(start.to_path_buf(), 0usize)];
     let mut files_visited = 0usize;
     while let Some((path, depth)) = pending.pop() {
@@ -1028,6 +1056,7 @@ fn search_path(
         let bytes = std::fs::read(&path).map_err(|error| {
             ToolError::Failed(format!("cannot read {}: {error}", path.display()))
         })?;
+        let sha256 = hex::encode(Sha256::digest(&bytes));
         let content = match String::from_utf8(bytes) {
             Ok(content) => content,
             Err(_) => continue,
@@ -1036,6 +1065,7 @@ fn search_path(
             summary.skipped_unsafe += 1;
             continue;
         }
+        read_sha256.push(sha256);
         summary.files_scanned += 1;
         for (line_index, line) in content.lines().enumerate() {
             if summary.hits.len() >= search.max_results {
@@ -1062,7 +1092,12 @@ fn search_path(
             }
         }
     }
-    Ok(summary)
+    let sha256 = if read_sha256.len() == 1 {
+        read_sha256.pop()
+    } else {
+        None
+    };
+    Ok((summary, sha256))
 }
 
 fn is_generated_directory(path: &Path) -> bool {
@@ -1184,6 +1219,39 @@ mod tests {
                     content: "content".into(),
                     metadata: BTreeMap::new(),
                 },
+            })
+        }
+    }
+
+    struct ApprovalOnlyTool;
+
+    #[async_trait]
+    impl AgentTool for ApprovalOnlyTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "approval_only".into(),
+                description: "test-only approval-required tool".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::High
+        }
+
+        async fn execute(
+            &self,
+            _arguments: Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<ToolOutcome, ToolError> {
+            Err(ToolError::ApprovalRequired {
+                card_id: "card-42".into(),
+                summary: "click pay".into(),
             })
         }
     }
@@ -1346,6 +1414,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn approval_required_observation_keeps_card_lineage_metadata() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(ApprovalOnlyTool));
+        let observation = registry
+            .execute(
+                &ToolCall {
+                    id: "approval-1".into(),
+                    name: "approval_only".into(),
+                    arguments: serde_json::json!({}),
+                },
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("approval_required"));
+        assert_eq!(observation.metadata["approval_card_id"], "card-42");
+        assert_eq!(observation.metadata["policy_outcome"], "require_approval");
+        assert_eq!(observation.metadata["policy_reason"], "click pay");
+    }
+
+    #[tokio::test]
     async fn reads_file_inside_allowed_root() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("evidence.txt");
@@ -1361,6 +1451,10 @@ mod tests {
         assert_eq!(observation.status, ToolStatus::Ok);
         assert_eq!(observation.content, "verified evidence");
         assert_eq!(observation.metadata["truncated"], "false");
+        assert_eq!(
+            observation.metadata["sha256"],
+            hex::encode(Sha256::digest(b"verified evidence"))
+        );
     }
 
     #[tokio::test]
@@ -1405,6 +1499,7 @@ mod tests {
         assert_eq!(observation.status, ToolStatus::Ok);
         assert_eq!(observation.content, "第");
         assert_eq!(observation.metadata["truncated"], "true");
+        assert!(!observation.metadata.contains_key("sha256"));
     }
 
     #[tokio::test]
@@ -1464,6 +1559,35 @@ mod tests {
         assert_eq!(summary.hits.len(), 1);
         assert_eq!(summary.hits[0].path, "evidence.txt");
         assert_eq!(summary.hits[0].line, 2);
+        assert_eq!(
+            observation.metadata["sha256"],
+            hex::encode(Sha256::digest(b"alpha\nbeta first-principles\n"))
+        );
+    }
+
+    #[tokio::test]
+    async fn search_omits_sha256_when_multiple_files_were_read() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "alpha first-principles\n").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "beta first-principles\n").unwrap();
+        let permissions = PermissionSet {
+            read_roots: vec![dir.path().to_path_buf()],
+            allow_network: false,
+            allow_write: false,
+        };
+        let observation = default_registry()
+            .execute(
+                &ToolCall {
+                    id: "search-many".into(),
+                    name: "search_files".into(),
+                    arguments: serde_json::json!({"query":"first-principles"}),
+                },
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok);
+        assert!(!observation.metadata.contains_key("sha256"));
     }
 
     #[tokio::test]
