@@ -97,6 +97,10 @@ pub fn commitment_id(id: &str) -> String {
     ids::commitment_id(id)
 }
 
+pub fn squad_member_id(run: &str, call: &str) -> String {
+    ids::squad_member_id(run, call)
+}
+
 pub fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
