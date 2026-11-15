@@ -67,6 +67,7 @@ pub mod metrics;
 pub mod net_policy;
 pub mod notify;
 pub mod onboarding;
+pub mod ontology;
 pub mod ops_guard;
 pub mod org_audit;
 pub mod otel;
