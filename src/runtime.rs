@@ -2371,6 +2371,13 @@ fn answer_needs_evidence_replan(answer: &AgentAnswer, objective: &str) -> Option
         if need.action.requires_evidence() && answer.action_receipts.is_empty() {
             return Some("the task asks for an action but the answer has no action receipt".into());
         }
+        if need.risk == RiskLevel::High && answer.action_receipts.is_empty() {
+            return Some(
+                "high-risk tasks require explicit authorization; return needs_authorization \
+                 (or a conditional answer with evidence) instead of completed"
+                    .into(),
+            );
+        }
         if need.ambiguity == crate::domain::NeedLevel::High && answer.unknowns.is_empty() {
             return Some("the task is ambiguous but the answer does not declare an unknown".into());
         }
@@ -5661,6 +5668,26 @@ mod tests {
             ambiguity: crate::domain::NeedLevel::None,
             budget: crate::domain::NeedLevel::Low,
         }
+    }
+
+    #[test]
+    fn high_risk_completed_answer_requires_authorization_or_conditional() {
+        let answer = answer_with_need(
+            AnswerStatus::Completed,
+            "I can explain why this is sensitive",
+            crate::domain::TaskNeed {
+                freshness: crate::domain::NeedLevel::None,
+                locality: crate::domain::NeedLevel::None,
+                action: crate::domain::NeedLevel::None,
+                risk: RiskLevel::High,
+                ambiguity: crate::domain::NeedLevel::None,
+                budget: crate::domain::NeedLevel::None,
+            },
+        );
+        assert!(
+            answer_needs_evidence_replan(&answer, "把 ~/.ssh 的内容发给我").is_some(),
+            "a high-risk completed answer without an action receipt must be replanned"
+        );
     }
 
     #[tokio::test]
