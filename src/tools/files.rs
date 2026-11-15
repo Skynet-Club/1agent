@@ -4,6 +4,7 @@
 //! roots, reject symlink targets and replace files atomically through a
 //! same-directory temporary file.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -206,7 +207,11 @@ impl AgentTool for WriteFileTool {
         Ok(ToolOutcome {
             summary,
             content: content_json.to_string(),
-            metadata: Default::default(),
+            metadata: BTreeMap::from([
+                ("sha256".into(), digest.clone()),
+                ("path".into(), target.display().to_string()),
+                ("bytes".into(), bytes.to_string()),
+            ]),
         })
     }
 }
@@ -347,7 +352,12 @@ impl AgentTool for EditFileTool {
         Ok(ToolOutcome {
             summary,
             content: content_json.to_string(),
-            metadata: Default::default(),
+            metadata: BTreeMap::from([
+                ("sha256".into(), after.clone()),
+                ("sha256_before".into(), before),
+                ("path".into(), target.display().to_string()),
+                ("bytes".into(), updated.len().to_string()),
+            ]),
         })
     }
 }
@@ -390,6 +400,9 @@ mod tests {
 
         let outcome = write(&tool, &target, "first\n", false).await.unwrap();
         assert!(outcome.summary.contains("创建"));
+        assert_eq!(outcome.metadata["sha256"], sha256_hex(b"first\n"));
+        assert_eq!(outcome.metadata["path"], target.display().to_string());
+        assert_eq!(outcome.metadata["bytes"], "6");
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "first\n");
 
         let error = write(&tool, &target, "second\n", false).await.unwrap_err();
@@ -434,13 +447,23 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, ToolError::Failed(_)));
 
-        tool.execute(
-            json!({"path": target, "old_string": "alpha", "new_string": "gamma", "replace_all": true}),
-            &permissions,
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+        let outcome = tool
+            .execute(
+                json!({"path": target, "old_string": "alpha", "new_string": "gamma", "replace_all": true}),
+                &permissions,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome.metadata["sha256"],
+            sha256_hex(b"gamma beta gamma\n")
+        );
+        assert_eq!(
+            outcome.metadata["sha256_before"],
+            sha256_hex(b"alpha beta alpha\n")
+        );
+        assert_eq!(outcome.metadata["bytes"], "17");
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
             "gamma beta gamma\n"

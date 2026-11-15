@@ -758,6 +758,7 @@ impl AgentTool for ReadFileTool {
         let mut metadata = BTreeMap::new();
         metadata.insert("relative_path".into(), relative.clone());
         metadata.insert("bytes_read".into(), content.len().to_string());
+        metadata.insert("bytes".into(), content.len().to_string());
         metadata.insert("truncated".into(), truncated.to_string());
         if let Some(sha256) = sha256 {
             metadata.insert("sha256".into(), sha256);
