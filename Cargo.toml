@@ -1,6 +1,6 @@
 [package]
 name = "first-principles-agent"
-version = "0.97.0"
+version = "0.98.0-dev"
 default-run = "first-principles-agent"
 edition = "2024"
 description = "Evidence-accountable, provider-neutral decision agent"
@@ -9,7 +9,9 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.104"
 async-trait = "0.1.92"
+base64 = "0.22.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
+clap_complete = "4.6.11"
 crossterm = { version = "0.29.0", features = ["bracketed-paste", "event-stream"] }
 futures-util = "0.3.34"
 hex = "0.4.3"
@@ -24,6 +26,7 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 tokio = { version = "1.53.1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7.20", features = ["rt"] }
+tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["connect", "handshake"] }
 unicode-segmentation = "1.12.0"
 unicode-width = "0.2.2"
 uuid = { version = "1.29.0", features = ["serde", "v4"] }

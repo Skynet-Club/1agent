@@ -13,7 +13,7 @@ fn tools_command_uses_runtime_registry_and_redacts_paths() {
     );
     let capabilities: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let capabilities = capabilities.as_array().unwrap();
-    assert_eq!(capabilities.len(), 22);
+    assert_eq!(capabilities.len(), 23);
     let find = |name: &str| {
         capabilities
             .iter()
@@ -50,6 +50,7 @@ fn tools_command_uses_runtime_registry_and_redacts_paths() {
         "delegation_register",
         "delegation_revoke",
         "spawn_agent",
+        "browser",
     ] {
         let capability = find(name);
         assert_eq!(capability["status"], "implemented");

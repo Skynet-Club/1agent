@@ -102,6 +102,13 @@ mkdir -p "$package_root/docs"
 find "$package_root" -type d -exec chmod 0755 {} +
 find "$package_root" -type f -exec chmod 0644 {} +
 chmod 0755 "$linux_dir/1agent" "$package_root/scripts/install.sh"
+mkdir -p "$package_root/share/completions" "$package_root/share/man/man1"
+"$linux_dir/1agent" completions bash > "$package_root/share/completions/1agent.bash"
+"$linux_dir/1agent" completions zsh > "$package_root/share/completions/_1agent"
+"$linux_dir/1agent" completions fish > "$package_root/share/completions/1agent.fish"
+"$linux_dir/1agent" completions powershell > "$package_root/share/completions/1agent.ps1"
+"$linux_dir/1agent" completions elvish > "$package_root/share/completions/1agent.elv"
+"$linux_dir/1agent" man > "$package_root/share/man/man1/1agent.1"
 if ! $linux_only; then
   chmod 0644 "$windows_dir/1agent.exe"
 fi

@@ -135,3 +135,10 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0129 | Chat Fast Path and Tool-Free Direct Answers | [0129-chat-fast-path.md](0129-chat-fast-path.md) |
 | 0130 | Intelligent Loop: Live Self Model, Dynamic Tools and Evidence Re-planning | [0130-intelligent-loop-self-model-and-dynamic-tools.md](0130-intelligent-loop-self-model-and-dynamic-tools.md) |
 | 0131 | Safety Review Fixes for Approval, MCP, Subagents and Resume | [0131-safety-review-fixes.md](0131-safety-review-fixes.md) |
+| 0132 | CLI Information Architecture and Public/Advanced Split | [0132-cli-information-architecture.md](0132-cli-information-architecture.md) |
+| 0133 | Setup State Machine, Config v2 and Secret Input | [0133-setup-state-config-and-secrets.md](0133-setup-state-config-and-secrets.md) |
+| 0134 | Permission Presets | [0134-permission-presets.md](0134-permission-presets.md) |
+| 0135 | Browser Sandbox and Verifiable Action Cards | [0135-browser-sandbox-and-action-cards.md](0135-browser-sandbox-and-action-cards.md) |
+| 0136 | Durable Scheduled-Run Ledger and Supervision | [0136-durable-scheduled-run-ledger.md](0136-durable-scheduled-run-ledger.md) |
+| 0137 | MCP Dual-Era Transport, OAuth/CIMD and Tasks/MRTR Gating | [0137-mcp-dual-era-auth-and-tasks.md](0137-mcp-dual-era-auth-and-tasks.md) |
+| 0138 | Skill Evaluation, Lockfile and Script Sandbox | [0138-skill-evaluation-lock-and-sandbox.md](0138-skill-evaluation-lock-and-sandbox.md) |

@@ -18,11 +18,12 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 当前版本 **0.97.0**（2026-11-14 更新），R1 release candidate，不是完成品；欢迎测试、反馈和共建。  
-> 本版重点：AG-23 智能闭环（`describe_self`/`request_tools`/证据再规划）；≤1h 真实任务门 M1 97.08%；本地 8h 运行时 soak 0 崩溃；成本治理与一轮独立代码级安全评审。  
+> **项目仍在持续开发。** 当前开发分支 **0.98.0-dev**（2026-11-15 更新）；0.97.0 RC 是本地打包候选，尚未公开发布。  
+> 0.98 重点：Real World——可授权、可接管、可回滚的浏览器写操作；MCP dual-era 与工具定义固定；技能执行评测与持久 canary；跨重启调度账本与 systemd 守护。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
-> 当前 Linux 0.97.0 RC 为本地打包候选，尚未公开发布；公开发布前仍需重建干净历史并确认发布资产。  
-> 功能与使用入口：[RELEASE_0.97.md](docs/release/RELEASE_0.97.md) · [功能矩阵](docs/release/FEATURES-0.97.md)
+> 公开发布前仍需完成人工验收、打包门禁与发布资产确认。  
+> 0.97 证据与入口：[RELEASE_0.97.md](docs/release/RELEASE_0.97.md) · [0.97 功能矩阵](docs/release/FEATURES-0.97.md)  
+> 0.98 开发进度：[进度账本](docs/0.98-progress.md) · [功能矩阵草稿](docs/release/FEATURES-0.98-draft.md)
 
 ---
 
@@ -55,11 +56,12 @@
 - **模型路由**：确定性 provider、OpenAI-compatible provider、成本/延迟账本、影子执行。
 - **审计**：哈希链 journal、replay、receipt、查询与导出。
 - **执行底座**：接入 Skynet Workshop 后，可在受控 Session/沙箱中执行并验收 Artifact；终端工具依赖该底座。
-- **工具面**：`read_file` / `read_pdf` / `search_files`、`write_file` / `edit_file`、真实 PTY 终端、`fetch_url` / `web_search` / `browser_read`、stdio MCP、`spawn_agent`。
-- **常驻与技能分发**：`schedule` / `daemon` / `schedule health`、`--routine-skill`、SHA-256 门禁的 `skill export/import`。
+- **工具面**：`read_file` / `read_pdf` / `search_files`、`write_file` / `edit_file`、真实 PTY 终端、`fetch_url` / `web_search` / `browser_read`、`browser`（CDP 点击/输入/截图/录屏）、stdio/HTTP MCP（dual-era + 工具定义固定）、`spawn_agent`。
+- **浏览器安全**：每任务独立 Chrome profile、出口代理与 DNS pinning、`secret://` 来源绑定凭据、`browser open` 人工接管；按钮/提交/跨域或下载链接/密码输入/Enter 必须经持久动作卡人工确认（`browser approvals|approve|deny`），审批单次有效；不宣称通用提示注入免疫。
+- **常驻与技能分发**：`schedule` / `daemon` / `schedule health`、跨重启 run ledger、systemd user unit、`--routine-skill`、SHA-256 门禁的 `skill export/import`。
 - **运行看板**：`cost`（provider/model/任务/工具）、`digest`（运行/计划/健康/告警）、`dashboard`（静态 HTML）。
 
-当前**没有** computer-use 点击/截图、语音/图片理解、自动 Watchdog 升级策略、移动端和 Bot。
+当前**没有**语音/图片理解、自动 Watchdog 升级策略、移动端和 Bot；浏览器写操作已可用并通过动作卡门禁，MCP 已有 OAuth 授权码 + PKCE、CIMD 与 Tasks/MRTR 门控；bwrap/Landlock 与自适应红队总报告仍在开发中。
 
 
 这些不是“隐藏功能”，而是明确写在 [STATUS.md](docs/status.md) 里的研发中/未实现项。
@@ -94,17 +96,16 @@ cd 1agent-0.97.0
 export PATH="$HOME/.local/bin:$PATH"
 
 1agent --version
-1agent init
-1agent doctor
+1agent setup
 ```
 
-启动离线 TUI（确定性 provider，不需要网络）：
+`setup` 会引导选择 provider、掩码输入密钥、探测模型、设置只读/安全/完全本地权限预设、选择 workspace，并跑一个 30 秒 smoke 任务；写完后可用 `1agent status` 检查。启动 TUI：
 
 ```bash
 1agent tui
 ```
 
-接入真实模型（示例为 DeepSeek-compatible endpoint；密钥只放环境变量）：
+接入真实模型也可以手动配置（示例为 DeepSeek-compatible endpoint；密钥只放 0600 文件或环境变量）：
 
 ```bash
 export DEEPSEEK_API_KEY="..."

@@ -3,7 +3,7 @@
 
 [简体中文](manual.md) · [English](manual.en.md)
 
-> 适用版本：**0.97.0 R1 release candidate**  
+> 适用版本：**0.98.0-dev**（0.97.0 RC 证据仍保留）  
 > 适用平台：**Linux x86_64**  
 > Windows 版本尚未测试，暂不发布、不提供下载；macOS、Android、iOS 后续发布。
 
@@ -12,8 +12,8 @@
 ### 从发布包安装
 
 ```bash
-tar -xzf 1agent-0.97.0-linux-x86_64.tar.gz
-cd 1agent-0.97.0
+tar -xzf 1agent-0.98.0-dev-linux-x86_64.tar.gz
+cd 1agent-0.98.0-dev
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 1agent --version
@@ -33,11 +33,21 @@ target/release/first-principles-agent --version
 
 ## 2. 初始化与检查
 
+首次运行走 `setup`：
+
 ```bash
-1agent init
+1agent setup
+1agent status
 1agent doctor
-1agent doctor --json
+1agent status --json
 ```
+
+`setup` 会创建 runtime home、选择 provider、掩码输入 key、探测模型、选择
+`read-only`/`safe`/`full-local` 权限预设、设置 workspace，并运行一个 30 秒
+smoke 任务。它可重复执行（幂等）；`setup --check` 只读检查；脚本可用
+`setup --non-interactive --provider ... --model ... --api-key-stdin`。
+
+`init` 仍然存在，但属于进阶命令；`setup` 内部会调用它。
 
 默认 runtime home：
 
@@ -82,7 +92,7 @@ TUI 默认把会话写入 `--journal-dir`（默认 `.journal`）；需要固定�
 
 ### 接入真实模型
 
-密钥默认走环境变量，不写入 provider 配置文件：
+推荐直接运行 `1agent setup`，选择 provider 并掩码输入 key。也可以手动用环境变量/配置：
 
 ```bash
 export DEEPSEEK_API_KEY="..."
@@ -375,6 +385,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | `fetch_url` | 只读抓取公网 HTTPS 页面并抽取正文；需要 `--allow-network` |
 | `web_search` | 公网搜索，返回最多 8 条标题/URL/摘要；Bing RSS 尽力而为，可能限流 |
 | `browser_read` | 无头 Chrome 渲染公网 HTTPS 页面并抽取正文；只读，不支持点击/输入 |
+| `browser` | CDP 浏览器沙箱：open/navigate/read/click/type/press/screenshot/close；按钮/提交/跨域或下载链接/密码输入/Enter 返回 `approval_required`，人工用 `browser approve` 后带 `approval_id` 重试 |
 | `spawn_agent` | 启动有界子 Agent；独立 journal/工作区/预算，深度上限 2 |
 | `skill_list` | 列出已注册技能 |
 | `skill_eval` | 用静态 held-out suite 评测技能版本 |
@@ -404,6 +415,19 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | macOS | 未验证；1Agent 核心可运行，终端工具等待 Workshop daemon/GUI 支持 |
 | Windows | 不发布、不支持；等待 ConPTY 与服务层实现 |
 
+### 浏览器 / computer-use（实验）
+
+```bash
+1agent browser probe --url https://example.com --json
+1agent browser open --url https://example.com --seconds 300   # 人工接管
+1agent browser record --url https://example.com --out ./frames --seconds 5
+1agent browser approvals                                      # 待审批动作卡
+1agent browser approve <card-id>                              # 人工确认；单次有效
+1agent browser deny <card-id>
+```
+
+`browser` 工具使用每任务独立 Chrome profile 和本地出口代理；所有子资源 host 都必须显式 allowlist。点击普通同源链接/表单聚焦可自动执行；按钮、提交、跨域或下载链接、密码输入和 Enter 会返回 `approval_required`，动作摘要与 DOM 描述绑定并在执行前复核。密码字段拒绝明文，必须使用 `secret://<vendor>/<label>`（来源绑定）；凭据值不进入 prompt/journal/元数据。`browser approve` 需要交互 TTY；`--yes` 是显式人工声明。动作卡 120 秒过期、只消费一次。
+
 ### MCP 工具（实验）
 
 通过 stdio 连接 MCP server，把远端工具映射为 `mcp_<server>_<tool>`：
@@ -419,7 +443,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 {"servers":[{"name":"filesystem","command":["npx","-y","@modelcontextprotocol/server-filesystem","$HOME"],"env":{}}]}
 ```
 
-支持 stdio 和 streamable HTTP；工具市场未实现。所有 MCP 工具都按写工具处理，不信任 server 的 `readOnlyHint`；`destructiveHint: true` 仅用于提高风险等级。stdio server 只继承最小环境变量（`PATH`/`HOME`/`TMPDIR`/locale）和配置里的 `env`，不会继承 provider key 或 token。输入 schema 由 MCP server 校验，1Agent 只做进程、权限、超时和 journal 边界。
+支持 stdio 和 streamable HTTP（modern 2026-07-28 / legacy 2025-11-25 双协议）。HTTP server 可用 `oauth` 配置 OAuth 2.1 授权码 + PKCE、RFC 8707 `resource`、RFC 9207 `iss`；`client_metadata_document` 使用 CIMD（该 HTTPS 文档需由操作者托管）。`pin_file` 首次记录工具定义 SHA-256，定义变化后 fail closed；参数按 JSON Schema 子集校验。`"tasks": true` 才启用 Tasks 扩展，`tasks/get` 轮询有 TTL/次数上限；MRTR/Tasks 的 `input_required` 一律 fail closed，不自动回答 elicitation/sampling/roots，URL 只显示 origin。所有 MCP 工具都按写工具处理，不信任 server 的 `readOnlyHint`；`destructiveHint: true` 仅用于提高风险等级。stdio server 只继承最小环境变量（`PATH`/`HOME`/`TMPDIR`/locale）和配置里的 `env`，不会继承 provider key 或 token。
 
 ### 定时任务与 daemon（实验）
 
@@ -429,6 +453,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 1agent schedule add --name routine --every-seconds 86400 --routine-skill release-check@1.0.0 --task "检查发布"
 1agent schedule list
 1agent schedule health      # ok / overdue / failing，默认 300 秒宽限
+1agent daemon --run-ledger "$HOME/.1a/schedule-runs.jsonl"  # 持久 claim，跨重启不重复
 1agent schedule remove <schedule-id>
 1agent daemon --once       # 跑一次到期的任务
 1agent daemon --alert-log "$HOME/.1a/schedule-alerts.jsonl" \
@@ -436,9 +461,15 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 1agent daemon              # 常驻，按 poll-seconds 检查
 ```
 
-状态默认写入 `$HOME/.1a/schedules.json`；daemon 用 pid 锁防止重复启动。每个到期任务作为独立的 `1agent run` 子进程执行，使用自己的 journal 目录，并继承 `AGENT_*` provider 环境。任务可分别设置 `--read-only`、`--allow-network` 和工作区。`--trigger-file` 会在文件 mtime 变化时提前触发一次；interval 与 trigger 可同时使用。停机期间已到期的任务会在 daemon 重启后补跑一次。`--routine-skill NAME@VERSION` 只接受已激活的精确版本，并把技能正文注入任务；它不授予额外权限。任务失败或超时时，daemon 可写 `schedule_run_failed` 告警日志并发送 webhook；升级阶梯、跨重启去重和跨机器调度仍未实现。
+状态默认写入 `$HOME/.1a/schedules.json`；daemon 用 pid 锁防止重复启动。每个到期任务作为独立的 `1agent run` 子进程执行，使用自己的 journal 目录，并继承 `AGENT_*` provider 环境。任务可分别设置 `--read-only`、`--allow-network` 和工作区。`--trigger-file` 会在文件 mtime 变化时提前触发一次；interval 与 trigger 可同时使用。停机期间已到期的任务会在 daemon 重启后补跑一次。`--routine-skill NAME@VERSION` 只接受已激活的精确版本，并把技能正文注入任务；它不授予额外权限。任务失败或超时时，daemon 可写 `schedule_run_failed` 告警日志并发送 webhook。`--run-ledger` 在 spawn 前 fsync claim，实现 at-most-once；重启时把 claimed/running 标记为 interrupted，不自动重跑。`--missed-run-skip-after-seconds` 可跳过过晚的槽位，默认补跑最新一次。`--print-unit/--write-unit` 生成 systemd user unit，`sd_notify` 发 READY/WATCHDOG；不会自动 linger。跨机器调度仍未实现。
 
-技能包可通过 `1agent skill export/import` 分发；导入必须提供 bundle 的 SHA-256，已存在版本会跳过。需要来源认证时：
+技能包可通过 `1agent skill export/import` 分发；导入必须提供 bundle 的 SHA-256，已存在版本会跳过。`1agent skill compare --suite blind.json --json` 对 baseline/candidate 输出做盲 A/B 比较，未达到保守 95% lift 时退出非零。`1agent skill lock --out skills.lock` 固定 active 版本与内容 hash，`verify-lock` 做双向精确校验。技能脚本不会自动执行；需要显式运行时：
+
+```bash
+1agent skill run-script --path ./my-skill --script check.sh -- --flag
+```
+
+脚本在 bwrap 中运行：无网络、无宿主 home、`/usr` 与技能目录只读、`/tmp` 为 tmpfs、capabilities 全部丢弃、30 秒超时、输出上限 1 MiB；bwrap 不可用时 fail closed。需要来源认证时：
 
 ```bash
 1agent skill keygen --private-key signing.key --public-key signing.pub

@@ -257,6 +257,29 @@ file: <路径>              → 文件必须存在
 | 跨机器可复现构建 | 无 | ❌ | 只证明了本机重建 |
 | Windows 真机运行 | 无 | ❌ | 仅交叉编译 |
 
+## 0.98 安全与可靠性
+
+| 说法 | 证据 | 状态 | 说明 |
+|---|---|---|---|
+| setup 在全新 home 上 `--check` 只读且不写状态 | test: setup_check_on_fresh_home_is_read_only | ✅ | 隔离 HOME；错误/provider 路径另有测试 |
+| deterministic setup 强制真实 identity `offline-v1` | test: setup_deterministic_is_idempotent_and_status_ready | ✅ | 传错 `--model` 会被纠正，status/run 可用 |
+| 不可逆浏览器点击必须经持久动作卡，且只消费一次 | test: irreversible_click_requires_and_consumes_an_action_card | ✅ | 真实 Chrome；假“已批准”按钮/跨域链接/下载链接同样被门禁 |
+| 动作卡可由 CLI 列出、批准、拒绝，无 TTY 时拒绝批准 | test: approvals_are_listed_approved_and_denied_from_the_cli | ✅ | `browser approvals/approve/deny` |
+| MCP modern 2026-07-28 无 session，发 `Mcp-Method`/`Mcp-Name` 头 | test: modern_stateless_mcp_negotiates_and_sends_headers | ✅ | 合成 HTTP server |
+| MCP 工具定义变化时 fail closed | test: tool_hashes_are_canonical_and_pin_files_round_trip | ✅ | 0600 pin 文件 |
+| MCP MRTR `input_required` 不自动作答、不泄露 requestState | test: mrtr_input_required_fails_closed_without_echoing_state | ✅ | URL 只展示 origin |
+| MCP Tasks 仅在显式启用时轮询，完成/输入/禁用路径符合契约 | test: tasks_poll_to_completion_when_enabled | ✅ | `tasks/update` 未实现，输入即 fail closed |
+| MCP modern 参数头按 `Mcp-Param-*` 镜像，并与 body 一致 | test: mirrors_x_mcp_header_parameters_to_a_real_http_server | ✅ | 真实 conformance HTTP server 校验 header/body |
+| MCP 客户端可连接 3 个真实 stdio 配置（modern/legacy/prompt） | test: calls_three_real_mcp_server_configurations | ✅ | 本地独立 server 代码库；非远程 OAuth |
+| `x-mcp-header` 注解只接受安全标量并做 Base64 编码 | test: x_mcp_header_annotations_are_validated_and_scalarized | ✅ | 单元测试 |
+| CIMD client metadata URL 校验并作为 client_id | test: cimd_document_is_validated_and_used_as_client_id | ✅ | 不代替 AS 侧抓取/校验 |
+| 技能 blind comparator 隐藏 A/B 并给出 Wilson 95% lift | test: blind_comparator_hides_arms_and_reports_a_significant_lift | ✅ | 输出只存 hash |
+| held-out split 确定且两侧非空 | test: held_out_split_is_deterministic_and_both_sides_non_empty | ✅ | 小套件 fail closed |
+| active 技能锁文件可检测漂移 | test: lock_pins_active_versions_and_detects_drift | ✅ | 双向精确匹配 |
+| 技能脚本沙箱无宿主 home/网络，且拒绝越界路径 | test: runs_a_script_without_home_network_or_writes | ✅ | bwrap；bwrap 缺失 fail closed |
+| 100 次真实子进程崩溃后同一槽位不会被重复 claim | test: one_hundred_hard_crashes_never_duplicate_a_claimed_slot | ✅ | 子进程 claim 后 `_exit(137)` |
+| 100 个槽位 claim/reconcile 无重复 | test: hundred_claimed_slots_reconcile_once_without_duplicates | ✅ | 账本矩阵 |
+
 ## 质量声明
 
 | 说法 | 证据 | 状态 | 说明 |

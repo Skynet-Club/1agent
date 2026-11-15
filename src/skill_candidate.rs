@@ -75,9 +75,102 @@ pub struct SkillCandidate {
 #[derive(Debug, Default)]
 pub struct SkillCandidateStore {
     candidates: BTreeMap<String, SkillCandidate>,
+    path: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CandidateFile {
+    schema_version: u32,
+    candidates: BTreeMap<String, SkillCandidate>,
 }
 
 impl SkillCandidateStore {
+    pub fn open(path: impl Into<std::path::PathBuf>) -> Result<Self, SkillCandidateError> {
+        let path = path.into();
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let file: CandidateFile = serde_json::from_slice(&bytes).map_err(|error| {
+                    SkillCandidateError::Journal(SkillJournalError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        error.to_string(),
+                    )))
+                })?;
+                if file.schema_version != 1 {
+                    return Err(SkillCandidateError::Journal(SkillJournalError::Io(
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "unsupported candidate schema",
+                        ),
+                    )));
+                }
+                Ok(Self {
+                    candidates: file.candidates,
+                    path: Some(path),
+                })
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self {
+                candidates: BTreeMap::new(),
+                path: Some(path),
+            }),
+            Err(error) => Err(SkillCandidateError::Journal(SkillJournalError::Io(error))),
+        }
+    }
+
+    pub fn persist(&self) -> Result<(), SkillCandidateError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+            }
+        }
+        let file = CandidateFile {
+            schema_version: 1,
+            candidates: self.candidates.clone(),
+        };
+        let bytes = serde_json::to_vec_pretty(&file).map_err(|error| {
+            SkillCandidateError::Journal(SkillJournalError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                error.to_string(),
+            )))
+        })?;
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&temporary)
+                .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+            output
+                .write_all(&bytes)
+                .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+            output
+                .sync_all()
+                .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&temporary, &bytes)
+                .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+        }
+        std::fs::rename(&temporary, path)
+            .map_err(|error| SkillCandidateError::Journal(SkillJournalError::Io(error)))?;
+        Ok(())
+    }
+
     pub fn propose(&mut self, manifest: SkillManifest, now_ms: u128) -> SkillCandidate {
         let candidate = SkillCandidate {
             candidate_id: format!("candidate-{}", Uuid::new_v4()),
@@ -211,6 +304,30 @@ mod tests {
             risk: SkillRisk::Low,
             body: "1. verify\n2. build".into(),
             content_sha256: String::new(),
+        }
+    }
+
+    #[test]
+    fn candidate_store_persists_across_restarts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("candidates.json");
+        let mut store = SkillCandidateStore::open(&path).unwrap();
+        let candidate = store.propose(manifest(), 1);
+        store
+            .capture(&candidate.candidate_id, "input", "output", true, 2)
+            .unwrap();
+        store.persist().unwrap();
+        let reopened = SkillCandidateStore::open(&path).unwrap();
+        let loaded = reopened.get(&candidate.candidate_id).unwrap();
+        assert_eq!(loaded.demonstrations.len(), 1);
+        assert!(loaded.demonstrations[0].accepted);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
     }
 
