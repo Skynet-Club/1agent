@@ -245,6 +245,11 @@ enum Command {
         #[command(subcommand)]
         command: SkillCommand,
     },
+    /// Read-only 1AO semantic export and validation.
+    Ontology {
+        #[command(subcommand)]
+        command: OntologyCommand,
+    },
     Cost {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -2663,6 +2668,48 @@ enum SkillCommand {
 }
 
 #[derive(Subcommand)]
+enum OntologyCommand {
+    /// Print the built-in type registry.
+    Types {
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Print the built-in data bindings.
+    Bindings {
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Export a session or one journal as deterministic JSON-LD.
+    Export {
+        #[arg(long, conflicts_with = "journal")]
+        session: Option<String>,
+        #[arg(long, conflicts_with = "session")]
+        journal: Option<PathBuf>,
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long, default_value = "jsonld")]
+        format: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate an exported document or export one source and validate it.
+    Validate {
+        #[arg(long, conflicts_with_all = ["journal", "input"])]
+        session: Option<String>,
+        #[arg(long, conflicts_with_all = ["session", "input"])]
+        journal: Option<PathBuf>,
+        #[arg(long, conflicts_with_all = ["session", "journal"])]
+        input: Option<PathBuf>,
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum ScheduleCommand {
     Add {
         #[arg(long)]
@@ -4583,6 +4630,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
             "card-trust",
             "org-audit",
             "provenance",
+            "ontology",
             "release",
             "handoff",
             "secret",
@@ -5638,6 +5686,25 @@ Remove the runtime home; data is kept unless --purge --yes.
 .SH SEE ALSO
 1agent help advanced
 ";
+
+fn ontology_export_for_cli(
+    session: Option<&str>,
+    journal: Option<&Path>,
+    journal_dir: &Path,
+) -> Result<(first_principles_agent::ontology::ExportDocument, String)> {
+    match (session, journal) {
+        (Some(id), None) => {
+            let document = first_principles_agent::ontology::export_session(journal_dir, id)?;
+            Ok((document, format!("session:{id}")))
+        }
+        (None, Some(path)) => {
+            let document = first_principles_agent::ontology::export_journal(path)?;
+            Ok((document, format!("journal:{}", path.display())))
+        }
+        (None, None) => bail!("ontology export requires --session or --journal"),
+        (Some(_), Some(_)) => bail!("--session and --journal are mutually exclusive"),
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -7770,6 +7837,116 @@ async fn main() -> Result<()> {
                             job.overdue_ms
                         );
                     }
+                }
+            }
+        },
+        Command::Ontology { command } => match command {
+            OntologyCommand::Types { out } => {
+                let value = first_principles_agent::ontology::builtin_types();
+                if let Some(path) = out {
+                    let bytes = serde_json::to_vec_pretty(&value)?;
+                    write_private_file(&path, &bytes)?;
+                    println!("已写入 {}（{} 字节）", path.display(), bytes.len());
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&value)?);
+                }
+            }
+            OntologyCommand::Bindings { out } => {
+                let value = first_principles_agent::ontology::builtin_bindings();
+                if let Some(path) = out {
+                    let bytes = serde_json::to_vec_pretty(&value)?;
+                    write_private_file(&path, &bytes)?;
+                    println!("已写入 {}（{} 字节）", path.display(), bytes.len());
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&value)?);
+                }
+            }
+            OntologyCommand::Export {
+                session,
+                journal,
+                journal_dir,
+                format,
+                out,
+                json,
+            } => {
+                if format != "jsonld" {
+                    bail!("unsupported ontology format '{format}' (expected jsonld)");
+                }
+                let (document, source) =
+                    ontology_export_for_cli(session.as_deref(), journal.as_deref(), &journal_dir)?;
+                let bytes = serde_json::to_vec(&document.value)?;
+                if let Some(path) = out.as_deref() {
+                    write_private_file(path, &bytes)?;
+                }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "source": source,
+                            "sha256": &document.sha256,
+                            "bytes": bytes.len(),
+                            "out": out.as_deref(),
+                        }))?
+                    );
+                } else if out.is_none() {
+                    println!("{}", String::from_utf8_lossy(&bytes));
+                } else {
+                    println!(
+                        "已导出 {}（{} 字节，sha256 {}）",
+                        out.as_ref().expect("checked").display(),
+                        bytes.len(),
+                        document.sha256
+                    );
+                }
+            }
+            OntologyCommand::Validate {
+                session,
+                journal,
+                input,
+                journal_dir,
+                json,
+            } => {
+                let (document, source) = if let Some(path) = input {
+                    let bytes =
+                        std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+                    let value: Value = serde_json::from_slice(&bytes)
+                        .with_context(|| format!("parse {}", path.display()))?;
+                    (value, format!("input:{}", path.display()))
+                } else {
+                    let (document, source) = ontology_export_for_cli(
+                        session.as_deref(),
+                        journal.as_deref(),
+                        &journal_dir,
+                    )?;
+                    (document.value, source)
+                };
+                let report = first_principles_agent::ontology::validate_document(&document);
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": report.ok,
+                            "source": &source,
+                            "checks": &report.checks,
+                            "errors": &report.errors,
+                        }))?
+                    );
+                } else {
+                    for check in &report.checks {
+                        println!("check: {check}");
+                    }
+                    for error in &report.errors {
+                        println!("error: {error}");
+                    }
+                    println!(
+                        "{}: {}",
+                        if report.ok { "valid" } else { "invalid" },
+                        source
+                    );
+                }
+                if !report.ok {
+                    bail!("ontology validation failed for {source}");
                 }
             }
         },
@@ -14892,7 +15069,10 @@ fn provider_profile_path_in(root: &Path) -> PathBuf {
 }
 
 fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)?;
         #[cfg(unix)]
         {
