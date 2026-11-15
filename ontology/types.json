@@ -22,7 +22,7 @@
       "kind": "object",
       "owner": "runtime",
       "version": "1",
-      "required": ["objective"]
+      "required": ["objectiveSha256"]
     },
     {
       "id": "ToolInvocation",
