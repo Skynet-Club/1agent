@@ -68,6 +68,14 @@ pub struct SubagentRecord {
     pub parent_pid: u32,
     #[serde(default)]
     pub child_pid: Option<u32>,
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
+    #[serde(default)]
+    pub spawn_call_id: Option<String>,
+    #[serde(default)]
+    pub child_run_id: Option<String>,
     pub depth: u8,
     pub task: String,
     pub workspace: String,
@@ -105,6 +113,10 @@ impl SubagentRecord {
             root_pid,
             parent_pid,
             child_pid: None,
+            parent_session_id: None,
+            parent_run_id: None,
+            spawn_call_id: None,
+            child_run_id: None,
             depth,
             task: task.into(),
             workspace: workspace.into(),
@@ -250,6 +262,12 @@ impl RegistryGuard {
         let _ = append_record(&self.path, &self.record);
     }
 
+    /// Backfill the child run id once the child reports it. The value is
+    /// persisted by the next registry write (`finish` or `Drop`).
+    pub fn set_child_run_id(&mut self, child_run_id: impl Into<String>) {
+        self.record.child_run_id = Some(child_run_id.into());
+    }
+
     pub fn finish(&mut self, status: SubagentStatus, summary: Option<String>) {
         self.record.status = status;
         self.record.summary = summary;
@@ -341,5 +359,61 @@ mod tests {
                 .status,
             SubagentStatus::Cancelled
         );
+    }
+
+    #[test]
+    fn lineage_fields_round_trip_and_child_run_is_backfilled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.jsonl");
+
+        let mut record = record("sub-lineage", 10, SubagentStatus::Starting, 1);
+        assert!(record.parent_session_id.is_none());
+        assert!(record.parent_run_id.is_none());
+        assert!(record.spawn_call_id.is_none());
+        assert!(record.child_run_id.is_none());
+        record.parent_session_id = Some("ses_parent".into());
+        record.parent_run_id = Some("run-parent".into());
+        record.spawn_call_id = Some("call-7".into());
+
+        let mut guard = RegistryGuard {
+            path: path.clone(),
+            record,
+            finished: false,
+        };
+        guard.running(1234);
+        guard.set_child_run_id("run-child");
+        guard.finish(SubagentStatus::Completed, Some("done".into()));
+        drop(guard);
+
+        let records = load_recent(&path, 10);
+        let latest = records
+            .iter()
+            .find(|record| record.id == "sub-lineage")
+            .unwrap();
+        assert_eq!(latest.parent_session_id.as_deref(), Some("ses_parent"));
+        assert_eq!(latest.parent_run_id.as_deref(), Some("run-parent"));
+        assert_eq!(latest.spawn_call_id.as_deref(), Some("call-7"));
+        assert_eq!(latest.child_run_id.as_deref(), Some("run-child"));
+    }
+
+    #[test]
+    fn legacy_records_without_lineage_fields_remain_readable() {
+        let mut value =
+            serde_json::to_value(record("sub-legacy", 10, SubagentStatus::Running, 1)).unwrap();
+        let object = value.as_object_mut().unwrap();
+        for key in [
+            "parent_session_id",
+            "parent_run_id",
+            "spawn_call_id",
+            "child_run_id",
+        ] {
+            assert!(object.remove(key).is_some(), "expected {key} in old record");
+        }
+
+        let parsed: SubagentRecord = serde_json::from_value(value).unwrap();
+        assert!(parsed.parent_session_id.is_none());
+        assert!(parsed.parent_run_id.is_none());
+        assert!(parsed.spawn_call_id.is_none());
+        assert!(parsed.child_run_id.is_none());
     }
 }

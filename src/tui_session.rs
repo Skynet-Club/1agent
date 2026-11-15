@@ -33,6 +33,8 @@ struct SessionRecord {
     workspace: Option<PathBuf>,
     #[serde(default)]
     mentions: Vec<PathBuf>,
+    #[serde(default)]
+    forked_from_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -254,6 +256,7 @@ pub struct TuiSession {
     context_summary: Option<SessionContextSummary>,
     workspace: Option<PathBuf>,
     mentions: Vec<PathBuf>,
+    forked_from_session_id: Option<String>,
     next_event_seq: u64,
 }
 
@@ -282,6 +285,7 @@ impl TuiSession {
                 context_summary: None,
                 workspace: None,
                 mentions: Vec::new(),
+                forked_from_session_id: None,
                 next_event_seq: 0,
             };
             session.save()?;
@@ -312,6 +316,7 @@ impl TuiSession {
             context_summary: record.context_summary,
             workspace: record.workspace,
             mentions: record.mentions,
+            forked_from_session_id: record.forked_from_session_id,
             next_event_seq,
         })
     }
@@ -354,6 +359,10 @@ impl TuiSession {
 
     pub fn mentions(&self) -> &[PathBuf] {
         &self.mentions
+    }
+
+    pub fn forked_from_session_id(&self) -> Option<&str> {
+        self.forked_from_session_id.as_deref()
     }
 
     pub fn journal_root(&self) -> PathBuf {
@@ -464,6 +473,7 @@ impl TuiSession {
             context_summary: self.context_summary.clone(),
             workspace: self.workspace.clone(),
             mentions: self.mentions.clone(),
+            forked_from_session_id: Some(self.id.clone()),
             next_event_seq: 0,
         };
         forked.record_event(SessionEvent::SessionForked {
@@ -837,6 +847,7 @@ impl TuiSession {
             context_summary: self.context_summary.clone(),
             workspace: self.workspace.clone(),
             mentions: self.mentions.clone(),
+            forked_from_session_id: self.forked_from_session_id.clone(),
         };
         let bytes = serde_json::to_vec_pretty(&record).map_err(TuiSessionError::Json)?;
         let path = self.root.join("session.json");
@@ -1209,6 +1220,7 @@ mod tests {
         let session = TuiSession::open(workspace.path(), Some(id)).unwrap();
         assert_eq!(session.title(), "Legacy");
         assert!(session.journals().is_empty());
+        assert!(session.forked_from_session_id().is_none());
     }
 
     #[test]
@@ -1445,6 +1457,9 @@ mod tests {
         assert_eq!(forked.title(), "Release review fork");
         assert!(forked.mission().is_none());
         assert_eq!(forked.mentions(), reopened.mentions());
+        assert_eq!(forked.forked_from_session_id(), Some(reopened.id()));
+        let persisted = TuiSession::open(workspace.path(), Some(forked.id())).unwrap();
+        assert_eq!(persisted.forked_from_session_id(), Some(reopened.id()));
         let listed = TuiSession::list(workspace.path()).unwrap();
         assert!(listed.iter().any(|summary| summary.id == forked.id()));
         forked.set_archived(true).unwrap();
