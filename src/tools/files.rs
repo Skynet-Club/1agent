@@ -124,7 +124,7 @@ impl AgentTool for WriteFileTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "write_file".into(),
-            description: "Write a complete UTF-8 file inside an allowed root. The parent directory must already exist. Existing files are refused unless overwrite=true. Writes are atomic. Requires write permission.".into(),
+            description: "Write a complete UTF-8 file inside an allowed root. The parent directory must already exist. Existing files are refused unless overwrite=true. Writes are atomic; the observation includes the file's SHA-256. Requires write permission.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -191,18 +191,20 @@ impl AgentTool for WriteFileTool {
         atomic_write(&target, content).await?;
 
         let bytes = content.len();
+        let digest = sha256_hex(content.as_bytes());
+        let summary = format!(
+            "已{}文件 {}（{bytes} 字节，sha256 {digest}）",
+            if existed { "覆盖" } else { "创建" },
+            target.display()
+        );
         let content_json = json!({
             "path": target.display().to_string(),
             "bytes": bytes,
             "created": !existed,
-            "sha256": sha256_hex(content.as_bytes())
+            "sha256": digest
         });
         Ok(ToolOutcome {
-            summary: format!(
-                "已{}文件 {}（{bytes} 字节）",
-                if existed { "覆盖" } else { "创建" },
-                target.display()
-            ),
+            summary,
             content: content_json.to_string(),
             metadata: Default::default(),
         })
@@ -217,7 +219,7 @@ impl AgentTool for EditFileTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "edit_file".into(),
-            description: "Replace text in an existing UTF-8 file inside an allowed root. old_string must occur exactly once unless replace_all=true. The whole updated file is written atomically. Requires write permission.".into(),
+            description: "Replace text in an existing UTF-8 file inside an allowed root. old_string must occur exactly once unless replace_all=true. The whole updated file is written atomically; the observation includes SHA-256 before and after. Requires write permission.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -328,16 +330,22 @@ impl AgentTool for EditFileTool {
         atomic_write(&target, &updated).await?;
 
         let replacements = if replace_all { occurrences } else { 1 };
+        let before = sha256_hex(text.as_bytes());
+        let after = sha256_hex(updated.as_bytes());
+        let summary = format!(
+            "已编辑 {}（{replacements} 处替换，sha256 {after}）",
+            target.display()
+        );
         let content_json = json!({
             "path": target.display().to_string(),
             "replacements": replacements,
             "bytes_before": text.len(),
             "bytes_after": updated.len(),
-            "sha256_before": sha256_hex(text.as_bytes()),
-            "sha256_after": sha256_hex(updated.as_bytes())
+            "sha256_before": before,
+            "sha256_after": after
         });
         Ok(ToolOutcome {
-            summary: format!("已编辑 {}（{replacements} 处替换）", target.display()),
+            summary,
             content: content_json.to_string(),
             metadata: Default::default(),
         })

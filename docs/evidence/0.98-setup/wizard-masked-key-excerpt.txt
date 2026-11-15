@@ -1,0 +1,38 @@
+=== MASKED KEY SCREEN ===
+OpenAI-compatible API key  Input is hidden. The key is stored with 0600 permissions.  ┌────────────────────────────────────────────────────────────────────┐  │ type here                                                          │  └────────────────────────────────────────────────────────────────────┘  Enter confirm   Backspace edit   Ctrl-U clear   Esc back   Ctrl-C quit  1AGENT  setup  ────────────────────────────────────────────────────────────────────────────────────────────────  [████░░░░░░░░░░]  3/7  Credential  OpenAI-compatible API key  Input is hidden. The key is stored with 0600 permissions.  ┌────────────────────────────────────────────────────────────────────┐  │ •▌                                                                 │  └────────────────────────────────────────────────────────────────────┘  Enter confirm   Backspace edit   Ctrl-U clear   Esc back   Ctrl-C quit  1AGENT  setup  ────────────────────────────────────────────────────────────────────────────────────────────────  [████░░░░░░░░░░]  3/7  Credential  OpenAI-compatible API key  Input is hidden. The key is stored with 0600 permissions.  ┌────────────────────────────────────────────────────────────────────┐  │ ••▌                                                                │  └────────────────────────────────────────────────────────────────────┘  Enter confirm   Backspace edit   Ctrl-U clear   Esc ba
+
+=== REVIEW SCREEN ===
+┌─ Review ───────────────────────────────────────────────────────────────────┐  │ Provider     OpenAI-compatible (openai-compatible)                         │  │ Endpoint     https://example.com/v1                                        │  │ Model        manual-model                                                  │  │ Credential   new key (hidden)                                              │  │ Permissions  safe · workspace writes · network/exec need approval          │  │ Workspace    ~/.claude/jobs/e3b0c680/tmp/wizard-e2e/workspace-c            │  │ Runtime home ~/.claude/jobs/e3b0c680/tmp/wizard-e2e/root-c                 │  │ Smoke test   skipped (--skip-smoke)                                        │  │ Model probe  skipped (--skip-probe)                                        │  └────────────────────────────────────────────────────────────────────────────┘  Ready to configure 1Agent?  No config is written until you choose Run setup.  ❯  1  Run setup  write config and run the checks  · recommended     2  Back       change one of the choices     3  Cancel     leave without writing  ↑/↓ move   Enter select   1-9 jump   Esc back   Ctrl-C quit
+  ◐  Running setup checks
+
+  ┌─ Ready ────────────────────────────────────────────────────────────────────┐
+  │ ✓ Provider     openai-compatible (manual-model)                             │
+  │ ✓ Runtime home runtime home initialized
+
+=== SUCCESS SCREEN ===
+┌─ Ready ────────────────────────────────────────────────────────────────────┐
+  │ ✓ Provider     openai-compatible (manual-model)                             │
+  │ ✓ Runtime home runtime home initialized                                     │
+  │ ✓ Credential   credential present (stdin)                                   │
+  │ - Model list   --skip-probe                                                 │
+  │ ✓ Model        manual-model                                                 │
+  │ ✓ Permissions  safe (write: true, network: false)                           │
+  │ ✓ Workspace    /home/skynet/.claude/jobs/e3b0c680/tmp/wizard-e2e/workspace… │
+  │ - Smoke test   --skip-smoke                                                 │
+  │ ✓ Doctor       overall: Ok                                                  │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  Provider  openai-compatible / manual-model · credential present
+
+  Next
+    →  1agent run --task "..."
+    →  1agent tui
+
+
+=== VERIFICATION ===
+grep -c 'fixture-key-123' wizard-c.plain -> 0
+key file: -rw------- 15 bytes
+key content match: KEY_OK
+config model: manual-model
+config base_url: https://example.com/v1
+status: ok=true, credential=present

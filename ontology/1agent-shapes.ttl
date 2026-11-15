@@ -1,0 +1,110 @@
+@prefix one:  <https://1agent.dev/ontology/0.98#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# Draft SHACL shapes for operational export validation.
+# These are closed-world checks; they do not replace runtime state machines.
+
+one:RunShape a sh:NodeShape ;
+    sh:targetClass one:Run ;
+    # A standalone `--journal` export may omit the session link; a
+    # session-scoped export should provide it.
+    sh:property [
+        sh:path one:partOfSession ;
+        sh:maxCount 1 ;
+        sh:class one:Session ;
+    ] ;
+    sh:property [
+        sh:path one:hasTask ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class one:Task ;
+    ] ;
+    sh:property [
+        sh:path one:hasOutcome ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "completed" "needs_evidence" "needs_authorization"
+                "budget_exhausted" "cancelled" "provider_error"
+                "tool_failure" "invalid_output" "internal_error" ) ;
+    ] ;
+    sh:property [
+        sh:path one:startedAt ;
+        sh:minCount 1 ;
+        sh:datatype xsd:dateTime ;
+    ] .
+
+one:AnswerShape a sh:NodeShape ;
+    sh:targetClass one:Answer ;
+    sh:property [
+        sh:path one:status ;
+        sh:minCount 1 ;
+        sh:in ( "completed" "conditional" "needs_evidence"
+                "needs_authorization" "failed" ) ;
+    ] ;
+    sh:property [
+        sh:path one:conclusion ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+one:ClaimShape a sh:NodeShape ;
+    sh:targetClass one:Claim ;
+    sh:property [
+        sh:path one:claimText ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path one:claimStatus ;
+        sh:minCount 1 ;
+        sh:in ( "verified" "user_asserted" "derived" "assumed"
+                "model_prior" "conflicting" "unknown" ) ;
+    ] .
+
+one:EvidenceShape a sh:NodeShape ;
+    sh:targetClass one:Evidence ;
+    sh:property [
+        sh:path one:sourceKind ;
+        sh:minCount 1 ;
+        sh:in ( "file" "web" "tool" "model_prior" "user" "unknown" ) ;
+    ] ;
+    sh:property [
+        sh:path one:sourceRef ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path one:supportsClaim ;
+        sh:minCount 1 ;
+        sh:class one:Claim ;
+    ] .
+
+one:SquadMemberShape a sh:NodeShape ;
+    sh:targetClass one:SquadMember ;
+    # P1 lineage will make spawnedBy required; v1 registry records predate it.
+    sh:property [
+        sh:path one:spawnedBy ;
+        sh:maxCount 1 ;
+        sh:class one:ToolInvocation ;
+    ] ;
+    sh:property [
+        sh:path one:status ;
+        sh:minCount 1 ;
+        sh:in ( "starting" "running" "completed" "failed"
+                "timed_out" "cancelled" ) ;
+    ] ;
+    sh:property [
+        sh:path one:depth ;
+        sh:minCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+    ] .
+
+one:ArtifactShape a sh:NodeShape ;
+    sh:targetClass one:Artifact ;
+    sh:property [
+        sh:path one:sha256 ;
+        sh:minCount 1 ;
+        sh:pattern "^[a-f0-9]{64}$" ;
+    ] .

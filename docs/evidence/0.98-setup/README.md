@@ -10,7 +10,9 @@ cargo test --offline --test setup_cli
 cargo test --offline --lib config::tests
 ```
 
-Raw output: `tests.txt`; manual fresh-home setup/status/run/doctor transcript: `fresh-home.txt`.
+Raw output: `tests.txt`; manual fresh-home setup/status/run/doctor transcript:
+`fresh-home.txt`; interactive wizard PTY evidence: `wizard-e2e.md` (captures:
+`wizard-*.txt`, harness: `tools/`).
 
 ## Result
 
@@ -22,7 +24,6 @@ Raw output: `tests.txt`; manual fresh-home setup/status/run/doctor transcript: `
 
 ## Not yet evidenced
 
-- interactive wizard on a real TTY;
 - five-user timing/feedback;
 - final release-package install of completions/man (packaging requires a clean
   commit/tag).

@@ -20,6 +20,7 @@ fn attach_reaches_the_journaled_model_request_as_untrusted_data() {
     std::fs::write(&attachment, "hello attachment").unwrap();
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let run = Command::new(bin)
+        .env("ONEAGENT_HOME", dir.path().join("home"))
         .args(["run", "--task", "Summarize the attachment", "--attach"])
         .arg(&attachment)
         .args(["--journal-dir"])
@@ -46,6 +47,7 @@ fn attach_rejects_binary_and_missing_files_before_the_run() {
     std::fs::write(&binary, b"a\0b").unwrap();
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let binary_run = Command::new(bin)
+        .env("ONEAGENT_HOME", dir.path().join("home"))
         .args(["run", "--task", "read", "--attach"])
         .arg(&binary)
         .args(["--journal-dir"])
@@ -60,6 +62,7 @@ fn attach_rejects_binary_and_missing_files_before_the_run() {
     );
 
     let missing_run = Command::new(bin)
+        .env("ONEAGENT_HOME", dir.path().join("home"))
         .args(["run", "--task", "read", "--attach"])
         .arg(dir.path().join("missing.txt"))
         .args(["--journal-dir"])

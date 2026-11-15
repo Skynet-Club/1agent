@@ -42,6 +42,9 @@ pub struct SetupOptions {
     pub permission_preset: Option<PermissionPreset>,
     pub workspace: Option<PathBuf>,
     pub read_roots: Vec<PathBuf>,
+    /// Models already discovered by the interactive wizard. When present,
+    /// `run_setup` reuses them instead of issuing a second probe.
+    pub probed_models: Option<Vec<String>>,
     pub check: bool,
     pub probe: bool,
     pub non_interactive: bool,
@@ -64,6 +67,7 @@ impl SetupOptions {
             permission_preset: None,
             workspace: None,
             read_roots: Vec::new(),
+            probed_models: None,
             check: false,
             probe: false,
             non_interactive: false,
@@ -404,8 +408,18 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
         ));
     }
 
-    let mut probed_models = Vec::new();
-    if !spec.deterministic
+    let wizard_probe = options.probed_models.is_some();
+    let mut probed_models = options.probed_models.clone().unwrap_or_default();
+    if wizard_probe {
+        checks.push(SetupCheck::new(
+            "provider_probe",
+            SetupCheckStatus::Ok,
+            format!(
+                "{} model(s) advertised (verified by setup wizard)",
+                probed_models.len()
+            ),
+        ));
+    } else if !spec.deterministic
         && !options.skip_probe
         && (!options.check || options.probe)
         && (key_present || !spec.key_required)
@@ -466,23 +480,22 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
         ));
     }
 
+    let configured_model = existing_config
+        .as_ref()
+        .and_then(|config| config.default_provider())
+        .filter(|provider| provider.id == spec.id)
+        .map(|provider| provider.model.clone());
     let model = if spec.deterministic {
         // The deterministic provider advertises exactly one identity; do not
         // let a guessed `--model` produce a config that fails at run time.
         spec.model.clone().or_else(|| Some("offline-v1".into()))
     } else {
-        options
-            .model
-            .clone()
-            .or_else(|| probed_models.first().cloned())
-            .or_else(|| spec.model.clone())
-            .or_else(|| {
-                existing_config
-                    .as_ref()
-                    .and_then(|config| config.default_provider())
-                    .filter(|provider| provider.id == spec.id)
-                    .map(|provider| provider.model.clone())
-            })
+        resolve_setup_model(
+            options.model.clone(),
+            configured_model,
+            spec.model.clone(),
+            &probed_models,
+        )
     };
     let Some(model) = model.filter(|value| !value.trim().is_empty()) else {
         if options.check {
@@ -499,11 +512,20 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
             "pass `--model <id>` or run with the provider reachable",
         ));
     };
-    checks.push(SetupCheck::new(
-        "model",
-        SetupCheckStatus::Ok,
-        model.clone(),
-    ));
+    if !probed_models.is_empty() && !probed_models.iter().any(|advertised| advertised == &model) {
+        let detail = format!("{model} is not advertised by the provider");
+        if options.check {
+            checks.push(SetupCheck::new("model", SetupCheckStatus::Missing, detail));
+            return Ok(not_ready(root, checks));
+        }
+        checks.push(SetupCheck::new("model", SetupCheckStatus::Warn, detail));
+    } else {
+        checks.push(SetupCheck::new(
+            "model",
+            SetupCheckStatus::Ok,
+            model.clone(),
+        ));
+    }
 
     let workspace = options
         .workspace
@@ -779,6 +801,32 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
         checks,
         next: Some("1agent run --task \"...\"".into()),
     })
+}
+
+/// Pick the model id in the operator's order of preference: explicit `--model`,
+/// then the already configured model, then whatever the provider advertises
+/// first. Never lets an advertised model replace an existing choice.
+fn select_model(
+    explicit: Option<String>,
+    configured: Option<String>,
+    advertised: &[String],
+) -> Option<String> {
+    explicit
+        .or(configured)
+        .or_else(|| advertised.first().cloned())
+}
+
+/// The provider preset has a fallback model id (for example
+/// `deepseek-chat`), but that is not a user choice. It must lose to the
+/// provider's advertised list; otherwise a fresh setup would pin a stale
+/// default instead of selecting an available model.
+fn resolve_setup_model(
+    explicit: Option<String>,
+    configured: Option<String>,
+    provider_default: Option<String>,
+    advertised: &[String],
+) -> Option<String> {
+    select_model(explicit, configured, advertised).or(provider_default)
 }
 
 fn not_ready(root: PathBuf, checks: Vec<SetupCheck>) -> SetupReport {
@@ -1157,6 +1205,9 @@ pub fn credential_label(provider: &ProviderConfig) -> String {
     {
         return "present".into();
     }
+    if provider.id == "ollama" || provider.base_url.as_deref().is_some_and(is_loopback_url) {
+        return "not_required".into();
+    }
     "missing".into()
 }
 
@@ -1242,6 +1293,45 @@ fn read_private_key(path: &Path) -> Result<Option<String>, SetupError> {
     })?;
     let key = key.trim().to_string();
     Ok((!key.is_empty()).then_some(key))
+}
+
+/// Returns the key that setup would reuse for this provider, without ever
+/// exposing it to the model or printing it. The interactive wizard uses this
+/// only to offer "keep existing key" and to run the model probe.
+pub(crate) fn stored_key(
+    root: &Path,
+    provider_id: &str,
+    existing: Option<&AgentConfig>,
+) -> Option<String> {
+    let provider = existing.and_then(|config| {
+        config
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+    });
+    if let Some(path) = provider.and_then(|provider| provider.api_key_file.as_ref())
+        && let Ok(Some(key)) = read_private_key(path)
+    {
+        return Some(key);
+    }
+    if let Some(name) = provider.and_then(|provider| provider.api_key_env.as_ref())
+        && let Ok(key) = std::env::var(name)
+        && !key.trim().is_empty()
+    {
+        return Some(key.trim().to_string());
+    }
+    if let Ok(Some(key)) = read_private_key(&provider_key_path(root, provider_id)) {
+        return Some(key);
+    }
+    let env_name = match provider_id {
+        "deepseek" => "DEEPSEEK_API_KEY",
+        "openai-compatible" | "openai" => "AGENT_API_KEY",
+        _ => return None,
+    };
+    std::env::var(env_name)
+        .ok()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), SetupError> {
@@ -1338,7 +1428,7 @@ fn absolute_existing(path: &Path) -> Result<PathBuf, SetupError> {
     })
 }
 
-fn is_loopback_url(value: &str) -> bool {
+pub(crate) fn is_loopback_url(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value) else {
         return false;
     };
@@ -1360,4 +1450,75 @@ fn now_ms() -> u64 {
 
 pub fn default_root() -> PathBuf {
     default_home()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_setup_model, select_model};
+
+    fn advertised() -> Vec<String> {
+        vec!["fake-model-a".into(), "fake-model-b".into()]
+    }
+
+    #[test]
+    fn explicit_model_wins_over_configured_and_advertised() {
+        assert_eq!(
+            select_model(
+                Some("explicit-model".into()),
+                Some("configured-model".into()),
+                &advertised()
+            ),
+            Some("explicit-model".into())
+        );
+    }
+
+    #[test]
+    fn configured_model_wins_over_first_advertised() {
+        assert_eq!(
+            select_model(None, Some("configured-model".into()), &advertised()),
+            Some("configured-model".into())
+        );
+    }
+
+    #[test]
+    fn first_advertised_model_is_used_without_explicit_or_configured() {
+        assert_eq!(
+            select_model(None, None, &advertised()),
+            Some("fake-model-a".into())
+        );
+    }
+
+    #[test]
+    fn no_model_when_nothing_is_known() {
+        assert_eq!(select_model(None, None, &[]), None);
+    }
+
+    #[test]
+    fn fresh_provider_prefers_advertised_over_provider_default() {
+        assert_eq!(
+            resolve_setup_model(None, None, Some("deepseek-chat".into()), &advertised()),
+            Some("fake-model-a".into())
+        );
+    }
+
+    #[test]
+    fn provider_default_is_used_only_without_advertised_models() {
+        assert_eq!(
+            resolve_setup_model(None, None, Some("deepseek-chat".into()), &[]),
+            Some("deepseek-chat".into())
+        );
+    }
+
+    #[test]
+    fn configured_model_still_wins_in_resolve() {
+        assert_eq!(
+            resolve_setup_model(
+                None,
+                Some("configured-model".into()),
+                Some("deepseek-chat".into()),
+                &advertised()
+            ),
+            Some("configured-model".into())
+        );
+    }
 }

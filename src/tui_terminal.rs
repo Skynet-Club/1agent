@@ -34,9 +34,13 @@ pub enum TuiInput {
     CtrlTab,
     CommandPalette,
     Escape,
+    CtrlA,
     CtrlC,
+    CtrlD,
+    CtrlG,
     CtrlO,
     CtrlQ,
+    CtrlR,
     Paste(String),
     PasteClipboard,
     RightClick { column: u16, row: u16 },
@@ -159,9 +163,13 @@ fn map_key(key: KeyEvent) -> Option<TuiInput> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Tab => return Some(TuiInput::CtrlTab),
+            KeyCode::Char('a') | KeyCode::Char('A') => return Some(TuiInput::CtrlA),
             KeyCode::Char('c') | KeyCode::Char('C') => return Some(TuiInput::CtrlC),
+            KeyCode::Char('d') | KeyCode::Char('D') => return Some(TuiInput::CtrlD),
+            KeyCode::Char('g') | KeyCode::Char('G') => return Some(TuiInput::CtrlG),
             KeyCode::Char('o') | KeyCode::Char('O') => return Some(TuiInput::CtrlO),
             KeyCode::Char('q') | KeyCode::Char('Q') => return Some(TuiInput::CtrlQ),
+            KeyCode::Char('r') | KeyCode::Char('R') => return Some(TuiInput::CtrlR),
             KeyCode::Char('t') | KeyCode::Char('T') => return Some(TuiInput::CtrlTab),
             KeyCode::Char('k') | KeyCode::Char('K') => return Some(TuiInput::CommandPalette),
             KeyCode::Char('v') | KeyCode::Char('V') => {

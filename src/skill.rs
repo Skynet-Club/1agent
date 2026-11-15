@@ -519,6 +519,11 @@ fn scan_text(label: &str, value: &str) -> Result<(), SkillError> {
             "{label} contains control characters"
         )));
     }
+    if value.chars().any(is_hidden_format_char) {
+        return Err(SkillError::ScanRejected(format!(
+            "{label} contains hidden format characters"
+        )));
+    }
     let lower = value.to_lowercase();
     for marker in [
         "begin private key",
@@ -543,6 +548,22 @@ fn scan_text(label: &str, value: &str) -> Result<(), SkillError> {
         )));
     }
     Ok(())
+}
+
+/// Reject invisible format characters that can hide instructions or reverse
+/// text. ZWJ (U+200D) is intentionally allowed because it is used by emoji.
+fn is_hidden_format_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{200B}'
+            | '\u{200C}'
+            | '\u{200E}'
+            | '\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
 }
 
 fn contains_secret_token(value: &str) -> bool {

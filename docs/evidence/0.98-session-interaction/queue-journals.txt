@@ -1,0 +1,5 @@
+Queued follow-up evidence (mock provider, PTY).
+Session records exactly one journal per turn:
+
+ses_82be57b990374069add7400d7282fbc3	first @sleep-ms:2500	known_facts=[]
+ses_82be57b990374069add7400d7282fbc3	second follow up	known_facts=['Previous user request: first @sleep-ms:2500', 'Previous answer conclusion: 当前离线 Provider 不对自然语言任务作可靠性判断；请配置推理 Provider，或使用 @read-file:<path> 验证只读证据链路。', 'Previous answer status: 需证据']

@@ -1,3 +1,9 @@
+//! End-to-end CLI/TUI coverage.
+//!
+//! `scripts/verify.sh` points `ONEAGENT_HOME` at a temporary empty home so a
+//! developer's configured provider cannot change these results. TUI spawns
+//! below also set a per-test home explicitly.
+
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -91,6 +97,7 @@ fn cli_tui_keeps_last_instruction_in_topbar() {
     let workspace = tempfile::tempdir().unwrap();
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args([
             "tui",
             "--journal-dir",
@@ -128,6 +135,7 @@ fn cli_tui_master_commands_require_workshop_master_context() {
     let journal_dir = workspace.path().join("standalone-journal");
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args(["tui", "--journal-dir", &journal_dir.display().to_string()])
         .env_remove("SKYTERM_HOST_CONTEXT")
         .env_remove("SKYTERM_AGENT_ROLE")
@@ -163,6 +171,7 @@ fn cli_tui_master_commands_require_workshop_master_context() {
 
     let master_journal = workspace.path().join("master-journal");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args([
             "tui",
             "--journal-dir",
@@ -213,6 +222,7 @@ fn cli_tui_epistemic_commands_bind_results_to_journal_evidence() {
     let journal_dir = workspace.path().join("journal");
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args(["tui", "--journal-dir", &journal_dir.display().to_string()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -259,6 +269,7 @@ fn cli_tui_model_permissions_and_tools_are_inspectable_and_controllable() {
     let journal_dir = workspace.path().join("journal");
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args(["tui", "--journal-dir", &journal_dir.display().to_string()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -321,6 +332,7 @@ fn cli_tui_agents_refresh_uses_configured_profiles() {
     .unwrap();
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args([
             "tui",
             "--journal-dir",
@@ -1102,6 +1114,7 @@ fn cli_tui_master_supervision_closes_the_human_in_the_loop_path() {
     );
 
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", root.path().join("home"))
         .args([
             "tui",
             "--journal-dir",
@@ -1394,6 +1407,7 @@ fn cli_tui_master_verification_commands_require_independent_artifact_evidence() 
     );
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", root.path().join("home"))
         .args([
             "tui",
             "--journal-dir",
@@ -1461,6 +1475,7 @@ fn cli_tui_phase_six_session_workspace_context_preset_export_and_copy_work() {
     let agents_path = workspace.path().join("AGENTS.md");
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args(["tui", "--journal-dir", &journal_dir.display().to_string()])
         .current_dir(workspace.path())
         .stdin(Stdio::piped())
@@ -3366,6 +3381,7 @@ fn tui_line_mode_prints_a_recovery_hint() {
     let workspace = tempfile::tempdir().unwrap();
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");
     let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
         .args([
             "tui",
             "--provider",

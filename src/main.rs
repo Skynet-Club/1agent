@@ -19,20 +19,21 @@ use first_principles_agent::{
     ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
     ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
     HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, Journal,
-    JournalEventKind, MasterJournalEventKind, MasterState, MasterStore, ModelPlanGenerator,
-    ModelProductionPlanGenerator, ModelProvider, ModelRequestChain, OpenAiCompatibleProvider,
-    PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan,
-    ProductionPlanningContext, ProviderAdapter, ProviderCandidate, ProviderProbeReport,
-    ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReasoningEffort, ReframeChoice,
-    ReframeProposal, RegistrySnapshot, RejectedReason, ReleasePolicy, ReleasePolicyMode,
-    RequestRole, RiskLevel, RouteObjective, RoutePolicySources, RouteRequest, Router, RunBudget,
-    RuntimeError, SchedulerLimits, SessionEvent, SessionPreferences, SkillService, StopReason,
-    TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals,
-    TrustAnchorManifest, TuiActivity, TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution,
-    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
-    WorkshopCliAdapter, add_git_worktree,
+    JournalCursor, JournalEventKind, MasterJournalEventKind, MasterState, MasterStore,
+    ModelPlanGenerator, ModelProductionPlanGenerator, ModelProvider, ModelRequestChain,
+    OpenAiCompatibleProvider, PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource,
+    ProductionPlan, ProductionPlanningContext, ProviderAdapter, ProviderCandidate,
+    ProviderProbeReport, ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReasoningEffort,
+    ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason, ReleasePolicy,
+    ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources, RouteRequest,
+    Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent, SessionPickerAction,
+    SessionPickerItem, SessionPreferences, SkillService, StopReason, TaskRequest, TerminalSession,
+    ToolObservation, ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiActivity,
+    TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession, TuiState,
+    TuiStatus, TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter, add_git_worktree,
     answer_render::{
-        answer_impact_label, claim_status_label, render_answer, render_answer_default,
+        answer_impact_label, answer_status_label, claim_status_label, render_answer,
+        render_answer_default,
     },
     artifact_expectation, artifacts_summary, audit_events, audit_summary,
     build_release_verification_report, build_usage_ledger, build_user_message, collect_provenance,
@@ -47,10 +48,12 @@ use first_principles_agent::{
     list_presets, list_provider_models, load_agent_profiles, load_eval_report, load_preset,
     load_suite, local_manifest, master_audit_summary, master_evidence_summary, master_report,
     next_actions, parse_model_output, print_session_banner, probe_provider, probe_provider_tools,
-    prompt_sha256, read_clipboard, read_events, read_master_journal_events, rebuild_and_compare,
-    remote_manifest, render_capability_report, render_receipt, render_usage_ledger, replay_events,
-    replay_master_journal, resolve_input, restore, risk_for_mode, run_capability_suite, run_report,
-    save_preset, scan_history, schedule_ready, spawn_input_reader, stage_next_actions,
+    prompt_sha256, read_clipboard, read_events, read_events_incremental,
+    read_master_journal_events, rebuild_and_compare, remote_manifest, render_capability_report,
+    render_receipt, render_usage_ledger, replay_events, replay_master_journal, resolve_input,
+    restore, risk_for_mode, run_capability_suite, run_report, save_preset, scan_history,
+    schedule_ready, spawn_input_reader, stage_next_actions,
+    subagent_registry::{SubagentRecord, load_recent_current},
     summarize_route_trace, terminal_dimensions, trash_preset, triage_goal, uninstall, upgrade,
     verify_goldset_manifest, verify_provenance, verify_release_approval, verify_release_manifest,
     verify_snapshot_chain, verify_snapshot_chain_with_anchor, write_capability_report,
@@ -4731,34 +4734,6 @@ fn print_advanced_groups(all: bool) {
 fn default_config_path() -> Option<PathBuf> {
     let path = default_home().join("config.json");
     path.is_file().then_some(path)
-}
-
-fn prompt_line(prompt: &str, default: &str) -> Result<String> {
-    use std::io::Write;
-    print!("{prompt}");
-    std::io::stdout().flush()?;
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    let line = line.trim().to_string();
-    Ok(if line.is_empty() {
-        default.to_string()
-    } else {
-        line
-    })
-}
-
-fn prompt_provider() -> Result<String> {
-    println!("Select provider:");
-    println!("  1) DeepSeek (recommended)");
-    println!("  2) OpenAI-compatible");
-    println!("  3) Ollama (local)");
-    let choice = prompt_line("Provider [1]: ", "1")?;
-    match choice.trim().to_ascii_lowercase().as_str() {
-        "1" | "deepseek" => Ok("deepseek".into()),
-        "2" | "openai" | "openai-compatible" => Ok("openai-compatible".into()),
-        "3" | "ollama" => Ok("ollama".into()),
-        other => bail!("error: unknown provider '{other}'\nnext: use 1, 2 or 3"),
-    }
 }
 
 fn prompt_masked(prompt: &str) -> Result<String> {
@@ -12636,76 +12611,24 @@ async fn main() -> Result<()> {
                     2,
                 );
             }
-            let mut provider =
+            let root = root.unwrap_or_else(default_home);
+            let mut options = SetupOptions::new(root.clone());
+            options.check = check;
+            options.probe = probe;
+            options.non_interactive = non_interactive;
+            options.yes = yes;
+            options.resume = resume;
+            options.force = force;
+            options.provider =
                 provider.map(|value| match value.trim().to_ascii_lowercase().as_str() {
                     "1" => "deepseek".to_string(),
-                    "2" => "openai-compatible".to_string(),
+                    "2" | "openai" => "openai-compatible".to_string(),
                     "3" => "ollama".to_string(),
                     _ => value,
                 });
-            let mut base_url = base_url;
-            let mut model = model;
-            let mut permission_preset = permission_preset;
-            let mut workspace = workspace;
-            let mut interactive_key = None;
-            let interactive = !check
-                && !non_interactive
-                && !yes
-                && std::io::stdin().is_terminal()
-                && std::io::stdout().is_terminal();
-            if interactive {
-                if provider.is_none() {
-                    provider = Some(prompt_provider()?);
-                }
-                let provider_name = provider
-                    .as_deref()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_ascii_lowercase();
-                if provider_name == "openai-compatible" && base_url.is_none() {
-                    let value = prompt_line("Base URL (for example https://host/v1): ", "")?;
-                    if value.trim().is_empty() {
-                        bail!(
-                            "error: base URL is required\nnext: 1agent setup --resume --base-url https://..."
-                        );
-                    }
-                    base_url = Some(value);
-                }
-                if model.is_none() {
-                    let default = if provider_name == "deepseek" {
-                        "deepseek-chat"
-                    } else {
-                        ""
-                    };
-                    let value = prompt_line(&format!("Model [{default}]: "), default)?;
-                    if !value.trim().is_empty() {
-                        model = Some(value);
-                    }
-                }
-                let needs_key = matches!(
-                    provider_name.as_str(),
-                    "deepseek" | "openai-compatible" | "openai"
-                );
-                if needs_key && !api_key_stdin {
-                    let value = prompt_masked("API key (Enter to keep existing): ")?;
-                    if !value.trim().is_empty() {
-                        interactive_key = Some(value);
-                    }
-                }
-                if permission_preset.is_none() {
-                    let value = prompt_line(
-                        "Permissions [read-only/safe/full-local] (default safe): ",
-                        "safe",
-                    )?;
-                    permission_preset = Some(value);
-                }
-                if workspace.is_none() {
-                    let default = std::env::current_dir()?.display().to_string();
-                    let value = prompt_line(&format!("Workspace [{default}]: "), &default)?;
-                    workspace = Some(PathBuf::from(value));
-                }
-            }
-            let preset = match permission_preset.as_deref() {
+            options.base_url = base_url;
+            options.model = model;
+            options.permission_preset = match permission_preset.as_deref() {
                 None | Some("") => None,
                 Some(value) => match first_principles_agent::PermissionPreset::parse(value) {
                     Some(preset) => Some(preset),
@@ -12720,33 +12643,63 @@ async fn main() -> Result<()> {
                     ),
                 },
             };
-            let api_key = if api_key_stdin {
-                let mut key = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut key)
-                    .map_err(|error| anyhow::anyhow!("cannot read API key from stdin: {error}"))?;
-                Some(key)
-            } else {
-                interactive_key
-            };
-            let mut options = SetupOptions::new(root.unwrap_or_else(default_home));
-            options.check = check;
-            options.probe = probe;
-            options.non_interactive = non_interactive;
-            options.yes = yes;
-            options.resume = resume;
-            options.force = force;
-            options.provider = provider;
-            options.base_url = base_url;
-            options.model = model;
-            options.api_key = api_key;
-            options.permission_preset = preset;
             options.workspace = workspace;
             options.read_roots = read_root;
             options.skip_probe = skip_probe;
             options.skip_smoke = skip_smoke;
             options.json = json;
-            match run_setup(options).await {
+
+            let interactive = !check
+                && !json
+                && !non_interactive
+                && !yes
+                && std::io::stdin().is_terminal()
+                && std::io::stdout().is_terminal();
+            let mut interactive_wizard = false;
+            if interactive {
+                let existing = load_config(&root).ok().flatten();
+                match first_principles_agent::setup_wizard::run(
+                    &root,
+                    existing.as_ref(),
+                    &options,
+                    api_key_stdin,
+                )
+                .await?
+                {
+                    first_principles_agent::setup_wizard::WizardOutcome::Cancelled => {
+                        println!("Setup cancelled.");
+                        std::process::exit(130);
+                    }
+                    first_principles_agent::setup_wizard::WizardOutcome::Ready(choices) => {
+                        options.provider = Some(choices.provider);
+                        options.base_url = choices.base_url;
+                        options.model = Some(choices.model);
+                        options.api_key = choices.api_key;
+                        options.permission_preset = Some(choices.permission_preset);
+                        options.workspace = Some(choices.workspace);
+                        options.probed_models = choices.probed_models;
+                        options.skip_probe = options.skip_probe || choices.skip_validation_probe;
+                        interactive_wizard = true;
+                    }
+                }
+            }
+            if api_key_stdin {
+                let mut key = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut key)
+                    .map_err(|error| anyhow::anyhow!("cannot read API key from stdin: {error}"))?;
+                if !key.trim().is_empty() {
+                    options.api_key = Some(key);
+                }
+            }
+            let spinner = (interactive_wizard && !json).then(|| {
+                first_principles_agent::setup_wizard::Spinner::start("Running setup checks")
+            });
+            let result = run_setup(options).await;
+            if let Some(spinner) = spinner {
+                spinner.stop();
+            }
+            match result {
                 Ok(report) if report.ok => {
                     if json {
                         println!(
@@ -12757,6 +12710,8 @@ async fn main() -> Result<()> {
                                 "data": report,
                             }))?
                         );
+                    } else if interactive_wizard {
+                        first_principles_agent::setup_wizard::print_success(&report);
                     } else {
                         print_setup_report(&report);
                     }
@@ -12771,6 +12726,10 @@ async fn main() -> Result<()> {
                             .unwrap_or_else(|| "1agent setup --resume".into()),
                     )
                     .with_details(json!({"checks": report.checks}));
+                    if interactive_wizard && !json {
+                        first_principles_agent::setup_wizard::print_failure(&error, &report.checks);
+                        std::process::exit(1);
+                    }
                     emit_cli_error(&error, json, 1);
                 }
                 Err(error) => {
@@ -12779,6 +12738,10 @@ async fn main() -> Result<()> {
                     } else {
                         1
                     };
+                    if interactive_wizard && !json {
+                        first_principles_agent::setup_wizard::print_failure(&error, &[]);
+                        std::process::exit(exit);
+                    }
                     emit_cli_error(&error, json, exit);
                 }
             }
@@ -16065,6 +16028,12 @@ fn display_tui_help_menu(state: &mut TuiState) {
         "帮助\n\
          当前环境      {}\n\
          可用命令      {} 个\n\
+         \n\
+         会话：← 空输入框打开会话列表 · Enter 切换 · 选中即预览\n\
+         分队：Ctrl+G 打开 分队 Agents · Tab 切换会话/分队\n\
+         暂停：运行中 Esc 暂停 · Enter 继续 · 再按 Esc 中断\n\
+         恢复：Ctrl+R 从 checkpoint 恢复上次中断\n\
+         排队：运行中 Enter 入队 · 空闲时 ↑ 取回编辑\n\
          \n\
          使用 ↑/↓ 选择命令，Enter 执行或进入下一步。\n\
          需要目标、路径或参数的命令会先准备输入。",
@@ -19974,10 +19943,215 @@ fn switch_tui_session(
     sync_tui_stage(state, session);
     restore_tui_session(state, session);
     state.info(format!(
-        "当前会话已切换\n会话 ID       {}\n会话标题      {}",
+        "当前会话已切换\n会话 ID       {}\n会话标题      {}\n\n继续输入即可追问；← 打开会话列表",
         session.id(),
         session.title()
     ));
+}
+
+fn tui_session_picker_items(session: &TuiSession) -> Vec<SessionPickerItem> {
+    TuiSession::list(session.journal_root())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|summary| SessionPickerItem {
+            current: summary.id == session.id(),
+            id: summary.id,
+            title: summary.title,
+            archived: summary.archived,
+            runs: summary.runs,
+            modified_unix_ms: summary.modified_unix_ms,
+            workspace: summary.workspace.map(|path| path.display().to_string()),
+        })
+        .collect()
+}
+
+fn open_tui_session_picker(state: &mut TuiState, session: &TuiSession) {
+    match TuiSession::list(session.journal_root()) {
+        Ok(summaries) => {
+            let items = summaries
+                .into_iter()
+                .map(|summary| SessionPickerItem {
+                    current: summary.id == session.id(),
+                    id: summary.id,
+                    title: summary.title,
+                    archived: summary.archived,
+                    runs: summary.runs,
+                    modified_unix_ms: summary.modified_unix_ms,
+                    workspace: summary.workspace.map(|path| path.display().to_string()),
+                })
+                .collect();
+            state.open_session_picker(items);
+            sync_session_picker_preview(state, session);
+        }
+        Err(error) => state.info(format!("无法列出会话：{error}")),
+    }
+}
+
+fn open_squad_panel(state: &mut TuiState, session: &TuiSession) {
+    let items = tui_session_picker_items(session);
+    let squad = load_recent_current();
+    state.open_squad_picker(items, squad);
+    sync_session_picker_preview(state, session);
+}
+
+fn refresh_squad_panel(state: &mut TuiState) {
+    state.session_picker_set_squad(load_recent_current());
+}
+
+fn subagent_preview(record: &SubagentRecord) -> String {
+    let mut lines = vec![
+        format!("任务    {}", bounded_chars(&record.task, 800)),
+        format!(
+            "状态    {} · D{} · {}",
+            record.status.label_zh(),
+            record.depth,
+            format_elapsed_ms(record.elapsed_ms())
+        ),
+        format!(
+            "父 PID  {} · 子 PID {}",
+            record.parent_pid,
+            record.child_pid.map_or("-".into(), |pid| pid.to_string())
+        ),
+        format!("工作区  {}", record.workspace),
+        format!("Journal {}", record.journal_dir),
+        format!(
+            "权限    写 {} · 网络 {}",
+            if record.allow_write {
+                "允许"
+            } else {
+                "禁止"
+            },
+            if record.allow_network {
+                "允许"
+            } else {
+                "禁止"
+            }
+        ),
+        format!(
+            "预算    {} 步 · {}s",
+            record.max_steps, record.timeout_seconds
+        ),
+    ];
+    if let Some(summary) = &record.summary {
+        lines.push(format!("摘要    {}", bounded_chars(summary, 500)));
+    }
+    let Some(path) = newest_journal_since(std::path::Path::new(&record.journal_dir), 0) else {
+        lines.push("\n子进程已登记，等待子 journal…".into());
+        return lines.join("\n");
+    };
+    let Ok(events) = read_events_incremental(&path.0, &mut JournalCursor::default()) else {
+        lines.push("\n子 journal 暂时不可读。".into());
+        return lines.join("\n");
+    };
+    let mut timeline = Vec::new();
+    for event in events.iter().rev().take(80).rev() {
+        match &event.event {
+            JournalEventKind::RunStarted { request, .. } => {
+                timeline.push(format!("任务：{}", bounded_chars(&request.objective, 300)))
+            }
+            JournalEventKind::ToolCalled { call } => timeline.push(format!(
+                "工具：{} · {}",
+                call.name,
+                bounded_chars(&call.arguments.to_string(), 220)
+            )),
+            JournalEventKind::ToolObserved { observation } => timeline.push(format!(
+                "结果：{} · {:?} · {}",
+                observation.tool,
+                observation.status,
+                bounded_chars(&observation.summary, 240)
+            )),
+            JournalEventKind::AnswerProduced { answer } => timeline.push(format!(
+                "结论 · {}：{}",
+                answer_status_label(answer.status),
+                bounded_chars(&answer.conclusion, 420)
+            )),
+            JournalEventKind::RunStopped { reason } => timeline.push(format!("结束：{reason:?}")),
+            _ => {}
+        }
+    }
+    if timeline.is_empty() {
+        lines.push("\n子 journal 已创建，暂无可见事件。".into());
+    } else {
+        lines.push("\n实时进度".into());
+        lines.extend(timeline.into_iter().rev().take(18).rev());
+    }
+    lines.join("\n")
+}
+
+fn bounded_chars(value: &str, max: usize) -> String {
+    let mut text = value.chars().take(max).collect::<String>();
+    if value.chars().nth(max).is_some() {
+        text.push('…');
+    }
+    text
+}
+
+fn sync_session_picker_preview(state: &mut TuiState, session: &TuiSession) {
+    let Some(id) = state.session_picker_preview_needed() else {
+        return;
+    };
+    if state.session_picker_on_squad() {
+        if let Some(record) = state.session_picker_selected_squad() {
+            let text = subagent_preview(&record);
+            state.session_picker_set_preview(id, text);
+        }
+        return;
+    }
+    match tui_session_preview(session, &id) {
+        Ok(text) => state.session_picker_set_preview(id, text),
+        Err(error) => state.session_picker_set_preview(id, format!("预览失败：{error}")),
+    }
+}
+
+fn tui_session_preview(session: &TuiSession, id: &str) -> Result<String, String> {
+    let target = TuiSession::open(session.journal_root(), Some(id))
+        .map_err(|error| format!("无法打开会话：{error}"))?;
+    let mut lines = vec![
+        format!("标题    {}", target.title()),
+        format!("会话 ID {}", target.id()),
+        format!("运行    {} 次", target.journals().len()),
+        format!(
+            "状态    {}",
+            if target.archived() {
+                "已归档"
+            } else {
+                "使用中"
+            }
+        ),
+    ];
+    if let Some(workspace) = target.workspace() {
+        lines.push(format!("工作区  {}", workspace.display()));
+    }
+    let Some(last) = target.journals().last() else {
+        lines.push("\n还没有运行记录。".into());
+        return Ok(lines.join("\n"));
+    };
+    let events = read_events(last).map_err(|error| format!("无法读取 journal：{error}"))?;
+    let replay = replay_events(&events).map_err(|error| format!("无法重放 journal：{error}"))?;
+    if let Some(request) = replay.request {
+        lines.push(format!(
+            "\n最近任务\n{}",
+            request.objective.chars().take(600).collect::<String>()
+        ));
+    }
+    if let Some(answer) = replay.answer {
+        lines.push(format!(
+            "\n最近结论 · {}\n{}",
+            answer_status_label(answer.status),
+            answer.conclusion.chars().take(900).collect::<String>()
+        ));
+        if !answer.evidence.is_empty() {
+            lines.push("\n证据".into());
+            for evidence in answer.evidence.iter().take(4) {
+                lines.push(format!(
+                    "· {}：{}",
+                    evidence.source,
+                    evidence.statement.chars().take(260).collect::<String>()
+                ));
+            }
+        }
+    }
+    Ok(lines.join("\n"))
 }
 
 fn handle_session_command(
@@ -20504,18 +20678,29 @@ async fn run_tui_interactive(
     let mut selection_autoscroll_ticker = tokio::time::interval(Duration::from_millis(70));
     selection_autoscroll_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        let input = tokio::select! {
-            input = inputs.recv() => input,
-            _ = selection_autoscroll_ticker.tick(), if state.selection_autoscroll_active() => {
-                if state.autoscroll_selection_once() {
-                    draw_tui_frame(&mut terminal, &mut state)?;
+        let input = if let Some(queued) = state.take_queued_for_submit() {
+            state.set_input(&queued);
+            Some(TuiInput::Enter)
+        } else {
+            tokio::select! {
+                input = inputs.recv() => input,
+                _ = selection_autoscroll_ticker.tick(), if state.selection_autoscroll_active() => {
+                    if state.autoscroll_selection_once() {
+                        draw_tui_frame(&mut terminal, &mut state)?;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            _ = tokio::time::sleep(Duration::from_millis(500)), if state.clarify_open() => {
-                state.expire_clarify(now_unix_ms());
-                draw_tui_frame(&mut terminal, &mut state)?;
-                continue;
+                _ = tokio::time::sleep(Duration::from_millis(500)), if state.clarify_open() => {
+                    state.expire_clarify(now_unix_ms());
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(500)), if state.session_picker_on_squad() => {
+                    refresh_squad_panel(&mut state);
+                    sync_session_picker_preview(&mut state, &session);
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
             }
         };
         let Some(mut input) = input else { break };
@@ -20534,6 +20719,7 @@ async fn run_tui_interactive(
             state.close_mode_menu();
             state.close_details();
             state.close_command_panel();
+            state.close_session_picker();
             state.clear_confirmation();
             if state.request_quit() {
                 break;
@@ -20551,6 +20737,61 @@ async fn run_tui_interactive(
         }
         if state.clarify_open() && !state.quit_requested() {
             state.handle_clarify_input(input, now_unix_ms());
+            draw_tui_frame(&mut terminal, &mut state)?;
+            continue;
+        }
+        if state.session_picker_open() {
+            match state.handle_session_picker_input(input) {
+                SessionPickerAction::None => {}
+                SessionPickerAction::Close => state.close_session_picker(),
+                SessionPickerAction::New => match TuiSession::open(session.journal_root(), None) {
+                    Ok(next) => switch_tui_session(&mut state, &mut session, &mut settings, next),
+                    Err(error) => state.info(format!("无法创建会话：{error}")),
+                },
+                SessionPickerAction::Switch(id) => {
+                    match TuiSession::open(session.journal_root(), Some(&id)) {
+                        Ok(next) => {
+                            switch_tui_session(&mut state, &mut session, &mut settings, next);
+                        }
+                        Err(error) => state.info(format!("无法切换会话：{error}")),
+                    }
+                }
+                SessionPickerAction::Rename { id, title } => {
+                    match TuiSession::open(session.journal_root(), Some(&id))
+                        .and_then(|mut target| target.rename(&title))
+                    {
+                        Ok(()) => {
+                            state.session_picker_update_title(&id, title);
+                            state.info("会话已重命名。");
+                        }
+                        Err(error) => state.info(format!("重命名失败：{error}")),
+                    }
+                }
+                SessionPickerAction::Archive(id) => {
+                    if id == session.id() {
+                        state.info("不能归档当前会话；请先切换到其他会话。");
+                    } else {
+                        match TuiSession::open(session.journal_root(), Some(&id)) {
+                            Ok(mut target) => {
+                                let archived = !target.archived();
+                                match target.set_archived(archived) {
+                                    Ok(()) => {
+                                        state.session_picker_update_archived(&id, archived);
+                                        state.info(if archived {
+                                            "会话已归档。Ctrl+A 可显示已归档会话。"
+                                        } else {
+                                            "会话已取消归档。"
+                                        });
+                                    }
+                                    Err(error) => state.info(format!("归档会话失败：{error}")),
+                                }
+                            }
+                            Err(error) => state.info(format!("无法打开目标会话：{error}")),
+                        }
+                    }
+                }
+            }
+            sync_session_picker_preview(&mut state, &session);
             draw_tui_frame(&mut terminal, &mut state)?;
             continue;
         }
@@ -20615,6 +20856,9 @@ async fn run_tui_interactive(
             TuiInput::Char(character) => state.insert_char(character),
             TuiInput::Backspace => state.backspace(),
             TuiInput::Delete => state.delete(),
+            TuiInput::Left if state.input().is_empty() && !state.secret_input_active() => {
+                open_tui_session_picker(&mut state, &session);
+            }
             TuiInput::Left => state.move_left(),
             TuiInput::Right => state.move_right(),
             TuiInput::Home => state.move_home(),
@@ -20632,6 +20876,11 @@ async fn run_tui_interactive(
             }
             TuiInput::Up if state.command_panel_open() => state.scroll_command_panel_up(1),
             TuiInput::Down if state.command_panel_open() => state.scroll_command_panel_down(1),
+            TuiInput::Up if state.input().is_empty() && state.queued_input_count() > 0 => {
+                if state.recall_queued_input() {
+                    state.set_notice("已取回排队消息；编辑后 Enter 重新排队");
+                }
+            }
             TuiInput::Up
                 if (state.input().is_empty() || state.history_active())
                     && state.history_previous() => {}
@@ -20687,6 +20936,27 @@ async fn run_tui_interactive(
             TuiInput::RightClick { .. } => {}
             // Ctrl+Q is handled before overlays and never reaches this dispatch.
             TuiInput::CtrlQ => {}
+            TuiInput::CtrlA => state.move_home(),
+            TuiInput::CtrlD => state.delete(),
+            TuiInput::CtrlG => open_squad_panel(&mut state, &session),
+            TuiInput::CtrlR => {
+                if state.input().is_empty() {
+                    let quit = resume_interrupted_tui_run(
+                        &mut runtime,
+                        &mut state,
+                        &mut terminal,
+                        &mut inputs,
+                        &mut clarify_receiver,
+                        &mut session,
+                    )
+                    .await?;
+                    if quit {
+                        break;
+                    }
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
+            }
             TuiInput::CtrlC => {
                 if copy_selected_text(&mut state) {
                     state.clear_selection();
@@ -20931,8 +21201,10 @@ async fn run_tui_interactive(
                                     &mut inputs,
                                     &mut clarify_receiver,
                                     &mut session,
-                                    request,
-                                    Some(mode),
+                                    TuiRunSource::Task {
+                                        request: Box::new(request),
+                                        requested_mode: Some(mode),
+                                    },
                                 )
                                 .await?;
                                 if quit {
@@ -21067,8 +21339,10 @@ async fn run_tui_interactive(
                                         &mut inputs,
                                         &mut clarify_receiver,
                                         &mut session,
-                                        request,
-                                        Some(mode),
+                                        TuiRunSource::Task {
+                                            request: Box::new(request),
+                                            requested_mode: Some(mode),
+                                        },
                                     )
                                     .await?;
                                     if quit {
@@ -21140,8 +21414,10 @@ async fn run_tui_interactive(
                             &mut inputs,
                             &mut clarify_receiver,
                             &mut session,
-                            request,
-                            Some(mode),
+                            TuiRunSource::Task {
+                                request: Box::new(request),
+                                requested_mode: Some(mode),
+                            },
                         )
                         .await?;
                         if quit {
@@ -21166,6 +21442,102 @@ async fn run_tui_interactive(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn resumable_journal_prefix(journal: &Path) -> Result<PathBuf> {
+    let events = read_events(journal)
+        .map_err(|error| anyhow::anyhow!("无法读取 journal {}：{error}", journal.display()))?;
+    let terminal = events.iter().any(|event| {
+        matches!(
+            &event.event,
+            JournalEventKind::RunStopped { .. } | JournalEventKind::AnswerProduced { .. }
+        )
+    });
+    if !terminal {
+        return Ok(journal.to_path_buf());
+    }
+    let Some((index, _)) = events.iter().enumerate().rev().find(|(_, event)| {
+        matches!(
+            &event.event,
+            JournalEventKind::Checkpoint { .. } | JournalEventKind::CheckpointDelta { .. }
+        )
+    }) else {
+        anyhow::bail!("这次中断没有可恢复的 checkpoint");
+    };
+    let parent = journal
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("journal 没有父目录"))?;
+    let path = parent.join(format!("resume-{}.jsonl", Uuid::new_v4()));
+    let mut prefix = Journal::create(&path, Uuid::new_v4())
+        .map_err(|error| anyhow::anyhow!("无法创建恢复 journal：{error}"))?;
+    for event in &events[..=index] {
+        prefix
+            .append(event.event.clone())
+            .map_err(|error| anyhow::anyhow!("无法写入恢复 journal：{error}"))?;
+    }
+    Ok(path)
+}
+
+async fn resume_interrupted_tui_run(
+    runtime: &mut AgentRuntime,
+    state: &mut TuiState,
+    terminal: &mut TerminalSession,
+    inputs: &mut tokio::sync::mpsc::UnboundedReceiver<TuiInput>,
+    clarify_receiver: &mut tokio::sync::mpsc::UnboundedReceiver<
+        first_principles_agent::tui_clarify::ClarifyToolRequest,
+    >,
+    session: &mut TuiSession,
+) -> Result<bool> {
+    let Some(journal) = state.interrupted_journal().map(Path::to_path_buf) else {
+        state.info("没有可恢复的中断运行。");
+        return Ok(false);
+    };
+    let resume_journal = match resumable_journal_prefix(&journal) {
+        Ok(path) => path,
+        Err(error) => {
+            state.info(format!("无法恢复上次运行：{error}"));
+            return Ok(false);
+        }
+    };
+    let events = read_events(&resume_journal)
+        .map_err(|error| anyhow::anyhow!("无法读取恢复点 {}：{error}", resume_journal.display()))?;
+    let replay = replay_events(&events)
+        .map_err(|error| anyhow::anyhow!("无法重放恢复点 {}：{error}", resume_journal.display()))?;
+    let Some(request) = replay.request else {
+        state.info("这个恢复点没有可恢复的任务请求。");
+        return Ok(false);
+    };
+    let mode = replay.mode.unwrap_or_else(|| infer_mode(&request));
+    state.begin(&request.objective, mode, risk_for_mode(mode));
+    state.set_interrupted_journal(Some(resume_journal.clone()));
+    state.set_notice(format!(
+        "正在从 checkpoint 恢复上次中断的运行…\n恢复点：{}",
+        resume_journal.display()
+    ));
+    draw_tui_frame(terminal, state)?;
+    run_tui_task(
+        runtime,
+        state,
+        terminal,
+        inputs,
+        clarify_receiver,
+        session,
+        TuiRunSource::Resume {
+            journal: resume_journal,
+        },
+    )
+    .await
+}
+
+enum TuiRunSource {
+    Task {
+        request: Box<TaskRequest>,
+        requested_mode: Option<CognitiveMode>,
+    },
+    Resume {
+        journal: PathBuf,
+    },
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_tui_task(
     runtime: &mut AgentRuntime,
     state: &mut TuiState,
@@ -21175,26 +21547,36 @@ async fn run_tui_task(
         first_principles_agent::tui_clarify::ClarifyToolRequest,
     >,
     session: &mut TuiSession,
-    request: TaskRequest,
-    requested_mode: Option<CognitiveMode>,
+    source: TuiRunSource,
 ) -> Result<bool> {
     let cancellation = CancellationToken::new();
     let run_started_ms = current_time_ms();
     let mut active_journal: Option<(PathBuf, u64, Option<u64>)> = None;
     let run = async {
-        match requested_mode {
-            Some(mode) => {
-                runtime
-                    .run_with_mode(request, mode, cancellation.clone())
-                    .await
+        match source {
+            TuiRunSource::Task {
+                request,
+                requested_mode,
+            } => match requested_mode {
+                Some(mode) => {
+                    runtime
+                        .run_with_mode(*request, mode, cancellation.clone())
+                        .await
+                }
+                None => runtime.run(*request, cancellation.clone()).await,
+            },
+            TuiRunSource::Resume { journal } => {
+                runtime.resume(&journal, cancellation.clone()).await
             }
-            None => runtime.run(request, cancellation.clone()).await,
         }
     };
     tokio::pin!(run);
     let mut ticker = tokio::time::interval(Duration::from_millis(120));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     ticker.tick().await;
+    let mut squad_ticker = tokio::time::interval(Duration::from_millis(500));
+    squad_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    squad_ticker.tick().await;
     let mut quit_after_run = false;
     let mut pending_clarify: Option<
         tokio::sync::oneshot::Sender<
@@ -21204,7 +21586,7 @@ async fn run_tui_task(
 
     loop {
         tokio::select! {
-            result = &mut run => {
+            result = &mut run, if state.status != TuiStatus::Paused => {
                 if let Some(response) = pending_clarify.take() {
                     let _ = response.send(Err("run ended before clarify completed".into()));
                 }
@@ -21218,10 +21600,29 @@ async fn run_tui_task(
                         if let Err(error) = session.record_journal(&result.journal_path) {
                             state.info(format!("无法保存会话：{error}"));
                         }
+                        state.set_interrupted_journal(None);
                         record_tui_result(state, &result);
                     }
                     Err(RuntimeError::Cancelled { .. }) => {
-                        state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
+                        let interrupted = active_journal
+                            .as_ref()
+                            .map(|(path, _, _)| path.clone())
+                            .or_else(|| {
+                                newest_journal_since(runtime.journal_dir(), run_started_ms)
+                                    .map(|(path, _)| path)
+                            });
+                        if interrupted.is_some() {
+                            state.set_interrupted_journal(interrupted);
+                            state.finish(
+                                TuiStatus::Cancelled,
+                                "已中断 · journal 已保存 · Ctrl+R 恢复本次运行",
+                            );
+                        } else {
+                            state.finish(
+                                TuiStatus::Cancelled,
+                                "已中断 · Ctrl+R 无可恢复的 checkpoint",
+                            );
+                        }
                     }
                     Err(error) => {
                         finish_tui_error(state, &error);
@@ -21286,14 +21687,115 @@ async fn run_tui_task(
                 {
                     state.cancel_quit();
                 }
+                if matches!(input, Some(TuiInput::CtrlG)) {
+                    if state.session_picker_open() {
+                        state.close_session_picker();
+                    } else {
+                        open_squad_panel(&mut *state, session);
+                    }
+                    draw_tui_frame(terminal, state)?;
+                    continue;
+                }
+                if state.session_picker_open() {
+                    if matches!(input, Some(TuiInput::CtrlQ)) {
+                        if state.request_quit() {
+                            state.resume_run();
+                            quit_after_run = true;
+                            cancellation.cancel();
+                        }
+                        draw_tui_frame(terminal, state)?;
+                        continue;
+                    }
+                    if matches!(input, Some(TuiInput::CtrlC)) {
+                        if !copy_selected_text(state) {
+                            state.resume_run();
+                            cancellation.cancel();
+                        }
+                        draw_tui_frame(terminal, state)?;
+                        continue;
+                    }
+                    let Some(event) = input.clone() else {
+                        quit_after_run = true;
+                        cancellation.cancel();
+                        draw_tui_frame(terminal, state)?;
+                        continue;
+                    };
+                    match state.handle_session_picker_input(event) {
+                        SessionPickerAction::None => {}
+                        SessionPickerAction::Close => state.close_session_picker(),
+                        SessionPickerAction::New
+                        | SessionPickerAction::Switch(_)
+                        | SessionPickerAction::Rename { .. }
+                        | SessionPickerAction::Archive(_) => {
+                            state.info("运行中不能切换或修改会话；请先暂停或中断。");
+                        }
+                    }
+                    sync_session_picker_preview(&mut *state, session);
+                    draw_tui_frame(terminal, state)?;
+                    continue;
+                }
+                if state.status == TuiStatus::Paused {
+                    match input {
+                        Some(TuiInput::Escape) => {
+                            state.resume_run();
+                            cancellation.cancel();
+                            state.set_notice("正在中断…");
+                        }
+                        Some(TuiInput::Enter) => {
+                            state.resume_run();
+                            state.set_notice("继续运行");
+                        }
+                        Some(TuiInput::CtrlC) => {
+                            state.resume_run();
+                            cancellation.cancel();
+                        }
+                        Some(TuiInput::CtrlQ) => {
+                            if state.request_quit() {
+                                state.resume_run();
+                                quit_after_run = true;
+                                cancellation.cancel();
+                            }
+                        }
+                        Some(TuiInput::CtrlO) => {
+                            if state.details_open() {
+                                state.close_details();
+                            } else {
+                                state.open_details();
+                            }
+                        }
+                        Some(TuiInput::CtrlG) => open_squad_panel(&mut *state, session),
+                        Some(TuiInput::Up) => state.scroll_up(1),
+                        Some(TuiInput::Down) => state.scroll_down(1),
+                        Some(TuiInput::PageUp) => state.scroll_up(8),
+                        Some(TuiInput::PageDown) => state.scroll_down(8),
+                        Some(TuiInput::ScrollUp) => state.scroll_up(3),
+                        Some(TuiInput::ScrollDown) => state.scroll_down(3),
+                        None => {
+                            state.resume_run();
+                            quit_after_run = true;
+                            cancellation.cancel();
+                        }
+                        _ => {}
+                    }
+                    draw_tui_frame(terminal, state)?;
+                    continue;
+                }
+                if matches!(input, Some(TuiInput::Escape)) && !state.quit_requested() {
+                    state.pause_run();
+                    state.set_notice("已暂停 · Enter 继续 · 再按 Esc 中断");
+                    draw_tui_frame(terminal, state)?;
+                    continue;
+                }
                 match input {
                     Some(TuiInput::CtrlC) => {
                         if !copy_selected_text(state) {
+                            state.resume_run();
                             cancellation.cancel();
                         }
                     }
                     Some(TuiInput::CtrlQ) => {
                         if state.request_quit() {
+                            state.resume_run();
                             quit_after_run = true;
                             cancellation.cancel();
                         }
@@ -21329,11 +21831,32 @@ async fn run_tui_task(
                         state.set_pointer(column, row);
                         state.handle_follow_control_hover(column, row);
                     }
+                    Some(TuiInput::Char(character)) => state.insert_char(character),
+                    Some(TuiInput::Backspace) => state.backspace(),
+                    Some(TuiInput::Delete) => state.delete(),
+                    Some(TuiInput::Left) => state.move_left(),
+                    Some(TuiInput::Right) => state.move_right(),
+                    Some(TuiInput::CtrlA) => state.move_home(),
+                    Some(TuiInput::CtrlD) => state.delete(),
+                    Some(TuiInput::Paste(text)) => state.insert_text(&text),
+                    Some(TuiInput::PasteClipboard) => paste_clipboard_into_composer(state),
+                    Some(TuiInput::Enter) => {
+                        state.queue_input();
+                    }
+                    Some(TuiInput::Up)
+                        if state.input().is_empty() && state.queued_input_count() > 0 =>
+                    {
+                        if state.recall_queued_input() {
+                            state.set_notice("已取回排队消息；编辑后 Enter 重新排队");
+                        }
+                    }
                     Some(TuiInput::Up) => state.scroll_up(1),
                     Some(TuiInput::Down) => state.scroll_down(1),
                     Some(TuiInput::PageUp) => state.scroll_up(8),
                     Some(TuiInput::PageDown) => state.scroll_down(8),
+                    Some(TuiInput::Home) if !state.input().is_empty() => state.move_home(),
                     Some(TuiInput::Home) => state.scroll_up(usize::MAX / 2),
+                    Some(TuiInput::End) if !state.input().is_empty() => state.move_end(),
                     Some(TuiInput::End) => state.scroll_to_bottom(),
                     Some(TuiInput::ScrollUp) => state.scroll_up(3),
                     Some(TuiInput::ScrollDown) => state.scroll_down(3),
@@ -21344,6 +21867,12 @@ async fn run_tui_task(
                     }
                 }
                 draw_tui_frame(terminal, state)?;
+            }
+            _ = squad_ticker.tick(), if state.session_picker_on_squad() => {
+                refresh_squad_panel(&mut *state);
+                sync_session_picker_preview(&mut *state, session);
+                draw_tui_frame(terminal, state)?;
+                continue;
             }
             _ = ticker.tick() => {
                 state.tick();
@@ -21375,7 +21904,10 @@ async fn run_tui_task(
                 }
                 draw_tui_frame(terminal, state)?;
             }
-            _ = tokio::signal::ctrl_c() => cancellation.cancel(),
+            _ = tokio::signal::ctrl_c() => {
+                state.resume_run();
+                cancellation.cancel();
+            }
         }
     }
 }
@@ -21527,10 +22059,25 @@ fn prompt_library_facts(query: &str, language: PromptLanguage) -> Vec<String> {
     facts
 }
 
+fn push_bounded_fact(
+    facts: &mut Vec<String>,
+    total_chars: &mut usize,
+    fact: String,
+    max_chars: usize,
+) -> bool {
+    let length = fact.chars().count();
+    if total_chars.saturating_add(length) > max_chars {
+        return false;
+    }
+    *total_chars += length;
+    facts.push(fact);
+    true
+}
+
 fn session_context_facts(session: &TuiSession) -> Vec<String> {
     const MAX_TURNS: usize = 6;
-    const MAX_CHARS_PER_FACT: usize = 1_000;
-    const MAX_TOTAL_CHARS: usize = 6_000;
+    const MAX_CHARS_PER_FACT: usize = 1_600;
+    const MAX_TOTAL_CHARS: usize = 12_000;
 
     if let Some(summary) = session.context_summary()
         && summary.covered_journals == session.journals().len()
@@ -21549,17 +22096,89 @@ fn session_context_facts(session: &TuiSession) -> Vec<String> {
         let (Some(request), Some(answer)) = (replay.request, replay.answer) else {
             continue;
         };
-        for (label, text) in [
-            ("Previous user request", request.objective),
-            ("Previous answer conclusion", answer.conclusion),
-        ] {
-            let text = text.chars().take(MAX_CHARS_PER_FACT).collect::<String>();
-            let fact = format!("{label}: {text}");
-            total_chars += fact.chars().count();
-            if total_chars > MAX_TOTAL_CHARS {
+        let request = request
+            .objective
+            .chars()
+            .take(MAX_CHARS_PER_FACT)
+            .collect::<String>();
+        if !push_bounded_fact(
+            &mut facts,
+            &mut total_chars,
+            format!("Previous user request: {request}"),
+            MAX_TOTAL_CHARS,
+        ) {
+            return facts;
+        }
+        let conclusion = answer
+            .conclusion
+            .chars()
+            .take(MAX_CHARS_PER_FACT)
+            .collect::<String>();
+        if !push_bounded_fact(
+            &mut facts,
+            &mut total_chars,
+            format!("Previous answer conclusion: {conclusion}"),
+            MAX_TOTAL_CHARS,
+        ) {
+            return facts;
+        }
+        if !push_bounded_fact(
+            &mut facts,
+            &mut total_chars,
+            format!(
+                "Previous answer status: {}",
+                answer_status_label(answer.status)
+            ),
+            MAX_TOTAL_CHARS,
+        ) {
+            return facts;
+        }
+        for claim in answer.claims.iter().take(3) {
+            let text = claim.text.chars().take(320).collect::<String>();
+            if !push_bounded_fact(
+                &mut facts,
+                &mut total_chars,
+                format!(
+                    "Previous claim ({}): {text}",
+                    claim_status_label(claim.status)
+                ),
+                MAX_TOTAL_CHARS,
+            ) {
                 return facts;
             }
-            facts.push(fact);
+        }
+        for evidence in answer.evidence.iter().take(3) {
+            let statement = evidence.statement.chars().take(360).collect::<String>();
+            if !push_bounded_fact(
+                &mut facts,
+                &mut total_chars,
+                format!("Previous evidence ({}): {statement}", evidence.source),
+                MAX_TOTAL_CHARS,
+            ) {
+                return facts;
+            }
+        }
+        let mut tool_facts = 0usize;
+        for event in events.iter().rev().take(256).rev() {
+            if tool_facts >= 4 {
+                break;
+            }
+            let JournalEventKind::ToolObserved { observation } = &event.event else {
+                continue;
+            };
+            tool_facts += 1;
+            let summary = observation.summary.chars().take(300).collect::<String>();
+            if !push_bounded_fact(
+                &mut facts,
+                &mut total_chars,
+                format!(
+                    "Previous tool result ({} / {:?}): {summary}",
+                    observation.tool, observation.status
+                ),
+                MAX_TOTAL_CHARS,
+            ) {
+                return facts;
+            }
         }
     }
     facts
@@ -22364,7 +22983,7 @@ fn query_tool_label(tool: &str) -> &str {
         "fetch_url" => "网页抓取",
         "web_search" => "网页搜索",
         "browser_read" => "无头浏览器",
-        "spawn_agent" => "子 Agent",
+        "spawn_agent" => "分队",
         "skill_list" => "技能列表",
         "skill_eval" => "技能评测",
         "skill_register" => "注册技能",
@@ -22607,6 +23226,7 @@ fn short_evidence_source(source: &str) -> String {
 mod tui_rendering_tests {
     use super::*;
     use async_trait::async_trait;
+    use first_principles_agent::subagent_registry::SubagentStatus;
     use first_principles_agent::{CognitiveMode, RiskLevel};
 
     #[test]
@@ -23988,6 +24608,186 @@ mod tui_rendering_tests {
             english.iter().any(|fact| fact.contains("The real goal")),
             "{english:?}"
         );
+    }
+
+    #[test]
+    fn subagent_preview_reads_the_child_journal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join("child-journal");
+        std::fs::create_dir_all(&journal_dir).unwrap();
+        let journal_path = journal_dir.join("child.jsonl");
+        write_replay_journal(&journal_path, "child task");
+        let mut record = SubagentRecord::new(
+            "sub-test",
+            std::process::id(),
+            std::process::id(),
+            1,
+            "child task",
+            workspace.path().display().to_string(),
+            journal_dir.display().to_string(),
+            true,
+            false,
+            8,
+            120,
+        );
+        record.status = SubagentStatus::Completed;
+        record.summary = Some("child done".into());
+        let preview = subagent_preview(&record);
+        assert!(preview.contains("child task"), "{preview}");
+        assert!(preview.contains("已完成"), "{preview}");
+        assert!(preview.contains("实时进度"), "{preview}");
+        assert!(preview.contains("连接测试成功。"), "{preview}");
+    }
+
+    #[test]
+    fn resumable_prefix_stops_at_the_last_checkpoint() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_path = workspace.path().join("cancelled.jsonl");
+        let mut journal =
+            first_principles_agent::Journal::create(&journal_path, Uuid::new_v4()).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("resume me", workspace.path().to_path_buf()),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::Checkpoint {
+                checkpoint: first_principles_agent::RuntimeCheckpoint {
+                    mode: CognitiveMode::DirectAnswer,
+                    messages: vec![first_principles_agent::ModelMessage::user("resume me")],
+                    tool_calls_used: 0,
+                    provider_attempts_used: 1,
+                    unavailable_routes: Vec::new(),
+                    next_step: 1,
+                    elapsed_ms: 10,
+                    route_plan_sha256: None,
+                    route_policy_sources: None,
+                    route_objective: None,
+                    tool_capabilities_sha256: None,
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: first_principles_agent::StopReason::Cancelled,
+            })
+            .unwrap();
+        drop(journal);
+
+        let prefix = resumable_journal_prefix(&journal_path).unwrap();
+        assert_ne!(prefix, journal_path);
+        let events = read_events(&prefix).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            first_principles_agent::JournalEventKind::Checkpoint { .. }
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            first_principles_agent::JournalEventKind::RunStopped { .. }
+        )));
+
+        let no_checkpoint = workspace.path().join("no-checkpoint.jsonl");
+        let mut journal =
+            first_principles_agent::Journal::create(&no_checkpoint, Uuid::new_v4()).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective(
+                    "nothing to resume",
+                    workspace.path().to_path_buf(),
+                ),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: first_principles_agent::StopReason::Cancelled,
+            })
+            .unwrap();
+        drop(journal);
+        assert!(resumable_journal_prefix(&no_checkpoint).is_err());
+    }
+
+    #[test]
+    fn session_context_facts_include_evidence_status_and_tool_summaries() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_path = workspace.path().join("turn.jsonl");
+        let mut journal =
+            first_principles_agent::Journal::create(&journal_path, Uuid::new_v4()).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective(
+                    "Check the file and report",
+                    workspace.path().to_path_buf(),
+                ),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ToolCalled {
+                call: first_principles_agent::ToolCall {
+                    id: "c1".into(),
+                    name: "read_file".into(),
+                    arguments: serde_json::json!({"path": "probe.txt"}),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::ToolObserved {
+                observation: first_principles_agent::ToolObservation {
+                    call_id: "c1".into(),
+                    tool: "read_file".into(),
+                    status: ToolStatus::Ok,
+                    summary: "read 42 bytes".into(),
+                    content: String::new(),
+                    error_code: None,
+                    metadata: Default::default(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::AnswerProduced {
+                answer: result().answer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: first_principles_agent::StopReason::Completed,
+            })
+            .unwrap();
+
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        session.record_journal(&journal_path).unwrap();
+        let facts = session_context_facts(&session);
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.contains("Previous user request: Check the file")),
+            "{facts:?}"
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.contains("Previous answer status: 完成")),
+            "{facts:?}"
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.contains("Previous evidence (probe)")),
+            "{facts:?}"
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.contains("Previous tool result (read_file / Ok)")),
+            "{facts:?}"
+        );
+
+        let preview = tui_session_preview(&session, session.id()).unwrap();
+        assert!(preview.contains("最近结论"), "{preview}");
+        assert!(preview.contains("连接测试成功。"), "{preview}");
+        assert!(preview.contains("证据"), "{preview}");
     }
 
     #[test]

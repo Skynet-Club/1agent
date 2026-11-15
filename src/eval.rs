@@ -830,6 +830,56 @@ pub async fn run_suite_with_learning_artifacts(
     Ok(report)
 }
 
+enum CaseWorkspace {
+    Temporary(tempfile::TempDir),
+    Persistent(PathBuf),
+}
+
+impl CaseWorkspace {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Temporary(workspace) => workspace.path(),
+            Self::Persistent(path) => path,
+        }
+    }
+}
+
+/// Model-quality cases embed `${workspace}` in the objective. A random
+/// temp-directory name is easy for a model to mistype, which turns a simple
+/// file task into a path-retry loop. When an artifacts directory is available,
+/// use a clean, readable per-case workspace instead; otherwise keep the
+/// isolated temp directory.
+fn case_workspace(artifacts_dir: Option<&Path>, case_id: &str) -> Result<CaseWorkspace, String> {
+    let Some(root) = artifacts_dir else {
+        return tempfile::tempdir()
+            .map(CaseWorkspace::Temporary)
+            .map_err(|error| format!("cannot create workspace: {error}"));
+    };
+    // Keep the path short and absolute: the model sees it in the objective,
+    // and a long evidence path (or a random temp suffix) is easy to mistype.
+    let run_key = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("run");
+    let path = std::env::temp_dir()
+        .join("1agent-eval")
+        .join(sanitize_artifact_name(run_key))
+        .join(sanitize_artifact_name(case_id));
+    match std::fs::remove_dir_all(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot clean workspace {}: {error}",
+                path.display()
+            ));
+        }
+    }
+    std::fs::create_dir_all(&path)
+        .map_err(|error| format!("cannot create workspace {}: {error}", path.display()))?;
+    Ok(CaseWorkspace::Persistent(path))
+}
+
 async fn run_case(
     case: EvalCase,
     providers: Vec<ProviderCandidate>,
@@ -837,11 +887,9 @@ async fn run_case(
     shadow_experience: Vec<ExperienceCandidate>,
     artifacts_dir: Option<&Path>,
 ) -> EvalCaseResult {
-    let workspace = match tempfile::tempdir() {
+    let workspace = match case_workspace(artifacts_dir, &case.id) {
         Ok(workspace) => workspace,
-        Err(error) => {
-            return failed_case(case.id, format!("cannot create workspace: {error}"));
-        }
+        Err(error) => return failed_case(case.id, error),
     };
     let journal_dir = match artifacts_dir {
         Some(root) => {
@@ -2682,5 +2730,25 @@ mod tests {
         assert!(source_matches("/tmp/ws/sales.jsonl", "sales.jsonl"));
         assert!(source_matches("a.md", "a.md"));
         assert!(!source_matches("/tmp/ws/other.md", "a.md"));
+    }
+
+    #[test]
+    fn artifact_workspace_is_deterministic_and_clean() {
+        let root = tempfile::tempdir().unwrap();
+        let run_key =
+            sanitize_artifact_name(root.path().file_name().unwrap().to_string_lossy().as_ref());
+        let expected = std::env::temp_dir()
+            .join("1agent-eval")
+            .join(run_key)
+            .join("config-retries");
+        let first = case_workspace(Some(root.path()), "config-retries").unwrap();
+        assert_eq!(first.path(), expected);
+        assert!(first.path().is_absolute());
+        std::fs::write(expected.join("stale.txt"), "stale").unwrap();
+        drop(first);
+
+        let second = case_workspace(Some(root.path()), "config-retries").unwrap();
+        assert_eq!(second.path(), expected);
+        assert!(!expected.join("stale.txt").exists());
     }
 }

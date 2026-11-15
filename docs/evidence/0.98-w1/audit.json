@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "event_count": 193,
+  "run_id": "9753cf1b-8e29-4d9b-ac0e-a39b04296b70",
+  "terminal_reason": "budget_exhausted",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}

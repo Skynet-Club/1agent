@@ -1,6 +1,7 @@
 use crate::clarify::{ClarifyAnswerStatus, ClarifyPanel, OTHER_OPTION_ID};
 use crate::domain::{CognitiveMode, RiskLevel};
 use crate::safety::is_disallowed_control;
+use crate::subagent_registry::SubagentRecord;
 use crate::tui_clarify::{TuiClarifyResult, TuiClarifyState, TuiClarifyStep, outcome_label};
 use crate::tui_commands::{
     CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, TuiCommandSpec, command_usage,
@@ -46,6 +47,7 @@ const MENU_BG: Color = Color::Rgb(0x0a, 0x1f, 0x12);
 const MENU_SELECTED_BG: Color = Color::Rgb(0x14, 0x3d, 0x24);
 const MENU_LABEL: Color = Color::LightGreen;
 const MENU_HINT: Color = PANEL_TEXT_GREEN;
+const MENU_DIM: Color = Color::Rgb(0x3a, 0x5c, 0x42);
 const CONCLUSION_BORDER: Color = PANEL_GREEN;
 const LOCAL_FILE_GREEN: Color = MARK_GREEN;
 
@@ -148,6 +150,7 @@ pub enum TuiTone {
 pub enum TuiStatus {
     Idle,
     Running,
+    Paused,
     Completed,
     Failed,
     Cancelled,
@@ -158,6 +161,7 @@ impl TuiStatus {
         match self {
             Self::Idle => "idle",
             Self::Running => "running",
+            Self::Paused => "paused",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -168,6 +172,7 @@ impl TuiStatus {
         match self {
             Self::Idle => "空闲",
             Self::Running => "运行中",
+            Self::Paused => "已暂停",
             Self::Completed => "已完成",
             Self::Failed => "失败",
             Self::Cancelled => "已取消",
@@ -360,7 +365,7 @@ impl TuiActivityKind {
             Self::Fetching => ("抓取", "Fetching"),
             Self::Querying => ("查询", "Querying"),
             Self::Bash => ("执行命令", "Bash"),
-            Self::Spawning => ("子 Agent", "Subagent"),
+            Self::Spawning => ("分队", "Squad"),
             Self::Skill => ("技能", "Skill"),
             Self::Delegating => ("委托", "Delegation"),
             Self::CallingTool => ("调用工具", "Tool Call"),
@@ -384,6 +389,385 @@ impl TuiActivityKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionPickerItem {
+    pub id: String,
+    pub title: String,
+    pub archived: bool,
+    pub runs: usize,
+    pub modified_unix_ms: u128,
+    pub workspace: Option<String>,
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionPickerMode {
+    Browse,
+    Search,
+    Rename,
+    ConfirmArchive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerTab {
+    Sessions,
+    Squad,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionPickerState {
+    tab: PickerTab,
+    items: Vec<SessionPickerItem>,
+    filtered: Vec<usize>,
+    selected: usize,
+    query: String,
+    show_archived: bool,
+    mode: SessionPickerMode,
+    rename: String,
+    preview: Option<(String, String)>,
+    squad: Vec<SubagentRecord>,
+    squad_selected: usize,
+    squad_preview: Option<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionPickerAction {
+    None,
+    Close,
+    New,
+    Switch(String),
+    Rename { id: String, title: String },
+    Archive(String),
+}
+
+impl SessionPickerState {
+    fn new(items: Vec<SessionPickerItem>) -> Self {
+        let mut picker = Self {
+            tab: PickerTab::Sessions,
+            items,
+            filtered: Vec::new(),
+            selected: 0,
+            query: String::new(),
+            show_archived: false,
+            mode: SessionPickerMode::Browse,
+            rename: String::new(),
+            preview: None,
+            squad: Vec::new(),
+            squad_selected: 0,
+            squad_preview: None,
+        };
+        picker.recompute();
+        picker
+    }
+
+    fn recompute(&mut self) {
+        let query = self.query.trim().to_lowercase();
+        self.filtered = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| self.show_archived || !item.archived || item.current)
+            .filter(|(_, item)| {
+                if query.is_empty() {
+                    return true;
+                }
+                let haystack = format!(
+                    "{} {} {}",
+                    item.title,
+                    item.id,
+                    item.workspace.as_deref().unwrap_or_default()
+                )
+                .to_lowercase();
+                haystack.contains(&query)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if self.filtered.is_empty() {
+            self.selected = 0;
+        } else {
+            self.selected = self.selected.min(self.filtered.len() - 1);
+        }
+    }
+
+    fn selected_item(&self) -> Option<&SessionPickerItem> {
+        self.filtered
+            .get(self.selected)
+            .and_then(|index| self.items.get(*index))
+    }
+
+    fn selected_id(&self) -> Option<String> {
+        self.selected_item().map(|item| item.id.clone())
+    }
+
+    fn set_squad(&mut self, squad: Vec<SubagentRecord>) {
+        let selected = self
+            .selected_squad()
+            .map(|record| record.id.clone())
+            .filter(|id| squad.iter().any(|record| record.id == *id));
+        self.squad = squad;
+        self.squad_selected = selected
+            .and_then(|id| self.squad.iter().position(|record| record.id == id))
+            .unwrap_or_else(|| self.squad_selected.min(self.squad.len().saturating_sub(1)));
+        self.squad_preview = None;
+    }
+
+    fn toggle_tab(&mut self) {
+        if self.mode != SessionPickerMode::Browse {
+            return;
+        }
+        self.tab = match self.tab {
+            PickerTab::Sessions => PickerTab::Squad,
+            PickerTab::Squad => PickerTab::Sessions,
+        };
+    }
+
+    fn selected_squad(&self) -> Option<&SubagentRecord> {
+        self.squad.get(self.squad_selected)
+    }
+
+    fn move_squad_selection(&mut self, delta: isize) {
+        if self.squad.is_empty() {
+            return;
+        }
+        let last = self.squad.len() - 1;
+        self.squad_selected = if delta < 0 {
+            self.squad_selected.saturating_sub(delta.unsigned_abs())
+        } else {
+            (self.squad_selected + delta as usize).min(last)
+        };
+    }
+
+    fn squad_preview_needed(&self) -> Option<String> {
+        let record = self.selected_squad()?;
+        if self
+            .squad_preview
+            .as_ref()
+            .is_some_and(|(cached, _)| cached == &record.id)
+        {
+            None
+        } else {
+            Some(record.id.clone())
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        if self.filtered.is_empty() {
+            return;
+        }
+        let last = self.filtered.len() - 1;
+        let next = if delta < 0 {
+            self.selected.saturating_sub(delta.unsigned_abs())
+        } else {
+            (self.selected + delta as usize).min(last)
+        };
+        self.selected = next;
+    }
+
+    fn enter_rename(&mut self) {
+        if let Some(item) = self.selected_item() {
+            self.rename = item.title.clone();
+            self.mode = SessionPickerMode::Rename;
+        }
+    }
+
+    fn set_preview(&mut self, id: String, text: String) {
+        self.preview = Some((id, text));
+    }
+
+    fn set_squad_preview(&mut self, id: String, text: String) {
+        self.squad_preview = Some((id, text));
+    }
+
+    fn update_title(&mut self, id: &str, title: String) {
+        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+            item.title = title;
+        }
+        self.preview = None;
+        self.recompute();
+    }
+
+    fn update_archived(&mut self, id: &str, archived: bool) {
+        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+            item.archived = archived;
+        }
+        self.preview = None;
+        self.recompute();
+    }
+
+    fn handle_input(&mut self, input: TuiInput) -> SessionPickerAction {
+        if input == TuiInput::Tab && self.mode == SessionPickerMode::Browse {
+            self.toggle_tab();
+            return SessionPickerAction::None;
+        }
+        if self.mode == SessionPickerMode::Browse && self.tab == PickerTab::Squad {
+            return match input {
+                TuiInput::Up => {
+                    self.move_squad_selection(-1);
+                    SessionPickerAction::None
+                }
+                TuiInput::Down => {
+                    self.move_squad_selection(1);
+                    SessionPickerAction::None
+                }
+                TuiInput::PageUp => {
+                    self.move_squad_selection(-8);
+                    SessionPickerAction::None
+                }
+                TuiInput::PageDown => {
+                    self.move_squad_selection(8);
+                    SessionPickerAction::None
+                }
+                TuiInput::Home => {
+                    self.squad_selected = 0;
+                    SessionPickerAction::None
+                }
+                TuiInput::End => {
+                    self.squad_selected = self.squad.len().saturating_sub(1);
+                    SessionPickerAction::None
+                }
+                TuiInput::Escape | TuiInput::Left | TuiInput::CtrlC => SessionPickerAction::Close,
+                _ => SessionPickerAction::None,
+            };
+        }
+        match self.mode {
+            SessionPickerMode::Search => match input {
+                TuiInput::Char(character) if !character.is_control() => {
+                    if self.query.chars().count() < 120 {
+                        self.query.push(character);
+                        self.recompute();
+                    }
+                    SessionPickerAction::None
+                }
+                TuiInput::Backspace => {
+                    self.query.pop();
+                    self.recompute();
+                    SessionPickerAction::None
+                }
+                TuiInput::Enter => {
+                    self.mode = SessionPickerMode::Browse;
+                    SessionPickerAction::None
+                }
+                TuiInput::Escape | TuiInput::CtrlC => {
+                    self.query.clear();
+                    self.recompute();
+                    self.mode = SessionPickerMode::Browse;
+                    SessionPickerAction::None
+                }
+                _ => SessionPickerAction::None,
+            },
+            SessionPickerMode::Rename => match input {
+                TuiInput::Char(character) if !character.is_control() => {
+                    if self.rename.chars().count() < 120 {
+                        self.rename.push(character);
+                    }
+                    SessionPickerAction::None
+                }
+                TuiInput::Backspace => {
+                    self.rename.pop();
+                    SessionPickerAction::None
+                }
+                TuiInput::Enter => {
+                    let title = self.rename.trim().to_string();
+                    let Some(id) = self.selected_id() else {
+                        self.mode = SessionPickerMode::Browse;
+                        return SessionPickerAction::None;
+                    };
+                    self.mode = SessionPickerMode::Browse;
+                    if title.is_empty() {
+                        SessionPickerAction::None
+                    } else {
+                        SessionPickerAction::Rename { id, title }
+                    }
+                }
+                TuiInput::Escape | TuiInput::CtrlC => {
+                    self.mode = SessionPickerMode::Browse;
+                    SessionPickerAction::None
+                }
+                _ => SessionPickerAction::None,
+            },
+            SessionPickerMode::ConfirmArchive => match input {
+                TuiInput::Enter | TuiInput::CtrlD => {
+                    self.mode = SessionPickerMode::Browse;
+                    self.selected_id()
+                        .map(SessionPickerAction::Archive)
+                        .unwrap_or(SessionPickerAction::None)
+                }
+                TuiInput::Escape | TuiInput::CtrlC => {
+                    self.mode = SessionPickerMode::Browse;
+                    SessionPickerAction::None
+                }
+                _ => SessionPickerAction::None,
+            },
+            SessionPickerMode::Browse => match input {
+                TuiInput::Up => {
+                    self.move_selection(-1);
+                    SessionPickerAction::None
+                }
+                TuiInput::Down => {
+                    self.move_selection(1);
+                    SessionPickerAction::None
+                }
+                TuiInput::PageUp => {
+                    self.move_selection(-8);
+                    SessionPickerAction::None
+                }
+                TuiInput::PageDown => {
+                    self.move_selection(8);
+                    SessionPickerAction::None
+                }
+                TuiInput::Home => {
+                    self.selected = 0;
+                    SessionPickerAction::None
+                }
+                TuiInput::End => {
+                    self.selected = self.filtered.len().saturating_sub(1);
+                    SessionPickerAction::None
+                }
+                TuiInput::Enter | TuiInput::Right => self
+                    .selected_id()
+                    .map(SessionPickerAction::Switch)
+                    .unwrap_or(SessionPickerAction::None),
+                TuiInput::Char('n') => SessionPickerAction::New,
+                TuiInput::Char('/') => {
+                    self.mode = SessionPickerMode::Search;
+                    SessionPickerAction::None
+                }
+                TuiInput::CtrlR => {
+                    self.enter_rename();
+                    SessionPickerAction::None
+                }
+                TuiInput::CtrlD => {
+                    if self.selected_item().is_some() {
+                        self.mode = SessionPickerMode::ConfirmArchive;
+                    }
+                    SessionPickerAction::None
+                }
+                TuiInput::CtrlA => {
+                    self.show_archived = !self.show_archived;
+                    self.recompute();
+                    SessionPickerAction::None
+                }
+                TuiInput::Escape | TuiInput::Left | TuiInput::CtrlC => SessionPickerAction::Close,
+                _ => SessionPickerAction::None,
+            },
+        }
+    }
+
+    fn footer_hint(&self) -> &'static str {
+        if self.tab == PickerTab::Squad && self.mode == SessionPickerMode::Browse {
+            return "Tab 切换会话 · ↑↓ 选择即预览 · Esc 返回";
+        }
+        match self.mode {
+            SessionPickerMode::Browse => {
+                "Tab 切换分队 · ↑↓ 选择即预览 · Enter 切换 · n 新建 · / 搜索 · Ctrl+R 改名 · Ctrl+D 归档 · Esc 返回"
+            }
+            SessionPickerMode::Search => "输入关键词 · Enter 完成 · Esc 清除",
+            SessionPickerMode::Rename => "输入新标题 · Enter 保存 · Esc 取消",
+            SessionPickerMode::ConfirmArchive => "Ctrl+D / Enter 确认 · Esc 取消",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiState {
     pub last_instruction: String,
     pub status: TuiStatus,
@@ -397,6 +781,8 @@ pub struct TuiState {
     command_stage: CommandStage,
     session_id: Option<String>,
     last_journal_path: Option<PathBuf>,
+    interrupted_journal_path: Option<PathBuf>,
+    session_picker: Option<SessionPickerState>,
     last_details: Option<String>,
     pending_reframe: Option<crate::reframe::ReframeProposal>,
     pointer: Option<(u16, u16)>,
@@ -417,10 +803,12 @@ pub struct TuiState {
     pending_confirmation: Option<String>,
     quit_requested: bool,
     run_started_unix_ms: Option<u128>,
+    pause_started_unix_ms: Option<u128>,
     run_metrics: TuiRunMetrics,
     activity: Option<TuiActivity>,
     activity_persistent: bool,
     input_history: Vec<String>,
+    queued_inputs: Vec<String>,
     history_cursor: Option<usize>,
     input: String,
     input_cursor: usize,
@@ -467,6 +855,8 @@ impl TuiState {
             command_stage: CommandStage::NoMission,
             session_id: None,
             last_journal_path: None,
+            interrupted_journal_path: None,
+            session_picker: None,
             last_details: None,
             pending_reframe: None,
             pointer: None,
@@ -487,10 +877,12 @@ impl TuiState {
             pending_confirmation: None,
             quit_requested: false,
             run_started_unix_ms: None,
+            pause_started_unix_ms: None,
             run_metrics: TuiRunMetrics::default(),
             activity: None,
             activity_persistent: false,
             input_history: Vec::new(),
+            queued_inputs: Vec::new(),
             history_cursor: None,
             input: String::new(),
             input_cursor: 0,
@@ -525,6 +917,9 @@ impl TuiState {
 
     pub fn begin(&mut self, instruction: &str, mode: CognitiveMode, risk: RiskLevel) {
         self.close_command_panel();
+        self.session_picker = None;
+        self.interrupted_journal_path = None;
+        self.pause_started_unix_ms = None;
         self.quit_requested = false;
         self.run_started_unix_ms = Some(now_unix_ms());
         self.run_metrics = TuiRunMetrics::default();
@@ -550,7 +945,34 @@ impl TuiState {
         );
     }
 
+    pub fn run_active(&self) -> bool {
+        matches!(self.status, TuiStatus::Running | TuiStatus::Paused)
+    }
+
+    pub fn pause_run(&mut self) {
+        if self.status == TuiStatus::Running {
+            self.status = TuiStatus::Paused;
+            self.pause_started_unix_ms = Some(now_unix_ms());
+        }
+    }
+
+    pub fn resume_run(&mut self) {
+        if self.status == TuiStatus::Paused {
+            if let Some(paused_at) = self.pause_started_unix_ms.take()
+                && let Some(started) = self.run_started_unix_ms.as_mut()
+            {
+                *started = started.saturating_add(now_unix_ms().saturating_sub(paused_at));
+            }
+            self.status = TuiStatus::Running;
+        }
+    }
+
     pub fn finish(&mut self, status: TuiStatus, output: impl Into<String>) {
+        if let Some(paused_at) = self.pause_started_unix_ms.take()
+            && let Some(started) = self.run_started_unix_ms.as_mut()
+        {
+            *started = started.saturating_add(now_unix_ms().saturating_sub(paused_at));
+        }
         self.status = status;
         self.clear_activity();
         self.finish_run_clock();
@@ -837,6 +1259,9 @@ impl TuiState {
 
     pub fn clear(&mut self) {
         self.close_command_panel();
+        self.session_picker = None;
+        self.queued_inputs.clear();
+        self.pause_started_unix_ms = None;
         self.last_instruction.clear();
         self.status = TuiStatus::Idle;
         self.context_tokens = 0;
@@ -1142,6 +1567,53 @@ impl TuiState {
         let input = self.input.clone();
         self.clear_input();
         input
+    }
+
+    /// Queue the current composer text for the next run. Returns true when a
+    /// non-empty message was moved into the queue.
+    pub fn queue_input(&mut self) -> bool {
+        let text = self.take_input().trim().to_string();
+        if text.is_empty() {
+            return false;
+        }
+        self.queued_inputs.push(text);
+        self.set_notice("已排队 · 当前运行结束后执行；↑ 取回编辑");
+        true
+    }
+
+    pub fn queued_input_count(&self) -> usize {
+        self.queued_inputs.len()
+    }
+
+    /// Pop the oldest queued message when the UI is idle and the composer is
+    /// empty, so the normal Enter path can submit it unchanged.
+    pub fn take_queued_for_submit(&mut self) -> Option<String> {
+        if self.run_active()
+            || self.quit_requested
+            || self.clarify_open()
+            || self.session_picker_open()
+            || self.command_panel_open()
+            || self.pending_confirmation.is_some()
+            || !self.input.is_empty()
+        {
+            return None;
+        }
+        if self.queued_inputs.is_empty() {
+            return None;
+        }
+        Some(self.queued_inputs.remove(0))
+    }
+
+    /// Pull the newest queued message back into the composer for editing.
+    pub fn recall_queued_input(&mut self) -> bool {
+        if !self.input.is_empty() {
+            return false;
+        }
+        let Some(text) = self.queued_inputs.pop() else {
+            return false;
+        };
+        self.set_input(&text);
+        true
     }
 
     pub fn record_input(&mut self, text: &str) {
@@ -1479,6 +1951,114 @@ impl TuiState {
         self.session_id = Some(session_id.into());
     }
 
+    pub fn set_interrupted_journal(&mut self, journal: Option<PathBuf>) {
+        self.interrupted_journal_path = journal;
+    }
+
+    pub fn interrupted_journal(&self) -> Option<&std::path::Path> {
+        self.interrupted_journal_path.as_deref()
+    }
+
+    pub fn open_session_picker(&mut self, items: Vec<SessionPickerItem>) {
+        self.close_command_panel();
+        self.details_open = false;
+        self.mode_menu = None;
+        self.clear_notice();
+        self.session_picker = Some(SessionPickerState::new(items));
+    }
+
+    pub fn open_squad_picker(&mut self, items: Vec<SessionPickerItem>, squad: Vec<SubagentRecord>) {
+        self.close_command_panel();
+        self.details_open = false;
+        self.mode_menu = None;
+        self.clear_notice();
+        let mut picker = SessionPickerState::new(items);
+        picker.set_squad(squad);
+        picker.tab = PickerTab::Squad;
+        self.session_picker = Some(picker);
+    }
+
+    pub fn session_picker_on_squad(&self) -> bool {
+        self.session_picker
+            .as_ref()
+            .is_some_and(|picker| picker.tab == PickerTab::Squad)
+    }
+
+    pub fn session_picker_set_squad(&mut self, squad: Vec<SubagentRecord>) {
+        if let Some(picker) = self.session_picker.as_mut() {
+            picker.set_squad(squad);
+        }
+    }
+
+    pub fn session_picker_selected_squad(&self) -> Option<SubagentRecord> {
+        self.session_picker
+            .as_ref()
+            .and_then(SessionPickerState::selected_squad)
+            .cloned()
+    }
+
+    pub fn close_session_picker(&mut self) {
+        self.session_picker = None;
+    }
+
+    pub fn session_picker_open(&self) -> bool {
+        self.session_picker.is_some()
+    }
+
+    pub fn handle_session_picker_input(&mut self, input: TuiInput) -> SessionPickerAction {
+        self.session_picker
+            .as_mut()
+            .map(|picker| picker.handle_input(input))
+            .unwrap_or(SessionPickerAction::None)
+    }
+
+    pub fn session_picker_selected_id(&self) -> Option<String> {
+        self.session_picker
+            .as_ref()
+            .and_then(SessionPickerState::selected_id)
+    }
+
+    pub fn session_picker_preview_needed(&self) -> Option<String> {
+        let picker = self.session_picker.as_ref()?;
+        if picker.tab == PickerTab::Squad {
+            return picker.squad_preview_needed();
+        }
+        let id = picker.selected_id()?;
+        if picker
+            .preview
+            .as_ref()
+            .is_some_and(|(cached, _)| cached == &id)
+        {
+            None
+        } else {
+            Some(id)
+        }
+    }
+
+    pub fn session_picker_set_preview(&mut self, id: impl Into<String>, text: impl Into<String>) {
+        let id = id.into();
+        let text = sanitize_multiline(&text.into());
+        if let Some(picker) = self.session_picker.as_mut() {
+            if picker.tab == PickerTab::Squad {
+                picker.set_squad_preview(id, text);
+            } else {
+                picker.set_preview(id, text);
+            }
+        }
+    }
+
+    pub fn session_picker_update_title(&mut self, id: &str, title: impl Into<String>) {
+        if let Some(picker) = self.session_picker.as_mut() {
+            picker.update_title(id, sanitize_inline(&title.into()));
+        }
+    }
+
+    pub fn session_picker_update_archived(&mut self, id: &str, archived: bool) {
+        if let Some(picker) = self.session_picker.as_mut() {
+            picker.update_archived(id, archived);
+        }
+    }
+
     pub fn set_host_binding(&mut self, binding: HostBinding) {
         self.host_binding = binding;
     }
@@ -1625,7 +2205,7 @@ impl TuiState {
             &self.input,
             &self.host_binding,
             self.command_stage,
-            self.status == TuiStatus::Running,
+            self.run_active(),
             &self.recent_commands,
             self.prompt_language,
         )
@@ -1790,7 +2370,7 @@ impl TuiState {
     }
 
     fn activity_visible(&self) -> bool {
-        self.activity.is_some() && (self.status == TuiStatus::Running || self.activity_persistent)
+        self.activity.is_some() && (self.run_active() || self.activity_persistent)
     }
 
     pub fn finish_run_clock(&mut self) {
@@ -2210,6 +2790,9 @@ impl TuiState {
         }
         if self.details_open {
             self.draw_details(frame, frame.area());
+        }
+        if self.session_picker_open() {
+            self.draw_session_picker(frame, frame.area());
         }
         if let Some(clarify) = &self.clarify {
             draw_clarify_panel(frame, clarify);
@@ -3099,6 +3682,7 @@ impl TuiState {
             .unwrap_or(&self.provider_label);
         let status = match self.status {
             TuiStatus::Running => "● 运行中",
+            TuiStatus::Paused => "⏸ 已暂停",
             TuiStatus::Completed => "✓ 已完成",
             TuiStatus::Failed => "失败",
             TuiStatus::Cancelled => "已取消",
@@ -3312,6 +3896,284 @@ impl TuiState {
                 .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
             rect,
             &mut state,
+        );
+    }
+
+    fn draw_session_picker(&self, frame: &mut Frame, area: Rect) {
+        if area.width < 40 || area.height < 10 {
+            return;
+        }
+        let Some(picker) = self.session_picker.as_ref() else {
+            return;
+        };
+        frame.render_widget(Clear, area);
+        frame.render_widget(Block::default().style(Style::default().bg(APP_BG)), area);
+        let width = area.width.saturating_sub(4).clamp(40, 96);
+        let height = area.height.saturating_sub(2).clamp(10, 30);
+        let rect = Rect {
+            x: area.x + area.width.saturating_sub(width) / 2,
+            y: area.y + area.height.saturating_sub(height) / 2,
+            width,
+            height,
+        };
+        let hint = if inner_width(rect) < 78 {
+            "Tab 切换 · ↑↓ 选择 · Enter 确认 · Esc 返回"
+        } else {
+            picker.footer_hint()
+        };
+        let block = picker_block(picker, hint);
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+        if inner.is_empty() {
+            return;
+        }
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(4)])
+            .split(inner);
+        let body = if rows[1].width >= 88 {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+                .split(rows[1])
+        } else {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+                .split(rows[1])
+        };
+        match picker.tab {
+            PickerTab::Sessions => {
+                Self::draw_picker_sessions_header(frame, rows[0], picker);
+                Self::draw_picker_sessions_body(frame, body[0], body[1], picker);
+            }
+            PickerTab::Squad => {
+                Self::draw_picker_squad_header(frame, rows[0], picker);
+                Self::draw_picker_squad_body(frame, body[0], body[1], picker);
+            }
+        }
+    }
+
+    fn picker_header_line(frame: &mut Frame, area: Rect, text: String) {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                fit_row(&text, usize::from(area.width)),
+                Style::default()
+                    .fg(MENU_LABEL)
+                    .bg(MENU_BG)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
+    }
+
+    fn draw_picker_sessions_header(frame: &mut Frame, area: Rect, picker: &SessionPickerState) {
+        let text = format!(
+            "{} 个会话 · {}",
+            picker.filtered.len(),
+            picker
+                .selected_item()
+                .map(|item| {
+                    if item.current {
+                        format!("当前：{}", item.title)
+                    } else {
+                        item.title.clone()
+                    }
+                })
+                .unwrap_or_else(|| "没有匹配的会话".into())
+        );
+        Self::picker_header_line(frame, area, text);
+    }
+
+    fn draw_picker_sessions_body(
+        frame: &mut Frame,
+        list_area: Rect,
+        preview_area: Rect,
+        picker: &SessionPickerState,
+    ) {
+        let inner_width = usize::from(list_area.width.saturating_sub(2));
+        let meta_width = 20;
+        let title_width = inner_width.saturating_sub(meta_width + 2).max(8);
+        let items = if picker.filtered.is_empty() {
+            vec![ListItem::new(Line::from(Span::styled(
+                "没有匹配的会话。按 n 新建，Ctrl+A 显示已归档。",
+                Style::default().fg(MENU_DIM).bg(MENU_BG),
+            )))]
+        } else {
+            picker
+                .filtered
+                .iter()
+                .enumerate()
+                .map(|(position, index)| {
+                    let item = &picker.items[*index];
+                    let selected = position == picker.selected;
+                    let bg = if selected { MENU_SELECTED_BG } else { MENU_BG };
+                    let label = if selected { MARK_GREEN } else { MENU_DIM };
+                    let meta_color = if selected { PANEL_TEXT_GREEN } else { MENU_DIM };
+                    let marker = if item.current {
+                        "●"
+                    } else if item.archived {
+                        "○"
+                    } else {
+                        " "
+                    };
+                    let meta = format!(" · {}", format_timestamp(item.modified_unix_ms));
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("{marker} "), Style::default().fg(label).bg(bg)),
+                        Span::styled(
+                            fit_row(&item.title, title_width),
+                            Style::default().fg(label).bg(bg).add_modifier(if selected {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
+                        ),
+                        Span::styled(
+                            fit_row(&meta, meta_width),
+                            Style::default().fg(meta_color).bg(bg),
+                        ),
+                    ]))
+                    .style(Style::default().bg(bg))
+                })
+                .collect()
+        };
+        let mut state = ListState::default();
+        if !picker.filtered.is_empty() {
+            state.select(Some(picker.selected));
+        }
+        frame.render_stateful_widget(
+            List::new(items)
+                .style(Style::default().bg(MENU_BG))
+                .block(menu_block("会话", "", MENU_BG))
+                .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
+            list_area,
+            &mut state,
+        );
+        let preview_text = picker
+            .preview
+            .as_ref()
+            .filter(|(id, _)| picker.selected_id().as_deref() == Some(id.as_str()))
+            .map(|(_, text)| text.clone())
+            .unwrap_or_else(|| {
+                "选择会话即可在这里查看最近一次运行的结论与证据。\n\n\
+             Enter 切换会话并恢复完整记录；n 新建；/ 搜索。"
+                    .to_string()
+            });
+        frame.render_widget(
+            Paragraph::new(preview_text)
+                .style(Style::default().fg(MENU_HINT).bg(MENU_BG))
+                .wrap(Wrap { trim: false })
+                .block(menu_block("预览", "", MENU_BG)),
+            preview_area,
+        );
+    }
+
+    fn draw_picker_squad_header(frame: &mut Frame, area: Rect, picker: &SessionPickerState) {
+        let active = picker
+            .squad
+            .iter()
+            .filter(|record| record.status.is_active())
+            .count();
+        let text = if picker.squad.is_empty() {
+            "分队 Agents · 等待 spawn_agent 启动队员".to_string()
+        } else {
+            format!(
+                "{} 名队员 · {} 运行中 · {} 条记录",
+                picker.squad.len(),
+                active,
+                picker.squad.len()
+            )
+        };
+        Self::picker_header_line(frame, area, text);
+    }
+
+    fn draw_picker_squad_body(
+        frame: &mut Frame,
+        list_area: Rect,
+        preview_area: Rect,
+        picker: &SessionPickerState,
+    ) {
+        let task_width = usize::from(list_area.width.saturating_sub(22)).max(8);
+        let items = if picker.squad.is_empty() {
+            vec![ListItem::new(Line::from(Span::styled(
+                "暂无队员 · spawn_agent 启动后自动出现",
+                Style::default().fg(MENU_DIM).bg(MENU_BG),
+            )))]
+        } else {
+            picker
+                .squad
+                .iter()
+                .enumerate()
+                .map(|(position, record)| {
+                    let selected = position == picker.squad_selected;
+                    let bg = if selected { MENU_SELECTED_BG } else { MENU_BG };
+                    let label = if selected { MARK_GREEN } else { MENU_DIM };
+                    let meta_color = if selected { PANEL_TEXT_GREEN } else { MENU_DIM };
+                    let meta = format!(
+                        "D{} · {}",
+                        record.depth,
+                        format_elapsed(record.elapsed_ms())
+                    );
+                    let meta_width = usize::from(list_area.width.saturating_sub(4))
+                        .saturating_sub(task_width + 2)
+                        .max(8);
+                    ListItem::new(Line::from(vec![
+                        Span::styled(
+                            format!("{} ", record.status.glyph()),
+                            Style::default().fg(label).bg(bg),
+                        ),
+                        Span::styled(
+                            fit_row(&sanitize_inline(&record.task), task_width),
+                            Style::default().fg(label).bg(bg).add_modifier(if selected {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
+                        ),
+                        Span::styled(
+                            fit_row(&meta, meta_width),
+                            Style::default().fg(meta_color).bg(bg),
+                        ),
+                    ]))
+                    .style(Style::default().bg(bg))
+                })
+                .collect()
+        };
+        let mut state = ListState::default();
+        if !picker.squad.is_empty() {
+            state.select(Some(
+                picker
+                    .squad_selected
+                    .min(picker.squad.len().saturating_sub(1)),
+            ));
+        }
+        frame.render_stateful_widget(
+            List::new(items)
+                .style(Style::default().bg(MENU_BG))
+                .block(menu_block("分队 Agents · Squad", "", MENU_BG))
+                .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
+            list_area,
+            &mut state,
+        );
+        let preview_text = picker
+        .squad_preview
+        .as_ref()
+        .filter(|(id, _)| {
+            picker
+                .selected_squad()
+                .is_some_and(|record| record.id.as_str() == id.as_str())
+        })
+        .map(|(_, text)| text.clone())
+        .unwrap_or_else(|| {
+            "选择队员即可查看子 journal 的实时进展。\n\n             v1 只读：不停止、不接管子进程；子进程的生命周期由父会话管理。"
+                .to_string()
+        });
+        frame.render_widget(
+            Paragraph::new(preview_text)
+                .style(Style::default().fg(MENU_HINT).bg(MENU_BG))
+                .wrap(Wrap { trim: false })
+                .block(menu_block("队员 · 实时预览", "", MENU_BG)),
+            preview_area,
         );
     }
 
@@ -3670,7 +4532,7 @@ impl TuiState {
         let metrics = self.run_metrics_line();
         let context = self.context_bar();
         match self.status {
-            TuiStatus::Running => {
+            TuiStatus::Running | TuiStatus::Paused => {
                 let (title, detail, step) = self.activity_summary();
                 let step = if step > 0 {
                     format!(" · 第 {step} 步")
@@ -3715,12 +4577,17 @@ impl TuiState {
     }
 
     fn elapsed_label(&self) -> String {
-        let elapsed = if self.status == TuiStatus::Running {
-            self.run_started_unix_ms
+        let elapsed = match self.status {
+            TuiStatus::Running => self
+                .run_started_unix_ms
                 .map(|started| now_unix_ms().saturating_sub(started))
-                .unwrap_or_default()
-        } else {
-            self.run_metrics.elapsed_ms
+                .unwrap_or_default(),
+            TuiStatus::Paused => self
+                .pause_started_unix_ms
+                .zip(self.run_started_unix_ms)
+                .map(|(paused, started)| paused.saturating_sub(started))
+                .unwrap_or_default(),
+            _ => self.run_metrics.elapsed_ms,
         };
         let seconds = elapsed / 1000;
         if seconds < 60 {
@@ -5571,6 +6438,103 @@ fn visible_input_end(text: &str, start: usize, width: u16) -> usize {
     text.len()
 }
 
+fn inner_width(rect: Rect) -> usize {
+    usize::from(rect.width.saturating_sub(2))
+}
+
+fn format_elapsed(elapsed_ms: u128) -> String {
+    let seconds = elapsed_ms / 1000;
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3_600 {
+        format!("{}m{:02}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}h{:02}m", seconds / 3_600, (seconds % 3_600) / 60)
+    }
+}
+
+fn format_timestamp(unix_ms: u128) -> String {
+    let seconds = (unix_ms / 1_000).min(i64::MAX as u128) as i64;
+    #[cfg(unix)]
+    {
+        let mut tm = unsafe { std::mem::zeroed::<libc::tm>() };
+        let time = seconds as libc::time_t;
+        let result = unsafe { libc::localtime_r(&time, &mut tm) };
+        if !result.is_null() {
+            return format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}",
+                tm.tm_year + 1900,
+                tm.tm_mon + 1,
+                tm.tm_mday,
+                tm.tm_hour,
+                tm.tm_min
+            );
+        }
+    }
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}",
+        seconds_of_day / 3_600,
+        (seconds_of_day % 3_600) / 60
+    )
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    (y + i64::from(m <= 2), m, d)
+}
+
+fn picker_block(picker: &SessionPickerState, hint: &str) -> Block<'static> {
+    let active = Style::default()
+        .fg(MARK_GREEN)
+        .bg(MENU_BG)
+        .add_modifier(Modifier::BOLD);
+    let idle = Style::default().fg(MENU_DIM).bg(MENU_BG);
+    let separator = Style::default().fg(MENU_DIM).bg(MENU_BG);
+    let sessions = if picker.tab == PickerTab::Sessions {
+        active
+    } else {
+        idle
+    };
+    let squad = if picker.tab == PickerTab::Squad {
+        active
+    } else {
+        idle
+    };
+    let mut block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title_top(Line::from(vec![
+            Span::styled(" Tab：", separator),
+            Span::styled("“", separator),
+            Span::styled("会话 Sessions ", sessions),
+            Span::styled("|", separator),
+            Span::styled(" 分队 Agents ", squad),
+            Span::styled("” ", separator),
+        ]))
+        .border_style(Style::default().fg(DRAWER_BORDER))
+        .style(Style::default().bg(MENU_BG));
+    if !hint.is_empty() {
+        block = block.title_bottom(
+            Line::from(Span::styled(
+                format!(" {hint} "),
+                Style::default().fg(MENU_HINT),
+            ))
+            .right_aligned(),
+        );
+    }
+    block
+}
+
 fn menu_block(title: &str, hint: &str, background: Color) -> Block<'static> {
     let mut block = Block::bordered()
         .border_type(BorderType::Rounded)
@@ -5597,6 +6561,7 @@ fn menu_block(title: &str, hint: &str, background: Color) -> Block<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::subagent_registry::SubagentStatus;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -6767,12 +7732,7 @@ mod tests {
             (TuiActivityKind::Searching, "搜索", "Searching", Color::Cyan),
             (TuiActivityKind::Fetching, "抓取", "Fetching", Color::Cyan),
             (TuiActivityKind::Querying, "查询", "Querying", Color::Cyan),
-            (
-                TuiActivityKind::Spawning,
-                "子Agent",
-                "Subagent",
-                Color::Cyan,
-            ),
+            (TuiActivityKind::Spawning, "分队", "Squad", Color::Cyan),
             (
                 TuiActivityKind::MasterUnderstanding,
                 "任务理解",
@@ -8499,6 +9459,388 @@ int main(int argc, char **argv) {
             .replace(' ', "");
         assert!(content.contains("Other:自定义"));
         assert!(content.contains("输入Other"));
+    }
+
+    #[test]
+    fn session_timestamp_has_minute_resolution() {
+        let timestamp = format_timestamp(1_700_000_000_000);
+        assert_eq!(timestamp.len(), 16, "{timestamp}");
+        assert_eq!(timestamp.chars().nth(10), Some(' '), "{timestamp}");
+        assert!(timestamp.contains(':'), "{timestamp}");
+        assert_eq!(timestamp.matches(':').count(), 1, "{timestamp}");
+    }
+
+    fn picker_items() -> Vec<SessionPickerItem> {
+        vec![
+            SessionPickerItem {
+                id: "alpha".into(),
+                title: "Alpha session".into(),
+                archived: false,
+                runs: 2,
+                modified_unix_ms: 1,
+                workspace: Some("/work/alpha".into()),
+                current: true,
+            },
+            SessionPickerItem {
+                id: "beta".into(),
+                title: "Beta archived".into(),
+                archived: true,
+                runs: 1,
+                modified_unix_ms: 2,
+                workspace: Some("/work/beta".into()),
+                current: false,
+            },
+            SessionPickerItem {
+                id: "gamma".into(),
+                title: "Gamma session".into(),
+                archived: false,
+                runs: 5,
+                modified_unix_ms: 3,
+                workspace: None,
+                current: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn pause_freezes_the_run_and_resume_restores_it() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.begin("long task", CognitiveMode::DirectAnswer, RiskLevel::Low);
+        state.set_input("queued while running");
+        assert!(state.queue_input());
+        state.pause_run();
+        assert_eq!(state.status, TuiStatus::Paused);
+        assert!(state.run_active());
+        assert!(state.take_queued_for_submit().is_none());
+        state.resume_run();
+        assert_eq!(state.status, TuiStatus::Running);
+        state.finish(TuiStatus::Completed, "done");
+        assert_eq!(state.status, TuiStatus::Completed);
+        assert!(!state.run_active());
+    }
+
+    #[test]
+    fn queued_follow_up_waits_for_the_run_and_can_be_recalled() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.begin("first task", CognitiveMode::DirectAnswer, RiskLevel::Low);
+        state.set_input("follow up after this run");
+        assert!(state.queue_input());
+        assert_eq!(state.input(), "");
+        assert_eq!(state.queued_input_count(), 1);
+        assert!(state.take_queued_for_submit().is_none());
+        state.finish(TuiStatus::Completed, "done");
+        assert_eq!(
+            state.take_queued_for_submit().as_deref(),
+            Some("follow up after this run")
+        );
+        assert_eq!(state.queued_input_count(), 0);
+
+        state.set_input("second follow up");
+        assert!(state.queue_input());
+        assert!(state.recall_queued_input());
+        assert_eq!(state.input(), "second follow up");
+        assert_eq!(state.queued_input_count(), 0);
+    }
+
+    #[test]
+    fn session_picker_navigates_filters_and_returns_actions() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_session_picker(picker_items());
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Down),
+            SessionPickerAction::None
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Enter),
+            SessionPickerAction::Switch("gamma".into())
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::CtrlA),
+            SessionPickerAction::None
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Enter),
+            SessionPickerAction::Switch("beta".into())
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Char('/')),
+            SessionPickerAction::None
+        );
+        for character in "gam".chars() {
+            assert_eq!(
+                state.handle_session_picker_input(TuiInput::Char(character)),
+                SessionPickerAction::None
+            );
+        }
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Enter),
+            SessionPickerAction::None
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Char(' ')),
+            SessionPickerAction::None
+        );
+        assert_eq!(
+            state.session_picker_preview_needed().as_deref(),
+            Some("gamma")
+        );
+        state.session_picker_set_preview("gamma", "preview");
+        assert!(state.session_picker_preview_needed().is_none());
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Escape),
+            SessionPickerAction::Close
+        );
+    }
+
+    fn squad_record(id: &str, task: &str, status: SubagentStatus) -> SubagentRecord {
+        let mut record = SubagentRecord::new(
+            id,
+            1,
+            1,
+            1,
+            task,
+            "/tmp/squad-workspace",
+            "/tmp/squad-workspace/.journal",
+            true,
+            false,
+            8,
+            120,
+        );
+        record.status = status;
+        record
+    }
+
+    #[test]
+    fn picker_tab_switches_to_squad_and_previews_the_selected_member() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_squad_picker(
+            picker_items(),
+            vec![
+                squad_record("sub-a", "inspect the parser", SubagentStatus::Running),
+                squad_record("sub-b", "write the report", SubagentStatus::Completed),
+            ],
+        );
+        assert!(state.session_picker_on_squad());
+        assert_eq!(
+            state.session_picker_preview_needed().as_deref(),
+            Some("sub-a")
+        );
+        state.session_picker_set_preview("sub-a", "running preview");
+        assert!(state.session_picker_preview_needed().is_none());
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Down),
+            SessionPickerAction::None
+        );
+        assert_eq!(
+            state.session_picker_preview_needed().as_deref(),
+            Some("sub-b")
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Tab),
+            SessionPickerAction::None
+        );
+        assert!(!state.session_picker_on_squad());
+        assert_eq!(
+            state.session_picker_preview_needed().as_deref(),
+            Some("alpha")
+        );
+    }
+
+    #[test]
+    fn picker_tabs_use_highlight_without_shifting_the_separator() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_squad_picker(picker_items(), Vec::new());
+
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let title_y = (0..30)
+            .find(|y| {
+                let row = (0..100)
+                    .map(|x| terminal.backend().buffer().cell((x, *y)).unwrap().symbol())
+                    .collect::<String>();
+                row.replace(' ', "").contains("Tab：“会话Sessions")
+            })
+            .expect("title row");
+        let row = |terminal: &Terminal<TestBackend>, y| {
+            (0..100)
+                .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                .collect::<String>()
+        };
+        let cell_x = |terminal: &Terminal<TestBackend>, y, needle: &str| {
+            (0..100)
+                .find(|x| terminal.backend().buffer().cell((*x, y)).unwrap().symbol() == needle)
+                .expect("cell")
+        };
+        let squad_row = row(&terminal, title_y);
+        let squad_separator = cell_x(&terminal, title_y, "|");
+        assert!(!squad_row.contains('▸'), "{squad_row}");
+
+        state.handle_session_picker_input(TuiInput::Tab);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let sessions_row = row(&terminal, title_y);
+        assert_eq!(cell_x(&terminal, title_y, "|"), squad_separator);
+        assert!(!sessions_row.contains('▸'), "{sessions_row}");
+
+        let active_x = cell_x(&terminal, title_y, "会");
+        let active = terminal
+            .backend()
+            .buffer()
+            .cell((active_x, title_y))
+            .unwrap();
+        assert_eq!(active.fg, MARK_GREEN);
+        assert_eq!(active.bg, MENU_BG);
+        let inactive_x = cell_x(&terminal, title_y, "A");
+        let inactive = terminal
+            .backend()
+            .buffer()
+            .cell((inactive_x, title_y))
+            .unwrap();
+        assert_eq!(inactive.fg, MENU_DIM);
+        assert_eq!(inactive.bg, MENU_BG);
+        for needle in ["T", "“", "”"] {
+            let x = cell_x(&terminal, title_y, needle);
+            let cell = terminal.backend().buffer().cell((x, title_y)).unwrap();
+            assert_eq!(cell.fg, MENU_DIM, "{needle}");
+            assert_eq!(cell.bg, MENU_BG, "{needle}");
+        }
+    }
+
+    #[test]
+    fn squad_tab_renders_running_member_and_status() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_squad_picker(
+            picker_items(),
+            vec![squad_record(
+                "sub-a",
+                "inspect the parser",
+                SubagentStatus::Running,
+            )],
+        );
+        state.session_picker_set_preview("sub-a", "子 journal：正在读取文件");
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(content.contains("分队Agents"), "{content}");
+        assert!(content.contains("inspectthepars"), "{content}");
+        assert!(content.contains("运行中"), "{content}");
+        assert!(content.contains("D1"), "{content}");
+        assert!(content.contains("队员·实时预览"), "{content}");
+    }
+
+    #[test]
+    fn squad_list_highlights_selected_and_dims_others() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_squad_picker(
+            picker_items(),
+            vec![
+                squad_record("sub-a", "inspect the parser", SubagentStatus::Running),
+                squad_record("sub-b", "write the report", SubagentStatus::Completed),
+            ],
+        );
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let find = |needle: &str| -> (u16, u16) {
+            for y in 0..30 {
+                let row = (0..100)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>();
+                if let Some(x) = row.find(needle) {
+                    return (x as u16, y);
+                }
+            }
+            panic!("row {needle}");
+        };
+        let (selected_x, selected_y) = find("inspect");
+        let selected = terminal
+            .backend()
+            .buffer()
+            .cell((selected_x, selected_y))
+            .unwrap();
+        assert_eq!(selected.fg, MARK_GREEN);
+        assert_eq!(selected.bg, MENU_SELECTED_BG);
+        let (idle_x, idle_y) = find("write");
+        let idle = terminal.backend().buffer().cell((idle_x, idle_y)).unwrap();
+        assert_eq!(idle.fg, MENU_DIM);
+        assert_eq!(idle.bg, MENU_BG);
+    }
+
+    #[test]
+    fn session_picker_rename_and_archive_flow() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_session_picker(picker_items());
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::CtrlR),
+            SessionPickerAction::None
+        );
+        for _ in 0.."Alpha session".len() {
+            state.handle_session_picker_input(TuiInput::Backspace);
+        }
+        for character in "Alpha renamed".chars() {
+            state.handle_session_picker_input(TuiInput::Char(character));
+        }
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Enter),
+            SessionPickerAction::Rename {
+                id: "alpha".into(),
+                title: "Alpha renamed".into()
+            }
+        );
+        state.session_picker_update_title("alpha", "Alpha renamed");
+        assert_eq!(
+            state.session_picker.as_ref().unwrap().items[0].title,
+            "Alpha renamed"
+        );
+
+        state.handle_session_picker_input(TuiInput::Down);
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::CtrlD),
+            SessionPickerAction::None
+        );
+        assert_eq!(
+            state.handle_session_picker_input(TuiInput::Enter),
+            SessionPickerAction::Archive("gamma".into())
+        );
+        state.session_picker_update_archived("gamma", true);
+        let picker = state.session_picker.as_ref().unwrap();
+        assert!(
+            picker
+                .filtered
+                .iter()
+                .all(|index| picker.items[*index].id != "gamma")
+        );
+    }
+
+    #[test]
+    fn session_picker_renders_a_green_modal_with_current_marker() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_session_picker(picker_items());
+        state.session_picker_set_preview("alpha", "最近结论：可以继续。");
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let compact = content.replace(' ', "");
+        assert!(compact.contains("Tab：“会话Sessions"), "{content}");
+        assert!(content.contains("Alpha session"), "{content}");
+        assert!(compact.contains('●'), "{content}");
+        assert!(compact.contains("选择即预览"), "{content}");
+        assert!(compact.contains("预览"), "{content}");
     }
 
     #[test]

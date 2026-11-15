@@ -1,0 +1,33 @@
+PTY interrupt test: mock provider, @sleep-ms:8000, Ctrl+C then Ctrl+R
+
+--- snapshot 4 ---
+ ❯ sleep @sleep-ms:8000
+ • 任务理解 Task Understanding · 解析目标与约束
+ • 规划 Planning · 任务计划已生成
+ • 模型请求 Model Request · 第 1 步 · 上下文 553
+ • 整理答案 Answering · 运行结束 · 已取消 · 1 步 · 2.0s
+   已中断 · journal 已保存 · Ctrl+R 恢复本次运行
+ Sys 无法恢复上次运行：这次中断没有可恢复的 checkpoint
+╭─ • 就绪 ───────────────────────────────────── • 上下文 ──────────────────── 553/1.0M 0% · 2s ────╮
+│                                                                                                  │
+│❯                                                                                                 │
+│                                                                                                  │
+╰─ 已取消 · default · 直接回答 · Ctrl + T 切换模式  ───────────────────────────────────────────────╯
+
+--- snapshot 5 ---
+ • 规划 Planning · 任务计划已生成
+ • 模型请求 Model Request · 第 1 步 · 上下文 553
+ • 整理答案 Answering · 运行结束 · 已取消 · 1 步 · 2.0s
+   已中断 · journal 已保存 · Ctrl+R 恢复本次运行
+ Sys 无法恢复上次运行：这次中断没有可恢复的 checkpoint
+ Sys Session ended.
+╭─ • 就绪 ───────────────────────────────────── • 上下文 ──────────────────── 553/1.0M 0% · 2s ────╮
+│                                                                                                  │
+│❯ 1u                                                                                              │
+█▀▀ █▀█ █▀▀ █▀▀ █▀▄ ▀█▀                                                                            │
+▀▀█ █▀█ █ █ █▀  █ █  █直接回答 · Ctrl + T 切换模式  ───────────────────────────────────────────────╯
+▀▀▀ ▀ ▀ ▀▀▀ ▀▀▀ ▀ ▀  ▀
+  会话      New session
+  继续      1agent tui --session ses_433e5df4a7684d569a370b08a9a67b76
+
+Note: this mock run had no checkpoint before cancel, so the honest outcome is "no checkpoint".

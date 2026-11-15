@@ -7,6 +7,7 @@ fn a_run_appends_a_canary_sample() {
     let dir = tempfile::tempdir().unwrap();
     let sample = dir.path().join("canary.jsonl");
     let output = Command::new(env!("CARGO_BIN_EXE_first-principles-agent"))
+        .env("ONEAGENT_HOME", dir.path().join("home"))
         .args(["run", "--task", "Say hello", "--canary-sample"])
         .arg(&sample)
         .args(["--journal-dir"])
@@ -39,6 +40,7 @@ fn repeated_runs_append_without_overwriting() {
     let sample = dir.path().join("canary.jsonl");
     for index in 0..2 {
         let output = Command::new(env!("CARGO_BIN_EXE_first-principles-agent"))
+            .env("ONEAGENT_HOME", dir.path().join("home"))
             .args(["run", "--task", "Say hello", "--canary-sample"])
             .arg(&sample)
             .args(["--journal-dir"])

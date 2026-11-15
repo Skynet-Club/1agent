@@ -1,0 +1,246 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "one": "https://1agent.dev/ontology/0.98#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "sh": "http://www.w3.org/ns/shacl#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "id": "@id",
+    "type": "@type",
+    "Session": "one:Session",
+    "Run": "one:Run",
+    "Task": "one:Task",
+    "Subtask": "one:Subtask",
+    "Agent": "one:Agent",
+    "HumanOperator": "one:HumanOperator",
+    "SquadMember": "one:SquadMember",
+    "ToolInvocation": "one:ToolInvocation",
+    "Observation": "one:Observation",
+    "Answer": "one:Answer",
+    "Claim": "one:Claim",
+    "Evidence": "one:Evidence",
+    "Assumption": "one:Assumption",
+    "Unknown": "one:Unknown",
+    "Conflict": "one:Conflict",
+    "FlipCondition": "one:FlipCondition",
+    "Artifact": "one:Artifact",
+    "Checkpoint": "one:Checkpoint",
+    "PermissionSet": "one:PermissionSet",
+    "AuthorityProfile": "one:AuthorityProfile",
+    "PolicyDecision": "one:PolicyDecision",
+    "Approval": "one:Approval",
+    "ProviderModel": "one:ProviderModel",
+    "Usage": "one:Usage",
+    "partOfSession": {
+      "@id": "one:partOfSession",
+      "@type": "@id"
+    },
+    "hasRun": {
+      "@id": "one:hasRun",
+      "@type": "@id"
+    },
+    "executedBy": {
+      "@id": "one:executedBy",
+      "@type": "@id"
+    },
+    "hasTask": {
+      "@id": "one:hasTask",
+      "@type": "@id"
+    },
+    "hasPermission": {
+      "@id": "one:hasPermission",
+      "@type": "@id"
+    },
+    "generated": {
+      "@id": "prov:generated",
+      "@type": "@id"
+    },
+    "used": {
+      "@id": "prov:used",
+      "@type": "@id"
+    },
+    "wasGeneratedBy": {
+      "@id": "prov:wasGeneratedBy",
+      "@type": "@id"
+    },
+    "wasDerivedFrom": {
+      "@id": "prov:wasDerivedFrom",
+      "@type": "@id"
+    },
+    "wasAttributedTo": {
+      "@id": "prov:wasAttributedTo",
+      "@type": "@id"
+    },
+    "hasEvidence": {
+      "@id": "one:hasEvidence",
+      "@type": "@id"
+    },
+    "hasClaim": {
+      "@id": "one:hasClaim",
+      "@type": "@id"
+    },
+    "supportsClaim": {
+      "@id": "one:supportsClaim",
+      "@type": "@id"
+    },
+    "contradictsClaim": {
+      "@id": "one:contradictsClaim",
+      "@type": "@id"
+    },
+    "cites": {
+      "@id": "one:cites",
+      "@type": "@id"
+    },
+    "observedBy": {
+      "@id": "one:observedBy",
+      "@type": "@id"
+    },
+    "spawnedBy": {
+      "@id": "one:spawnedBy",
+      "@type": "@id"
+    },
+    "parentOf": {
+      "@id": "one:parentOf",
+      "@type": "@id"
+    },
+    "resumedFrom": {
+      "@id": "one:resumedFrom",
+      "@type": "@id"
+    },
+    "forkedFrom": {
+      "@id": "one:forkedFrom",
+      "@type": "@id"
+    },
+    "authorizedBy": {
+      "@id": "one:authorizedBy",
+      "@type": "@id"
+    },
+    "decidedBy": {
+      "@id": "one:decidedBy",
+      "@type": "@id"
+    },
+    "approvedBy": {
+      "@id": "one:approvedBy",
+      "@type": "@id"
+    },
+    "usedModel": {
+      "@id": "one:usedModel",
+      "@type": "@id"
+    },
+    "hasUsage": {
+      "@id": "one:hasUsage",
+      "@type": "@id"
+    },
+    "hasFlipCondition": {
+      "@id": "one:hasFlipCondition",
+      "@type": "@id"
+    },
+    "supersedes": {
+      "@id": "one:supersedes",
+      "@type": "@id"
+    },
+    "objective": "one:objective",
+    "conclusion": "one:conclusion",
+    "claimText": "one:claimText",
+    "claimStatus": "one:claimStatus",
+    "sourceKind": "one:sourceKind",
+    "sourceRef": "one:sourceRef",
+    "statement": "one:statement",
+    "sha256": "one:sha256",
+    "path": "one:path",
+    "status": "one:status",
+    "hasOutcome": "one:hasOutcome",
+    "impact": "one:impact",
+    "depth": "one:depth",
+    "processId": "one:processId",
+    "allowWrite": "one:allowWrite",
+    "allowNetwork": "one:allowNetwork",
+    "startedAt": {
+      "@id": "prov:startedAtTime",
+      "@type": "xsd:dateTime"
+    },
+    "endedAt": {
+      "@id": "prov:endedAtTime",
+      "@type": "xsd:dateTime"
+    },
+    "observedAt": {
+      "@id": "one:observedAt",
+      "@type": "xsd:dateTime"
+    },
+    "expiresAt": {
+      "@id": "one:expiresAt",
+      "@type": "xsd:dateTime"
+    },
+    "inputTokens": "one:inputTokens",
+    "outputTokens": "one:outputTokens",
+    "costMicros": "one:costMicros",
+    "ActionType": "one:ActionType",
+    "ActionInvocation": "one:ActionInvocation",
+    "DataBinding": "one:DataBinding",
+    "AccessPolicy": "one:AccessPolicy",
+    "Purpose": "one:Purpose",
+    "Commitment": "one:Commitment",
+    "Delegation": "one:Delegation",
+    "EntityAlias": "one:EntityAlias",
+    "ConfidenceAssertion": "one:ConfidenceAssertion",
+    "hasActionType": {
+      "@id": "one:hasActionType",
+      "@type": "@id"
+    },
+    "invokesAction": {
+      "@id": "one:invokesAction",
+      "@type": "@id"
+    },
+    "boundTo": {
+      "@id": "one:boundTo",
+      "@type": "@id"
+    },
+    "hasAccessPolicy": {
+      "@id": "one:hasAccessPolicy",
+      "@type": "@id"
+    },
+    "hasPurpose": {
+      "@id": "one:hasPurpose",
+      "@type": "@id"
+    },
+    "delegatedBy": {
+      "@id": "one:delegatedBy",
+      "@type": "@id"
+    },
+    "delegatedTo": {
+      "@id": "one:delegatedTo",
+      "@type": "@id"
+    },
+    "aliasOf": {
+      "@id": "one:aliasOf",
+      "@type": "@id"
+    },
+    "mergedInto": {
+      "@id": "one:mergedInto",
+      "@type": "@id"
+    },
+    "commitmentState": "one:commitmentState",
+    "confidence": "one:confidence",
+    "confidenceSource": "one:confidenceSource",
+    "sourcePath": "one:sourcePath",
+    "mappingVersion": "one:mappingVersion",
+    "sensitivity": "one:sensitivity",
+    "validFrom": {
+      "@id": "one:validFrom",
+      "@type": "xsd:dateTime"
+    },
+    "validTo": {
+      "@id": "one:validTo",
+      "@type": "xsd:dateTime"
+    },
+    "recordedAt": {
+      "@id": "one:recordedAt",
+      "@type": "xsd:dateTime"
+    },
+    "hasPolicyDecision": {
+      "@id": "one:hasPolicyDecision",
+      "@type": "@id"
+    },
+    "DataSource": "one:DataSource"
+  }
+}
