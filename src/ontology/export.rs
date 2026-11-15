@@ -67,7 +67,7 @@ pub fn export_session(
             .into(),
         ),
     );
-    session_object.insert("hasRun".into(), refs_array(run_iris));
+    session_object.insert("hasRun".into(), refs_array(run_iris.iter().cloned()));
     if let Some(parent) = session.forked_from_session_id() {
         let parent_iri = ids::session_id(parent);
         session_object.insert("forkedFrom".into(), ref_iri(&parent_iri));
@@ -84,7 +84,7 @@ pub fn export_session(
     if let Some(mission) = session.mission() {
         let goal_iri = ids::goal_id(&mission.id);
         session_object.insert("hasGoal".into(), ref_iri(&goal_iri));
-        nodes.insert(goal_iri, goal_node(mission));
+        nodes.insert(goal_iri, goal_node(mission, &run_iris));
     }
     nodes.insert(session_iri, Value::Object(session_object));
 
@@ -598,7 +598,7 @@ fn collect_artifacts(
     (artifacts, observation_artifacts)
 }
 
-fn goal_node(mission: &SessionMission) -> Value {
+fn goal_node(mission: &SessionMission, run_iris: &BTreeSet<String>) -> Value {
     json!({
         "@id": ids::goal_id(&mission.id),
         "@type": "Goal",
@@ -606,6 +606,7 @@ fn goal_node(mission: &SessionMission) -> Value {
         "goalChars": mission.goal.chars().count() as u64,
         "status": "active",
         "revision": mission.revision,
+        "hasRun": refs_array(run_iris.iter().cloned()),
     })
 }
 
@@ -888,6 +889,8 @@ mod tests {
         assert_eq!(claim["cites"][0]["@id"], evidence["@id"]);
         let run_node = node(&first.value, &format!("urn:1agent:run:{run}"));
         assert_eq!(run_node["hasOutcome"], "completed");
+        let goal = node(&first.value, &format!("urn:1agent:goal:{mission_id}"));
+        assert_eq!(goal["hasRun"][0]["@id"], format!("urn:1agent:run:{run}"));
 
         let text = serde_json::to_string(&first.value).unwrap();
         assert!(!text.contains("\"content\""));
