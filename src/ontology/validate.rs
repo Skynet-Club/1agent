@@ -51,6 +51,8 @@ const REFERENCE_FIELDS: &[&str] = &[
     "hasObservation",
     "hasArtifact",
     "hasGoal",
+    "hasSquadMember",
+    "parentRun",
     "spawnedBy",
     "authorizedBy",
     "decidedBy",
@@ -576,7 +578,7 @@ mod tests {
                 {
                     "@id": "urn:1agent:task:r1:main",
                     "@type": "Task",
-                    "objective": "Synthetic objective"
+                    "objectiveSha256": SHA
                 },
                 {
                     "@id": "urn:1agent:tool-call:r1:c1",

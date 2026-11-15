@@ -48,7 +48,14 @@ pub fn export_session(
     let mut session_object = Map::new();
     session_object.insert("@id".into(), Value::String(session_iri.clone()));
     session_object.insert("@type".into(), Value::String("Session".into()));
-    session_object.insert("title".into(), Value::String(bounded(session.title())));
+    session_object.insert(
+        "titleSha256".into(),
+        Value::String(super::sha256_hex(session.title().as_bytes())),
+    );
+    session_object.insert(
+        "titleChars".into(),
+        Value::from(session.title().chars().count() as u64),
+    );
     session_object.insert(
         "status".into(),
         Value::String(
@@ -62,7 +69,16 @@ pub fn export_session(
     );
     session_object.insert("hasRun".into(), refs_array(run_iris));
     if let Some(parent) = session.forked_from_session_id() {
-        session_object.insert("forkedFrom".into(), ref_iri(&ids::session_id(parent)));
+        let parent_iri = ids::session_id(parent);
+        session_object.insert("forkedFrom".into(), ref_iri(&parent_iri));
+        // Keep the reference closed without recursively exporting the parent's
+        // runs. The stub is a real Session identity, not a guessed entity.
+        nodes.entry(parent_iri.clone()).or_insert_with(|| {
+            json!({
+                "@id": parent_iri,
+                "@type": "Session",
+            })
+        });
     }
 
     if let Some(mission) = session.mission() {
@@ -113,6 +129,7 @@ fn build_run(
     let mut cost_micros = 0u64;
     let mut checkpoint_seq: Option<u64> = None;
     let mut resumed_from_checkpoint: Option<u64> = None;
+    let mut resumed_from_run: Option<String> = None;
 
     for event in events {
         match &event.event {
@@ -125,6 +142,7 @@ fn build_run(
                 }
             }
             JournalEventKind::ResumeStarted {
+                original_run_id,
                 request: resumed,
                 checkpoint_seq: resumed_seq,
                 ..
@@ -133,6 +151,7 @@ fn build_run(
                     request = Some(resumed);
                 }
                 resumed_from_checkpoint = Some(*resumed_seq);
+                resumed_from_run = Some(original_run_id.to_string());
             }
             JournalEventKind::RouteSelected {
                 provider_id,
@@ -232,6 +251,44 @@ fn build_run(
         nodes.insert(observation_iri, Value::Object(object));
     }
 
+    let mut squad_iris = BTreeSet::new();
+    for (observation, _) in &observations {
+        if observation.tool != "spawn_agent" {
+            continue;
+        }
+        let Some(child_run_id) = observation.metadata.get("child_run_id") else {
+            continue;
+        };
+        if child_run_id.trim().is_empty() {
+            continue;
+        }
+        let squad_iri = ids::squad_member_id(&run_segment, &observation.call_id);
+        let mut object = Map::new();
+        object.insert("@id".into(), Value::String(squad_iri.clone()));
+        object.insert("@type".into(), Value::String("SquadMember".into()));
+        object.insert(
+            "status".into(),
+            Value::String(bounded(
+                observation
+                    .metadata
+                    .get("status")
+                    .map(String::as_str)
+                    .unwrap_or("completed"),
+            )),
+        );
+        object.insert("parentRun".into(), ref_iri(&run_iri));
+        if let Some(session_iri) = part_of_session {
+            object.insert("partOfSession".into(), ref_iri(session_iri));
+        }
+        object.insert(
+            "spawnedBy".into(),
+            ref_iri(&ids::tool_call_id(&run_segment, &observation.call_id)),
+        );
+        object.insert("childRunId".into(), Value::String(bounded(child_run_id)));
+        nodes.insert(squad_iri.clone(), Value::Object(object));
+        squad_iris.insert(squad_iri);
+    }
+
     for (artifact_iri, artifact) in artifacts.iter_mut() {
         let mut object = Map::new();
         object.insert("@id".into(), Value::String(artifact_iri.clone()));
@@ -311,6 +368,16 @@ fn build_run(
                 Value::String(classify_source(&evidence.source).into()),
             );
             object.insert("sourceRef".into(), Value::String(bounded(&evidence.source)));
+            if let Some(call_id) = evidence.source.strip_prefix("tool:")
+                && observations
+                    .iter()
+                    .any(|(observation, _)| observation.call_id == call_id)
+            {
+                object.insert(
+                    "observedBy".into(),
+                    ref_iri(&ids::observation_id(&run_segment, call_id)),
+                );
+            }
             object.insert(
                 "statement".into(),
                 Value::String(bounded(&evidence.statement)),
@@ -406,6 +473,9 @@ fn build_run(
     if !tool_call_iris.is_empty() {
         run_object.insert("used".into(), refs_array(tool_call_iris));
     }
+    if !squad_iris.is_empty() {
+        run_object.insert("hasSquadMember".into(), refs_array(squad_iris));
+    }
     if answer.is_some() {
         run_object.insert("generated".into(), ref_iri(&ids::answer_id(&run_segment)));
     }
@@ -430,6 +500,11 @@ fn build_run(
     }
     if let Some(seq) = resumed_from_checkpoint {
         run_object.insert("resumedFromCheckpointSeq".into(), Value::from(seq));
+    }
+    if let Some(original) = resumed_from_run {
+        // The original journal is not always in the same export. Keep this as
+        // an identity string, not a dangling @id reference.
+        run_object.insert("resumedFromRunId".into(), Value::String(original));
     }
     nodes.insert(run_iri.clone(), Value::Object(run_object));
 
@@ -820,6 +895,7 @@ mod tests {
         assert!(!text.contains(RAW_CONTENT));
         assert!(!text.contains("Investigate A"));
         assert!(!text.contains("Ship the ontology export"));
+        assert!(!text.contains("Ontology export test"));
         assert!(!text.contains("\"generatedAt\""));
 
         let report = validate_document(&first.value);
@@ -868,6 +944,71 @@ mod tests {
             "errors: {:?}",
             report.errors
         );
+    }
+
+    #[test]
+    fn successful_spawn_observation_exports_squad_lineage() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_path = workspace.path().join("spawn.jsonl");
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let session_id = session.id().to_string();
+        let run_id = Uuid::new_v4();
+        let mut journal = Journal::create(&journal_path, run_id).unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("parent task", workspace.path().to_path_buf()),
+                mode: CognitiveMode::Execute,
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::ToolCalled {
+                call: ToolCall {
+                    id: "spawn-1".into(),
+                    name: "spawn_agent".into(),
+                    arguments: json!({"task": "child"}),
+                },
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::ToolObserved {
+                observation: ToolObservation {
+                    call_id: "spawn-1".into(),
+                    tool: "spawn_agent".into(),
+                    status: ToolStatus::Ok,
+                    summary: "队员完成".into(),
+                    content: "{}".into(),
+                    error_code: None,
+                    metadata: BTreeMap::from([
+                        ("status".to_string(), "completed".to_string()),
+                        ("child_run_id".to_string(), "child-run-1".to_string()),
+                    ]),
+                },
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        drop(journal);
+        session.record_journal(&journal_path).unwrap();
+
+        let document = export_session(workspace.path(), &session_id).unwrap();
+        let suffix = format!("urn:1agent:squad-member:{run_id}:spawn-1");
+        let squad = node(&document.value, &suffix);
+        assert_eq!(squad["@type"], "SquadMember");
+        assert_eq!(squad["status"], "completed");
+        assert_eq!(squad["childRunId"], "child-run-1");
+        assert_eq!(
+            squad["spawnedBy"]["@id"],
+            format!("urn:1agent:tool-call:{run_id}:spawn-1")
+        );
+        assert_eq!(
+            squad["parentRun"]["@id"],
+            format!("urn:1agent:run:{run_id}")
+        );
+        let report = validate_document(&document.value);
+        assert!(report.ok, "validator errors: {:?}", report.errors);
     }
 
     #[test]

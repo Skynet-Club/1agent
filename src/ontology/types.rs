@@ -166,10 +166,10 @@ pub fn validate_bindings_value(value: &Value) -> Result<(), OntologyError> {
                 expect_string(binding, &context, optional)?;
             }
         }
-        if let Some(required) = binding.get("required") {
-            if !required.is_boolean() {
-                return Err(invalid(&context, "`required` must be a boolean"));
-            }
+        if let Some(required) = binding.get("required")
+            && !required.is_boolean()
+        {
+            return Err(invalid(&context, "`required` must be a boolean"));
         }
     }
 

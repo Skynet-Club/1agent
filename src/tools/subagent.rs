@@ -428,6 +428,10 @@ impl AgentTool for SpawnAgentTool {
         let mut metadata = std::collections::BTreeMap::new();
         metadata.insert("stop_reason".into(), stop_reason);
         metadata.insert("workspace".into(), workspace.display().to_string());
+        metadata.insert("status".into(), "completed".into());
+        if let Some(child_run_id) = value.get("run_id").and_then(Value::as_str) {
+            metadata.insert("child_run_id".into(), child_run_id.to_string());
+        }
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
         }
@@ -549,8 +553,7 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
         let record = registry_text
             .lines()
             .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
-            .filter(|record| record.workspace == expected_workspace)
-            .next_back()
+            .rfind(|record| record.workspace == expected_workspace)
             .expect("spawned record");
         assert_eq!(record.spawn_call_id.as_deref(), Some(call_id.as_str()));
         assert_eq!(record.child_run_id.as_deref(), Some("child"));

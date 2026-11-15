@@ -84,6 +84,14 @@ pub fn commitment_id(id: &str) -> String {
     format!("urn:1agent:commitment:{}", encode_segment(id))
 }
 
+pub fn squad_member_id(run: &str, call: &str) -> String {
+    format!(
+        "urn:1agent:squad-member:{}:{}",
+        encode_segment(run),
+        encode_segment(call)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +140,10 @@ mod tests {
         assert_eq!(
             commitment_id("commitment-1"),
             "urn:1agent:commitment:commitment-1"
+        );
+        assert_eq!(
+            squad_member_id("run-1", "call-1"),
+            "urn:1agent:squad-member:run-1:call-1"
         );
     }
 
