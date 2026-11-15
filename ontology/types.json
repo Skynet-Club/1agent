@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "namespace": "https://1agent.dev/ontology/0.98#",
+  "types": [
+    {"id": "Session", "kind": "object", "owner": "runtime"},
+    {"id": "Run", "kind": "object", "owner": "runtime"},
+    {"id": "Task", "kind": "object", "owner": "runtime"},
+    {"id": "ToolInvocation", "kind": "object", "owner": "runtime"},
+    {"id": "Observation", "kind": "object", "owner": "runtime"},
+    {"id": "Answer", "kind": "object", "owner": "runtime"},
+    {"id": "Claim", "kind": "object", "owner": "runtime"},
+    {"id": "Evidence", "kind": "object", "owner": "runtime"},
+    {"id": "Artifact", "kind": "object", "owner": "runtime"},
+    {"id": "SquadMember", "kind": "object", "owner": "runtime"},
+    {"id": "Goal", "kind": "object", "owner": "runtime"},
+    {"id": "Commitment", "kind": "object", "owner": "runtime"},
+    {"id": "ActionType", "kind": "action", "owner": "security"},
+    {"id": "ActionInvocation", "kind": "action", "owner": "security"},
+    {"id": "PolicyDecision", "kind": "object", "owner": "security"},
+    {"id": "Approval", "kind": "object", "owner": "security"},
+    {"id": "DataBinding", "kind": "binding", "owner": "ontology"}
+  ]
+}

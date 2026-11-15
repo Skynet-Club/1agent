@@ -30,6 +30,8 @@ boundary remains until ADR-003 is accepted.
   release plan (requirements → features → tasks → gates → evidence).
 - [`0.98.2-plan-review.md`](0.98.2-plan-review.md): plan strengths/weaknesses,
   scope options, kill criteria and solutions.
+- [`0.98.2-ontology-contracts.md`](0.98.2-ontology-contracts.md): frozen P0
+  export/ID/validation contract and parallel file ownership.
 - [`master-agent.md`](master-agent.md): Master-Agent contracts, commands, safety and live evidence.
 - [`master-multi-goal-production-line.md`](master-multi-goal-production-line.md): planned
   multi-Goal, multi-Master intake, supervision, dispatch and verification program.
