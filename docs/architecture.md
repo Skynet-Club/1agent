@@ -785,6 +785,27 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Authenticated report inspection requires an `evaluation_report` approval envelope and
   Active/Retired, non-revoked registry key; unauthenticated status is never upgraded implicitly.
 
+## Read-only ontology projection (1AO)
+
+- `src/ontology/` projects journals and sessions into deterministic JSON-LD.
+  It is read-only: the journal remains the source of truth and a failed export
+  never changes a run.
+- `ontology/types.json` is the versioned core type registry;
+  `ontology/bindings.json` maps types to journal/session fields. Both are
+  embedded at build time and represented by `registrySha256`.
+- Entity IRIs follow the P0 contract (`urn:1agent:...`); PID, title and path
+  are attributes, never identity. Artifact identity is content SHA-256.
+- Exports are self-contained JSON-LD with an embedded context, sorted
+  `@graph`, no export timestamp, and a SHA-256 over the exact serialized bytes.
+- The exporter allowlists IDs, types, times, statuses, hashes, references and
+  bounded summaries. It does not export raw prompts, tool content, page text,
+  credentials or file bodies.
+- `1agent ontology types|bindings|export|validate` is the CLI surface.
+  Validation is internal, fail-visible and does not require an OWL reasoner or
+  graph database.
+- Session/sub-agent lineage fields are additive and optional so old journals
+  and v1/v2 sessions remain readable.
+
 ## V0 limitations
 
 - Proving real-model quality without configured providers.
