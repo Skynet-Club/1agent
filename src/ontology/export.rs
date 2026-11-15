@@ -61,6 +61,9 @@ pub fn export_session(
         ),
     );
     session_object.insert("hasRun".into(), refs_array(run_iris));
+    if let Some(parent) = session.forked_from_session_id() {
+        session_object.insert("forkedFrom".into(), ref_iri(&ids::session_id(parent)));
+    }
 
     if let Some(mission) = session.mission() {
         let goal_iri = ids::goal_id(&mission.id);
@@ -104,6 +107,12 @@ fn build_run(
     let mut stopped_at: Option<u128> = None;
     let mut calls: Vec<(&ToolCall, u128)> = Vec::new();
     let mut observations: Vec<(&ToolObservation, u128)> = Vec::new();
+    let mut route: Option<(String, String, String)> = None;
+    let mut input_tokens = 0u64;
+    let mut output_tokens = 0u64;
+    let mut cost_micros = 0u64;
+    let mut checkpoint_seq: Option<u64> = None;
+    let mut resumed_from_checkpoint: Option<u64> = None;
 
     for event in events {
         match &event.event {
@@ -116,9 +125,39 @@ fn build_run(
                 }
             }
             JournalEventKind::ResumeStarted {
-                request: resumed, ..
-            } if request.is_none() => {
-                request = Some(resumed);
+                request: resumed,
+                checkpoint_seq: resumed_seq,
+                ..
+            } => {
+                if request.is_none() {
+                    request = Some(resumed);
+                }
+                resumed_from_checkpoint = Some(*resumed_seq);
+            }
+            JournalEventKind::RouteSelected {
+                provider_id,
+                model,
+                reason,
+            } => {
+                route = Some((provider_id.clone(), model.clone(), reason.clone()));
+            }
+            JournalEventKind::ModelResponded { response } => {
+                input_tokens = input_tokens.saturating_add(response.usage.input_tokens);
+                output_tokens = output_tokens.saturating_add(response.usage.output_tokens);
+                cost_micros = cost_micros.saturating_add(response.usage.cost_micros);
+                if route.is_none() {
+                    route = Some((
+                        response.provider_id.clone(),
+                        response.model.clone(),
+                        "model_response".into(),
+                    ));
+                }
+            }
+            JournalEventKind::Checkpoint { .. } => {
+                checkpoint_seq = Some(event.seq);
+            }
+            JournalEventKind::CheckpointDelta { .. } => {
+                checkpoint_seq = Some(event.seq);
             }
             JournalEventKind::ToolCalled { call } => {
                 calls.push((call, event.timestamp_unix_ms));
@@ -307,6 +346,45 @@ fn build_run(
             "hasEvidence".into(),
             refs_array(evidence_iris.into_iter().collect::<BTreeSet<_>>()),
         );
+        if !answer.unknowns.is_empty() {
+            object.insert(
+                "unknowns".into(),
+                Value::Array(
+                    answer
+                        .unknowns
+                        .iter()
+                        .map(|unknown| {
+                            json!({
+                                "id": bounded(&unknown.id),
+                                "description": bounded(&unknown.description),
+                                "impact": format!("{:?}", unknown.impact).to_lowercase(),
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if !answer.flip_conditions.is_empty() {
+            object.insert(
+                "flipConditions".into(),
+                Value::Array(
+                    answer
+                        .flip_conditions
+                        .iter()
+                        .map(|condition| {
+                            json!({
+                                "ifObserved": bounded(&condition.if_observed),
+                                "then": bounded(&condition.then),
+                                "targetIds": condition.target_ids
+                                    .iter()
+                                    .map(|id| bounded(id))
+                                    .collect::<Vec<_>>(),
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
         nodes.insert(answer_iri, Value::Object(object));
     }
 
@@ -336,6 +414,22 @@ fn build_run(
     }
     if let Some(stopped_at) = stopped_at {
         run_object.insert("completedAtUnixMs".into(), unix_ms_value(stopped_at));
+    }
+    if let Some((provider_id, model, reason)) = route {
+        run_object.insert("providerId".into(), Value::String(bounded(&provider_id)));
+        run_object.insert("model".into(), Value::String(bounded(&model)));
+        run_object.insert("routeReason".into(), Value::String(bounded(&reason)));
+    }
+    if input_tokens > 0 || output_tokens > 0 || cost_micros > 0 {
+        run_object.insert("inputTokens".into(), Value::from(input_tokens));
+        run_object.insert("outputTokens".into(), Value::from(output_tokens));
+        run_object.insert("costMicros".into(), Value::from(cost_micros));
+    }
+    if let Some(seq) = checkpoint_seq {
+        run_object.insert("checkpointSeq".into(), Value::from(seq));
+    }
+    if let Some(seq) = resumed_from_checkpoint {
+        run_object.insert("resumedFromCheckpointSeq".into(), Value::from(seq));
     }
     nodes.insert(run_iri.clone(), Value::Object(run_object));
 
