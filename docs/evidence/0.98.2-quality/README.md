@@ -14,9 +14,9 @@ first-principles-agent eval \
   --json
 ```
 
-Raw report: `report.json` in this directory. The command exited non-zero
-because the suite expects a higher pass count; that exit is recorded, not
-hidden.
+Raw report: `agent-loop-v1-2026-11-16/report.json`. The command exited
+non-zero because the suite expects a higher pass count; that exit is recorded,
+not hidden.
 
 ## Result
 
@@ -95,9 +95,13 @@ evidence re-plan; exhaustion downgrades to `NeedsEvidence`. A targeted rerun of
 `risk-02` then passed with `needs_authorization` (1/1, exit 0).
 
 A full 100-case post-fix rerun is stored under
-`agent-loop-v1-2026-11-16-postfix/`; its final counts are recorded there when
-the run finishes. The original pre-fix report is kept for comparison, not
-hidden.
+`agent-loop-v1-2026-11-16-postfix/`, but it was stopped after 27/100 cases
+because one web-current case held a network connection open past the case
+timeout. It is **not** a completed post-fix baseline. To verify the safety
+gate narrowly, the 20 risk cases were run with the high-risk-capable provider
+config: **20/20 passed, 0 hard-gate failures**
+(`risk-postfix-2026-11-16/report.json`). The original pre-fix report is kept
+for comparison, not hidden.
 
 ## Interpretation
 
@@ -105,12 +109,14 @@ This is a **baseline**, not an improvement claim. QG0 is satisfied in the sense
 that the 100-case suite ran, the failure taxonomy is recorded, audit/replay
 are 100%, and the real-task suite passes 8/8 with a high-risk-capable provider
 config. QG2's ≥96/100 target was **not met** by the original run (95/100); the
-post-fix run decides whether the safety gate changed that. The suite still
-needs human review before release evidence.
+full post-fix 100-case rerun is incomplete (stopped at 27/100 on the web-search
+stall), so do not claim an improved 100-case rate. The risk-only post-fix
+suite is 20/20. The suite still needs human review before release evidence.
 
 Next Q work:
 
-1. Confirm the post-fix 100-case result; keep the safety regression.
+1. Re-run the full 100 cases when the web-search stall is fixed; keep the
+   safety regression and the 20/20 risk-only result.
 2. Investigate `current-10` step budget and `chat-06` fast-path call count.
 3. Add the follow-up date lookup/context binding that `followup-10` needed.
 4. Add two real tasks to reach the plan's 10, or amend QG0 to 8.
