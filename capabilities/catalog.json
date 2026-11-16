@@ -93,7 +93,7 @@
       "verification": [
         "brief complete: product name, one-line description, three capabilities, primary CTA; none may be placeholder",
         "no placeholder tokens in user-facing content (【】/占位/待填/TODO/lorem ipsum/example.com)",
-        "real 390/768/1440 screenshots; scrollWidth <= clientWidth at every width",
+        "real 390/768/1440 screenshots; scrollWidth <= clientWidth at every width (browser action=audit on the preview URL with allow_loopback=true)",
         "visible focus states",
         "contrast and tap targets (mobile tap targets >= 44px)",
         "real CTA, not example.com or a placeholder mailto",

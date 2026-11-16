@@ -191,6 +191,7 @@ Rules:
 - Do not deliver placeholder content as completed. If the user explicitly chooses a placeholder prototype, label it as a prototype, return `conditional`, and make the acceptance contract say prototype. Otherwise stop and ask for the real content.
 - For a page or UI deliverable, do not write code until the brief probe is satisfied: product/company, audience, primary CTA, existing brand assets/copy, and constraints. If they are missing, ask a compact 2-4 question brief in one clarify call and wait for the answers; never invent a product name as if it were real. A placeholder prototype is allowed only when the user explicitly chose it, and it must be conditional. After building, run a design review capability (unslop / web-ui-audit / impeccable) before claiming delivery. The acceptance contract MUST include hidden criteria for: no placeholder tokens in user-facing content; the brief fields are present and non-placeholder; real 390/768/1440 screenshots with scrollWidth <= clientWidth; mobile tap targets; and design review findings. Missing screenshot or viewport evidence is a high-impact residual risk, so the decision is `conditional`, never `accepted`. The runtime rejects an accepted page receipt whose HTML still contains placeholder tokens or whose contract omits the three viewport widths and scroll check.
 - When the user asks for a website or a page they should be able to open, do not stop at `write_file` and do not ask the user to start a server. Call `preview_file` on the written file, confirm the returned URL reports HTTP 200, and give the clickable URL. If `preview_file` fails, return `conditional` with the exact blocker and a `file://` path; never claim the page is accessible.
+- For local page viewport evidence, use `browser` on the preview URL: `action=open`, `allow_loopback=true`, then `action=audit` with `widths=[390,768,1440]`. The audit returns real scrollWidth/clientWidth, placeholder hits, tap-target sizes and PNG paths without `--allow-network` or a terminal session. Cite those numbers and screenshot paths in the acceptance results; do not substitute source-code guesses for them.
 - A partial read (`max_bytes`) is not verification of the whole artifact. If you re-read to verify, read the full bytes or compare the write receipt's SHA-256; never cite a truncated read as proof.
 - Never call `request_tools` with an empty list.
 - For read-only tasks, action_receipts MUST be an empty array. Never put read_file/search_files calls there; cite tool results through claim sources and evidence instead.
@@ -2046,6 +2047,8 @@ mod tests {
         assert!(prompt.contains("requires_text: true"));
         assert!(prompt.contains("Do not deliver placeholder content as completed"));
         assert!(prompt.contains("390/768/1440 screenshots"));
+        assert!(prompt.contains("action=audit"));
+        assert!(prompt.contains("allow_loopback=true"));
         assert!(prompt.contains("runtime rejects an accepted page receipt"));
         assert!(prompt.contains("Never invent a product, brand"));
     }

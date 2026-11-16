@@ -520,7 +520,36 @@ impl ClarifyQuestion {
                 option.requires_text = true;
             }
         }
+        // Reuse a model-authored "Other, I will explain" option instead of
+        // adding a second Other. It collects text by definition.
         if !self
+            .options
+            .iter()
+            .any(|option| option.id == OTHER_OPTION_ID)
+            && let Some(index) = self
+                .options
+                .iter()
+                .position(|option| looks_like_other_option(&option.label))
+        {
+            let option = &mut self.options[index];
+            option.id = OTHER_OPTION_ID.into();
+            option.label = "Other".into();
+            option.recommended = false;
+            option.requires_text = true;
+            let mut kept_other = false;
+            self.options.retain(|option| {
+                if option.id == OTHER_OPTION_ID {
+                    if kept_other {
+                        false
+                    } else {
+                        kept_other = true;
+                        true
+                    }
+                } else {
+                    !looks_like_other_option(&option.label)
+                }
+            });
+        } else if !self
             .options
             .iter()
             .any(|option| option.id == OTHER_OPTION_ID)
@@ -632,6 +661,19 @@ fn safe_id(value: &str) -> bool {
         && value.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
         })
+}
+
+fn looks_like_other_option(label: &str) -> bool {
+    let label = label.trim().to_lowercase();
+    label == "其他"
+        || label == "其它"
+        || label == "other"
+        || label.starts_with("其他，")
+        || label.starts_with("其它，")
+        || label.starts_with("其他:")
+        || label.starts_with("其它:")
+        || label.starts_with("other ")
+        || label.starts_with("other:")
 }
 
 fn promises_to_provide(label: &str) -> bool {
@@ -934,6 +976,51 @@ mod tests {
         assert_eq!(
             panel.select("q1", "a", None, 1_000 + 300_001),
             Err(ClarifyError::PanelClosed)
+        );
+    }
+
+    #[test]
+    fn custom_other_label_is_reused_without_a_duplicate() {
+        let mut question = question("q1", "Which one?");
+        question
+            .options
+            .push(option("other_explain", "其它，我来说明", false));
+        let normalized = question.normalize();
+        let others = normalized
+            .options
+            .iter()
+            .filter(|option| option.id == OTHER_OPTION_ID)
+            .collect::<Vec<_>>();
+        assert_eq!(others.len(), 1);
+        assert!(others[0].requires_text);
+        assert!(
+            normalized
+                .options
+                .iter()
+                .all(|option| !option.label.contains("我来说明"))
+        );
+    }
+
+    #[test]
+    fn a_regular_other_service_option_is_not_treated_as_the_other_escape() {
+        let mut question = question("q1", "Which one?");
+        question
+            .options
+            .push(option("other_service", "其他服务", false));
+        let normalized = question.normalize();
+        assert!(
+            normalized
+                .options
+                .iter()
+                .any(|option| option.id == "other_service")
+        );
+        assert_eq!(
+            normalized
+                .options
+                .iter()
+                .filter(|option| option.id == OTHER_OPTION_ID)
+                .count(),
+            1
         );
     }
 
