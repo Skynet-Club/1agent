@@ -673,7 +673,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   spawn writes `parent_run_id`, `parent_session_id`, `spawn_call_id` and
   `child_run_id` to the subagent registry and the same parent/child ids to the
   spawn observation metadata. Runs outside a TUI session leave
-  `parent_session_id` empty rather than guessing one.
+  `parent_session_id` empty rather than guessing one. The child inherits
+  `ONEAGENT_PARENT_RUN_ID`/`ONEAGENT_PARENT_SESSION_ID`/
+  `ONEAGENT_SPAWN_CALL_ID` and writes a `ParentRunLinked` journal event, so a
+  child journal points back to the spawning run. Failed, timed-out and
+  cancelled spawns return structured metadata (status, parent ids, spawn call,
+  child run when known, exit status or stop reason) in the parent observation;
+  no failure is reported as completed.
 - `schedule` persists interval jobs under the runtime home and `daemon` runs
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`

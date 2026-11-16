@@ -12,10 +12,13 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use std::collections::BTreeMap;
+
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
 use crate::subagent_registry::{
-    RegistryGuard, SUBAGENT_ROOT_PID_ENV, SubagentRecord, SubagentStatus,
+    RegistryGuard, SUBAGENT_PARENT_RUN_ENV, SUBAGENT_PARENT_SESSION_ENV, SUBAGENT_ROOT_PID_ENV,
+    SUBAGENT_SPAWN_CALL_ENV, SubagentRecord, SubagentStatus,
 };
 
 const MAX_TASK_CHARS: usize = 8 * 1024;
@@ -199,7 +202,7 @@ impl AgentTool for SpawnAgentTool {
         &self,
         arguments: Value,
         permissions: &PermissionSet,
-        _cancellation: &CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<ToolOutcome, ToolError> {
         if self.depth >= MAX_DEPTH {
             return Err(ToolError::Failed(format!(
@@ -257,6 +260,7 @@ impl AgentTool for SpawnAgentTool {
             timeout_seconds,
         );
         record.spawn_call_id = super::TOOL_CALL_ID.try_with(Clone::clone).ok();
+        let spawn_call_id = record.spawn_call_id.clone();
         let run_context = super::RUN_CONTEXT.try_with(Clone::clone).ok();
         if let Some(context) = &run_context {
             record.parent_run_id = Some(context.run_id.clone());
@@ -292,7 +296,17 @@ impl AgentTool for SpawnAgentTool {
             Ok(arguments) => args.extend(arguments),
             Err(error) => {
                 registry.finish(SubagentStatus::Failed, Some(error.to_string()));
-                return Err(error);
+                return Err(ToolError::FailedWithMetadata {
+                    message: error.to_string(),
+                    metadata: spawn_failure_metadata(
+                        "failed",
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        None,
+                    ),
+                });
             }
         }
 
@@ -306,6 +320,15 @@ impl AgentTool for SpawnAgentTool {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        if let Some(context) = &run_context {
+            command.env(SUBAGENT_PARENT_RUN_ENV, &context.run_id);
+            if let Some(session_id) = &context.session_id {
+                command.env(SUBAGENT_PARENT_SESSION_ENV, session_id);
+            }
+        }
+        if let Some(call_id) = &spawn_call_id {
+            command.env(SUBAGENT_SPAWN_CALL_ENV, call_id);
+        }
         let child = match super::spawn_with_retry(&mut command).await {
             Ok(child) => child,
             Err(error) => {
@@ -313,35 +336,71 @@ impl AgentTool for SpawnAgentTool {
                     SubagentStatus::Failed,
                     Some(format!("cannot start subagent: {error}")),
                 );
-                return Err(ToolError::Failed(format!(
-                    "cannot start subagent {}: {error}",
-                    self.program.display()
-                )));
+                return Err(ToolError::FailedWithMetadata {
+                    message: format!("cannot start subagent {}: {error}", self.program.display()),
+                    metadata: spawn_failure_metadata(
+                        "failed",
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        None,
+                    ),
+                });
             }
         };
         if let Some(child_pid) = child.id() {
             registry.running(child_pid);
         }
-        let output = match tokio::time::timeout(
-            Duration::from_secs(timeout_seconds + 20),
-            child.wait_with_output(),
-        )
-        .await
-        {
+        let waited = tokio::select! {
+            _ = cancellation.cancelled() => {
+                registry.finish(
+                    SubagentStatus::Cancelled,
+                    Some("parent cancelled the spawn".into()),
+                );
+                return Err(ToolError::CancelledWithMetadata(spawn_failure_metadata(
+                    "cancelled",
+                    run_context.as_ref(),
+                    spawn_call_id.as_deref(),
+                    &workspace,
+                    &journal_dir,
+                    None,
+                )));
+            }
+            waited = tokio::time::timeout(
+                Duration::from_secs(timeout_seconds + 20),
+                child.wait_with_output(),
+            ) => waited,
+        };
+        let output = match waited {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => {
                 registry.finish(
                     SubagentStatus::Failed,
                     Some(format!("cannot wait for subagent: {error}")),
                 );
-                return Err(ToolError::Failed(format!(
-                    "cannot start subagent {}: {error}",
-                    self.program.display()
-                )));
+                return Err(ToolError::FailedWithMetadata {
+                    message: format!("cannot start subagent {}: {error}", self.program.display()),
+                    metadata: spawn_failure_metadata(
+                        "failed",
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        None,
+                    ),
+                });
             }
             Err(_) => {
                 registry.finish(SubagentStatus::TimedOut, Some("subagent timed out".into()));
-                return Err(ToolError::TimedOut);
+                return Err(ToolError::TimedOutWithMetadata(spawn_failure_metadata(
+                    "timed_out",
+                    run_context.as_ref(),
+                    spawn_call_id.as_deref(),
+                    &workspace,
+                    &journal_dir,
+                    None,
+                )));
             }
         };
         if !output.status.success() {
@@ -350,11 +409,23 @@ impl AgentTool for SpawnAgentTool {
                 SubagentStatus::Failed,
                 Some(format!("subagent exited {}", output.status)),
             );
-            return Err(ToolError::Failed(format!(
-                "subagent exited {}: {}",
-                output.status,
-                bounded(stderr.trim(), 2_000)
-            )));
+            let mut metadata = spawn_failure_metadata(
+                "failed",
+                run_context.as_ref(),
+                spawn_call_id.as_deref(),
+                &workspace,
+                &journal_dir,
+                None,
+            );
+            metadata.insert("exit_status".into(), output.status.to_string());
+            return Err(ToolError::FailedWithMetadata {
+                message: format!(
+                    "subagent exited {}: {}",
+                    output.status,
+                    bounded(stderr.trim(), 2_000)
+                ),
+                metadata,
+            });
         }
         let value: Value = match serde_json::from_slice(&output.stdout) {
             Ok(value) => value,
@@ -363,10 +434,24 @@ impl AgentTool for SpawnAgentTool {
                     SubagentStatus::Failed,
                     Some(format!("invalid subagent JSON: {error}")),
                 );
-                return Err(ToolError::Failed(format!("invalid subagent JSON: {error}")));
+                return Err(ToolError::FailedWithMetadata {
+                    message: format!("invalid subagent JSON: {error}"),
+                    metadata: spawn_failure_metadata(
+                        "failed",
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        None,
+                    ),
+                });
             }
         };
-        if let Some(child_run_id) = value.get("run_id").and_then(Value::as_str) {
+        let child_run_id = value
+            .get("run_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if let Some(child_run_id) = &child_run_id {
             registry.set_child_run_id(child_run_id);
         }
         let conclusion = value
@@ -390,33 +475,70 @@ impl AgentTool for SpawnAgentTool {
                 SubagentStatus::Failed,
                 Some(format!("subagent stopped with {stop_reason}")),
             );
-            return Err(ToolError::Failed(format!(
-                "subagent stopped with {stop_reason}: {}",
-                bounded(conclusion.lines().next().unwrap_or("no conclusion"), 500)
-            )));
+            let mut metadata = spawn_failure_metadata(
+                "failed",
+                run_context.as_ref(),
+                spawn_call_id.as_deref(),
+                &workspace,
+                &journal_dir,
+                child_run_id.as_deref(),
+            );
+            metadata.insert("stop_reason".into(), stop_reason.clone());
+            return Err(ToolError::FailedWithMetadata {
+                message: format!(
+                    "subagent stopped with {stop_reason}: {}",
+                    bounded(conclusion.lines().next().unwrap_or("no conclusion"), 500)
+                ),
+                metadata,
+            });
         }
         if !child_journal.is_empty() {
             let path = std::path::Path::new(&child_journal);
             if path.is_file() {
-                let metadata = std::fs::metadata(path)
-                    .map_err(|error| ToolError::Failed(format!("subagent journal: {error}")))?;
+                let metadata = std::fs::metadata(path).map_err(|error| {
+                    spawn_journal_error(
+                        &error.to_string(),
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        child_run_id.as_deref(),
+                    )
+                })?;
                 if metadata.len() > MAX_CHILD_JOURNAL_BYTES {
-                    return Err(ToolError::Failed(format!(
-                        "subagent journal exceeds {MAX_CHILD_JOURNAL_BYTES} bytes"
-                    )));
+                    return Err(spawn_journal_error(
+                        &format!("exceeds {MAX_CHILD_JOURNAL_BYTES} bytes"),
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        child_run_id.as_deref(),
+                    ));
                 }
-                let events = crate::journal::read_events(path)
-                    .map_err(|error| ToolError::Failed(format!("subagent journal: {error}")))?;
+                let events = crate::journal::read_events(path).map_err(|error| {
+                    spawn_journal_error(
+                        &error.to_string(),
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        child_run_id.as_deref(),
+                    )
+                })?;
                 let audit = crate::journal::audit_events(&events);
                 if !audit.ok {
                     registry.finish(
                         SubagentStatus::Failed,
                         Some("subagent journal audit failed".into()),
                     );
-                    return Err(ToolError::Failed(format!(
-                        "subagent journal audit failed: {}",
-                        audit.issues.join("; ")
-                    )));
+                    return Err(spawn_journal_error(
+                        &format!("audit failed: {}", audit.issues.join("; ")),
+                        run_context.as_ref(),
+                        spawn_call_id.as_deref(),
+                        &workspace,
+                        &journal_dir,
+                        child_run_id.as_deref(),
+                    ));
                 }
             }
         }
@@ -430,19 +552,15 @@ impl AgentTool for SpawnAgentTool {
             "allow_write": child_write,
             "allow_network": child_network
         });
-        let mut metadata = std::collections::BTreeMap::new();
+        let mut metadata = spawn_failure_metadata(
+            "completed",
+            run_context.as_ref(),
+            spawn_call_id.as_deref(),
+            &workspace,
+            &journal_dir,
+            child_run_id.as_deref(),
+        );
         metadata.insert("stop_reason".into(), stop_reason);
-        metadata.insert("workspace".into(), workspace.display().to_string());
-        metadata.insert("status".into(), "completed".into());
-        if let Some(child_run_id) = value.get("run_id").and_then(Value::as_str) {
-            metadata.insert("child_run_id".into(), child_run_id.to_string());
-        }
-        if let Some(context) = &run_context {
-            metadata.insert("parent_run_id".into(), context.run_id.clone());
-            if let Some(session_id) = &context.session_id {
-                metadata.insert("parent_session_id".into(), session_id.clone());
-            }
-        }
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
         }
@@ -458,6 +576,56 @@ impl AgentTool for SpawnAgentTool {
             content: content.to_string(),
             metadata,
         })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_failure_metadata(
+    status: &str,
+    run_context: Option<&super::RunContext>,
+    spawn_call_id: Option<&str>,
+    workspace: &std::path::Path,
+    journal_dir: &std::path::Path,
+    child_run_id: Option<&str>,
+) -> BTreeMap<String, String> {
+    let mut metadata = BTreeMap::new();
+    metadata.insert("status".into(), status.into());
+    metadata.insert("workspace".into(), workspace.display().to_string());
+    metadata.insert("journal_dir".into(), journal_dir.display().to_string());
+    if let Some(context) = run_context {
+        metadata.insert("parent_run_id".into(), context.run_id.clone());
+        if let Some(session_id) = &context.session_id {
+            metadata.insert("parent_session_id".into(), session_id.clone());
+        }
+    }
+    if let Some(call_id) = spawn_call_id {
+        metadata.insert("spawn_call_id".into(), call_id.into());
+    }
+    if let Some(child_run_id) = child_run_id {
+        metadata.insert("child_run_id".into(), child_run_id.into());
+    }
+    metadata
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_journal_error(
+    message: &str,
+    run_context: Option<&super::RunContext>,
+    spawn_call_id: Option<&str>,
+    workspace: &std::path::Path,
+    journal_dir: &std::path::Path,
+    child_run_id: Option<&str>,
+) -> ToolError {
+    ToolError::FailedWithMetadata {
+        message: format!("subagent journal: {message}"),
+        metadata: spawn_failure_metadata(
+            "failed",
+            run_context,
+            spawn_call_id,
+            workspace,
+            journal_dir,
+            child_run_id,
+        ),
     }
 }
 
@@ -494,6 +662,38 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
 
     fn fake_program(dir: &Path) -> PathBuf {
         fake_program_with_stop(dir, "completed")
+    }
+
+    fn write_program(dir: &Path, name: &str, script: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, script).unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+        path
+    }
+
+    fn fake_program_exiting(dir: &Path, code: i32) -> PathBuf {
+        write_program(
+            dir,
+            "fake-exit",
+            &format!("#!/bin/sh\nprintf 'out\\n'\nprintf 'err\\n' >&2\nexit {code}\n"),
+        )
+    }
+
+    fn fake_program_sleeping(dir: &Path) -> PathBuf {
+        write_program(dir, "fake-sleep", "#!/bin/sh\nsleep 60\n")
+    }
+
+    fn fake_program_dumping_env(dir: &Path) -> PathBuf {
+        write_program(
+            dir,
+            "fake-env",
+            r#"#!/bin/sh
+printf '%s\n' "$ONEAGENT_PARENT_RUN_ID" "$ONEAGENT_PARENT_SESSION_ID" "$ONEAGENT_SPAWN_CALL_ID" > "$0.env"
+printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"env child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed"}\n'
+"#,
+        )
     }
 
     fn permissions(root: &Path, allow_write: bool) -> PermissionSet {
@@ -813,8 +1013,190 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
             .await
             .unwrap_err();
         assert!(
-            matches!(error, ToolError::Failed(ref message) if message.contains("needs_authorization")),
+            matches!(
+                &error,
+                ToolError::FailedWithMetadata { message, metadata }
+                    if message.contains("needs_authorization")
+                        && metadata.get("child_run_id").map(String::as_str) == Some("child")
+                        && metadata.get("stop_reason").map(String::as_str)
+                            == Some("needs_authorization")
+            ),
             "unexpected error: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_spawn_observation_keeps_parent_lineage() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_exiting(dir.path(), 7);
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(std::sync::Arc::new(
+            SpawnAgentTool::new(program).with_depth(0),
+        ));
+        let call_id = format!("spawn-fail-{}", Uuid::new_v4());
+        let context = crate::tools::RunContext {
+            run_id: format!("run-fail-{}", Uuid::new_v4()),
+            session_id: Some(format!("ses-fail-{}", Uuid::new_v4())),
+        };
+        let observation = crate::tools::RUN_CONTEXT
+            .scope(context.clone(), async {
+                registry
+                    .execute(
+                        &crate::domain::ToolCall {
+                            id: call_id.clone(),
+                            name: "spawn_agent".into(),
+                            arguments: json!({"task": "child task", "workspace": workspace}),
+                        },
+                        &permissions(dir.path(), true),
+                        &CancellationToken::new(),
+                    )
+                    .await
+            })
+            .await;
+        assert_eq!(observation.status, ToolStatus::Failed);
+        assert_eq!(observation.error_code.as_deref(), Some("tool_failed"));
+        assert_eq!(
+            observation.metadata.get("status").map(String::as_str),
+            Some("failed")
+        );
+        assert_eq!(
+            observation.metadata.get("parent_run_id"),
+            Some(&context.run_id)
+        );
+        assert_eq!(
+            observation.metadata.get("parent_session_id"),
+            context.session_id.as_ref()
+        );
+        assert_eq!(
+            observation
+                .metadata
+                .get("spawn_call_id")
+                .map(String::as_str),
+            Some(call_id.as_str())
+        );
+        assert!(observation.metadata.contains_key("exit_status"));
+
+        let registry_text =
+            std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        let expected_workspace = std::fs::canonicalize(&workspace)
+            .unwrap()
+            .display()
+            .to_string();
+        let record = registry_text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .rfind(|record| record.workspace == expected_workspace)
+            .expect("failed spawn record");
+        assert_eq!(record.status, SubagentStatus::Failed);
+        assert_eq!(
+            record.parent_run_id.as_deref(),
+            Some(context.run_id.as_str())
+        );
+        assert_eq!(
+            record.parent_session_id.as_deref(),
+            context.session_id.as_deref()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_spawn_is_structured_and_marked_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_sleeping(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let child_permissions = permissions(dir.path(), false);
+        let context = crate::tools::RunContext {
+            run_id: format!("run-cancel-{}", Uuid::new_v4()),
+            session_id: Some(format!("ses-cancel-{}", Uuid::new_v4())),
+        };
+        let (result, _) = tokio::join!(
+            crate::tools::RUN_CONTEXT.scope(
+                context.clone(),
+                tool.execute(
+                    json!({"task": "slow child", "workspace": workspace}),
+                    &child_permissions,
+                    &cancellation,
+                ),
+            ),
+            async {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                cancel.cancel();
+            }
+        );
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                ToolError::CancelledWithMetadata(metadata)
+                    if metadata.get("status").map(String::as_str) == Some("cancelled")
+                        && metadata.get("parent_run_id") == Some(&context.run_id)
+            ),
+            "unexpected error: {error:?}"
+        );
+        let expected_workspace = std::fs::canonicalize(&workspace)
+            .unwrap()
+            .display()
+            .to_string();
+        let registry_text =
+            std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        let record = registry_text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .rfind(|record| record.workspace == expected_workspace)
+            .expect("cancelled spawn record");
+        assert_eq!(record.status, SubagentStatus::Cancelled);
+        assert_eq!(
+            record.parent_run_id.as_deref(),
+            Some(context.run_id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn child_receives_parent_lineage_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_dumping_env(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(std::sync::Arc::new(
+            SpawnAgentTool::new(program.clone()).with_depth(0),
+        ));
+        let call_id = format!("spawn-env-{}", Uuid::new_v4());
+        let session_id = format!("ses-env-{}", Uuid::new_v4());
+        let context = crate::tools::RunContext {
+            run_id: format!("run-env-{}", Uuid::new_v4()),
+            session_id: Some(session_id.clone()),
+        };
+        let observation = crate::tools::RUN_CONTEXT
+            .scope(context.clone(), async {
+                registry
+                    .execute(
+                        &crate::domain::ToolCall {
+                            id: call_id.clone(),
+                            name: "spawn_agent".into(),
+                            arguments: json!({"task": "env child", "workspace": workspace}),
+                        },
+                        &permissions(dir.path(), true),
+                        &CancellationToken::new(),
+                    )
+                    .await
+            })
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok, "{observation:?}");
+        let env = std::fs::read_to_string(format!("{}.env", program.display())).unwrap();
+        let lines = env.lines().collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            [
+                context.run_id.as_str(),
+                session_id.as_str(),
+                call_id.as_str()
+            ]
         );
     }
 

@@ -332,6 +332,7 @@ mod tests {
             observations: Vec::new(),
             checkpoint: None,
             client_request_id: None,
+            parent_run_link: None,
             reframe_proposal: None,
             reframe_choice: None,
             reframe_actor: None,

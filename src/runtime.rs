@@ -22,8 +22,8 @@ use crate::domain::{
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
 use crate::journal::{
-    Journal, JournalEventKind, ModelRequestLog, ProviderFailure, ResumablePrefix, RetryOutcome,
-    RetryTiming, ToolRequestDenial, find_resumable_prefix, read_events,
+    Journal, JournalEventKind, ModelRequestLog, ParentRunLink, ProviderFailure, ResumablePrefix,
+    RetryOutcome, RetryTiming, ToolRequestDenial, find_resumable_prefix, read_events,
 };
 use crate::provider::{
     ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
@@ -109,6 +109,23 @@ fn risk_str(risk: RiskLevel) -> &'static str {
     }
 }
 
+/// Read the parent lineage exported by `spawn_agent`. Both the parent run id
+/// and the spawn call id must be present; malformed pairs are ignored.
+pub fn parent_run_link_from_env() -> Option<ParentRunLink> {
+    let parent_run_id = std::env::var(crate::subagent_registry::SUBAGENT_PARENT_RUN_ENV).ok()?;
+    let spawn_call_id = std::env::var(crate::subagent_registry::SUBAGENT_SPAWN_CALL_ENV).ok()?;
+    if parent_run_id.trim().is_empty() || spawn_call_id.trim().is_empty() {
+        return None;
+    }
+    Some(ParentRunLink {
+        parent_run_id,
+        parent_session_id: std::env::var(crate::subagent_registry::SUBAGENT_PARENT_SESSION_ENV)
+            .ok()
+            .filter(|session_id| !session_id.trim().is_empty()),
+        spawn_call_id,
+    })
+}
+
 fn current_action_id(call: &ToolCall) -> Option<String> {
     crate::tools::RUN_CONTEXT
         .try_with(|context| format!("{}:{}", context.run_id, call.id))
@@ -147,6 +164,7 @@ pub struct AgentRuntime {
     tools: ToolRegistry,
     journal_dir: PathBuf,
     session_id: Option<String>,
+    parent_run_link: Option<ParentRunLink>,
     action_log: Option<Arc<Mutex<ActionLogJournal>>>,
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
@@ -200,6 +218,7 @@ impl AgentRuntime {
             tools,
             journal_dir: journal_dir.into(),
             session_id: None,
+            parent_run_link: None,
             action_log: None,
             experience_dir: None,
             shadow_experience: Vec::new(),
@@ -378,6 +397,13 @@ impl AgentRuntime {
     /// id behind. Runs outside a TUI session keep `None`.
     pub fn set_session_id(&mut self, session_id: Option<String>) {
         self.session_id = session_id;
+    }
+
+    /// Record that this run is a child spawned by another run. The link is
+    /// written to the journal as a `ParentRunLinked` event.
+    pub fn with_parent_run_link(mut self, link: ParentRunLink) -> Self {
+        self.parent_run_link = Some(link);
+        self
     }
 
     pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
@@ -1349,6 +1375,14 @@ impl AgentRuntime {
                         source,
                     })?;
             }
+        }
+        if let Some(link) = &self.parent_run_link {
+            journal
+                .append(JournalEventKind::ParentRunLinked { link: link.clone() })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
         }
 
         let mut available_capabilities = self.tools.capabilities_for(&request.permissions);
@@ -6345,6 +6379,39 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing context for run {}", result.run_id));
             assert_eq!(context.session_id.as_deref(), Some(session_id));
         }
+    }
+
+    #[tokio::test]
+    async fn child_run_journal_records_the_parent_link() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("ok"),
+            }],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let link = ParentRunLink {
+            parent_run_id: "run-parent".into(),
+            parent_session_id: Some("ses-parent".into()),
+            spawn_call_id: "call-7".into(),
+        };
+        let runtime = scripted_runtime(workspace.path(), provider, ToolRegistry::default())
+            .with_parent_run_link(link.clone());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let events = read_events(&result.journal_path).unwrap();
+        let recorded = events.iter().find_map(|event| match &event.event {
+            JournalEventKind::ParentRunLinked { link } => Some(link.clone()),
+            _ => None,
+        });
+        assert_eq!(recorded, Some(link.clone()));
+        let replay = replay_events(&events).unwrap();
+        assert_eq!(replay.parent_run_link, Some(link));
     }
 
     fn answer_with_need(
