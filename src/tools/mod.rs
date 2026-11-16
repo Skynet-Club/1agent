@@ -13,10 +13,22 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::{PermissionSet, RiskLevel, ToolCall, ToolObservation, ToolSpec, ToolStatus};
 use crate::safety::contains_disallowed_control;
 
+/// Attribution of the run that is executing a tool call. Tools that create
+/// records outside the journal (e.g. the subagent registry) read it through
+/// `RUN_CONTEXT` to record parent lineage without widening the tool trait.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunContext {
+    pub run_id: String,
+    pub session_id: Option<String>,
+}
+
 tokio::task_local! {
     /// Call id of the tool invocation currently being executed. Tools use it
     /// to attach lineage to records they write (e.g. subagent spawning).
     pub(crate) static TOOL_CALL_ID: String;
+    /// Run attribution for the current tool invocation. Scoped per run so
+    /// concurrent runs and parallel tool batches cannot leak into each other.
+    pub(crate) static RUN_CONTEXT: RunContext;
 }
 
 mod browser;

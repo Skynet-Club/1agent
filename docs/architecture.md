@@ -647,7 +647,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   permissions are intersected with the parent's (they can only restrict), and
   the child is killed with the parent process. The spawn itself is classified
   as write-capable, so read-only mode, the kill switch and write-level
-  Authority checks run before any child starts.
+  Authority checks run before any child starts. Each run scopes a task-local
+  `RunContext {run_id, session_id}` around tool execution, so a successful
+  spawn writes `parent_run_id`, `parent_session_id`, `spawn_call_id` and
+  `child_run_id` to the subagent registry and the same parent/child ids to the
+  spawn observation metadata. Runs outside a TUI session leave
+  `parent_session_id` empty rather than guessing one.
 - `schedule` persists interval jobs under the runtime home and `daemon` runs
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`

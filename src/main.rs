@@ -15787,6 +15787,7 @@ async fn run_tui_line_request(
         .write_all(state.render_screen(columns, rows).as_bytes())
         .await?;
     stdout.flush().await?;
+    runtime.set_session_id(Some(session.id().to_string()));
     let cancellation = CancellationToken::new();
     let signal_cancellation = cancellation.clone();
     let signal = tokio::spawn(async move {
@@ -16468,6 +16469,7 @@ async fn run_tui_line_epistemic(
         return Ok(());
     }
     state.begin(&display, mode, risk_for_mode(mode));
+    runtime.set_session_id(Some(session.id().to_string()));
     let cancellation = CancellationToken::new();
     let signal_cancellation = cancellation.clone();
     let signal = tokio::spawn(async move {
@@ -21729,6 +21731,7 @@ async fn run_tui_task(
     session: &mut TuiSession,
     source: TuiRunSource,
 ) -> Result<bool> {
+    runtime.set_session_id(Some(session.id().to_string()));
     let cancellation = CancellationToken::new();
     let run_started_ms = current_time_ms();
     let mut active_journal: Option<(PathBuf, u64, Option<u64>)> = None;
