@@ -226,6 +226,19 @@ fn browser_tool_error(error: crate::browser::BrowserError) -> ToolError {
     ToolError::Failed(error.to_string())
 }
 
+fn url_is_loopback(url: &str) -> bool {
+    Url::parse(url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .is_some_and(|host| {
+            let host = host.trim_start_matches('[').trim_end_matches(']');
+            host.eq_ignore_ascii_case("localhost")
+                || host == "::1"
+                || host == "0.0.0.0"
+                || host.starts_with("127.")
+        })
+}
+
 fn approval_store() -> ActionCardStore {
     ActionCardStore::default_store()
 }
@@ -348,7 +361,7 @@ impl AgentTool for BrowserTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "browser".into(),
-            description: "Computer-use browser sandbox. Supports open/navigate/read/click/type/press/screenshot/close. Every http(s) host, including subresources, must be explicitly allowlisted; loopback requires allow_loopback. The browser cannot run in read-only mode. Buttons, submits, cross-origin links, password entry and Enter create a persistent action card: ask the human to run `1agent browser approve <card_id>`, then retry with approval_id. Password fields require secret_ref, never plaintext.".into(),
+            description: "Computer-use browser sandbox. Supports open/navigate/read/click/type/press/screenshot/audit/close. `audit` returns real viewport metrics (scrollWidth/clientWidth, placeholder hits, tap-target sizes) and PNG paths for local design review; use it with `allow_loopback=true` on a preview_file URL and no network permission. Every http(s) host, including subresources, must be explicitly allowlisted; loopback requires allow_loopback. The browser cannot run in read-only mode. Buttons, submits, cross-origin links, password entry and Enter create a persistent action card: ask the human to run `1agent browser approve <card_id>`, then retry with approval_id. Password fields require secret_ref, never plaintext.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -356,7 +369,13 @@ impl AgentTool for BrowserTool {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["open", "navigate", "read", "click", "type", "press", "screenshot", "close"]
+                        "enum": ["open", "navigate", "read", "click", "type", "press", "screenshot", "audit", "close"]
+                    },
+                    "widths": {
+                        "type": "array",
+                        "maxItems": 5,
+                        "items": {"type": "integer", "minimum": 320, "maximum": 3840},
+                        "description": "Viewport widths for action=audit; default 390,768,1440."
                     },
                     "url": {"type": "string", "maxLength": 4096},
                     "selector": {"type": "string", "maxLength": 1024},
@@ -395,15 +414,37 @@ impl AgentTool for BrowserTool {
                 "browser is write-capable; a writable permission preset is required".into(),
             ));
         }
-        if !permissions.allow_network {
-            return Err(ToolError::PermissionDenied(
-                "browser requires network permission".into(),
-            ));
-        }
         let action = required_string(&arguments, "action")?
             .trim()
             .to_ascii_lowercase();
+        if !permissions.allow_network {
+            let loopback_open = matches!(action.as_str(), "open" | "navigate")
+                && arguments
+                    .get("allow_loopback")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                && arguments
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .is_some_and(url_is_loopback);
+            if matches!(action.as_str(), "open" | "navigate") && !loopback_open {
+                return Err(ToolError::PermissionDenied(
+                    "browser requires network permission; local pages need allow_loopback=true and a loopback URL"
+                        .into(),
+                ));
+            }
+        }
         let mut guard = self.session.lock().await;
+        if !permissions.allow_network
+            && !matches!(action.as_str(), "open" | "navigate")
+            && let Some(session) = guard.as_ref()
+            && !session.allow_loopback()
+        {
+            return Err(ToolError::PermissionDenied(
+                "browser session is not loopback-only; pass --allow-network for external pages"
+                    .into(),
+            ));
+        }
         match action.as_str() {
             "open" | "navigate" => {
                 let url = required_string(&arguments, "url")?;
@@ -646,6 +687,76 @@ impl AgentTool for BrowserTool {
                 }
                 Ok(outcome)
             }
+            "audit" => {
+                let session = guard.as_ref().ok_or_else(|| {
+                    ToolError::Failed("browser is not open; use action=open".into())
+                })?;
+                let widths = arguments
+                    .get("widths")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_u64)
+                            .map(|width| width as u32)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|widths| !widths.is_empty())
+                    .unwrap_or_else(|| vec![390, 768, 1440]);
+                if widths.len() > 5 || widths.iter().any(|width| !(320..=3840).contains(width)) {
+                    return Err(ToolError::InvalidArguments(
+                        "widths must be 1-5 integers in 320..=3840".into(),
+                    ));
+                }
+                let audits = session
+                    .audit_viewports(&widths)
+                    .await
+                    .map_err(browser_tool_error)?;
+                let overflow = audits
+                    .iter()
+                    .filter(|audit| audit.horizontal_overflow)
+                    .count();
+                let placeholders = audits
+                    .iter()
+                    .map(|audit| audit.placeholder_hits)
+                    .sum::<u64>();
+                let small_targets = audits
+                    .iter()
+                    .map(|audit| audit.small_tap_targets.len())
+                    .sum::<usize>();
+                let all_pass = overflow == 0
+                    && placeholders == 0
+                    && audits.iter().all(|audit| audit.h1_count == 1)
+                    && small_targets == 0;
+                let url = session.current_url().await.map_err(browser_tool_error)?;
+                let content = json!({
+                    "url": url,
+                    "viewports": audits,
+                    "all_pass": all_pass,
+                    "overflow_count": overflow,
+                    "placeholder_hits": placeholders,
+                    "small_tap_targets": small_targets
+                })
+                .to_string();
+                let mut metadata = std::collections::BTreeMap::new();
+                metadata.insert("action".into(), "audit".into());
+                metadata.insert("all_pass".into(), all_pass.to_string());
+                metadata.insert("viewports".into(), audits.len().to_string());
+                metadata.insert("overflow".into(), overflow.to_string());
+                metadata.insert("placeholders".into(), placeholders.to_string());
+                metadata.insert("small_tap_targets".into(), small_targets.to_string());
+                Ok(ToolOutcome {
+                    summary: format!(
+                        "page audit: {} viewports · overflow {} · placeholders {} · small tap targets {}",
+                        audits.len(),
+                        overflow,
+                        placeholders,
+                        small_targets
+                    ),
+                    content,
+                    metadata,
+                })
+            }
             "screenshot" => {
                 let session = guard.as_ref().ok_or_else(|| {
                     ToolError::Failed("browser is not open; use action=open".into())
@@ -759,6 +870,16 @@ printf '<html><head><style>.x{}</style><script>bad()</script></head><body><h1>Re
             .await
             .unwrap_err();
         assert!(matches!(error, ToolError::PermissionDenied(_)));
+    }
+
+    #[test]
+    fn loopback_urls_are_recognized_for_local_page_audit() {
+        assert!(url_is_loopback("http://127.0.0.1:8765/"));
+        assert!(url_is_loopback("http://127.1.2.3:8765/"));
+        assert!(url_is_loopback("http://localhost:8765/"));
+        assert!(url_is_loopback("http://[::1]:8765/"));
+        assert!(!url_is_loopback("https://example.com/"));
+        assert!(!url_is_loopback("not a url"));
     }
 
     #[tokio::test]

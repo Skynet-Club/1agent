@@ -23033,9 +23033,18 @@ fn finish_tui_error(state: &mut TuiState, error: &RuntimeError) {
     state.info(format!("提示：{}", error.recovery_hint()));
 }
 
+fn tui_status_for_answer(status: AnswerStatus) -> TuiStatus {
+    match status {
+        AnswerStatus::Completed => TuiStatus::Completed,
+        AnswerStatus::Conditional => TuiStatus::Conditional,
+        AnswerStatus::NeedsEvidence | AnswerStatus::NeedsAuthorization => TuiStatus::NeedsAttention,
+        AnswerStatus::Failed => TuiStatus::Failed,
+    }
+}
+
 fn record_tui_result(state: &mut TuiState, result: &first_principles_agent::RunResult) {
     let answer = &result.answer;
-    state.set_status(TuiStatus::Completed);
+    state.set_status(tui_status_for_answer(answer.status));
     state.clear_activity();
     state.set_last_journal(&result.journal_path);
     let snapshot = tui_journal_snapshot(&result.journal_path);
@@ -26614,6 +26623,31 @@ mod cli_default_tests {
         assert_eq!(
             with_default_command(vec![OsString::from("1agent"), OsString::from("help")]),
             vec![OsString::from("1agent"), OsString::from("help")]
+        );
+    }
+}
+
+#[cfg(test)]
+mod tui_status_tests {
+    use super::*;
+
+    #[test]
+    fn conditional_and_blocked_answers_do_not_render_as_completed() {
+        assert_eq!(
+            tui_status_for_answer(AnswerStatus::Conditional),
+            TuiStatus::Conditional
+        );
+        assert_eq!(
+            tui_status_for_answer(AnswerStatus::NeedsEvidence),
+            TuiStatus::NeedsAttention
+        );
+        assert_eq!(
+            tui_status_for_answer(AnswerStatus::NeedsAuthorization),
+            TuiStatus::NeedsAttention
+        );
+        assert_eq!(
+            tui_status_for_answer(AnswerStatus::Completed),
+            TuiStatus::Completed
         );
     }
 }

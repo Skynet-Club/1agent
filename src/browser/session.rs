@@ -5,7 +5,9 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::process::{Child, Command};
 use uuid::Uuid;
@@ -14,6 +16,32 @@ use crate::browser::cdp::{CdpClient, CdpError};
 use crate::browser::egress::{EgressPolicy, EgressProxy};
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+
+const VIEWPORT_AUDIT_JS: &str = r#"(() => {
+  const doc = document.documentElement;
+  const small = [];
+  for (const el of document.querySelectorAll('a,button')) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && (r.width < 44 || r.height < 44)) {
+      small.push({
+        text: (el.innerText || '').trim().slice(0, 32),
+        width: Math.round(r.width),
+        height: Math.round(r.height)
+      });
+    }
+  }
+  const text = document.body ? document.body.innerText : '';
+  const hits = (text.match(/【|占位|待填|待替换|TODO|FIXME|lorem ipsum|example\.com/gi) || []).length;
+  return {
+    scrollWidth: doc.scrollWidth,
+    clientWidth: doc.clientWidth,
+    innerWidth: window.innerWidth,
+    title: document.title,
+    h1Count: document.querySelectorAll('h1').length,
+    placeholderHits: hits,
+    smallTapTargets: small.slice(0, 20)
+  };
+})()"#;
 
 #[derive(Debug, Error)]
 pub enum BrowserError {
@@ -126,6 +154,30 @@ impl ElementDescriptor {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmallTapTarget {
+    pub text: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ViewportAudit {
+    pub width: u32,
+    pub height: u32,
+    pub inner_width: u32,
+    pub scroll_width: u32,
+    pub client_width: u32,
+    pub horizontal_overflow: bool,
+    pub title: String,
+    pub h1_count: u64,
+    pub placeholder_hits: u64,
+    pub small_tap_targets: Vec<SmallTapTarget>,
+    pub screenshot: String,
+    pub screenshot_sha256: String,
+    pub screenshot_bytes: u64,
+}
+
 pub struct BrowserSession {
     cdp: CdpClient,
     session_id: String,
@@ -137,6 +189,7 @@ pub struct BrowserSession {
     child: Option<Child>,
     proxy: Option<EgressProxy>,
     ephemeral: bool,
+    allow_loopback: bool,
 }
 
 impl BrowserSession {
@@ -280,6 +333,7 @@ impl BrowserSession {
             child: Some(child),
             proxy: Some(proxy),
             ephemeral,
+            allow_loopback: config.allow_loopback,
         })
     }
 
@@ -294,6 +348,10 @@ impl BrowserSession {
 
     pub fn download_dir(&self) -> &Path {
         &self.download_dir
+    }
+
+    pub fn allow_loopback(&self) -> bool {
+        self.allow_loopback
     }
 
     pub fn profile_dir(&self) -> &Path {
@@ -435,6 +493,91 @@ impl BrowserSession {
         }
         std::fs::write(path, &bytes)?;
         Ok(bytes.len() as u64)
+    }
+
+    /// Capture each viewport's real layout metrics and a PNG. This is the
+    /// local design-review evidence: no network, no terminal session.
+    pub async fn audit_viewports(
+        &self,
+        widths: &[u32],
+    ) -> Result<Vec<ViewportAudit>, BrowserError> {
+        let mut audits = Vec::new();
+        for &width in widths {
+            let height = 900u32;
+            self.cdp
+                .send(
+                    "Emulation.setDeviceMetricsOverride",
+                    json!({
+                        "width": width,
+                        "height": height,
+                        "deviceScaleFactor": 1,
+                        "mobile": width < 768
+                    }),
+                    Some(&self.session_id),
+                )
+                .await?;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let metrics = self.evaluate(VIEWPORT_AUDIT_JS).await?;
+            let scroll_width = metrics
+                .get("scrollWidth")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let client_width = metrics
+                .get("clientWidth")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let inner_width = metrics
+                .get("innerWidth")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let title = metrics
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let h1_count = metrics.get("h1Count").and_then(Value::as_u64).unwrap_or(0);
+            let placeholder_hits = metrics
+                .get("placeholderHits")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let small_tap_targets = serde_json::from_value::<Vec<SmallTapTarget>>(
+                metrics
+                    .get("smallTapTargets")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            )
+            .unwrap_or_default();
+            let screenshot = self
+                .download_dir
+                .join(format!("audit-{}-{width}x{height}.png", self.task_id));
+            let screenshot_bytes = self.screenshot(&screenshot).await?;
+            let bytes = std::fs::read(&screenshot)?;
+            let screenshot_sha256 = hex::encode(Sha256::digest(&bytes));
+            audits.push(ViewportAudit {
+                width,
+                height,
+                inner_width,
+                scroll_width,
+                client_width,
+                horizontal_overflow: scroll_width > client_width,
+                title,
+                h1_count,
+                placeholder_hits,
+                small_tap_targets,
+                screenshot: screenshot.display().to_string(),
+                screenshot_sha256,
+                screenshot_bytes,
+            });
+        }
+        let _ = self
+            .cdp
+            .send(
+                "Emulation.clearDeviceMetricsOverride",
+                json!({}),
+                Some(&self.session_id),
+            )
+            .await;
+        Ok(audits)
     }
 
     pub async fn current_url(&self) -> Result<String, BrowserError> {

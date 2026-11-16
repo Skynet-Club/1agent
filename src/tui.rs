@@ -152,6 +152,8 @@ pub enum TuiStatus {
     Running,
     Paused,
     Completed,
+    Conditional,
+    NeedsAttention,
     Failed,
     Cancelled,
 }
@@ -163,6 +165,8 @@ impl TuiStatus {
             Self::Running => "running",
             Self::Paused => "paused",
             Self::Completed => "completed",
+            Self::Conditional => "conditional",
+            Self::NeedsAttention => "needs_attention",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
         }
@@ -174,6 +178,8 @@ impl TuiStatus {
             Self::Running => "运行中",
             Self::Paused => "已暂停",
             Self::Completed => "已完成",
+            Self::Conditional => "有条件完成",
+            Self::NeedsAttention => "需要处理",
             Self::Failed => "失败",
             Self::Cancelled => "已取消",
         }
@@ -978,10 +984,12 @@ impl TuiState {
         self.status = status;
         self.clear_activity();
         self.finish_run_clock();
-        let (kind, tone) = if status == TuiStatus::Failed {
-            (TranscriptKind::Error, TuiTone::Danger)
-        } else {
-            (TranscriptKind::Assistant, TuiTone::Default)
+        let (kind, tone) = match status {
+            TuiStatus::Failed => (TranscriptKind::Error, TuiTone::Danger),
+            TuiStatus::Conditional | TuiStatus::NeedsAttention => {
+                (TranscriptKind::Assistant, TuiTone::Warning)
+            }
+            _ => (TranscriptKind::Assistant, TuiTone::Default),
         };
         self.push_entry(kind, tone, None, TuiTone::Default, output.into());
     }
@@ -3771,6 +3779,8 @@ impl TuiState {
             TuiStatus::Running => "● 运行中",
             TuiStatus::Paused => "⏸ 已暂停",
             TuiStatus::Completed => "✓ 已完成",
+            TuiStatus::Conditional => "◐ 有条件完成",
+            TuiStatus::NeedsAttention => "! 需要处理",
             TuiStatus::Failed => "失败",
             TuiStatus::Cancelled => "已取消",
             TuiStatus::Idle => "",
@@ -4640,6 +4650,18 @@ impl TuiState {
             TuiStatus::Completed => {
                 format!(
                     " ✓ 已完成 · {} · {metrics} · {context}",
+                    self.elapsed_label()
+                )
+            }
+            TuiStatus::Conditional => {
+                format!(
+                    " ◐ 有条件完成 · {} · {metrics} · {context}",
+                    self.elapsed_label()
+                )
+            }
+            TuiStatus::NeedsAttention => {
+                format!(
+                    " ! 需要处理 · {} · {metrics} · {context}",
                     self.elapsed_label()
                 )
             }
@@ -6384,7 +6406,7 @@ fn draw_clarify_bar(frame: &mut Frame, clarify: &TuiClarifyState, area: Rect, co
     } else if clarify.editing_text() {
         " 输入内容 · Enter 确认 · Esc 返回 "
     } else {
-        " 数字键选择 · ↑↓ 移动 · Enter 确认 · S 跳过 · Esc 收起 "
+        " 数字键锁定 · Enter 确认/提交 · S 跳过 · Esc 收起 "
     };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
