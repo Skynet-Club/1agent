@@ -840,8 +840,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   It is read-only: the journal remains the source of truth and a failed export
   never changes a run.
 - `ontology/types.json` is the versioned core type registry;
-  `ontology/bindings.json` maps types to journal/session fields. Both are
-  embedded at build time and represented by `registrySha256`.
+  `ontology/bindings.json` maps types to journal/session/goal fields. Both are
+  embedded at build time and represented by `registrySha256`. Every binding
+  declares its owning layer and mapping version; coverage validation requires
+  a known type, matching owner, the current mapping version, a source in the
+  known source set, and a binding for every required property of every type.
+  `ontology bindings --coverage` reports and enforces this.
 - Entity IRIs follow the P0 contract (`urn:1agent:...`); PID, title and path
   are attributes, never identity. Artifact identity is content SHA-256.
 - Exports are self-contained JSON-LD with an embedded context, sorted

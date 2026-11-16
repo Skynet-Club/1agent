@@ -1,73 +1,256 @@
 {
   "schema_version": 1,
-  "mapping_version": "1",
-  "note": "Illustrative bindings from ontology types to current 1Agent fields. The exporter, not the runtime, owns these mappings.",
+  "mapping_version": "2",
+  "note": "Bindings from ontology types to current 1Agent fields. The exporter, not the runtime, owns these mappings. Every entry carries the owning layer and the mapping version; coverage is validated against ontology/types.json.",
   "bindings": [
     {
       "type": "one:Session",
       "property": "one:status",
       "source": "session.json#archived",
+      "owner": "runtime",
+      "mappingVersion": "2",
       "mapping": "archived ? 'archived' : 'active'"
     },
     {
       "type": "one:Run",
       "property": "one:partOfSession",
       "source": "session.json#journals",
+      "owner": "runtime",
+      "mappingVersion": "2",
       "mapping": "parent session of the journal path"
     },
     {
       "type": "one:Run",
       "property": "one:hasTask",
       "source": "journal#RunStarted.request",
+      "owner": "runtime",
+      "mappingVersion": "2",
       "required": true
     },
     {
       "type": "one:Run",
       "property": "one:hasOutcome",
       "source": "journal#RunStopped.reason",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Task",
+      "property": "one:objectiveSha256",
+      "source": "journal#RunStarted.request.objective",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:ToolInvocation",
+      "property": "one:name",
+      "source": "journal#ToolCalled.name",
+      "owner": "runtime",
+      "mappingVersion": "2",
       "required": true
     },
     {
       "type": "one:ToolInvocation",
       "property": "one:executedBy",
       "source": "journal#ToolCalled.context",
+      "owner": "runtime",
+      "mappingVersion": "2",
       "mapping": "runtime actor; unknown if not journaled"
+    },
+    {
+      "type": "one:Observation",
+      "property": "one:status",
+      "source": "journal#ToolObserved.status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Answer",
+      "property": "one:status",
+      "source": "journal#AnswerProduced.answer.status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Answer",
+      "property": "one:conclusion",
+      "source": "journal#AnswerProduced.answer.conclusion",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Claim",
+      "property": "one:claimText",
+      "source": "journal#AnswerProduced.answer.claims[].text",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
     },
     {
       "type": "one:Claim",
       "property": "one:claimStatus",
       "source": "journal#AnswerProduced.answer.claims[].status",
+      "owner": "runtime",
+      "mappingVersion": "2",
       "required": true
     },
     {
       "type": "one:Evidence",
       "property": "one:sourceKind",
       "source": "journal#AnswerProduced.answer.evidence[].source",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true,
       "mapping": "classify file/web/tool/model_prior/unknown"
+    },
+    {
+      "type": "one:Evidence",
+      "property": "one:sourceRef",
+      "source": "journal#AnswerProduced.answer.evidence[].source",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Evidence",
+      "property": "one:supportsClaim",
+      "source": "journal#AnswerProduced.answer.evidence[].claim_ids",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
     },
     {
       "type": "one:Artifact",
       "property": "one:sha256",
       "source": "journal#ToolObserved.metadata.sha256",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true,
       "mapping": "write/edit observations; read observations P1"
+    },
+    {
+      "type": "one:SquadMember",
+      "property": "one:status",
+      "source": "journal#ToolObserved.metadata.status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
     },
     {
       "type": "one:SquadMember",
       "property": "one:parentOf",
       "source": "subagent_registry#parent_session_id",
-      "required_after": "P1"
+      "owner": "runtime",
+      "mappingVersion": "2"
     },
     {
       "type": "one:SquadMember",
       "property": "one:spawnedBy",
       "source": "subagent_registry#spawn_call_id",
-      "required_after": "P1"
+      "owner": "runtime",
+      "mappingVersion": "2"
+    },
+    {
+      "type": "one:Goal",
+      "property": "one:status",
+      "source": "goal_log#goals[].status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Commitment",
+      "property": "one:status",
+      "source": "goal_log#commitments[].status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:ActionType",
+      "property": "one:risk",
+      "source": "journal#ToolObserved.metadata.risk",
+      "owner": "security",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:ActionType",
+      "property": "one:reversible",
+      "source": "journal#ToolObserved.metadata.reversible",
+      "owner": "security",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:ActionType",
+      "property": "one:hasAccessPolicy",
+      "source": "journal#ToolObserved.metadata.authority_profile_id",
+      "owner": "security",
+      "mappingVersion": "2",
+      "required": true,
+      "mapping": "present when an Authority profile decided the action"
+    },
+    {
+      "type": "one:ActionInvocation",
+      "property": "one:status",
+      "source": "journal#ToolObserved.metadata.action_id",
+      "owner": "security",
+      "mappingVersion": "2",
+      "required": true
     },
     {
       "type": "one:ActionInvocation",
       "property": "one:hasPolicyDecision",
-      "source": "tool observation metadata.policy_outcome",
-      "required_after": "P1"
+      "source": "journal#ToolObserved.metadata.policy_outcome",
+      "owner": "security",
+      "mappingVersion": "2"
+    },
+    {
+      "type": "one:PolicyDecision",
+      "property": "one:outcome",
+      "source": "journal#ToolObserved.metadata.policy_outcome",
+      "owner": "security",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Approval",
+      "property": "one:status",
+      "source": "journal#ToolObserved.metadata.approval_card_id",
+      "owner": "security",
+      "mappingVersion": "2",
+      "required": true,
+      "mapping": "recorded when a card id is present"
+    },
+    {
+      "type": "one:DataBinding",
+      "property": "one:boundTo",
+      "source": "ontology/types.json#types",
+      "owner": "ontology",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:DataBinding",
+      "property": "one:sourcePath",
+      "source": "ontology/bindings.json#bindings[].source",
+      "owner": "ontology",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:DataBinding",
+      "property": "one:mappingVersion",
+      "source": "ontology/bindings.json#mapping_version",
+      "owner": "ontology",
+      "mappingVersion": "2",
+      "required": true
     }
   ]
 }

@@ -607,7 +607,7 @@ fn ontology_types_and_bindings_are_non_empty_valid_json() {
         "ontology bindings",
     );
     assert_eq!(bindings["schema_version"], 1);
-    assert_eq!(bindings["mapping_version"], "1");
+    assert_eq!(bindings["mapping_version"], "2");
     let entries = bindings["bindings"].as_array().expect("bindings array");
     assert!(!entries.is_empty());
     for entry in entries {
@@ -697,7 +697,7 @@ fn journal_export_is_compact_deterministic_and_embeds_registry_metadata() {
 
     assert!(stdout_document["@context"].is_object());
     assert_eq!(stdout_document["ontologyVersion"], "0.98-draft");
-    assert_eq!(stdout_document["bindingVersion"], "1");
+    assert_eq!(stdout_document["bindingVersion"], "2");
     assert!(stdout_document.get("generatedAt").is_none());
     assert!(stdout_document.get("generatedAtUnixMs").is_none());
 
@@ -1608,48 +1608,51 @@ fn cq_gap_eval_and_audit_projections_are_absent() {
 }
 
 #[test]
-fn binding_coverage_gap_is_documented() {
+fn binding_coverage_is_complete_and_validated() {
     let dir = tempfile::tempdir().unwrap();
     let types = parse_json_stdout(&run(dir.path(), &["ontology", "types"]), "types");
     let bindings = parse_json_stdout(&run(dir.path(), &["ontology", "bindings"]), "bindings");
-    let bound: BTreeSet<String> = bindings["bindings"]
+    let report = parse_json_stdout(
+        &run(
+            dir.path(),
+            &["ontology", "bindings", "--coverage", "--json"],
+        ),
+        "coverage",
+    );
+    assert_eq!(report["ok"], true, "{report}");
+    assert_eq!(report["total_types"], report["bound_types"]);
+    assert!(report["unbound_types"].as_array().unwrap().is_empty());
+    assert!(report["missing_required"].as_array().unwrap().is_empty());
+    assert!(report["errors"].as_array().unwrap().is_empty());
+
+    let bound: BTreeSet<(String, String)> = bindings["bindings"]
         .as_array()
         .unwrap()
         .iter()
         .map(|entry| {
-            entry["type"]
-                .as_str()
-                .unwrap()
-                .trim_start_matches("one:")
-                .to_string()
+            (
+                entry["type"]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("one:")
+                    .to_string(),
+                entry["property"]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("one:")
+                    .to_string(),
+            )
         })
         .collect();
-    let uncovered: Vec<&str> = types["types"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|definition| definition["id"].as_str().unwrap())
-        .filter(|id| !bound.contains(*id))
-        .collect();
-    assert!(
-        uncovered.len() >= 8,
-        "characterization: many core types have no binding: {uncovered:?}"
-    );
-    for expected in [
-        "Task",
-        "Observation",
-        "Answer",
-        "Goal",
-        "Commitment",
-        "ActionType",
-        "PolicyDecision",
-        "Approval",
-        "DataBinding",
-    ] {
-        assert!(
-            uncovered.contains(&expected),
-            "expected {expected} to be unbound in the current P0 registry"
-        );
+    for definition in types["types"].as_array().unwrap() {
+        let id = definition["id"].as_str().unwrap();
+        for property in definition["required"].as_array().unwrap() {
+            let property = property.as_str().unwrap().to_string();
+            assert!(
+                bound.contains(&(id.to_string(), property.clone())),
+                "missing required binding {id}.{property}"
+            );
+        }
     }
 }
 
