@@ -92,6 +92,30 @@ pub fn squad_member_id(run: &str, call: &str) -> String {
     )
 }
 
+pub fn action_invocation_id(run: &str, call: &str) -> String {
+    format!(
+        "urn:1agent:action:{}:{}",
+        encode_segment(run),
+        encode_segment(call)
+    )
+}
+
+pub fn policy_decision_id(run: &str, call: &str) -> String {
+    format!(
+        "urn:1agent:policy-decision:{}:{}",
+        encode_segment(run),
+        encode_segment(call)
+    )
+}
+
+pub fn approval_id(run: &str, call: &str) -> String {
+    format!(
+        "urn:1agent:approval:{}:{}",
+        encode_segment(run),
+        encode_segment(call)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +159,18 @@ mod tests {
         assert_eq!(
             artifact_id("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
             "urn:1agent:artifact:sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(
+            action_invocation_id("run-1", "call-1"),
+            "urn:1agent:action:run-1:call-1"
+        );
+        assert_eq!(
+            policy_decision_id("run-1", "call-1"),
+            "urn:1agent:policy-decision:run-1:call-1"
+        );
+        assert_eq!(
+            approval_id("run-1", "call-1"),
+            "urn:1agent:approval:run-1:call-1"
         );
         assert_eq!(goal_id("goal-1"), "urn:1agent:goal:goal-1");
         assert_eq!(

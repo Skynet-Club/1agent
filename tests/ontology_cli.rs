@@ -1254,7 +1254,7 @@ fn cq02_claim_evidence_observation_join_uses_explicit_observed_by() {
 }
 
 #[test]
-fn cq06_needs_authorization_run_is_identifiable_but_actor_scope_missing() {
+fn cq06_needs_authorization_run_and_policy_profile_are_exported() {
     let dir = tempfile::tempdir().unwrap();
     let fixture = build_rich_session(dir.path());
     let (document, _) = export_session(dir.path(), &fixture.session_id);
@@ -1269,12 +1269,23 @@ fn cq06_needs_authorization_run_is_identifiable_but_actor_scope_missing() {
         format!("urn:1agent:run:{}", fixture.run_authorization)
     );
 
-    // CQ6 also asks which actor/scope blocked. The journal metadata carries
-    // policy fields, but the exporter drops them.
+    // CQ6: the policy decision and the authority profile are exported. The
+    // profile id is the closest actor binding in the journal; scope is not
+    // recorded there yet.
     let text = document.to_string();
     assert!(!text.contains("policy_outcome"));
     assert!(!text.contains("authority_profile_id"));
-    assert!(!has_node_type(&document, "PolicyDecision"));
+    let decision = nodes_of_type(&document, "PolicyDecision");
+    assert_eq!(decision.len(), 1);
+    assert_eq!(decision[0]["outcome"], "require_approval");
+    assert_eq!(decision[0]["authorityProfileId"], "authority-1");
+    let approvals = nodes_of_type(&document, "Approval");
+    assert_eq!(approvals.len(), 1);
+    assert_eq!(approvals[0]["cardId"], "card-1");
+    assert_eq!(approvals[0]["status"], "recorded");
+    let action = nodes_of_type(&document, "ActionInvocation");
+    assert_eq!(action.len(), 1);
+    assert_eq!(action[0]["status"], "needs_approval");
 }
 
 #[test]
@@ -1458,10 +1469,12 @@ fn cq04_successful_spawn_exports_squad_lineage() {
         format!("urn:1agent:tool-call:{run_id}:spawn-ok")
     );
     let run = node_with_suffix(&document, &format!("urn:1agent:run:{run_id}"));
-    assert_eq!(run["hasSquadMember"], json!([{"@id": squad["@id"]}]));
+    let members = run["hasSquadMember"].as_array().unwrap();
+    assert_eq!(members.len(), 2);
+    assert!(members.contains(&json!({"@id": squad["@id"]})));
 
-    // CQ13 gap: the timed-out spawn has an Observation but no SquadMember,
-    // so failed/timed-out members cannot be queried as squad members.
+    // CQ13: the timed-out spawn is a SquadMember with status timed_out and no
+    // child run id, so failed members are queryable.
     let timeout = graph(&document)
         .iter()
         .find(|node| {
@@ -1472,31 +1485,51 @@ fn cq04_successful_spawn_exports_squad_lineage() {
         })
         .expect("timed-out spawn observation");
     assert_eq!(timeout["status"], "timed_out");
-    assert!(
-        !graph(&document).iter().any(|node| {
-            node["@type"] == "SquadMember"
-                && node["@id"]
-                    .as_str()
-                    .is_some_and(|id| id.ends_with(":spawn-timeout"))
-        }),
-        "characterization: failed/timed-out spawns are not SquadMember nodes"
+    let timeout_member = node_with_suffix(
+        &document,
+        &format!("urn:1agent:squad-member:{run_id}:spawn-timeout"),
+    );
+    assert_eq!(timeout_member["@type"], "SquadMember");
+    assert_eq!(timeout_member["status"], "timed_out");
+    assert!(timeout_member.get("childRunId").is_none());
+    assert_eq!(
+        timeout_member["spawnedBy"]["@id"],
+        format!("urn:1agent:tool-call:{run_id}:spawn-timeout")
     );
 }
 
 #[test]
-fn cq_gap_policy_and_approval_metadata_is_not_exported() {
+fn policy_and_approval_metadata_is_exported_for_actions() {
     let dir = tempfile::tempdir().unwrap();
     let fixture = build_rich_session(dir.path());
     let (document, _) = export_session(dir.path(), &fixture.session_id);
     let text = document.to_string();
-    // The journal really contains these metadata keys (see build_rich_session),
-    // but the exporter drops them. CQ5/CQ12/CQ16 cannot be answered.
+    // Raw metadata key names and secrets are not exported; the projected
+    // fields are outcome/reason/profileId/cardId on typed nodes.
     assert!(!text.contains("policy_outcome"));
     assert!(!text.contains("approval_card_id"));
     assert!(!text.contains("authority_profile_id"));
-    assert!(!has_node_type(&document, "PolicyDecision"));
-    assert!(!has_node_type(&document, "Approval"));
-    assert!(!has_node_type(&document, "ActionInvocation"));
+    assert!(!text.contains(SECRET_MARKER));
+    assert!(has_node_type(&document, "ActionInvocation"));
+    assert!(has_node_type(&document, "PolicyDecision"));
+    assert!(has_node_type(&document, "Approval"));
+    let decision = node_with_suffix(&document, ":call-auth");
+    assert_eq!(decision["@type"], "ActionInvocation");
+    assert_eq!(decision["status"], "needs_approval");
+    assert_eq!(
+        decision["hasPolicyDecision"]["@id"],
+        format!(
+            "urn:1agent:policy-decision:{}:call-auth",
+            fixture.run_authorization
+        )
+    );
+    assert_eq!(
+        decision["hasApproval"]["@id"],
+        format!(
+            "urn:1agent:approval:{}:call-auth",
+            fixture.run_authorization
+        )
+    );
 }
 
 #[test]
