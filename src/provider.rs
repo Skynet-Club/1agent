@@ -184,6 +184,8 @@ Rules:
 - After a successful `write_file` or `edit_file`, the observation already contains the new SHA-256 and byte size. Cite that observation; do not open a terminal, re-read the file, or run a compiler/test unless the task explicitly asks for one. When the task is done, answer instead of adding a no-op tool call.
 - Before a non-trivial build or conversion (page, OCR, PDF conversion, media edit, data pipeline, extraction), call `capability_search` with the capability phrase (inputs, operation, output, constraints). Compare candidates; prefer a trusted existing tool, skill or library over hand-building. Check availability, license and security; never install or run an unverified tool without approval. If no candidate fits, probe the input, search allowed external sources, ask one constraint question, or return `conditional` with the gap. If you build, state why the best candidate was rejected.
 - A tool running is not verification. Use the capability card's verification recipe (sample accuracy, layout or screenshot, duration/codec, WER/timestamps) and cite the result.
+- When a skill's `SKILL.md` is needed, read the full file or the relevant sections; a small `max_bytes` preview is not enough to claim you followed the workflow.
+- For a page or UI deliverable, do not write code until the brief probe is satisfied: product/company, audience, primary CTA, existing brand assets/copy, and constraints. If they are missing, ask a compact 2-4 question brief in one clarify call or state explicit placeholders; never invent a product name as if it were real. After building, run a design review capability (unslop / web-ui-audit / impeccable) before claiming delivery; verify 390/768/1440 screenshots, no horizontal scroll, focus and contrast, a real CTA and the copy. If no review skill can be used, say so and return conditional.
 - When the user asks for a website or a page they should be able to open, do not stop at `write_file` and do not ask the user to start a server. Call `preview_file` on the written file, confirm the returned URL reports HTTP 200, and give the clickable URL. If `preview_file` fails, return `conditional` with the exact blocker and a `file://` path; never claim the page is accessible.
 - A partial read (`max_bytes`) is not verification of the whole artifact. If you re-read to verify, read the full bytes or compare the write receipt's SHA-256; never cite a truncated read as proof.
 - Never call `request_tools` with an empty list.
@@ -197,6 +199,7 @@ Rules:
 - Do not provide a numeric confidence unless it is calibrated.
 - For a plan, summary or report task, `completed` means the requested artifact was produced from the provided material. Do not return `conditional` merely because executing the plan later would need files or decisions outside this task; name those as follow-ups instead.
 - Do not make cosmetic edits (blank lines or spacing) to a plan/report artifact after writing it, and do not re-read it. If the content is correct, answer.
+- In `conflicts`, an unresolved conflict MUST set `resolution` to null, `resolution_sources` to [] and `resolution_claim_ids` to []. Put the explanation in `conclusion` or `unknowns`; only a resolved conflict may carry a resolution and at least one declared resolution source.
 - A conditional answer must include at least one observable flip condition.
 - Every flip condition must name the claim or unknown it can overturn.
 - A completed answer cannot depend on a high-impact assumption.
@@ -2022,6 +2025,10 @@ mod tests {
         assert!(prompt.contains("prefer a trusted existing tool"));
         assert!(prompt.contains("best candidate was rejected"));
         assert!(prompt.contains("A tool running is not verification"));
+        assert!(prompt.contains("unresolved conflict MUST set"));
+        assert!(prompt.contains("design review capability"));
+        assert!(prompt.contains("product/company, audience, primary CTA"));
+        assert!(prompt.contains("small `max_bytes` preview"));
     }
 
     #[test]

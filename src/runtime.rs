@@ -14,10 +14,10 @@ use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
 use crate::authority::PolicyOutcome;
 use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
-    AgentAnswer, AnswerStatus, CognitiveMode, FlipCondition, ImpactLevel, InjectedExperience,
-    MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse, ModelTurn,
-    ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason,
-    TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
+    AgentAnswer, AnswerStatus, CognitiveMode, ConflictStatus, FlipCondition, ImpactLevel,
+    InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse,
+    ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta,
+    StopReason, TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
@@ -1181,7 +1181,7 @@ impl AgentRuntime {
                 path: journal_path.clone(),
                 source,
             })?;
-        let answer = match repair_response.turn {
+        let mut answer = match repair_response.turn {
             ModelTurn::Final { answer } => answer,
             ModelTurn::InvalidFinal { error, .. } => {
                 return Err(RuntimeError::InvalidOutput {
@@ -1198,6 +1198,7 @@ impl AgentRuntime {
                 });
             }
         };
+        normalize_unresolved_conflicts(&mut answer);
         answer
             .validate(request)
             .map_err(|error| RuntimeError::InvalidOutput {
@@ -1299,10 +1300,11 @@ impl AgentRuntime {
         {
             return budget_answer(reason);
         }
-        let answer = match response.turn {
+        let mut answer = match response.turn {
             ModelTurn::Final { answer } => answer,
             _ => return budget_answer(reason),
         };
+        normalize_unresolved_conflicts(&mut answer);
         let validation_error = match answer.validate(request) {
             Ok(()) => return answer,
             Err(error) => error,
@@ -2358,6 +2360,7 @@ impl AgentRuntime {
             match response.turn {
                 ModelTurn::Final { answer } => {
                     let mut answer = answer;
+                    normalize_unresolved_conflicts(&mut answer);
                     if let Err(validation_error) = answer.validate(&request) {
                         let invalid_json = serde_json::to_string(&answer).map_err(|error| {
                             RuntimeError::InvalidOutput {
@@ -3006,6 +3009,19 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
     }
 }
 
+/// Common schema drift: models mark a conflict unresolved but still put the
+/// explanation in `resolution`. The validator rejects that shape, but the
+/// intent is clear and safe to normalize without another model call.
+fn normalize_unresolved_conflicts(answer: &mut AgentAnswer) {
+    for conflict in &mut answer.conflicts {
+        if conflict.status == ConflictStatus::Unresolved {
+            conflict.resolution = None;
+            conflict.resolution_sources.clear();
+            conflict.resolution_claim_ids.clear();
+        }
+    }
+}
+
 /// An answer-repair attempt can fail because the model keeps returning an
 /// invalid answer shape. Convert that dead end into an auditable
 /// `needs_evidence` answer instead of a runtime error; no action is claimed
@@ -3315,7 +3331,8 @@ mod tests {
     use crate::action_reconcile::reconcile_actions;
     use crate::authority::{AuthorityProfile, AuthorityRegistry};
     use crate::domain::{
-        AgentAnswer, AnswerStatus, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage,
+        AgentAnswer, AnswerStatus, ConflictRecord, ConflictStatus, PermissionSet, RunBudget,
+        ToolCall, ToolStatus, Usage,
     };
     use crate::execution_gate::ExecutionGate;
     use crate::experience::{
@@ -4135,6 +4152,36 @@ mod tests {
                 retryable: false,
             })
         }
+    }
+
+    #[test]
+    fn unresolved_conflict_resolution_fields_are_normalized() {
+        let mut answer = AgentAnswer {
+            schema_version: 2,
+            status: AnswerStatus::NeedsEvidence,
+            conclusion: "conflict".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: vec![ConflictRecord {
+                id: "cf1".into(),
+                claim_ids: ["a".into(), "b".into()],
+                status: ConflictStatus::Unresolved,
+                resolution: Some("explanation".into()),
+                resolution_sources: vec!["source".into()],
+                resolution_claim_ids: vec!["a".into()],
+            }],
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+            task_need: None,
+        };
+        normalize_unresolved_conflicts(&mut answer);
+        let conflict = &answer.conflicts[0];
+        assert!(conflict.resolution.is_none());
+        assert!(conflict.resolution_sources.is_empty());
+        assert!(conflict.resolution_claim_ids.is_empty());
     }
 
     #[tokio::test]

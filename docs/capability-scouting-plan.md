@@ -80,7 +80,7 @@ Each capability carries a verification recipe. Tool output is not evidence until
 
 ### P0 — Capability catalog + search (this slice)
 
-- Add `capabilities/catalog.json` with five initial capability cards: UI/UX design, OCR, PDF→HTML, audio transcription, video editing.
+- Add `capabilities/catalog.json` with six initial capability cards: UI/UX design, UI review/unslop, OCR, PDF→HTML, audio transcription and video editing.
 - Add `capability_search`, a read-only tool that searches the embedded catalog by capability phrase and returns candidates, probe steps, verification recipes and fallbacks.
 - Add the system-prompt rule: search capabilities before a non-trivial build; prefer a trusted existing tool; if building, state why the best candidate was rejected; a tool running is not verification.
 - Add regression tests for search ranking, catalog validation, prompt policy and tools listing.
@@ -89,7 +89,7 @@ Each capability carries a verification recipe. Tool output is not evidence until
 Acceptance:
 
 - `1agent tools` lists `capability_search`.
-- The search returns OCR for “扫描 PDF 提取文字”, video for “视频剪辑”, audio for “音频转文字”, PDF for “PDF 转 HTML”, design for “产品落地页设计”.
+- The search returns OCR for “扫描 PDF 提取文字”, video for “视频剪辑”, audio for “音频转文字”, PDF for “PDF 转 HTML”, design for “产品落地页设计”, and UI review for “unslop 页面 AI 味 验收”.
 - Full `./scripts/verify.sh` passes.
 - No auto-install, no network, no side effects.
 
@@ -123,7 +123,8 @@ Acceptance:
 
 | Capability | Inputs | Output | Probe | Verification |
 |---|---|---|---|---|
-| UI/UX design | brief/constraints | page/design system | audience, CTA, existing stack | 390/1440 screenshots, no horizontal scroll, focus/contrast, real CTA |
+| UI/UX design | brief/constraints | page/design system | product/company, audience, CTA, brand assets/copy, existing stack | 390/768/1440 screenshots, no horizontal scroll, focus/contrast, real CTA |
+| UI review / unslop | HTML/screenshot/brief | revised page + audit | read the brief, find AI-slop tells, check first screen and CTA | before/after screenshots, copy 5-second test, slop checklist cleared |
 | OCR | image/scanned PDF | text/JSON/searchable PDF | `pdffonts`, `pdftotext`, language | sample CER, confidence, reading order |
 | PDF→HTML | PDF | HTML + assets | text layer, columns/tables | text fidelity, layout screenshot, links/images |
 | Audio→text | audio | text/timestamps | `ffprobe`, language, speakers | sample WER, timestamps, diarization |
@@ -135,7 +136,7 @@ Candidates are intentionally classes of tools, not a single product; the catalog
 
 - No automatic installation or execution of external tools.
 - No universal marketplace.
-- No claim that five cards cover future tasks.
+- No claim that six cards cover future tasks.
 - No automatic visual judgment; design verification remains a separate gate (P3).
 - No change to Authority/Policy; capability search is read-only.
 

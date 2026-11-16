@@ -348,9 +348,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_is_valid_and_has_the_five_initial_cards() {
+    fn catalog_is_valid_and_has_the_six_initial_cards() {
         let catalog = catalog().expect("catalog");
-        assert_eq!(catalog.capabilities.len(), 5);
+        assert_eq!(catalog.capabilities.len(), 6);
         let ids = catalog
             .capabilities
             .iter()
@@ -358,6 +358,7 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         for id in [
             "design.ui_ux_page",
+            "design.ui_review",
             "ocr.image_to_text",
             "pdf.to_html",
             "audio.transcribe",
@@ -371,6 +372,12 @@ mod tests {
     fn search_finds_ocr_for_scanned_pdf_text() {
         let matches = search_capabilities("扫描 PDF 提取文字", 5).expect("search");
         assert_eq!(matches[0].capability.id, "ocr.image_to_text");
+    }
+
+    #[test]
+    fn search_finds_unslop_review() {
+        let matches = search_capabilities("unslop 页面 AI 味 验收", 5).expect("search");
+        assert_eq!(matches[0].capability.id, "design.ui_review");
     }
 
     #[test]
