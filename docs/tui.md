@@ -83,10 +83,10 @@ running 35. Worker mode never exposes Master commands.
 
 ## Clarify bar
 
-`/clarify <questions.json>` opens a bottom clarify bar in the input-panel
-area; the transcript stays visible. The file is an array or an object with
-`questions` (≤1 MiB); the bar admits 1–5 questions and requires at least one
-blocking question. The recommended option is first and an `Other` option is
+`/clarify <questions.json>` opens a bottom clarify bar above the input panel;
+the transcript stays visible and the composer keeps its rows. The file is an
+array or an object with `questions` (≤1 MiB); the bar admits 1–5 questions and
+requires at least one blocking question. The recommended option is first and an `Other` option is
 added automatically. One question uses a 7-row bar; a batch shows one question
 at a time in an 8-row bar with a `第 x/y 题` title.
 

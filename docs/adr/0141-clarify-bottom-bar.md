@@ -19,9 +19,9 @@ is presentation and input routing, not policy.
 
 ## Decision
 
-1. Replace the full-screen clarify panel with a bottom clarify bar rendered in
-   the input-panel area. The transcript stays visible; the bar does not call
-   `Clear` over the whole frame.
+1. Replace the full-screen clarify panel with a bottom clarify bar stacked
+   above the input panel. The transcript stays visible and the composer keeps
+   its own rows; the bar does not call `Clear` over the whole frame.
 2. A single-question bar is 7 rows; a 1–5 question batch uses the same bar,
    shows one question at a time with a `第 x/y 题` title, and is 8 rows. A
    collapsed pending bar is one row.
@@ -45,8 +45,9 @@ is presentation and input routing, not policy.
 
 - A one-question clarification no longer hides the conversation; the user can
   read the previous answer while choosing.
-- The bar occupies 7–8 rows instead of the whole frame; narrow terminals get
-  the same layout with clipping rather than a different modal.
+- The bottom stack is transcript → clarify bar → input panel. The composer
+  stays visible; the bar adds 7–8 rows above it instead of replacing it.
+  Narrow terminals clip the bar rather than switching to a modal.
 - Esc is now a reversible “collapse”, not a destructive cancel. Cancellation
   is explicit via `Ctrl+C`, and the collapsed bar shows that hint.
 - A collapsed bar still waits on the same 300-second deadline. Making the
