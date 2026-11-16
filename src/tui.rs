@@ -3635,6 +3635,11 @@ impl TuiState {
         let text_style = Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG);
         let bar_cells = if folded { 10 } else { 20 };
         let (heading, right_text, follow) = self.input_panel_caption(area.width, bar_cells);
+        let heading = if self.status == TuiStatus::Running {
+            format!("{heading} {}", activity_spinner(self.activity_frame))
+        } else {
+            heading
+        };
         let right_text = if folded && area.width > 4 {
             truncate_to_width(&right_text, usize::from(area.width - 4))
         } else {
@@ -3654,7 +3659,7 @@ impl TuiState {
                 .max(1);
             let top_spans = vec![
                 Span::styled("╭─ ", border_style),
-                Span::styled("• ", Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG)),
+                Span::styled("• ", text_style),
                 Span::styled(heading, text_style),
                 Span::styled(" ", border_style),
                 Span::styled("─".repeat(fill), border_style),
@@ -3683,7 +3688,7 @@ impl TuiState {
                 .max(1);
             let mut top_spans = vec![
                 Span::styled("╭─ ", border_style),
-                Span::styled("• ", Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG)),
+                Span::styled("• ", text_style),
                 Span::styled(heading, text_style),
                 Span::styled(" ", border_style),
                 Span::styled("─".repeat(fill), border_style),
@@ -5036,6 +5041,14 @@ fn activity_kind_tone(kind: TuiActivityKind) -> TuiTone {
         | TuiActivityKind::WorkerRunning
         | TuiActivityKind::MasterCollecting => TuiTone::Evidence,
     }
+}
+
+const ACTIVITY_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// A rotating marker on the input-panel activity heading. It only animates
+/// while a run is active; paused/completed screens stay still.
+fn activity_spinner(frame: usize) -> &'static str {
+    ACTIVITY_SPINNER[(frame / 2) % ACTIVITY_SPINNER.len()]
 }
 
 fn floor_char_boundary(text: &str, index: usize) -> usize {
@@ -7995,6 +8008,48 @@ mod tests {
         assert_eq!(bulb.fg, PANEL_TEXT_GREEN);
         assert_eq!(heading.fg, PANEL_TEXT_GREEN);
         assert!(!heading.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn activity_spinner_rotates_and_stops_when_not_running() {
+        assert_eq!(activity_spinner(0), "⠋");
+        assert_eq!(activity_spinner(2), "⠙");
+        assert_ne!(activity_spinner(0), activity_spinner(4));
+
+        let backend = TestBackend::new(100, 18);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_activity(TuiActivity::bilingual(
+            TuiActivityKind::Thinking,
+            "等待响应",
+            1,
+        ));
+        state.set_status(TuiStatus::Running);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let running = panel_top(&terminal, "模型思考");
+        assert!(
+            ACTIVITY_SPINNER.iter().any(|glyph| running.contains(glyph)),
+            "running top: {running}"
+        );
+
+        state.set_status(TuiStatus::Paused);
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let paused = panel_top(&terminal, "模型思考");
+        assert!(
+            !ACTIVITY_SPINNER.iter().any(|glyph| paused.contains(glyph)),
+            "paused top: {paused}"
+        );
+    }
+
+    fn panel_top(terminal: &Terminal<TestBackend>, label: &str) -> String {
+        (0..18)
+            .map(|y| {
+                (0..100)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .find(|row| row.contains('╭') && row.replace(' ', "").contains(label))
+            .unwrap_or_else(|| panic!("panel top missing for {label}"))
     }
 
     #[test]
