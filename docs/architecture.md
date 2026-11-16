@@ -842,6 +842,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   graph database.
 - Session/sub-agent lineage fields are additive and optional so old journals
   and v1/v2 sessions remain readable.
+- Gated tool observations project to `ActionInvocation`, `PolicyDecision`
+  (outcome/reason/authority profile) and `Approval` (recorded card id) nodes
+  linked to the run, tool call and observation. No approval node is invented
+  without a card id. Spawn observations, including failed/timed-out/cancelled
+  members, project to `SquadMember`; `childRunId` is optional and a failed
+  member is never marked completed. Raw policy/card metadata keys and tool
+  arguments/content are not exported.
 
 ## V0 limitations
 

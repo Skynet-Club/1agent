@@ -64,6 +64,11 @@ const REFERENCE_FIELDS: &[&str] = &[
     "supersedes",
     "hasPolicyDecision",
     "hasActionType",
+    "hasToolCall",
+    "hasApproval",
+    "hasActionInvocation",
+    "forAction",
+    "partOfRun",
 ];
 
 const SESSION_STATUSES: &[&str] = &["active", "archived"];
@@ -109,6 +114,19 @@ const SQUAD_STATUSES: &[&str] = &[
     "timed_out",
     "cancelled",
 ];
+const ACTION_STATUSES: &[&str] = &[
+    "proposed",
+    "allowed",
+    "denied",
+    "needs_approval",
+    "approved",
+    "rejected",
+    "executed",
+    "failed",
+    "cancelled",
+];
+const POLICY_OUTCOMES: &[&str] = &["allow", "require_approval", "deny"];
+const APPROVAL_STATUSES: &[&str] = &["recorded", "pending", "approved", "denied", "consumed"];
 const GOAL_STATUSES: &[&str] = &["active"];
 const SOURCE_KINDS: &[&str] = &["web", "tool", "model_prior", "file", "unknown"];
 
@@ -302,6 +320,36 @@ pub fn validate_document(document: &Value) -> ValidationReport {
                     object,
                     "status",
                     GOAL_STATUSES,
+                    &mut errors,
+                    &mut schema_failures,
+                );
+            }
+            Some("ActionInvocation") => {
+                require_status(
+                    id,
+                    object,
+                    "status",
+                    ACTION_STATUSES,
+                    &mut errors,
+                    &mut schema_failures,
+                );
+            }
+            Some("PolicyDecision") => {
+                require_status(
+                    id,
+                    object,
+                    "outcome",
+                    POLICY_OUTCOMES,
+                    &mut errors,
+                    &mut schema_failures,
+                );
+            }
+            Some("Approval") => {
+                require_status(
+                    id,
+                    object,
+                    "status",
+                    APPROVAL_STATUSES,
                     &mut errors,
                     &mut schema_failures,
                 );

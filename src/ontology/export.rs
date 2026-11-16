@@ -251,40 +251,169 @@ fn build_run(
         nodes.insert(observation_iri, Value::Object(object));
     }
 
+    let mut action_iris = BTreeSet::new();
+    for (observation, _) in &observations {
+        let has_action_metadata = [
+            "action_id",
+            "policy_outcome",
+            "policy_reason",
+            "authority_profile_id",
+            "approval_card_id",
+            "approval_id",
+            "risk",
+            "reversible",
+        ]
+        .iter()
+        .any(|key| observation.metadata.contains_key(*key));
+        if !has_action_metadata {
+            continue;
+        }
+        let observation_iri = ids::observation_id(&run_segment, &observation.call_id);
+        let action_iri = ids::action_invocation_id(&run_segment, &observation.call_id);
+        action_iris.insert(action_iri.clone());
+        let mut object = Map::new();
+        object.insert("@id".into(), Value::String(action_iri.clone()));
+        object.insert("@type".into(), Value::String("ActionInvocation".into()));
+        object.insert(
+            "status".into(),
+            Value::String(
+                crate::runtime::action_status_for(observation)
+                    .as_str()
+                    .into(),
+            ),
+        );
+        object.insert(
+            "actionType".into(),
+            Value::String(bounded(&observation.tool)),
+        );
+        object.insert("partOfRun".into(), ref_iri(&run_iri));
+        if called.contains(observation.call_id.as_str()) {
+            object.insert(
+                "hasToolCall".into(),
+                ref_iri(&ids::tool_call_id(&run_segment, &observation.call_id)),
+            );
+        }
+        object.insert("hasObservation".into(), ref_iri(&observation_iri));
+        if let Some(risk) = observation.metadata.get("risk") {
+            object.insert("risk".into(), Value::String(bounded(risk)));
+        }
+        if let Some(reversible) =
+            observation
+                .metadata
+                .get("reversible")
+                .and_then(|value| match value.as_str() {
+                    "true" => Some(true),
+                    "false" => Some(false),
+                    _ => None,
+                })
+        {
+            object.insert("reversible".into(), Value::Bool(reversible));
+        }
+        if let Some(outcome) = observation.metadata.get("policy_outcome") {
+            let decision_iri = ids::policy_decision_id(&run_segment, &observation.call_id);
+            let mut decision = Map::new();
+            decision.insert("@id".into(), Value::String(decision_iri.clone()));
+            decision.insert("@type".into(), Value::String("PolicyDecision".into()));
+            decision.insert("outcome".into(), Value::String(bounded(outcome)));
+            if let Some(reason) = observation.metadata.get("policy_reason") {
+                decision.insert("reason".into(), Value::String(bounded(reason)));
+            }
+            if let Some(profile) = observation.metadata.get("authority_profile_id") {
+                decision.insert("authorityProfileId".into(), Value::String(bounded(profile)));
+            }
+            decision.insert("forAction".into(), ref_iri(&action_iri));
+            object.insert("hasPolicyDecision".into(), ref_iri(&decision_iri));
+            nodes.insert(decision_iri, Value::Object(decision));
+        }
+        if let Some(card_id) = observation
+            .metadata
+            .get("approval_card_id")
+            .or_else(|| observation.metadata.get("approval_id"))
+            .filter(|card_id| !card_id.trim().is_empty())
+        {
+            let approval_iri = ids::approval_id(&run_segment, &observation.call_id);
+            let mut approval = Map::new();
+            approval.insert("@id".into(), Value::String(approval_iri.clone()));
+            approval.insert("@type".into(), Value::String("Approval".into()));
+            approval.insert("status".into(), Value::String("recorded".into()));
+            approval.insert("cardId".into(), Value::String(bounded(card_id)));
+            approval.insert("forAction".into(), ref_iri(&action_iri));
+            object.insert("hasApproval".into(), ref_iri(&approval_iri));
+            nodes.insert(approval_iri, Value::Object(approval));
+        }
+        if let Some(iris) = observation_artifacts.get(&observation_iri)
+            && !iris.is_empty()
+        {
+            object.insert("hasArtifact".into(), refs_array(iris.clone()));
+        }
+        nodes.insert(action_iri, Value::Object(object));
+    }
+
     let mut squad_iris = BTreeSet::new();
     for (observation, _) in &observations {
         if observation.tool != "spawn_agent" {
             continue;
         }
-        let Some(child_run_id) = observation.metadata.get("child_run_id") else {
-            continue;
-        };
-        if child_run_id.trim().is_empty() {
+        // A spawn refused before any child started (depth/fanout) has no
+        // status, no child run and failed before a member existed. A timeout
+        // still identifies a member attempt even without metadata.
+        let has_child_run = observation
+            .metadata
+            .get("child_run_id")
+            .is_some_and(|child| !child.trim().is_empty());
+        let is_member_attempt = observation.status == ToolStatus::Ok
+            || observation.status == ToolStatus::TimedOut
+            || observation.metadata.contains_key("status")
+            || has_child_run;
+        if !is_member_attempt {
             continue;
         }
+        let status = observation
+            .metadata
+            .get("status")
+            .map(String::as_str)
+            .unwrap_or_else(|| match observation.status {
+                ToolStatus::Ok => "completed",
+                ToolStatus::TimedOut => "timed_out",
+                ToolStatus::InvalidArguments
+                | ToolStatus::PermissionDenied
+                | ToolStatus::Failed => "failed",
+            });
         let squad_iri = ids::squad_member_id(&run_segment, &observation.call_id);
         let mut object = Map::new();
         object.insert("@id".into(), Value::String(squad_iri.clone()));
         object.insert("@type".into(), Value::String("SquadMember".into()));
-        object.insert(
-            "status".into(),
-            Value::String(bounded(
-                observation
-                    .metadata
-                    .get("status")
-                    .map(String::as_str)
-                    .unwrap_or("completed"),
-            )),
-        );
+        object.insert("status".into(), Value::String(bounded(status)));
         object.insert("parentRun".into(), ref_iri(&run_iri));
-        if let Some(session_iri) = part_of_session {
-            object.insert("partOfSession".into(), ref_iri(session_iri));
+        let session_iri = part_of_session.map(str::to_string).or_else(|| {
+            observation
+                .metadata
+                .get("parent_session_id")
+                .filter(|session_id| !session_id.trim().is_empty())
+                .map(|session_id| ids::session_id(session_id))
+        });
+        if let Some(session_iri) = session_iri {
+            object.insert("partOfSession".into(), ref_iri(&session_iri));
+            if part_of_session.is_none() {
+                nodes.entry(session_iri.clone()).or_insert_with(|| {
+                    json!({
+                        "@id": session_iri,
+                        "@type": "Session",
+                    })
+                });
+            }
         }
         object.insert(
             "spawnedBy".into(),
             ref_iri(&ids::tool_call_id(&run_segment, &observation.call_id)),
         );
-        object.insert("childRunId".into(), Value::String(bounded(child_run_id)));
+        if let Some(child_run_id) = observation
+            .metadata
+            .get("child_run_id")
+            .filter(|child| !child.trim().is_empty())
+        {
+            object.insert("childRunId".into(), Value::String(bounded(child_run_id)));
+        }
         nodes.insert(squad_iri.clone(), Value::Object(object));
         squad_iris.insert(squad_iri);
     }
@@ -475,6 +604,9 @@ fn build_run(
     }
     if !squad_iris.is_empty() {
         run_object.insert("hasSquadMember".into(), refs_array(squad_iris));
+    }
+    if !action_iris.is_empty() {
+        run_object.insert("hasActionInvocation".into(), refs_array(action_iris));
     }
     if answer.is_some() {
         run_object.insert("generated".into(), ref_iri(&ids::answer_id(&run_segment)));
@@ -1012,6 +1144,170 @@ mod tests {
         );
         let report = validate_document(&document.value);
         assert!(report.ok, "validator errors: {:?}", report.errors);
+    }
+
+    #[test]
+    fn gated_actions_and_failed_spawns_export_policy_and_squad_nodes() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_path = workspace.path().join("actions.jsonl");
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let session_id = session.id().to_string();
+        let run_id = Uuid::new_v4();
+        let artifact_sha = "ab".repeat(32);
+        let mut journal = Journal::create(&journal_path, run_id).unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("parent task", workspace.path().to_path_buf()),
+                mode: CognitiveMode::Execute,
+            })
+            .unwrap();
+        for (call_id, tool, status, error_code, metadata) in [
+            (
+                "call-denied",
+                "write_file",
+                ToolStatus::PermissionDenied,
+                Some("authority_denied"),
+                BTreeMap::from([
+                    ("action_id".into(), format!("{run_id}:call-denied")),
+                    ("policy_outcome".into(), "deny".into()),
+                    (
+                        "policy_reason".into(),
+                        "tool write_file is not in the profile allowlist".into(),
+                    ),
+                    ("authority_profile_id".into(), "tool-profile".into()),
+                    ("risk".into(), "medium".into()),
+                    ("reversible".into(), "false".into()),
+                ]),
+            ),
+            (
+                "call-executed",
+                "write_file",
+                ToolStatus::Ok,
+                None,
+                BTreeMap::from([
+                    ("action_id".into(), format!("{run_id}:call-executed")),
+                    ("policy_outcome".into(), "allow".into()),
+                    ("policy_reason".into(), "write within profile".into()),
+                    ("authority_profile_id".into(), "tool-profile".into()),
+                    ("approval_id".into(), "card-1".into()),
+                    ("risk".into(), "medium".into()),
+                    ("reversible".into(), "false".into()),
+                    ("sha256".into(), artifact_sha.clone()),
+                ]),
+            ),
+            (
+                "spawn-failed",
+                "spawn_agent",
+                ToolStatus::Failed,
+                Some("tool_failed"),
+                BTreeMap::from([
+                    ("status".into(), "failed".into()),
+                    ("parent_run_id".into(), run_id.to_string()),
+                    ("parent_session_id".into(), "ses-parent".into()),
+                    ("spawn_call_id".into(), "spawn-failed".into()),
+                    ("stop_reason".into(), "needs_authorization".into()),
+                ]),
+            ),
+        ] {
+            journal
+                .append(crate::journal::JournalEventKind::ToolCalled {
+                    call: ToolCall {
+                        id: call_id.into(),
+                        name: tool.into(),
+                        arguments: json!({"path": "/tmp/x"}),
+                    },
+                })
+                .unwrap();
+            journal
+                .append(crate::journal::JournalEventKind::ToolObserved {
+                    observation: ToolObservation {
+                        call_id: call_id.into(),
+                        tool: tool.into(),
+                        status,
+                        summary: "synthetic".into(),
+                        content: "{}".into(),
+                        error_code: error_code.map(str::to_string),
+                        metadata,
+                    },
+                })
+                .unwrap();
+        }
+        journal
+            .append(crate::journal::JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        drop(journal);
+        session.record_journal(&journal_path).unwrap();
+
+        let document = export_session(workspace.path(), &session_id).unwrap();
+        let denied = node(
+            &document.value,
+            &format!("urn:1agent:action:{run_id}:call-denied"),
+        );
+        assert_eq!(denied["@type"], "ActionInvocation");
+        assert_eq!(denied["status"], "denied");
+        assert_eq!(denied["actionType"], "write_file");
+        assert_eq!(denied["risk"], "medium");
+        assert_eq!(denied["reversible"], json!(false));
+        let decision = node(
+            &document.value,
+            &format!("urn:1agent:policy-decision:{run_id}:call-denied"),
+        );
+        assert_eq!(decision["outcome"], "deny");
+        assert_eq!(decision["authorityProfileId"], "tool-profile");
+        assert_eq!(
+            decision["forAction"]["@id"],
+            format!("urn:1agent:action:{run_id}:call-denied")
+        );
+
+        let executed = node(
+            &document.value,
+            &format!("urn:1agent:action:{run_id}:call-executed"),
+        );
+        assert_eq!(executed["status"], "executed");
+        assert_eq!(
+            executed["hasArtifact"][0]["@id"],
+            format!("urn:1agent:artifact:sha256:{artifact_sha}")
+        );
+        let approval = node(
+            &document.value,
+            &format!("urn:1agent:approval:{run_id}:call-executed"),
+        );
+        assert_eq!(approval["status"], "recorded");
+        assert_eq!(approval["cardId"], "card-1");
+
+        let squad = node(
+            &document.value,
+            &format!("urn:1agent:squad-member:{run_id}:spawn-failed"),
+        );
+        assert_eq!(squad["@type"], "SquadMember");
+        assert_eq!(squad["status"], "failed");
+        assert!(squad.get("childRunId").is_none());
+        assert_eq!(
+            squad["parentRun"]["@id"],
+            format!("urn:1agent:run:{run_id}")
+        );
+        assert_eq!(
+            squad["partOfSession"]["@id"],
+            crate::ontology::ids::session_id(&session_id)
+        );
+
+        let report = validate_document(&document.value);
+        assert!(report.ok, "validator errors: {:?}", report.errors);
+
+        // A standalone journal has no exported session, but the failed spawn
+        // carries the parent session id, so it is kept as a Session stub.
+        let standalone = export_journal(&journal_path).unwrap();
+        let standalone_squad = node(
+            &standalone.value,
+            &format!("urn:1agent:squad-member:{run_id}:spawn-failed"),
+        );
+        assert_eq!(
+            standalone_squad["partOfSession"]["@id"],
+            "urn:1agent:session:ses-parent"
+        );
+        assert!(validate_document(&standalone.value).ok);
     }
 
     #[test]
