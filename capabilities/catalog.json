@@ -1,0 +1,407 @@
+{
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "design.ui_ux_page",
+      "name": "产品页面 / UI-UX 设计",
+      "summary": "把一个产品介绍、落地页或界面需求，变成有设计系统、用户文案、可访问性和响应式验收的页面。",
+      "keywords": [
+        "UI",
+        "UX",
+        "设计",
+        "网页",
+        "网站",
+        "落地页",
+        "landing page",
+        "产品页",
+        "设计系统",
+        "design system",
+        "视觉",
+        "排版",
+        "响应式",
+        "可访问性",
+        "页面"
+      ],
+      "inputs": ["brief", "constraints", "existing_brand"],
+      "operation": "design_and_build_page",
+      "outputs": ["html", "css", "design_system", "screenshots"],
+      "constraints": ["audience", "cta", "brand", "responsive", "accessibility", "privacy"],
+      "probe": [
+        "确认受众与目标",
+        "确认主 CTA 与真实下一步",
+        "检查现有品牌、设计系统、技术栈和已装技能"
+      ],
+      "candidates": [
+        {
+          "name": "ui-ux-pro-max",
+          "kind": "skill",
+          "source": "local skill marketplace",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "design-system generator and UX checklist; register/adapt before use"
+        },
+        {
+          "name": "frontend-design",
+          "kind": "skill",
+          "source": "agent skill library",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "visual direction and frontend design guidance"
+        },
+        {
+          "name": "impeccable",
+          "kind": "skill",
+          "source": "agent skill library",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "UI/UX review, polish and edge-case checks"
+        },
+        {
+          "name": "existing project design system",
+          "kind": "library",
+          "source": "project",
+          "license": "project",
+          "trust": "verified",
+          "notes": "prefer existing tokens and components over a new framework"
+        },
+        {
+          "name": "hand-written minimal HTML/CSS",
+          "kind": "build",
+          "source": "self",
+          "license": "n/a",
+          "trust": "core",
+          "notes": "only when no design system or skill fits; record why the candidates were rejected"
+        }
+      ],
+      "verification": [
+        "390/768/1440 screenshots",
+        "no horizontal scroll",
+        "visible focus states",
+        "contrast and tap targets",
+        "real CTA, not example.com or a placeholder mailto",
+        "copy answers who/what/why/next"
+      ],
+      "fallback": [
+        "ask for audience and CTA",
+        "use a minimal design system",
+        "return conditional with the design gaps"
+      ]
+    },
+    {
+      "id": "ocr.image_to_text",
+      "name": "OCR / 图片与扫描件转文字",
+      "summary": "从图片或扫描 PDF 提取文字，保留可用的阅读顺序、版面和置信度。",
+      "keywords": [
+        "OCR",
+        "文字识别",
+        "识别文字",
+        "图片转文字",
+        "扫描件",
+        "扫描 PDF",
+        "扫描PDF",
+        "提取文字",
+        "ocr"
+      ],
+      "inputs": ["image", "scanned_pdf"],
+      "operation": "extract_text",
+      "outputs": ["text", "json", "searchable_pdf"],
+      "constraints": ["language", "layout", "handwriting", "privacy", "batch"],
+      "probe": [
+        "用 pdffonts/pdftotext 判断 PDF 是否已有文本层",
+        "确认语言、手写、版面、隐私和批量要求",
+        "如果已有文本层，不要上 OCR"
+      ],
+      "candidates": [
+        {
+          "name": "tesseract",
+          "kind": "cli",
+          "source": "system package",
+          "license": "Apache-2.0",
+          "trust": "verified",
+          "notes": "local, CPU, good baseline; language packs matter"
+        },
+        {
+          "name": "paddleocr",
+          "kind": "library",
+          "source": "Python package",
+          "license": "Apache-2.0",
+          "trust": "community",
+          "notes": "local, strong Chinese/layout support, GPU optional"
+        },
+        {
+          "name": "easyocr",
+          "kind": "library",
+          "source": "Python package",
+          "license": "Apache-2.0",
+          "trust": "community",
+          "notes": "local, many languages, heavier runtime"
+        },
+        {
+          "name": "ocrmypdf",
+          "kind": "cli",
+          "source": "system package",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "produces searchable PDF; depends on Tesseract"
+        },
+        {
+          "name": "cloud OCR",
+          "kind": "service",
+          "source": "cloud API",
+          "license": "vendor",
+          "trust": "community",
+          "notes": "high accuracy, network/cost/privacy review required"
+        }
+      ],
+      "verification": [
+        "sample character error rate",
+        "confidence distribution",
+        "reading order",
+        "table and layout retention"
+      ],
+      "fallback": [
+        "cloud OCR with explicit data approval",
+        "human review for handwriting or low-quality scans"
+      ]
+    },
+    {
+      "id": "pdf.to_html",
+      "name": "PDF → HTML",
+      "summary": "把 PDF 转成可读的 HTML 和资源，保留文字、链接、图片，以及必要的版面结构。",
+      "keywords": [
+        "PDF转HTML",
+        "PDF 转 HTML",
+        "pdf2html",
+        "pdf to html",
+        "文档转换",
+        "转换成网页",
+        "HTML"
+      ],
+      "inputs": ["pdf"],
+      "operation": "convert_document",
+      "outputs": ["html", "assets", "text"],
+      "constraints": ["fidelity", "scanned", "columns", "tables", "formulas", "assets"],
+      "probe": [
+        "判断文本版还是扫描版",
+        "检查分栏、表格、公式、图片和链接",
+        "确认要文字保真还是版面保真"
+      ],
+      "candidates": [
+        {
+          "name": "pdftohtml",
+          "kind": "cli",
+          "source": "poppler-utils",
+          "license": "check LICENSE",
+          "trust": "verified",
+          "notes": "fast text/layout baseline; output can be rough"
+        },
+        {
+          "name": "pdf2htmlEX",
+          "kind": "cli",
+          "source": "system package",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "layout-preserving HTML; heavier output"
+        },
+        {
+          "name": "mutool",
+          "kind": "cli",
+          "source": "MuPDF",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "convert/draw/extract; check AGPL implications"
+        },
+        {
+          "name": "docling",
+          "kind": "library",
+          "source": "Python package",
+          "license": "MIT",
+          "trust": "community",
+          "notes": "layout-aware document conversion"
+        },
+        {
+          "name": "marker",
+          "kind": "library",
+          "source": "Python package",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "PDF to Markdown/HTML, layout and tables; GPU optional"
+        },
+        {
+          "name": "cloud document AI",
+          "kind": "service",
+          "source": "cloud API",
+          "license": "vendor",
+          "trust": "community",
+          "notes": "high fidelity, network/cost/privacy review required"
+        }
+      ],
+      "verification": [
+        "text fidelity against the source",
+        "layout screenshot",
+        "links and images resolve",
+        "tables and formulas retain structure"
+      ],
+      "fallback": [
+        "text-first extraction when layout is not required",
+        "OCR first when the PDF is scanned",
+        "human layout review for high-fidelity publishing"
+      ]
+    },
+    {
+      "id": "audio.transcribe",
+      "name": "音频 / 视频音轨转文字",
+      "summary": "把音频或视频音轨转成带时间戳的文字，必要时区分说话人。",
+      "keywords": [
+        "音频转文字",
+        "语音转文字",
+        "转写",
+        "ASR",
+        "transcription",
+        "audio to text",
+        "会议记录",
+        "字幕",
+        "识别语音"
+      ],
+      "inputs": ["audio", "video_audio_track"],
+      "operation": "transcribe",
+      "outputs": ["text", "timestamps", "speaker_labels"],
+      "constraints": ["language", "speakers", "timestamps", "privacy", "realtime"],
+      "probe": [
+        "用 ffprobe 确认采样率、声道、时长和编码",
+        "确认语言、多人、时间戳和实时性要求",
+        "确认本地还是云端，数据能否离开机器"
+      ],
+      "candidates": [
+        {
+          "name": "whisper.cpp",
+          "kind": "cli",
+          "source": "local build",
+          "license": "MIT",
+          "trust": "verified",
+          "notes": "local, CPU/GPU, good baseline; model download and size matter"
+        },
+        {
+          "name": "faster-whisper",
+          "kind": "library",
+          "source": "Python package",
+          "license": "MIT",
+          "trust": "community",
+          "notes": "faster local inference; GPU optional"
+        },
+        {
+          "name": "vosk",
+          "kind": "library",
+          "source": "system package",
+          "license": "Apache-2.0",
+          "trust": "community",
+          "notes": "lightweight local ASR; model per language"
+        },
+        {
+          "name": "cloud ASR",
+          "kind": "service",
+          "source": "cloud API",
+          "license": "vendor",
+          "trust": "community",
+          "notes": "strong accuracy/diarization, network/cost/privacy review required"
+        },
+        {
+          "name": "human transcription",
+          "kind": "human",
+          "source": "human service",
+          "license": "n/a",
+          "trust": "verified",
+          "notes": "best for noisy, multi-speaker or high-stakes recordings"
+        }
+      ],
+      "verification": [
+        "sample word error rate",
+        "timestamps align with audio",
+        "speaker diarization if required",
+        "punctuation and terminology spot-check"
+      ],
+      "fallback": [
+        "cloud ASR with explicit data approval",
+        "human review for critical transcripts"
+      ]
+    },
+    {
+      "id": "video.edit",
+      "name": "视频剪辑 / 转码",
+      "summary": "按指令裁剪、拼接、转码、加字幕或生成短视频，并验证输出媒体。",
+      "keywords": [
+        "视频剪辑",
+        "剪视频",
+        "视频编辑",
+        "video editing",
+        "ffmpeg",
+        "字幕",
+        "短视频",
+        "转码",
+        "剪辑"
+      ],
+      "inputs": ["video", "instructions"],
+      "operation": "edit_or_transcode",
+      "outputs": ["video", "subtitles", "thumbnail"],
+      "constraints": ["codec", "resolution", "duration", "subtitles", "platform", "creative"],
+      "probe": [
+        "用 ffprobe 检查编码、帧率、时长、分辨率和音轨",
+        "确认目标平台、时长、比例和字幕要求",
+        "判断是机械剪辑还是需要创意剪辑"
+      ],
+      "candidates": [
+        {
+          "name": "ffmpeg",
+          "kind": "cli",
+          "source": "system package",
+          "license": "check build (LGPL/GPL)",
+          "trust": "verified",
+          "notes": "cut/concat/transcode/subtitle baseline; not a creative editor"
+        },
+        {
+          "name": "moviepy",
+          "kind": "library",
+          "source": "Python package",
+          "license": "MIT",
+          "trust": "community",
+          "notes": "programmatic compositing; slower for long videos"
+        },
+        {
+          "name": "remotion",
+          "kind": "library",
+          "source": "Node package",
+          "license": "check LICENSE",
+          "trust": "community",
+          "notes": "React-based programmatic video; good for templated clips"
+        },
+        {
+          "name": "cloud video API",
+          "kind": "service",
+          "source": "cloud API",
+          "license": "vendor",
+          "trust": "community",
+          "notes": "transcode/transcribe/render; network/cost/privacy review required"
+        },
+        {
+          "name": "human editor",
+          "kind": "human",
+          "source": "human service",
+          "license": "n/a",
+          "trust": "verified",
+          "notes": "best for creative pacing, story and taste"
+        }
+      ],
+      "verification": [
+        "duration matches the brief",
+        "codec/container/resolution are playable on the target",
+        "frame count and A/V sync",
+        "subtitle timing and burn-in",
+        "spot-check the first/last frame and a random middle frame"
+      ],
+      "fallback": [
+        "split/transcode only when creative editing is out of scope",
+        "human editor for story-driven cuts"
+      ]
+    }
+  ]
+}

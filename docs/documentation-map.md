@@ -59,6 +59,8 @@ boundary remains until ADR-003 is accepted.
 - [`super-agent-doctrine.md`](super-agent-doctrine.md): Super-Agent judgment doctrine —
   four silent questions, the four schools as lenses, precedence, 12 judgment scenarios and
   the current prompt/test boundary.
+- [`capability-scouting-plan.md`](capability-scouting-plan.md): capability-first tool scouting —
+  capability cards, search, trust, adapters, verification and the P0–P4 development plan.
 - [`claims.md`](claims.md): 说法与证据对照表 — every external claim paired with a rerunnable
   evidence command, or explicitly marked as unproven.
 - [`evidence-v0.96.md`](evidence-v0.96.md): first live-provider pilot on the reframing

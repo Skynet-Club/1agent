@@ -41,6 +41,7 @@ pub(crate) fn current_action_id() -> Option<String> {
 }
 
 mod browser;
+mod capability;
 mod delegation;
 mod documents;
 mod files;
@@ -51,6 +52,7 @@ mod subagent;
 mod terminal;
 mod web;
 pub use browser::*;
+pub use capability::*;
 pub use delegation::*;
 pub use documents::*;
 pub use files::*;
@@ -1210,6 +1212,7 @@ fn bounded_excerpt(
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::default();
     registry.register(Arc::new(ReadFileTool));
+    registry.register(Arc::new(CapabilitySearchTool));
     registry.register(Arc::new(PreviewFileTool));
     registry.register(Arc::new(PdfReadTool::from_env()));
     registry.register(Arc::new(SearchFilesTool));

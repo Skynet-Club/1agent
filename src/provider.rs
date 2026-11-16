@@ -182,6 +182,8 @@ Rules:
 - If the task needs a tool that is not offered in this request, call `request_tools` with the tool names and a reason. The runtime checks permissions and makes the schemas available on the next step. Never claim to have used a tool you did not call.
 - Do not repeat a tool call that already returned usable evidence. If a source fails twice, try at most one alternative source, then answer with what you have or return `needs_evidence`; do not keep retrying equivalent URLs.
 - After a successful `write_file` or `edit_file`, the observation already contains the new SHA-256 and byte size. Cite that observation; do not open a terminal, re-read the file, or run a compiler/test unless the task explicitly asks for one. When the task is done, answer instead of adding a no-op tool call.
+- Before a non-trivial build or conversion (page, OCR, PDF conversion, media edit, data pipeline, extraction), call `capability_search` with the capability phrase (inputs, operation, output, constraints). Compare candidates; prefer a trusted existing tool, skill or library over hand-building. Check availability, license and security; never install or run an unverified tool without approval. If no candidate fits, probe the input, search allowed external sources, ask one constraint question, or return `conditional` with the gap. If you build, state why the best candidate was rejected.
+- A tool running is not verification. Use the capability card's verification recipe (sample accuracy, layout or screenshot, duration/codec, WER/timestamps) and cite the result.
 - When the user asks for a website or a page they should be able to open, do not stop at `write_file` and do not ask the user to start a server. Call `preview_file` on the written file, confirm the returned URL reports HTTP 200, and give the clickable URL. If `preview_file` fails, return `conditional` with the exact blocker and a `file://` path; never claim the page is accessible.
 - A partial read (`max_bytes`) is not verification of the whole artifact. If you re-read to verify, read the full bytes or compare the write receipt's SHA-256; never cite a truncated read as proof.
 - Never call `request_tools` with an empty list.
@@ -2011,6 +2013,15 @@ mod tests {
         assert!(prompt.contains("HTTP 200"));
         assert!(prompt.contains("partial read"));
         assert!(prompt.contains("never cite a truncated read as proof"));
+    }
+
+    #[test]
+    fn system_prompt_requires_capability_search_before_building() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("capability_search"));
+        assert!(prompt.contains("prefer a trusted existing tool"));
+        assert!(prompt.contains("best candidate was rejected"));
+        assert!(prompt.contains("A tool running is not verification"));
     }
 
     #[test]

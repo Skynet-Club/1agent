@@ -839,6 +839,14 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `terminal_exec`) to the top hits. `1agent tools --query` exposes the ranking;
   `1agent run --tool-query` sets the advertised list, which is journaled in
   `ModelRequested`. With no query, the full permission-filtered list is used.
+- Capability-first discovery: `capabilities/catalog.json` stores capability
+  cards (keywords, inputs, operation, outputs, constraints, probe steps,
+  candidates, verification and fallback). `capability_search` ranks cards by a
+  capability phrase and returns them as a read-only observation; it never
+  installs or runs a candidate. The catalog is data, not a task-type enum. The
+  five seeded cards cover UI/UX pages, OCR, PDF→HTML, audio transcription and
+  video editing; future cards can be added without a Rust enum change. External
+  discovery, availability checks and a chosen-tool receipt are P1/P2.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept
