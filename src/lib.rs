@@ -1,5 +1,6 @@
 mod jsonl;
 
+pub mod acceptance;
 pub mod action_log;
 pub mod action_log_journal;
 pub mod action_reconcile;

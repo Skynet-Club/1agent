@@ -218,7 +218,7 @@
   --task "阅读这个项目的鉴权路径，列出风险最高的三个入口"
 ```
 
-可用 `read_file`、`capability_search`、`preview_file`、`read_pdf`、`search_files`、`fetch_url`、`web_search`、`browser_read`，以及默认开启的 `write_file`、`edit_file` 和真实 PTY 终端工具（`--read-only` 可关闭写入）。
+可用 `read_file`、`capability_search`、`acceptance_gate`、`preview_file`、`read_pdf`、`search_files`、`fetch_url`、`web_search`、`browser_read`，以及默认开启的 `write_file`、`edit_file` 和真实 PTY 终端工具（`--read-only` 可关闭写入）。
 
 ### 场景 C：交互式调查
 

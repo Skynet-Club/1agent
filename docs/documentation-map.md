@@ -61,6 +61,8 @@ boundary remains until ADR-003 is accepted.
   the current prompt/test boundary.
 - [`capability-scouting-plan.md`](capability-scouting-plan.md): capability-first tool scouting —
   capability cards, search, trust, adapters, verification and the P0–P4 development plan.
+- [`acceptance-gate-plan.md`](acceptance-gate-plan.md): completion acceptance —
+  contract, independent verifier, receipt, decisions and the P0–P3 gate plan.
 - [`claims.md`](claims.md): 说法与证据对照表 — every external claim paired with a rerunnable
   evidence command, or explicitly marked as unproven.
 - [`evidence-v0.96.md`](evidence-v0.96.md): first live-provider pilot on the reframing

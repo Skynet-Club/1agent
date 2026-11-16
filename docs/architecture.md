@@ -848,6 +848,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   transcription and video editing; future cards can be added without a Rust enum
   change. External
   discovery, availability checks and a chosen-tool receipt are P1/P2.
+- Completion acceptance: `AcceptanceContract` names public/hidden criteria,
+  expected artifacts, risk, required verifier and residual risks.
+  `acceptance::close` wraps `verification::verify`, enforces maker–checker
+  separation and returns a `CompletionReceipt` with a bounded decision
+  (`accepted|conditional|rejected|hacked`). `acceptance_gate` exposes the
+  read-only tool. A tool run, file existence or HTTP 200 is not acceptance; P0
+  does not yet auto-downgrade every completed answer (P1).
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept
