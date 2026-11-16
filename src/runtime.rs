@@ -35,6 +35,7 @@ use crate::router::{
     RouteRequest, Router,
 };
 use crate::task_graph::MandateStrength;
+use crate::tool_approval::{ToolApprovalCard, ToolApprovalError, ToolApprovalStore};
 use crate::tools::{ToolCapability, ToolRegistry};
 
 /// Bounded evidence re-planning: a completed draft that lacks the evidence its
@@ -91,6 +92,12 @@ impl GateFacts {
         metadata.insert("reversible".into(), self.reversible.to_string());
         metadata
     }
+}
+
+pub(crate) enum ToolApprovalDecision {
+    Approved(String),
+    Pending(String),
+    Unavailable(String),
 }
 
 pub(crate) fn policy_outcome_str(outcome: PolicyOutcome) -> &'static str {
@@ -166,6 +173,7 @@ pub struct AgentRuntime {
     session_id: Option<String>,
     parent_run_link: Option<ParentRunLink>,
     action_log: Option<Arc<Mutex<ActionLogJournal>>>,
+    tool_approvals: Option<ToolApprovalStore>,
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
     route_objective: Option<RouteObjective>,
@@ -220,6 +228,7 @@ impl AgentRuntime {
             session_id: None,
             parent_run_link: None,
             action_log: None,
+            tool_approvals: None,
             experience_dir: None,
             shadow_experience: Vec::new(),
             route_objective: None,
@@ -311,6 +320,13 @@ impl AgentRuntime {
     /// pre-execution record cannot be written.
     pub fn with_action_log_journal(mut self, journal: ActionLogJournal) -> Self {
         self.action_log = Some(Arc::new(Mutex::new(journal)));
+        self
+    }
+
+    /// Let a human approve Authority `require_approval` calls out of band.
+    /// The store is only consulted after Authority has made the decision.
+    pub fn with_tool_approval_store(mut self, store: ToolApprovalStore) -> Self {
+        self.tool_approvals = Some(store);
         self
     }
 
@@ -486,34 +502,114 @@ impl AgentRuntime {
                     gate_facts = Some(facts);
                 }
                 Ok(authorization) => {
-                    let facts = GateFacts {
+                    let mut facts = GateFacts {
                         policy_outcome: PolicyOutcome::RequireApproval,
                         policy_reason: authorization.reason.clone(),
                         risk: authorization.risk,
                         ..base
                     };
-                    let mut metadata = facts.to_metadata();
-                    if let Some(error) = self.record_gate_action(
-                        call,
-                        &facts,
-                        ActionStatus::NeedsApproval,
-                        None,
-                        &context.actor_id,
-                    ) {
-                        metadata.insert("action_record_error".into(), error);
+                    match self.request_tool_approval(call, &facts) {
+                        Some(ToolApprovalDecision::Approved(card_id)) => {
+                            facts.approval_card_id = Some(card_id);
+                            if let Some(error) = self.record_gate_action(
+                                call,
+                                &facts,
+                                ActionStatus::Approved,
+                                None,
+                                &context.actor_id,
+                            ) {
+                                let mut metadata = facts.to_metadata();
+                                metadata.insert("action_record_error".into(), error.clone());
+                                return ToolObservation {
+                                    call_id: call.id.clone(),
+                                    tool: call.name.clone(),
+                                    status: ToolStatus::Failed,
+                                    summary: format!(
+                                        "approved tool {} was not executed because the action log write failed: {error}",
+                                        call.name
+                                    ),
+                                    content: String::new(),
+                                    error_code: Some("action_record_error".into()),
+                                    metadata,
+                                };
+                            }
+                            gate_facts = Some(facts);
+                        }
+                        Some(ToolApprovalDecision::Pending(card_id)) => {
+                            facts.approval_card_id = Some(card_id.clone());
+                            let mut metadata = facts.to_metadata();
+                            if let Some(error) = self.record_gate_action(
+                                call,
+                                &facts,
+                                ActionStatus::NeedsApproval,
+                                None,
+                                &context.actor_id,
+                            ) {
+                                metadata.insert("action_record_error".into(), error);
+                            }
+                            return ToolObservation {
+                                call_id: call.id.clone(),
+                                tool: call.name.clone(),
+                                status: ToolStatus::PermissionDenied,
+                                summary: format!(
+                                    "tool {} requires approval: {}; card {card_id} created (approve with `1agent action approve {card_id}`)",
+                                    call.name, authorization.reason
+                                ),
+                                content: String::new(),
+                                error_code: Some("approval_required".into()),
+                                metadata,
+                            };
+                        }
+                        Some(ToolApprovalDecision::Unavailable(error)) => {
+                            let mut metadata = facts.to_metadata();
+                            metadata.insert("approval_store_error".into(), error.clone());
+                            if let Some(record_error) = self.record_gate_action(
+                                call,
+                                &facts,
+                                ActionStatus::NeedsApproval,
+                                None,
+                                &context.actor_id,
+                            ) {
+                                metadata.insert("action_record_error".into(), record_error);
+                            }
+                            return ToolObservation {
+                                call_id: call.id.clone(),
+                                tool: call.name.clone(),
+                                status: ToolStatus::PermissionDenied,
+                                summary: format!(
+                                    "tool {} requires approval; approval store unavailable: {error}",
+                                    call.name
+                                ),
+                                content: String::new(),
+                                error_code: Some("approval_required".into()),
+                                metadata,
+                            };
+                        }
+                        None => {
+                            let mut metadata = facts.to_metadata();
+                            if let Some(error) = self.record_gate_action(
+                                call,
+                                &facts,
+                                ActionStatus::NeedsApproval,
+                                None,
+                                &context.actor_id,
+                            ) {
+                                metadata.insert("action_record_error".into(), error);
+                            }
+                            return ToolObservation {
+                                call_id: call.id.clone(),
+                                tool: call.name.clone(),
+                                status: ToolStatus::PermissionDenied,
+                                summary: format!(
+                                    "tool {} requires approval: {}",
+                                    call.name, authorization.reason
+                                ),
+                                content: String::new(),
+                                error_code: Some("approval_required".into()),
+                                metadata,
+                            };
+                        }
                     }
-                    return ToolObservation {
-                        call_id: call.id.clone(),
-                        tool: call.name.clone(),
-                        status: ToolStatus::PermissionDenied,
-                        summary: format!(
-                            "tool {} requires approval: {}",
-                            call.name, authorization.reason
-                        ),
-                        content: String::new(),
-                        error_code: Some("approval_required".into()),
-                        metadata,
-                    };
                 }
                 Err(error) => {
                     let facts = GateFacts {
@@ -576,6 +672,41 @@ impl AgentRuntime {
             observation.metadata = metadata;
         }
         observation
+    }
+
+    fn request_tool_approval(
+        &self,
+        call: &ToolCall,
+        facts: &GateFacts,
+    ) -> Option<ToolApprovalDecision> {
+        let store = self.tool_approvals.as_ref()?;
+        let context = crate::tools::RUN_CONTEXT.try_with(Clone::clone).ok()?;
+        let arguments_sha256 = crate::tool_approval::canonical_arguments_sha256(&call.arguments);
+        let now_ms = action_now_ms();
+        match store.take_matching(&context.run_id, &call.name, &arguments_sha256, now_ms) {
+            Ok(card) => Some(ToolApprovalDecision::Approved(card.card_id)),
+            Err(
+                ToolApprovalError::NotFound(_)
+                | ToolApprovalError::NotPending(_)
+                | ToolApprovalError::Expired(_),
+            ) => {
+                let card = ToolApprovalCard::pending(
+                    format!("{}:{}", context.run_id, call.id),
+                    context.run_id,
+                    context.session_id,
+                    call.name.clone(),
+                    arguments_sha256,
+                    facts.risk,
+                    facts.reversible,
+                    now_ms,
+                );
+                match store.request(card) {
+                    Ok(card) => Some(ToolApprovalDecision::Pending(card.card_id)),
+                    Err(error) => Some(ToolApprovalDecision::Unavailable(error.to_string())),
+                }
+            }
+            Err(error) => Some(ToolApprovalDecision::Unavailable(error.to_string())),
+        }
     }
 
     fn record_gate_action(
@@ -3365,7 +3496,7 @@ mod tests {
                 description: "write-capable test tool".into(),
                 parameters: serde_json::json!({
                     "type": "object",
-                    "additionalProperties": false,
+                    "additionalProperties": true,
                     "properties": {}
                 }),
             }
@@ -3649,6 +3780,148 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].run_id, result.run_id.to_string());
         assert_eq!(actions[0].status, ActionStatus::Executed);
+    }
+
+    fn approval_runtime(
+        dir: &std::path::Path,
+        active: Arc<AtomicUsize>,
+        log_path: &std::path::Path,
+        store_path: &std::path::Path,
+    ) -> AgentRuntime {
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "write-profile".into(),
+                actor_id: "owner-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: crate::task_graph::MandateStrength::Write,
+                allowed_tools: vec!["write_probe".into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::High,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("owner-1", "write-profile").unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(WriteProbeTool { active }));
+        let gate = ExecutionGate::new(authority, &registry);
+        AgentRuntime::new(Vec::new(), registry, dir.join(".journal"))
+            .with_execution_gate(
+                gate,
+                "owner-1",
+                "repo:1-agent",
+                crate::task_graph::MandateStrength::Write,
+                10,
+            )
+            .with_action_log_journal(ActionLogJournal::open(log_path).unwrap())
+            .with_tool_approval_store(crate::tool_approval::ToolApprovalStore::at(store_path))
+    }
+
+    async fn execute_write_probe(
+        runtime: &AgentRuntime,
+        run_id: &str,
+        call_id: &str,
+        arguments: serde_json::Value,
+    ) -> ToolObservation {
+        crate::tools::RUN_CONTEXT
+            .scope(
+                crate::tools::RunContext {
+                    run_id: run_id.into(),
+                    session_id: Some("ses-approval".into()),
+                },
+                runtime.execute_tool(
+                    &ToolCall {
+                        id: call_id.into(),
+                        name: "write_probe".into(),
+                        arguments,
+                    },
+                    &PermissionSet {
+                        allow_write: true,
+                        ..PermissionSet::default()
+                    },
+                    &CancellationToken::new(),
+                ),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn approved_gated_tool_executes_once_after_human_approval() {
+        let dir = tempfile::tempdir().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let log_path = dir.path().join("action-records.jsonl");
+        let store_path = dir.path().join("tool-approvals.json");
+        let runtime = approval_runtime(dir.path(), active.clone(), &log_path, &store_path);
+        let run_id = "run-approval-flow";
+
+        let first = execute_write_probe(&runtime, run_id, "call-a", serde_json::json!({})).await;
+        assert_eq!(first.status, ToolStatus::PermissionDenied, "{first:?}");
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        let card_id = first
+            .metadata
+            .get("approval_card_id")
+            .expect("pending card id")
+            .clone();
+
+        let store = crate::tool_approval::ToolApprovalStore::at(&store_path);
+        store.approve(&card_id, action_now_ms()).unwrap();
+
+        let retry = execute_write_probe(&runtime, run_id, "call-b", serde_json::json!({})).await;
+        assert_eq!(retry.status, ToolStatus::Ok, "{retry:?}");
+        assert_eq!(active.load(Ordering::SeqCst), 1);
+        assert_eq!(retry.metadata.get("approval_card_id"), Some(&card_id));
+        let record = ActionLogJournal::open(&log_path)
+            .unwrap()
+            .log()
+            .action_record(&format!("{run_id}:call-b"))
+            .cloned()
+            .expect("executed action record");
+        assert_eq!(record.status, ActionStatus::Executed);
+        assert_eq!(record.approval_card_id.as_deref(), Some(card_id.as_str()));
+
+        let third = execute_write_probe(&runtime, run_id, "call-c", serde_json::json!({})).await;
+        assert_eq!(third.status, ToolStatus::PermissionDenied);
+        assert_eq!(active.load(Ordering::SeqCst), 1);
+        assert_ne!(
+            third.metadata.get("approval_card_id").map(String::as_str),
+            Some(card_id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn changed_arguments_require_a_new_approval_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let log_path = dir.path().join("action-records.jsonl");
+        let store_path = dir.path().join("tool-approvals.json");
+        let runtime = approval_runtime(dir.path(), active.clone(), &log_path, &store_path);
+        let run_id = "run-args-flow";
+
+        let first =
+            execute_write_probe(&runtime, run_id, "call-a", serde_json::json!({"x": 1})).await;
+        let card_id = first
+            .metadata
+            .get("approval_card_id")
+            .expect("pending card id")
+            .clone();
+        crate::tool_approval::ToolApprovalStore::at(&store_path)
+            .approve(&card_id, action_now_ms())
+            .unwrap();
+
+        let changed =
+            execute_write_probe(&runtime, run_id, "call-b", serde_json::json!({"x": 2})).await;
+        assert_eq!(changed.status, ToolStatus::PermissionDenied);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_ne!(
+            changed.metadata.get("approval_card_id").map(String::as_str),
+            Some(card_id.as_str())
+        );
+
+        let matching =
+            execute_write_probe(&runtime, run_id, "call-c", serde_json::json!({"x": 1})).await;
+        assert_eq!(matching.status, ToolStatus::Ok, "{matching:?}");
+        assert_eq!(active.load(Ordering::SeqCst), 1);
+        assert_eq!(matching.metadata.get("approval_card_id"), Some(&card_id));
     }
 
     #[test]

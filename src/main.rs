@@ -2747,6 +2747,25 @@ enum ActionCommand {
         #[arg(long)]
         json: bool,
     },
+    /// List pending/decided tool approval cards.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Approve a pending tool approval card.
+    Approve {
+        card_id: String,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Deny a pending tool approval card.
+    Deny {
+        card_id: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -5327,6 +5346,31 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
+fn tool_approval_status_label(status: first_principles_agent::ToolApprovalStatus) -> &'static str {
+    use first_principles_agent::ToolApprovalStatus;
+    match status {
+        ToolApprovalStatus::Pending => "pending",
+        ToolApprovalStatus::Approved => "approved",
+        ToolApprovalStatus::Denied => "denied",
+        ToolApprovalStatus::Consumed => "consumed",
+    }
+}
+
+fn confirm_tool_approval(card: &first_principles_agent::ToolApprovalCard) -> Result<bool> {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        bail!("`action approve` needs an interactive TTY; use --yes to approve non-interactively");
+    }
+    print!(
+        "Approve {} on run {} (args sha256 {})? [y/N] ",
+        card.tool, card.run_id, card.arguments_sha256
+    );
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(matches!(line.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
+}
+
 fn goal_status_label(status: first_principles_agent::GoalStatus) -> &'static str {
     use first_principles_agent::GoalStatus;
     match status {
@@ -6017,6 +6061,9 @@ async fn main() -> Result<()> {
                 if let Some(journal) = action_journal {
                     runtime = runtime.with_action_log_journal(journal);
                 }
+                runtime = runtime.with_tool_approval_store(
+                    first_principles_agent::ToolApprovalStore::default_store(),
+                );
             }
             if let Some(health) = health {
                 runtime = runtime.with_provider_health(health);
@@ -8206,6 +8253,86 @@ async fn main() -> Result<()> {
                 }
                 if !report.ok {
                     std::process::exit(1);
+                }
+            }
+            ActionCommand::List { json } => {
+                let store = first_principles_agent::ToolApprovalStore::default_store();
+                let cards = store.list()?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": true,
+                            "store": store.path().display().to_string(),
+                            "count": cards.len(),
+                            "cards": cards,
+                        }))?
+                    );
+                } else if cards.is_empty() {
+                    println!("no tool approval cards");
+                } else {
+                    for card in &cards {
+                        println!(
+                            "{}  [{}]  {}  run={}  args={}  risk={:?}  reversible={}",
+                            card.card_id,
+                            tool_approval_status_label(card.status),
+                            card.tool,
+                            card.run_id,
+                            card.arguments_sha256,
+                            card.risk,
+                            card.reversible
+                        );
+                    }
+                }
+            }
+            ActionCommand::Approve { card_id, yes, json } => {
+                let store = first_principles_agent::ToolApprovalStore::default_store();
+                let stored = store
+                    .get(&card_id)?
+                    .ok_or_else(|| anyhow::anyhow!("tool approval card {card_id} not found"))?;
+                if stored.status != first_principles_agent::ToolApprovalStatus::Pending {
+                    bail!(
+                        "tool approval card {card_id} is {}, not pending",
+                        tool_approval_status_label(stored.status)
+                    );
+                }
+                if now_ms() > stored.expires_ms {
+                    bail!("tool approval card {card_id} expired; retry the action for a new card");
+                }
+                if !yes && !confirm_tool_approval(&stored)? {
+                    bail!("tool approval card {card_id} not approved");
+                }
+                let card = store.approve(&card_id, now_ms())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": true,
+                            "status": "approved",
+                            "card": card,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "approved {}; retry the same tool call to execute it",
+                        card.card_id
+                    );
+                }
+            }
+            ActionCommand::Deny { card_id, json } => {
+                let store = first_principles_agent::ToolApprovalStore::default_store();
+                let card = store.deny(&card_id, now_ms())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": true,
+                            "status": "denied",
+                            "card": card,
+                        }))?
+                    );
+                } else {
+                    println!("denied {}", card.card_id);
                 }
             }
         },

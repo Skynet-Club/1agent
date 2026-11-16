@@ -630,6 +630,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   --log PATH [--action-id ID]` prints the latest records; `1agent action verify
   --journal PATH --log PATH` runs the reconciler and exits non-zero with the
   issue list when either side is incomplete.
+- When Authority returns `require_approval`, a gated run creates a persistent
+  tool approval card bound to the run, tool and canonical arguments digest
+  (object keys sorted). A human approves or denies it with `1agent action
+  approve|deny|list`; a retry with the same run/tool/arguments consumes the
+  approved card exactly once. Changed arguments, another run, denial, expiry
+  or reuse requires a new card. Authority remains the only allow/deny source;
+  the card only satisfies an approval requirement it already produced.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
 - Write authority is true by default for local CLI/TUI; `--read-only` disables it.
