@@ -401,6 +401,23 @@ impl TuiClarifyState {
         }
     }
 
+    /// Select an option by its zero-based index. Used by the bottom bar's
+    /// number-key shortcuts; selection policy stays in `select_current`.
+    pub fn select_option(&mut self, index: usize, now_ms: u128) -> TuiClarifyStep {
+        if self.editing_other || self.all_resolved() {
+            return TuiClarifyStep::None;
+        }
+        let Some(question) = self.current_question() else {
+            return TuiClarifyStep::None;
+        };
+        if index >= question.options.len() {
+            return TuiClarifyStep::None;
+        }
+        self.option_index = index;
+        self.error = None;
+        self.select_current(now_ms)
+    }
+
     fn skip_current(&mut self, now_ms: u128) -> TuiClarifyStep {
         let Some(question) = self.current_question() else {
             return TuiClarifyStep::None;
@@ -607,6 +624,15 @@ mod tests {
         assert_eq!(state.question_index(), 1);
         state.handle_input(TuiInput::Left, 2);
         assert_eq!(state.question_index(), 0);
+    }
+
+    #[test]
+    fn number_selection_uses_the_option_index() {
+        let mut state = TuiClarifyState::new(panel());
+        assert_eq!(state.select_option(1, 1), TuiClarifyStep::Redraw);
+        assert_eq!(state.panel().answers.len(), 1);
+        assert_eq!(state.panel().answers[0].option_id.as_deref(), Some("b"));
+        assert_eq!(state.select_option(9, 2), TuiClarifyStep::None);
     }
 
     #[test]
