@@ -1,8 +1,8 @@
 # ADR 0123: Clarify TUI Batch Panel
 
-- Status: accepted
+- Status: amended by ADR-0141 (bottom clarify bar; the full-screen modal is no longer used)
 - Date: 2026-11-12
-- Related: SA97-35
+- Related: SA97-35, ADR-0141
 
 ## Context
 

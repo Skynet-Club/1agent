@@ -81,31 +81,38 @@ Workshop Master additionally exposes 15 production-control commands:
 The Master drawer is stage-aware: no mission shows 27 commands, framing 29, approval 30 and
 running 35. Worker mode never exposes Master commands.
 
-## Clarify panel
+## Clarify bar
 
-`/clarify <questions.json>` opens a full-screen blocking panel. The file is an
-array or an object with `questions` (≤1 MiB); the panel admits 1–5 questions
-and requires at least one blocking question. The recommended option is first
-and an `Other` option is added automatically.
+`/clarify <questions.json>` opens a bottom clarify bar in the input-panel
+area; the transcript stays visible. The file is an array or an object with
+`questions` (≤1 MiB); the bar admits 1–5 questions and requires at least one
+blocking question. The recommended option is first and an `Other` option is
+added automatically. One question uses a 7-row bar; a batch shows one question
+at a time in an 8-row bar with a `第 x/y 题` title.
 
 Keys:
 
+- `1`–`4`: select an option directly;
 - `↑/↓`: move between options;
 - `←/→` or `Tab`: move between questions;
 - `Enter`: lock the selected option; once every question is locked, `Enter`
   submits the batch;
 - `S` or space: skip the current question;
-- `Esc`: pause the round; a second `Esc` (or `Ctrl+C`) cancels it;
+- `Esc`: collapse the bar into a one-line pending row; it no longer cancels;
+- `C` or `Enter`: expand a collapsed bar;
+- `Ctrl+C`: cancel the round;
+- `PageUp`/`PageDown`: scroll the transcript while the bar is open;
 - selecting `Other` opens an inline editor; `Enter` validates and locks it,
   `Esc` leaves the editor; paste is single-line and capped at 500 characters.
 
-The panel polls expiry every 500 ms. A timed-out round leaves missing
-questions unanswered and keeps the default answer valid. The result is shown
-once in the transcript and written to `/details` as JSON. Line mode reports
-that the panel needs an interactive terminal. The interactive TUI also
-registers a model-initiated `clarify` tool; the tool validates 1–5 questions,
-waits up to 310 seconds and returns the summary and answers as a JSON tool
-observation. Persistent question history is not implemented yet.
+The bar polls expiry every 500 ms; the countdown appears only in the last 60
+seconds. A timed-out round leaves missing questions unanswered and keeps the
+default answer valid. The result is shown once in the transcript and written
+to `/details` as JSON. Line mode reports that the clarify UI needs an
+interactive terminal. The interactive TUI also registers a model-initiated
+`clarify` tool; the tool validates 1–5 questions, waits up to 310 seconds and
+returns the summary and answers as a JSON tool observation. Persistent
+question history is not implemented yet.
 
 ## First-principles commands
 

@@ -313,12 +313,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   machine: one to five questions, per-question lock, required `Other` text, one confirm, cancel,
   and a 300-second expiry; an all-skipped confirm is a cancellation. `1agent clarify` exposes the
   gate and round resolution. The TUI `/clarify <questions.json>` command renders a
-  blocking 1–5 question modal with per-question lock, an inline `Other` editor, one
-  confirm, cancel and a 500 ms expiry poll; the resolved round is shown in the
-  transcript and written to `/details`. The interactive TUI registers a
-  `clarify` runtime tool, so the model can open the panel and receives the
-  resolved round as a tool observation; line and headless runs do not register
-  it. Persistent question history is still absent.
+  bottom clarify bar in the input-panel area (ADR-0141), with per-question lock,
+  an inline `Other` editor, one confirm, cancel, a 500 ms expiry poll and a
+  one-line collapsed pending state; the transcript stays visible. The resolved
+  round is shown in the transcript and written to `/details`. The interactive
+  TUI registers a `clarify` runtime tool, so the model can open the bar and
+  receives the resolved round as a tool observation; line and headless runs do
+  not register it. Persistent question history is still absent.
 - Watchdog escalation: `WatchdogPolicy` maps heartbeat age to `ok`/`warn`/`pause`/`repair`.
   `pause`/`repair` are recommendations by default; `--execute pause/resume` is an explicit,
   checked SIGSTOP/SIGCONT path and never kills or restarts. `--watch --execute pause` is an

@@ -1,4 +1,4 @@
-use crate::clarify::{ClarifyAnswerStatus, ClarifyPanel, OTHER_OPTION_ID};
+use crate::clarify::{ClarifyPanel, OTHER_OPTION_ID};
 use crate::domain::{CognitiveMode, RiskLevel};
 use crate::safety::is_disallowed_control;
 use crate::subagent_registry::SubagentRecord;
@@ -835,6 +835,7 @@ pub struct TuiState {
     selected_command: usize,
     activity_frame: usize,
     clarify: Option<TuiClarifyState>,
+    clarify_collapsed: bool,
     last_clarify: Option<TuiClarifyResult>,
     secret_input: Option<SecretInput>,
     provider_models: Vec<String>,
@@ -909,6 +910,7 @@ impl TuiState {
             selected_command: 0,
             activity_frame: 0,
             clarify: None,
+            clarify_collapsed: false,
             last_clarify: None,
             secret_input: None,
             provider_models: Vec::new(),
@@ -2108,11 +2110,16 @@ impl TuiState {
 
     pub fn open_clarify(&mut self, panel: ClarifyPanel) {
         self.clarify = Some(TuiClarifyState::new(panel));
+        self.clarify_collapsed = false;
         self.last_clarify = None;
     }
 
     pub fn clarify_open(&self) -> bool {
         self.clarify.is_some()
+    }
+
+    pub fn clarify_collapsed(&self) -> bool {
+        self.clarify_collapsed
     }
 
     pub fn clarify(&self) -> Option<&TuiClarifyState> {
@@ -2129,9 +2136,61 @@ impl TuiState {
 
     pub fn close_clarify(&mut self) {
         self.clarify = None;
+        self.clarify_collapsed = false;
     }
 
     pub fn handle_clarify_input(&mut self, input: TuiInput, now_ms: u128) -> bool {
+        if self.clarify.is_none() {
+            return false;
+        }
+        if matches!(
+            &input,
+            TuiInput::PageUp | TuiInput::ScrollUp | TuiInput::PageDown | TuiInput::ScrollDown
+        ) {
+            match &input {
+                TuiInput::PageUp | TuiInput::ScrollUp => self.scroll_up(8),
+                _ => self.scroll_down(8),
+            }
+            return true;
+        }
+        if self.clarify_collapsed {
+            match &input {
+                TuiInput::Char('c' | 'C') | TuiInput::Enter => {
+                    self.clarify_collapsed = false;
+                    return true;
+                }
+                TuiInput::CtrlC => {}
+                _ => return false,
+            }
+        }
+        if input == TuiInput::Escape {
+            let editing_other = self
+                .clarify
+                .as_ref()
+                .is_some_and(|clarify| clarify.editing_other());
+            if !editing_other {
+                self.clarify_collapsed = true;
+                return true;
+            }
+        }
+        if let TuiInput::Char(character) = &input {
+            let editing_other = self
+                .clarify
+                .as_ref()
+                .is_some_and(|clarify| clarify.editing_other());
+            if !editing_other
+                && let Some(digit) = character.to_digit(10)
+                && digit >= 1
+            {
+                let step = self
+                    .clarify
+                    .as_mut()
+                    .map(|clarify| clarify.select_option((digit - 1) as usize, now_ms));
+                if let Some(step) = step {
+                    return self.apply_clarify_step(step);
+                }
+            }
+        }
         let step = match self.clarify.as_mut() {
             Some(clarify) => clarify.handle_input(input, now_ms),
             None => return false,
@@ -2163,6 +2222,7 @@ impl TuiState {
 
     fn finish_clarify(&mut self, result: TuiClarifyResult) {
         self.clarify = None;
+        self.clarify_collapsed = false;
         let summary = &result.summary;
         self.info(format!(
             "澄清结果：{} · 已回答 {} · 跳过 {} · 未回答 {} · 默认答案有效 {}",
@@ -2737,7 +2797,19 @@ impl TuiState {
             frame.area(),
         );
         let folded = self.input_panel_folds(frame.area().width);
-        let panel_height: u16 = if folded { 6 } else { 5 };
+        let clarify_height = self.clarify.as_ref().map(|clarify| {
+            if self.clarify_collapsed {
+                1
+            } else if clarify.panel().questions.len() > 1 {
+                8
+            } else {
+                7
+            }
+        });
+        let desired_panel_height = clarify_height.unwrap_or(if folded { 6 } else { 5 });
+        let panel_height = desired_panel_height
+            .min(frame.area().height.saturating_sub(4))
+            .max(1);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -2759,13 +2831,17 @@ impl TuiState {
             chunks[1],
         );
         let panel_area = chunks[2];
-        let composer_area = Rect {
-            x: panel_area.x,
-            y: panel_area.y.saturating_add(if folded { 2 } else { 1 }),
-            width: panel_area.width,
-            height: 3,
-        };
-        self.draw_input_panel(frame, panel_area, composer_area, folded);
+        if let Some(clarify) = &self.clarify {
+            draw_clarify_bar(frame, clarify, panel_area, self.clarify_collapsed);
+        } else {
+            let composer_area = Rect {
+                x: panel_area.x,
+                y: panel_area.y.saturating_add(if folded { 2 } else { 1 }),
+                width: panel_area.width,
+                height: 3,
+            };
+            self.draw_input_panel(frame, panel_area, composer_area, folded);
+        }
 
         if self.slash_drawer_open() {
             let rows = self.filtered_drawer_rows();
@@ -2793,9 +2869,6 @@ impl TuiState {
         }
         if self.session_picker_open() {
             self.draw_session_picker(frame, frame.area());
-        }
-        if let Some(clarify) = &self.clarify {
-            draw_clarify_panel(frame, clarify);
         }
     }
 
@@ -6229,40 +6302,81 @@ fn looks_like_code_line(line: &str) -> bool {
             .all(|character| character.is_alphanumeric() || "_$.:".contains(character))
 }
 
-fn draw_clarify_panel(frame: &mut Frame, clarify: &TuiClarifyState) {
-    let area = frame.area();
+fn draw_clarify_bar(frame: &mut Frame, clarify: &TuiClarifyState, area: Rect, collapsed: bool) {
     if area.is_empty() {
         return;
     }
-    frame.render_widget(Clear, area);
+    let bg = Style::default().bg(PANEL_BG);
+    let border_style = Style::default().fg(PANEL_GREEN).bg(PANEL_BG);
+    let text_style = Style::default().fg(PANEL_TEXT_GREEN).bg(PANEL_BG);
+    let Some(question) = clarify.current_question() else {
+        return;
+    };
+    let width = usize::from(area.width.max(1));
+
+    if collapsed {
+        let prompt = truncate_to_width(
+            &sanitize_inline(question.prompt.trim()),
+            width.saturating_sub(" 待回答：  C 展开 · Ctrl+C 取消".width() + 2),
+        );
+        let line = Line::from(vec![
+            Span::styled(
+                " 待回答：",
+                Style::default()
+                    .fg(MENU_LABEL)
+                    .bg(PANEL_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(prompt, text_style),
+            Span::styled(
+                "  C 展开 · Ctrl+C 取消",
+                Style::default().fg(MENU_HINT).bg(PANEL_BG),
+            ),
+        ]);
+        frame.render_widget(
+            Paragraph::new(line).style(bg),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        return;
+    }
+
     let remaining = clarify.remaining_seconds(now_unix_ms());
-    let title = Line::from(vec![
-        Span::styled(
-            " 澄清 Clarify ",
-            Style::default().fg(MENU_LABEL).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("· 剩余 {:02}:{:02} ", remaining / 60, remaining % 60),
-            Style::default().fg(if remaining <= 60 {
-                Color::Yellow
-            } else {
-                PANEL_TEXT_GREEN
-            }),
-        ),
-    ]);
-    let hint = if clarify.all_resolved() {
-        " Enter 提交 · Esc 取消 "
-    } else if clarify.editing_other() {
-        " 输入 Other · Enter 确认 · Esc 返回 "
+    let mut title = if clarify.panel().questions.len() > 1 {
+        format!(
+            " 先确认方向 · 第 {}/{} 题 ",
+            clarify.question_index() + 1,
+            clarify.panel().questions.len()
+        )
     } else {
-        " ↑↓ 选项 · ←→ 问题 · Enter 选择 · S 跳过 · Esc 取消 "
+        " 先确认方向 · 答完就继续 ".to_string()
+    };
+    if remaining <= 60 {
+        title.push_str(&format!(
+            "· 剩余 {:02}:{:02} ",
+            remaining / 60,
+            remaining % 60
+        ));
+    }
+    let hint = if clarify.all_resolved() {
+        " Enter 提交 · Esc 收起 · Ctrl+C 取消 "
+    } else if clarify.editing_other() {
+        " 输入其他 · Enter 确认 · Esc 返回 "
+    } else {
+        " 数字键选择 · ↑↓ 移动 · Enter 确认 · S 跳过 · Esc 收起 "
     };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(PANEL_GREEN).bg(MENU_BG))
-        .title(title)
+        .border_style(border_style)
+        .style(bg)
+        .title(Line::styled(
+            title,
+            Style::default()
+                .fg(MENU_LABEL)
+                .bg(PANEL_BG)
+                .add_modifier(Modifier::BOLD),
+        ))
         .title_bottom(
-            Line::styled(hint, Style::default().fg(PANEL_TEXT_GREEN).bg(MENU_BG))
+            Line::styled(hint, Style::default().fg(MENU_HINT).bg(PANEL_BG))
                 .alignment(Alignment::Center),
         );
     let body = block.inner(area);
@@ -6270,89 +6384,67 @@ fn draw_clarify_panel(frame: &mut Frame, clarify: &TuiClarifyState) {
     if body.is_empty() {
         return;
     }
-    let width = usize::from(body.width.saturating_sub(2).max(1));
+    let inner_width = usize::from(body.width.saturating_sub(1).max(1));
+    let answer = clarify
+        .panel()
+        .answers
+        .iter()
+        .find(|answer| answer.question_id == question.id);
     let mut lines: Vec<Line<'static>> = Vec::new();
-    let mut focus_line = 0usize;
-    for (question_index, question) in clarify.panel().questions.iter().enumerate() {
-        let focused_question = question_index == clarify.question_index();
-        let answer = clarify
-            .panel()
-            .answers
-            .iter()
-            .find(|answer| answer.question_id == question.id);
-        let marker = if focused_question { "▌ " } else { "  " };
-        let status = match answer {
-            Some(answer) if answer.status == ClarifyAnswerStatus::Answered => " · 已锁定",
-            Some(_) => " · 已跳过",
-            None if question.blocking => " · 必答",
-            None => "",
-        };
-        let header = format!(
-            "{marker}{}. {}{status}",
-            question_index + 1,
-            question.prompt
-        );
-        let header_style = if focused_question {
-            Style::default().fg(MENU_LABEL).add_modifier(Modifier::BOLD)
+    let prompt = sanitize_inline(question.prompt.trim());
+    for part in wrap_display(&prompt, inner_width).into_iter().take(2) {
+        lines.push(Line::styled(
+            part,
+            Style::default().fg(MENU_LABEL).add_modifier(Modifier::BOLD),
+        ));
+    }
+    for (option_index, option) in question.options.iter().enumerate() {
+        let focused = option_index == clarify.option_index();
+        let selected =
+            answer.and_then(|answer| answer.option_id.as_deref()) == Some(option.id.as_str());
+        let mark = if focused { "› " } else { "  " };
+        let check = if selected { "✓ " } else { "  " };
+        let text = if option.id == OTHER_OPTION_ID {
+            if clarify.editing_other() && focused {
+                format!(
+                    "{mark}{check}{}. 其他：{}▌",
+                    option_index + 1,
+                    clarify.other_text()
+                )
+            } else {
+                format!("{mark}{check}{}. 其他…", option_index + 1)
+            }
         } else {
-            Style::default().fg(PANEL_TEXT_GREEN)
+            let recommended = if option.recommended { " · 推荐" } else { "" };
+            format!(
+                "{mark}{check}{}. {}{}",
+                option_index + 1,
+                option.label,
+                recommended
+            )
         };
-        for part in wrap_display(&header, width) {
-            lines.push(Line::styled(part, header_style));
-        }
-        if focused_question {
-            focus_line = lines.len().saturating_sub(1);
-        }
-        for (option_index, option) in question.options.iter().enumerate() {
-            let focused_option = focused_question && option_index == clarify.option_index();
-            let selected =
-                answer.and_then(|answer| answer.option_id.as_deref()) == Some(option.id.as_str());
-            let mark = if focused_option { "› " } else { "  " };
-            let check = if selected { "[x]" } else { "[ ]" };
-            let text = if option.id == OTHER_OPTION_ID {
-                if clarify.editing_other() && focused_option {
-                    format!("{mark}{check} Other: {}▌", clarify.other_text())
-                } else {
-                    format!("{mark}{check} Other…")
-                }
-            } else {
-                let recommended = if option.recommended { " · 推荐" } else { "" };
-                format!("{mark}{check} {}{recommended}", option.label)
-            };
-            let style = if focused_option {
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD)
-            } else if selected {
-                Style::default().fg(MARK_GREEN)
-            } else {
-                Style::default().fg(PANEL_TEXT_GREEN)
-            };
-            for part in wrap_display(&text, width) {
-                lines.push(Line::styled(part, style));
-            }
-            if focused_option {
-                focus_line = lines.len().saturating_sub(1);
-            }
-        }
-        lines.push(Line::raw(""));
+        let style = if focused {
+            Style::default()
+                .fg(Color::White)
+                .bg(PANEL_BG)
+                .add_modifier(Modifier::BOLD)
+        } else if selected {
+            Style::default().fg(MARK_GREEN).bg(PANEL_BG)
+        } else {
+            text_style
+        };
+        lines.push(Line::styled(
+            truncate_to_width(&sanitize_inline(&text), inner_width),
+            style,
+        ));
     }
     if let Some(error) = clarify.error() {
         lines.push(Line::styled(
-            format!("错误：{error}"),
-            Style::default().fg(Color::LightRed),
+            truncate_to_width(&format!("错误：{error}"), inner_width),
+            Style::default().fg(Color::LightRed).bg(PANEL_BG),
         ));
     }
-    let visible = usize::from(body.height.max(1));
-    let offset = focus_line
-        .saturating_sub(visible / 2)
-        .min(lines.len().saturating_sub(visible));
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(Style::default().bg(MENU_BG))
-            .scroll((u16::try_from(offset).unwrap_or(u16::MAX), 0)),
-        body,
-    );
+    frame.render_widget(Paragraph::new(lines).style(bg), body);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9415,10 +9507,11 @@ int main(int argc, char **argv) {
     }
 
     #[test]
-    fn clarify_panel_renders_question_options_and_footer() {
+    fn clarify_bar_renders_question_options_and_footer() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
+        state.info("上一轮回答还在");
         state.open_clarify(clarify_panel_for_tui());
         terminal.draw(|frame| state.draw(frame)).unwrap();
         let content = terminal
@@ -9429,15 +9522,16 @@ int main(int argc, char **argv) {
             .map(|cell| cell.symbol())
             .collect::<String>()
             .replace(' ', "");
-        assert!(content.contains("澄清Clarify"));
+        assert!(content.contains("上一轮回答还在"));
+        assert!(content.contains("先确认方向"));
         assert!(content.contains("Whichoption?"));
         assert!(content.contains("Alpha"));
-        assert!(content.contains("其他") || content.contains("Other"));
-        assert!(content.contains("Enter提交") || content.contains("Enter选择"));
+        assert!(content.contains("其他"));
+        assert!(content.contains("Esc收起"));
     }
 
     #[test]
-    fn clarify_panel_renders_the_other_editor() {
+    fn clarify_bar_renders_the_other_editor() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new("mock", 6, 120);
@@ -9457,8 +9551,71 @@ int main(int argc, char **argv) {
             .map(|cell| cell.symbol())
             .collect::<String>()
             .replace(' ', "");
-        assert!(content.contains("Other:自定义"));
-        assert!(content.contains("输入Other"));
+        assert!(content.contains("其他：自定义"));
+        assert!(content.contains("输入其他"));
+    }
+
+    #[test]
+    fn clarify_escape_collapses_and_c_expands_without_losing_transcript() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new("mock", 6, 120);
+        state.info("上一轮回答还在");
+        state.open_clarify(clarify_panel_for_tui());
+        let now = now_unix_ms();
+        assert!(state.handle_clarify_input(TuiInput::Escape, now));
+        assert!(state.clarify_open());
+        assert!(state.clarify_collapsed());
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(content.contains("上一轮回答还在"));
+        assert!(content.contains("待回答"));
+        assert!(content.contains("C展开"));
+
+        assert!(state.handle_clarify_input(TuiInput::Char('c'), now));
+        assert!(!state.clarify_collapsed());
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let content = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(content.contains("上一轮回答还在"));
+        assert!(content.contains("先确认方向"));
+    }
+
+    #[test]
+    fn clarify_number_keys_select_an_option() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_clarify(clarify_panel_for_tui());
+        let now = now_unix_ms();
+        assert!(state.handle_clarify_input(TuiInput::Char('2'), now));
+        let answer = &state.clarify().expect("clarify state").panel().answers[0];
+        assert_eq!(answer.option_id.as_deref(), Some("b"));
+        assert!(state.clarify_open());
+    }
+
+    #[test]
+    fn clarify_ctrl_c_still_cancels() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.open_clarify(clarify_panel_for_tui());
+        assert!(state.handle_clarify_input(TuiInput::CtrlC, now_unix_ms()));
+        assert!(!state.clarify_open());
+        let result = state.last_clarify().expect("clarify result");
+        assert_eq!(
+            result.summary.outcome,
+            crate::clarify::ClarifyOutcome::Cancelled
+        );
     }
 
     #[test]
