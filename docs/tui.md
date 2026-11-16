@@ -288,18 +288,20 @@ same native clipboard or OSC 52 fallback as mouse-copy.
 › Compare A and B under a fixed budget
 structured transcript, wrapped to the terminal width and scrollable
 
-╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ───── • ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ─── 13% · 12s ────╮
+╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ⠋ ───── • ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ─── 13% · 12s ────╮
 │                                                                                                  │
 │ › Compare A and B under a fixed budget                                                           │
 │                                                                                                  │
 ╰─ ● 运行中 · deepseek-flash · 直接回答 · Ctrl+T 模式 ────────────────────────────────────────────╯
 ```
 
-When the terminal is too narrow for the heading and metrics together, the metrics fold onto
-their own row inside the same fence instead of being truncated:
+While a run is active, the activity heading carries a rotating braille marker (`⠋`, `⠙`, `⠹`, …);
+the marker stops and is omitted when the run is paused or complete. When the terminal is too
+narrow for the heading and metrics together, the metrics fold onto their own row inside the
+same fence instead of being truncated:
 
 ```text
-╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ─────────╮
+╭─ • 模型思考 Thinking · 等待响应 · 第 1 步 ⠋ ─────────╮
 │ ↑ 1.2k / ↓ 340 · 缓存 40% · 上下文 ─────── 13% · 12s │
 │                                                     │
 │ › Compare A and B under a fixed budget               │
