@@ -1373,7 +1373,8 @@ fn map_goal_error(error: GoalError) -> SurfaceError {
         | GoalError::InvalidDescription
         | GoalError::EmptyTicketId
         | GoalError::EmptySessionId
-        | GoalError::EmptyRunId => SurfaceError::invalid(error.to_string()),
+        | GoalError::EmptyRunId
+        | GoalError::InvalidOutcomeReason => SurfaceError::invalid(error.to_string()),
         GoalError::GoalExists(_)
         | GoalError::CommitmentExists(_)
         | GoalError::GoalNotActive(_)
@@ -1381,6 +1382,11 @@ fn map_goal_error(error: GoalError) -> SurfaceError {
         | GoalError::SessionAlreadyBound { .. }
         | GoalError::GoalBoundToAnotherSession { .. }
         | GoalError::RunAlreadyBound { .. }
+        | GoalError::InsufficientEvidence { .. }
+        | GoalError::EvidenceRunNotLinked { .. }
+        | GoalError::OpenCommitmentsRemain { .. }
+        | GoalError::OpenCommitmentUnlisted { .. }
+        | GoalError::CommitmentGoalMismatch { .. }
         | GoalError::InvalidGoalTransition(_, _) => {
             SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
         }

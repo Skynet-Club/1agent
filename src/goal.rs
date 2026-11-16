@@ -49,6 +49,27 @@ pub enum GoalError {
     GoalBoundToAnotherSession { goal_id: String, session_id: String },
     #[error("run {run_id} is already linked to goal {goal_id}")]
     RunAlreadyBound { run_id: String, goal_id: String },
+    #[error("goal closure reason must be 1..={MAX_TEXT_CHARS} characters")]
+    InvalidOutcomeReason,
+    #[error("goal {goal_id} cannot be achieved: {reason}")]
+    InsufficientEvidence { goal_id: String, reason: String },
+    #[error("run {run_id} is not linked to goal {goal_id}")]
+    EvidenceRunNotLinked { run_id: String, goal_id: String },
+    #[error("goal {goal_id} still has open commitments: {commitment_ids:?}")]
+    OpenCommitmentsRemain {
+        goal_id: String,
+        commitment_ids: Vec<String>,
+    },
+    #[error("goal {goal_id} has an unlisted pending commitment {commitment_id}")]
+    OpenCommitmentUnlisted {
+        goal_id: String,
+        commitment_id: String,
+    },
+    #[error("commitment {commitment_id} does not belong to goal {goal_id}")]
+    CommitmentGoalMismatch {
+        commitment_id: String,
+        goal_id: String,
+    },
     #[error("invalid goal transition from {0:?} to {1:?}")]
     InvalidGoalTransition(GoalStatus, GoalStatus),
     #[error("goal log hash mismatch at {0}")]
@@ -139,6 +160,36 @@ pub struct Commitment {
     pub closed_ms: Option<u128>,
     #[serde(default)]
     pub ticket_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalClosure {
+    Achieved,
+    Abandoned,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalVerification {
+    Passed,
+    Failed,
+    Unknown,
+}
+
+/// Evidence for closing a goal. `achieved` needs a run linked to the goal and
+/// a passed verification; `abandoned` needs a reason and must enumerate every
+/// pending commitment, which is cancelled in the same hash-chained log.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GoalOutcome {
+    pub closure: GoalClosure,
+    #[serde(default)]
+    pub answer_run_id: Option<String>,
+    pub verification: GoalVerification,
+    #[serde(default)]
+    pub open_commitment_ids: Vec<String>,
+    pub reason: String,
 }
 
 /// Explicit Goal ↔ session/run/commitment binding. The fields are derived by
@@ -415,6 +466,127 @@ impl GoalGraph {
             },
             now_ms,
         )
+    }
+
+    /// Close a goal with explicit evidence. `achieved` is allowed only with a
+    /// linked run and a passed verification; `abandoned` requires a reason and
+    /// cancels every pending commitment of the goal in the same candidate
+    /// graph, so a failed call persists nothing.
+    pub fn close_with_evidence(
+        &mut self,
+        goal_id: &str,
+        outcome: GoalOutcome,
+        now_ms: u128,
+    ) -> Result<(), GoalError> {
+        let goal_status = self
+            .goals
+            .get(goal_id)
+            .ok_or_else(|| GoalError::UnknownGoal(goal_id.into()))?
+            .status;
+        validate_text(&outcome.reason, GoalError::InvalidOutcomeReason)?;
+        let pending = self
+            .commitments
+            .values()
+            .filter(|commitment| {
+                commitment.goal_id == goal_id && commitment.status == CommitmentStatus::Pending
+            })
+            .map(|commitment| commitment.commitment_id.clone())
+            .collect::<Vec<_>>();
+        for commitment_id in &outcome.open_commitment_ids {
+            let commitment = self
+                .commitments
+                .get(commitment_id)
+                .ok_or_else(|| GoalError::UnknownCommitment(commitment_id.clone()))?;
+            if commitment.goal_id != goal_id {
+                return Err(GoalError::CommitmentGoalMismatch {
+                    commitment_id: commitment_id.clone(),
+                    goal_id: goal_id.into(),
+                });
+            }
+            if commitment.status != CommitmentStatus::Pending {
+                return Err(GoalError::CommitmentNotPending(commitment_id.clone()));
+            }
+        }
+        match outcome.closure {
+            GoalClosure::Achieved => {
+                if goal_status != GoalStatus::Active {
+                    return Err(GoalError::GoalNotActive(goal_id.into()));
+                }
+                let run_id = outcome
+                    .answer_run_id
+                    .as_deref()
+                    .filter(|run_id| !run_id.trim().is_empty())
+                    .ok_or_else(|| GoalError::InsufficientEvidence {
+                        goal_id: goal_id.into(),
+                        reason: "a completed run id is required".into(),
+                    })?;
+                if self
+                    .binding_for_run(run_id)
+                    .map(|binding| binding.goal_id.as_str())
+                    != Some(goal_id)
+                {
+                    return Err(GoalError::EvidenceRunNotLinked {
+                        run_id: run_id.into(),
+                        goal_id: goal_id.into(),
+                    });
+                }
+                if outcome.verification != GoalVerification::Passed {
+                    return Err(GoalError::InsufficientEvidence {
+                        goal_id: goal_id.into(),
+                        reason: "verification did not pass".into(),
+                    });
+                }
+                if !pending.is_empty() || !outcome.open_commitment_ids.is_empty() {
+                    return Err(GoalError::OpenCommitmentsRemain {
+                        goal_id: goal_id.into(),
+                        commitment_ids: pending,
+                    });
+                }
+                self.append(
+                    GoalEventKind::GoalStatusChanged {
+                        goal_id: goal_id.into(),
+                        status: GoalStatus::Achieved,
+                        reason: outcome.reason,
+                    },
+                    now_ms,
+                )
+            }
+            GoalClosure::Abandoned => {
+                if !valid_goal_transition(goal_status, GoalStatus::Abandoned) {
+                    return Err(GoalError::InvalidGoalTransition(
+                        goal_status,
+                        GoalStatus::Abandoned,
+                    ));
+                }
+                for commitment_id in &pending {
+                    if !outcome.open_commitment_ids.contains(commitment_id) {
+                        return Err(GoalError::OpenCommitmentUnlisted {
+                            goal_id: goal_id.into(),
+                            commitment_id: commitment_id.clone(),
+                        });
+                    }
+                }
+                let reason = outcome.reason;
+                for commitment_id in &pending {
+                    self.append(
+                        GoalEventKind::CommitmentClosed {
+                            commitment_id: commitment_id.clone(),
+                            status: CommitmentStatus::Cancelled,
+                            note: reason.clone(),
+                        },
+                        now_ms,
+                    )?;
+                }
+                self.append(
+                    GoalEventKind::GoalStatusChanged {
+                        goal_id: goal_id.into(),
+                        status: GoalStatus::Abandoned,
+                        reason,
+                    },
+                    now_ms,
+                )
+            }
+        }
     }
 
     pub fn add_commitment(
@@ -827,6 +999,16 @@ pub fn link_run_to_goal(
     store.with_graph_mut(|graph| graph.link_run(goal_id, run_id, now_ms))
 }
 
+/// Close a goal with evidence through the store's hash-chained log.
+pub fn close_goal_with_evidence(
+    store: &mut GoalStore,
+    goal_id: &str,
+    outcome: GoalOutcome,
+    now_ms: u128,
+) -> Result<(), GoalError> {
+    store.with_graph_mut(|graph| graph.close_with_evidence(goal_id, outcome, now_ms))
+}
+
 fn append_events(
     path: &Path,
     next_seq: &mut u64,
@@ -1143,6 +1325,249 @@ mod tests {
         });
         let snapshot: GoalSnapshot = serde_json::from_value(legacy).unwrap();
         assert!(snapshot.bindings.is_empty());
+    }
+
+    #[test]
+    fn close_with_evidence_achieves_only_with_a_linked_run_and_passed_verification() {
+        let mut graph = GoalGraph::default();
+        graph
+            .create_goal("goal-1", "owner-1", "ship", None, 1)
+            .unwrap();
+        graph.bind_session("goal-1", "ses-1", 2).unwrap();
+        graph.link_run("goal-1", "run-1", 3).unwrap();
+        graph
+            .add_commitment("commit-1", "goal-1", "tests", None, 4)
+            .unwrap();
+        graph
+            .close_commitment("commit-1", CommitmentStatus::Kept, "passed", 5)
+            .unwrap();
+        let outcome = GoalOutcome {
+            closure: GoalClosure::Achieved,
+            answer_run_id: Some("run-1".into()),
+            verification: GoalVerification::Passed,
+            open_commitment_ids: Vec::new(),
+            reason: "tests and artifacts verified".into(),
+        };
+        graph
+            .close_with_evidence("goal-1", outcome.clone(), 6)
+            .unwrap();
+        assert_eq!(graph.goal("goal-1").unwrap().status, GoalStatus::Achieved);
+        let replayed = GoalGraph::replay(graph.events()).unwrap();
+        assert_eq!(replayed.snapshot(), graph.snapshot());
+        assert!(matches!(
+            graph.close_with_evidence("goal-1", outcome, 7).unwrap_err(),
+            GoalError::GoalNotActive(id) if id == "goal-1"
+        ));
+    }
+
+    #[test]
+    fn close_with_evidence_rejects_unproven_achieved() {
+        fn outcome(
+            run: Option<&str>,
+            verification: GoalVerification,
+            open: &[&str],
+            reason: &str,
+        ) -> GoalOutcome {
+            GoalOutcome {
+                closure: GoalClosure::Achieved,
+                answer_run_id: run.map(str::to_string),
+                verification,
+                open_commitment_ids: open.iter().map(|id| id.to_string()).collect(),
+                reason: reason.into(),
+            }
+        }
+
+        let mut graph = GoalGraph::default();
+        graph
+            .create_goal("goal-1", "owner-1", "ship", None, 1)
+            .unwrap();
+        graph.link_run("goal-1", "run-1", 2).unwrap();
+        graph
+            .add_commitment("commit-1", "goal-1", "tests", None, 3)
+            .unwrap();
+        graph
+            .create_goal("goal-2", "owner-1", "other", None, 4)
+            .unwrap();
+        graph
+            .add_commitment("commit-2", "goal-2", "other tests", None, 5)
+            .unwrap();
+
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(None, GoalVerification::Passed, &[], "done"),
+                    6
+                )
+                .unwrap_err(),
+            GoalError::InsufficientEvidence { .. }
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(Some("run-missing"), GoalVerification::Passed, &[], "done"),
+                    7
+                )
+                .unwrap_err(),
+            GoalError::EvidenceRunNotLinked { run_id, .. } if run_id == "run-missing"
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(Some("run-1"), GoalVerification::Failed, &[], "done"),
+                    8
+                )
+                .unwrap_err(),
+            GoalError::InsufficientEvidence { .. }
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(Some("run-1"), GoalVerification::Passed, &[], "done"),
+                    9
+                )
+                .unwrap_err(),
+            GoalError::OpenCommitmentsRemain { commitment_ids, .. }
+                if commitment_ids == ["commit-1"]
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(Some("run-1"), GoalVerification::Passed, &["missing"], "done"),
+                    10
+                )
+                .unwrap_err(),
+            GoalError::UnknownCommitment(id) if id == "missing"
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(Some("run-1"), GoalVerification::Passed, &["commit-2"], "done"),
+                    11
+                )
+                .unwrap_err(),
+            GoalError::CommitmentGoalMismatch { commitment_id, .. }
+                if commitment_id == "commit-2"
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence(
+                    "goal-1",
+                    outcome(Some("run-1"), GoalVerification::Passed, &[], ""),
+                    12
+                )
+                .unwrap_err(),
+            GoalError::InvalidOutcomeReason
+        ));
+        assert_eq!(graph.goal("goal-1").unwrap().status, GoalStatus::Active);
+    }
+
+    #[test]
+    fn abandoned_closure_requires_reason_and_cancels_every_pending_commitment() {
+        let abandoned = |open: &[&str], reason: &str| GoalOutcome {
+            closure: GoalClosure::Abandoned,
+            answer_run_id: None,
+            verification: GoalVerification::Unknown,
+            open_commitment_ids: open.iter().map(|id| id.to_string()).collect(),
+            reason: reason.into(),
+        };
+
+        let mut graph = GoalGraph::default();
+        graph
+            .create_goal("goal-1", "owner-1", "ship", None, 1)
+            .unwrap();
+        graph
+            .add_commitment("commit-1", "goal-1", "notes", None, 2)
+            .unwrap();
+        graph
+            .add_commitment("commit-2", "goal-1", "tests", None, 3)
+            .unwrap();
+        graph
+            .close_commitment("commit-2", CommitmentStatus::Missed, "late", 4)
+            .unwrap();
+        assert!(matches!(
+            graph
+                .close_with_evidence("goal-1", abandoned(&[], "scope dropped"), 5)
+                .unwrap_err(),
+            GoalError::OpenCommitmentUnlisted { commitment_id, .. }
+                if commitment_id == "commit-1"
+        ));
+        assert!(matches!(
+            graph
+                .close_with_evidence("goal-1", abandoned(&["commit-2"], "scope dropped"), 6)
+                .unwrap_err(),
+            GoalError::CommitmentNotPending(id) if id == "commit-2"
+        ));
+        graph
+            .close_with_evidence("goal-1", abandoned(&["commit-1"], "scope dropped"), 7)
+            .unwrap();
+        assert_eq!(graph.goal("goal-1").unwrap().status, GoalStatus::Abandoned);
+        assert_eq!(
+            graph.commitment("commit-1").unwrap().status,
+            CommitmentStatus::Cancelled
+        );
+        assert_eq!(graph.commitment("commit-1").unwrap().closed_ms, Some(7));
+        assert_eq!(
+            graph.commitment("commit-2").unwrap().status,
+            CommitmentStatus::Missed
+        );
+        let replayed = GoalGraph::replay(graph.events()).unwrap();
+        assert_eq!(replayed.snapshot(), graph.snapshot());
+
+        graph
+            .create_goal("goal-2", "owner-1", "paused goal", None, 8)
+            .unwrap();
+        graph
+            .set_goal_status("goal-2", GoalStatus::Paused, "waiting", 9)
+            .unwrap();
+        graph
+            .close_with_evidence("goal-2", abandoned(&[], "cancelled"), 10)
+            .unwrap();
+        assert_eq!(graph.goal("goal-2").unwrap().status, GoalStatus::Abandoned);
+        assert!(matches!(
+            graph
+                .close_with_evidence("goal-2", abandoned(&[], "again"), 11)
+                .unwrap_err(),
+            GoalError::InvalidGoalTransition(GoalStatus::Abandoned, GoalStatus::Abandoned)
+        ));
+    }
+
+    #[test]
+    fn store_level_close_helper_persists_and_replays() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("goals.jsonl");
+        let mut store = GoalStore::open(&path).unwrap();
+        store
+            .with_graph_mut(|graph| graph.create_goal("goal-1", "owner-1", "ship", None, 1))
+            .unwrap();
+        bind_session_goal(&mut store, "goal-1", "ses-1", 2).unwrap();
+        link_run_to_goal(&mut store, "goal-1", "run-1", 3).unwrap();
+        close_goal_with_evidence(
+            &mut store,
+            "goal-1",
+            GoalOutcome {
+                closure: GoalClosure::Achieved,
+                answer_run_id: Some("run-1".into()),
+                verification: GoalVerification::Passed,
+                open_commitment_ids: Vec::new(),
+                reason: "verified".into(),
+            },
+            4,
+        )
+        .unwrap();
+        drop(store);
+
+        let reopened = GoalStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.graph().goal("goal-1").unwrap().status,
+            GoalStatus::Achieved
+        );
+        assert_eq!(reopened.graph().events().len(), 4);
     }
 
     #[test]

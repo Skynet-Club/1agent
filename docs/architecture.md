@@ -372,7 +372,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   most one session, and a run at most one active goal; rebinding the same pair is
   idempotent. Legacy goal logs and snapshots replay without binding fields.
   `SessionMission.goal_id` is the explicit session-side link; legacy sessions
-  normalize it to their mission id on load.
+  normalize it to their mission id on load. `close_goal_with_evidence` admits
+  `achieved` only when the answer run is linked to the goal and verification
+  passed; `abandoned` requires a reason and cancels every enumerated pending
+  commitment in the same hash-chained append.
 - `attention_candidates`: deterministic, read-only projections over due, overdue and
   missed commitments plus due goals; fixed urgency ordering and a caller budget.
 - `DelegationRegistry`: observe/suggest/draft/ask/act_and_report profiles intersected with
