@@ -20580,6 +20580,16 @@ fn refresh_squad_panel(state: &mut TuiState) {
     state.session_picker_set_squad(load_recent_current());
 }
 
+fn subagent_lineage_line(record: &SubagentRecord) -> String {
+    format!(
+        "血缘    会话 {} · 父 run {} · spawn {} · 子 run {}",
+        record.parent_session_id.as_deref().unwrap_or("-"),
+        record.parent_run_id.as_deref().unwrap_or("-"),
+        record.spawn_call_id.as_deref().unwrap_or("-"),
+        record.child_run_id.as_deref().unwrap_or("-")
+    )
+}
+
 fn subagent_preview(record: &SubagentRecord) -> String {
     let mut lines = vec![
         format!("任务    {}", bounded_chars(&record.task, 800)),
@@ -20589,6 +20599,7 @@ fn subagent_preview(record: &SubagentRecord) -> String {
             record.depth,
             format_elapsed_ms(record.elapsed_ms())
         ),
+        subagent_lineage_line(record),
         format!(
             "父 PID  {} · 子 PID {}",
             record.parent_pid,
@@ -25215,11 +25226,42 @@ mod tui_rendering_tests {
         );
         record.status = SubagentStatus::Completed;
         record.summary = Some("child done".into());
+        record.parent_session_id = Some("ses-parent".into());
+        record.parent_run_id = Some("run-parent".into());
+        record.spawn_call_id = Some("call-7".into());
+        record.child_run_id = Some("run-child".into());
         let preview = subagent_preview(&record);
         assert!(preview.contains("child task"), "{preview}");
         assert!(preview.contains("已完成"), "{preview}");
         assert!(preview.contains("实时进度"), "{preview}");
         assert!(preview.contains("连接测试成功。"), "{preview}");
+        assert!(
+            preview.contains(
+                "血缘    会话 ses-parent · 父 run run-parent · spawn call-7 · 子 run run-child"
+            ),
+            "{preview}"
+        );
+    }
+
+    #[test]
+    fn subagent_lineage_uses_dashes_for_legacy_records() {
+        let record = SubagentRecord::new(
+            "sub-legacy",
+            std::process::id(),
+            std::process::id(),
+            1,
+            "legacy task",
+            "/tmp/legacy",
+            "/tmp/legacy/.journal",
+            false,
+            false,
+            8,
+            120,
+        );
+        assert_eq!(
+            subagent_lineage_line(&record),
+            "血缘    会话 - · 父 run - · spawn - · 子 run -"
+        );
     }
 
     #[test]

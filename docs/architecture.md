@@ -689,7 +689,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   child journal points back to the spawning run. Failed, timed-out and
   cancelled spawns return structured metadata (status, parent ids, spawn call,
   child run when known, exit status or stop reason) in the parent observation;
-  no failure is reported as completed.
+  no failure is reported as completed. The TUI squad details pane shows the
+  session/run/spawn-call/child-run lineage and uses `-` for legacy records
+  without those fields; the panel layout and interaction are unchanged.
 - `schedule` persists interval jobs under the runtime home and `daemon` runs
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`
