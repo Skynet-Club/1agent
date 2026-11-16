@@ -375,7 +375,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   normalize it to their mission id on load. `close_goal_with_evidence` admits
   `achieved` only when the answer run is linked to the goal and verification
   passed; `abandoned` requires a reason and cancels every enumerated pending
-  commitment in the same hash-chained append.
+  commitment in the same hash-chained append. Commitments are
+  `pending -> kept|missed|cancelled` (terminal); a ticket can be linked once
+  to a pending commitment, re-linking the same ticket is idempotent, and a
+  different ticket or a closed commitment is rejected.
 - `attention_candidates`: deterministic, read-only projections over due, overdue and
   missed commitments plus due goals; fixed urgency ordering and a caller budget.
 - `DelegationRegistry`: observe/suggest/draft/ask/act_and_report profiles intersected with

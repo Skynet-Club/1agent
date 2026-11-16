@@ -39,6 +39,11 @@ pub enum GoalError {
     CommitmentNotPending(String),
     #[error("ticket id must not be empty")]
     EmptyTicketId,
+    #[error("commitment {commitment_id} is already linked to ticket {ticket_id}")]
+    CommitmentAlreadyLinked {
+        commitment_id: String,
+        ticket_id: String,
+    },
     #[error("session id must not be empty")]
     EmptySessionId,
     #[error("run id must not be empty")]
@@ -648,6 +653,15 @@ impl GoalGraph {
         if commitment.status != CommitmentStatus::Pending {
             return Err(GoalError::CommitmentNotPending(commitment_id.into()));
         }
+        if let Some(existing) = &commitment.ticket_id {
+            if existing == &ticket_id {
+                return Ok(());
+            }
+            return Err(GoalError::CommitmentAlreadyLinked {
+                commitment_id: commitment_id.into(),
+                ticket_id: existing.clone(),
+            });
+        }
         self.append(
             GoalEventKind::CommitmentLinkedToTicket {
                 commitment_id: commitment_id.into(),
@@ -875,6 +889,15 @@ impl GoalGraph {
                     .ok_or_else(|| GoalError::UnknownCommitment(commitment_id.clone()))?;
                 if commitment.status != CommitmentStatus::Pending {
                     return Err(GoalError::CommitmentNotPending(commitment_id));
+                }
+                if let Some(existing) = &commitment.ticket_id {
+                    if existing == &ticket_id {
+                        return Ok(());
+                    }
+                    return Err(GoalError::CommitmentAlreadyLinked {
+                        commitment_id,
+                        ticket_id: existing.clone(),
+                    });
                 }
                 commitment.ticket_id = Some(ticket_id);
                 commitment.updated_ms = at_ms;
@@ -1568,6 +1591,113 @@ mod tests {
             GoalStatus::Achieved
         );
         assert_eq!(reopened.graph().events().len(), 4);
+    }
+
+    #[test]
+    fn commitment_lifecycle_negatives_fail_closed() {
+        let mut graph = GoalGraph::default();
+        graph
+            .create_goal("goal-1", "owner-1", "ship", None, 1)
+            .unwrap();
+        graph
+            .create_goal("goal-2", "owner-1", "other", None, 2)
+            .unwrap();
+        assert!(matches!(
+            graph
+                .add_commitment("", "goal-1", "notes", None, 3)
+                .unwrap_err(),
+            GoalError::EmptyCommitmentId
+        ));
+        assert!(matches!(
+            graph
+                .add_commitment("commit-1", "goal-1", " ", None, 3)
+                .unwrap_err(),
+            GoalError::InvalidDescription
+        ));
+        graph
+            .add_commitment("commit-1", "goal-1", "notes", None, 4)
+            .unwrap();
+        assert!(matches!(
+            graph
+                .add_commitment("commit-1", "goal-1", "again", None, 5)
+                .unwrap_err(),
+            GoalError::CommitmentExists(id) if id == "commit-1"
+        ));
+        assert!(matches!(
+            graph
+                .add_commitment("commit-1", "goal-2", "other notes", None, 5)
+                .unwrap_err(),
+            GoalError::CommitmentExists(id) if id == "commit-1"
+        ));
+
+        graph
+            .link_commitment_ticket("commit-1", "ticket-1", 6)
+            .unwrap();
+        let events_after_link = graph.events().len();
+        graph
+            .link_commitment_ticket("commit-1", "ticket-1", 7)
+            .unwrap();
+        assert_eq!(graph.events().len(), events_after_link);
+        assert!(matches!(
+            graph
+                .link_commitment_ticket("commit-1", "ticket-2", 8)
+                .unwrap_err(),
+            GoalError::CommitmentAlreadyLinked { commitment_id, ticket_id }
+                if commitment_id == "commit-1" && ticket_id == "ticket-1"
+        ));
+        assert!(matches!(
+            graph
+                .link_commitment_ticket("commit-1", " ", 8)
+                .unwrap_err(),
+            GoalError::EmptyTicketId
+        ));
+        assert!(matches!(
+            graph
+                .link_commitment_ticket("missing", "ticket-1", 8)
+                .unwrap_err(),
+            GoalError::UnknownCommitment(id) if id == "missing"
+        ));
+
+        assert!(matches!(
+            graph
+                .close_commitment("commit-1", CommitmentStatus::Pending, "noop", 9)
+                .unwrap_err(),
+            GoalError::CommitmentNotPending(id) if id == "commit-1"
+        ));
+        graph
+            .close_commitment("commit-1", CommitmentStatus::Kept, "done", 10)
+            .unwrap();
+        assert!(matches!(
+            graph
+                .close_commitment("commit-1", CommitmentStatus::Missed, "again", 11)
+                .unwrap_err(),
+            GoalError::CommitmentNotPending(id) if id == "commit-1"
+        ));
+        assert!(matches!(
+            graph
+                .link_commitment_ticket("commit-1", "ticket-1", 12)
+                .unwrap_err(),
+            GoalError::CommitmentNotPending(id) if id == "commit-1"
+        ));
+        assert!(matches!(
+            graph
+                .close_commitment("missing", CommitmentStatus::Kept, "x", 12)
+                .unwrap_err(),
+            GoalError::UnknownCommitment(id) if id == "missing"
+        ));
+
+        graph
+            .set_goal_status("goal-2", GoalStatus::Achieved, "done", 13)
+            .unwrap();
+        assert!(matches!(
+            graph
+                .add_commitment("commit-3", "goal-2", "late", None, 14)
+                .unwrap_err(),
+            GoalError::GoalNotActive(id) if id == "goal-2"
+        ));
+
+        let replayed = GoalGraph::replay(graph.events()).unwrap();
+        assert_eq!(replayed.snapshot(), graph.snapshot());
     }
 
     #[test]
