@@ -4,7 +4,7 @@
 //! accessors exist for the frozen `ontology` boundary; callers that need a
 //! typed failure must use `try_builtin_*` or `parse_*`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde_json::{Map, Value};
 
@@ -176,6 +176,178 @@ pub fn validate_bindings_value(value: &Value) -> Result<(), OntologyError> {
     Ok(())
 }
 
+/// Cross-registry binding coverage and consistency report.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BindingCoverage {
+    pub total_types: usize,
+    pub bound_types: usize,
+    pub unbound_types: Vec<String>,
+    pub missing_required: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+impl BindingCoverage {
+    pub fn is_complete(&self) -> bool {
+        self.errors.is_empty() && self.unbound_types.is_empty() && self.missing_required.is_empty()
+    }
+}
+
+const BINDING_SOURCE_PREFIXES: &[&str] = &[
+    "session.json#",
+    "journal#",
+    "subagent_registry#",
+    "goal_log#",
+    "ontology/",
+];
+
+/// Validate bindings against the type registry: known type, matching owner,
+/// supported mapping version, known source set, and a binding for every
+/// required property of every type.
+pub fn binding_coverage(types: &Value, bindings: &Value) -> BindingCoverage {
+    let mut coverage = BindingCoverage::default();
+    let mut type_owners = BTreeMap::<String, String>::new();
+    let mut required = BTreeMap::<String, Vec<String>>::new();
+    let Some(definitions) = types.get("types").and_then(Value::as_array) else {
+        coverage
+            .errors
+            .push("type registry has no types array".into());
+        return coverage;
+    };
+    coverage.total_types = definitions.len();
+    for definition in definitions {
+        let Some(id) = definition.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let owner = definition
+            .get("owner")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        type_owners.insert(id.to_string(), owner);
+        let required_properties = definition
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|properties| {
+                properties
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        required.insert(id.to_string(), required_properties);
+    }
+    let Some(entries) = bindings.get("bindings").and_then(Value::as_array) else {
+        coverage
+            .errors
+            .push("data bindings have no bindings array".into());
+        return coverage;
+    };
+
+    let mut bound = BTreeSet::new();
+    let mut bound_properties = BTreeSet::<(String, String)>::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let context = format!("bindings[{index}]");
+        let Some(entry) = entry.as_object() else {
+            coverage.errors.push(format!("{context}: not an object"));
+            continue;
+        };
+        let compact = |key: &str| {
+            entry
+                .get(key)
+                .and_then(Value::as_str)
+                .map(|value| value.strip_prefix("one:").unwrap_or(value).to_string())
+        };
+        let (Some(type_id), Some(property)) = (compact("type"), compact("property")) else {
+            coverage
+                .errors
+                .push(format!("{context}: type/property is missing"));
+            continue;
+        };
+        let Some(type_owner) = type_owners.get(&type_id) else {
+            coverage
+                .errors
+                .push(format!("{context}: unknown type {type_id}"));
+            continue;
+        };
+        let mut valid = true;
+        match entry.get("owner").and_then(Value::as_str) {
+            Some(owner) if owner == type_owner => {}
+            Some(owner) => {
+                valid = false;
+                coverage.errors.push(format!(
+                    "{context}: owner {owner} does not match type owner {type_owner}"
+                ));
+            }
+            None => {
+                valid = false;
+                coverage
+                    .errors
+                    .push(format!("{context}: owner is required"));
+            }
+        }
+        match entry.get("mappingVersion").and_then(Value::as_str) {
+            Some(version) if version == BINDING_VERSION => {}
+            Some(version) => {
+                valid = false;
+                coverage
+                    .errors
+                    .push(format!("{context}: unsupported mappingVersion {version}"));
+            }
+            None => {
+                valid = false;
+                coverage
+                    .errors
+                    .push(format!("{context}: mappingVersion is required"));
+            }
+        }
+        let source = entry
+            .get("source")
+            .or_else(|| entry.get("sourcePath"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !BINDING_SOURCE_PREFIXES
+            .iter()
+            .any(|prefix| source.starts_with(prefix))
+        {
+            valid = false;
+            coverage.errors.push(format!(
+                "{context}: source `{source}` is not in the known source set"
+            ));
+        }
+        if entry.contains_key("required") && entry.contains_key("required_after") {
+            valid = false;
+            coverage.errors.push(format!(
+                "{context}: required and required_after are mutually exclusive"
+            ));
+        }
+        if valid {
+            bound.insert(type_id.clone());
+            bound_properties.insert((type_id.clone(), property.clone()));
+        }
+    }
+    coverage.bound_types = bound.len();
+    for (type_id, properties) in &required {
+        if !bound.contains(type_id) {
+            coverage.unbound_types.push(type_id.clone());
+        }
+        for property in properties {
+            if !bound_properties.contains(&(type_id.clone(), property.clone())) {
+                coverage
+                    .missing_required
+                    .push(format!("{type_id}.{property}"));
+            }
+        }
+    }
+    coverage
+}
+
+pub fn builtin_binding_coverage() -> Result<BindingCoverage, OntologyError> {
+    let types = try_builtin_types()?;
+    let bindings = try_builtin_bindings()?;
+    Ok(binding_coverage(&types, &bindings))
+}
+
 fn expect_schema_version(
     root: &Map<String, Value>,
     context: &str,
@@ -312,6 +484,8 @@ mod tests {
                         "type": "one:Run",
                         "property": "one:hasTask",
                         "source": "journal#RunStarted.request",
+                        "owner": "runtime",
+                        "mappingVersion": "{BINDING_VERSION}",
                         "required": true
                     }}
                 ]
@@ -355,7 +529,102 @@ mod tests {
             assert!(entry["type"].as_str().is_some_and(|v| !v.is_empty()));
             assert!(entry["property"].as_str().is_some_and(|v| !v.is_empty()));
             assert!(entry["source"].as_str().is_some_and(|v| !v.is_empty()));
+            assert!(entry["owner"].as_str().is_some_and(|v| !v.is_empty()));
+            assert_eq!(entry["mappingVersion"].as_str(), Some(BINDING_VERSION));
         }
+
+        let coverage = builtin_binding_coverage().expect("coverage must load");
+        assert!(coverage.errors.is_empty(), "{:?}", coverage.errors);
+        assert!(
+            coverage.unbound_types.is_empty(),
+            "unbound: {:?}",
+            coverage.unbound_types
+        );
+        assert!(
+            coverage.missing_required.is_empty(),
+            "missing required: {:?}",
+            coverage.missing_required
+        );
+        assert_eq!(coverage.bound_types, coverage.total_types);
+        assert!(coverage.is_complete());
+    }
+
+    #[test]
+    fn binding_coverage_reports_unknown_types_owners_sources_and_versions() {
+        let types: Value = serde_json::json!({
+            "schema_version": 1,
+            "ontology_version": ONTOLOGY_VERSION,
+            "namespace": "https://1agent.dev/ontology/0.98#",
+            "types": [{
+                "id": "Run",
+                "kind": "object",
+                "owner": "runtime",
+                "version": "1",
+                "required": ["hasTask"]
+            }]
+        });
+        let bindings: Value = serde_json::json!({
+            "schema_version": 1,
+            "mapping_version": BINDING_VERSION,
+            "bindings": [
+                {
+                    "type": "one:Missing",
+                    "property": "one:x",
+                    "source": "journal#x",
+                    "owner": "runtime",
+                    "mappingVersion": BINDING_VERSION
+                },
+                {
+                    "type": "one:Run",
+                    "property": "one:hasTask",
+                    "source": "unknown_source#x",
+                    "owner": "security",
+                    "mappingVersion": "999"
+                },
+                {
+                    "type": "one:Run",
+                    "property": "one:other",
+                    "source": "journal#x",
+                    "mappingVersion": BINDING_VERSION,
+                    "required": true,
+                    "required_after": "P1"
+                }
+            ]
+        });
+        let coverage = binding_coverage(&types, &bindings);
+        assert!(!coverage.is_complete());
+        assert!(
+            coverage
+                .errors
+                .iter()
+                .any(|error| error.contains("unknown type Missing"))
+        );
+        assert!(
+            coverage
+                .errors
+                .iter()
+                .any(|error| error.contains("does not match type owner"))
+        );
+        assert!(
+            coverage
+                .errors
+                .iter()
+                .any(|error| error.contains("unsupported mappingVersion"))
+        );
+        assert!(
+            coverage
+                .errors
+                .iter()
+                .any(|error| error.contains("not in the known source set"))
+        );
+        assert!(
+            coverage
+                .errors
+                .iter()
+                .any(|error| error.contains("mutually exclusive"))
+        );
+        assert_eq!(coverage.unbound_types, ["Run"]);
+        assert_eq!(coverage.missing_required, ["Run.hasTask"]);
     }
 
     #[test]

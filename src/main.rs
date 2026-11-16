@@ -2684,10 +2684,14 @@ enum OntologyCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Print the built-in data bindings.
+    /// Print the built-in data bindings or their coverage report.
     Bindings {
-        #[arg(long)]
+        #[arg(long, conflicts_with = "coverage")]
         out: Option<PathBuf>,
+        #[arg(long)]
+        coverage: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// Export a session, one journal, or the goal log as deterministic JSON-LD.
     Export {
@@ -7969,14 +7973,52 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&value)?);
                 }
             }
-            OntologyCommand::Bindings { out } => {
-                let value = first_principles_agent::ontology::builtin_bindings();
-                if let Some(path) = out {
-                    let bytes = serde_json::to_vec_pretty(&value)?;
-                    write_private_file(&path, &bytes)?;
-                    println!("已写入 {}（{} 字节）", path.display(), bytes.len());
+            OntologyCommand::Bindings {
+                out,
+                coverage,
+                json,
+            } => {
+                if coverage {
+                    let report = first_principles_agent::ontology::builtin_binding_coverage()?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "ok": report.is_complete(),
+                                "total_types": report.total_types,
+                                "bound_types": report.bound_types,
+                                "unbound_types": report.unbound_types,
+                                "missing_required": report.missing_required,
+                                "errors": report.errors,
+                            }))?
+                        );
+                    } else {
+                        println!(
+                            "coverage: {}/{} types bound",
+                            report.bound_types, report.total_types
+                        );
+                        for type_id in &report.unbound_types {
+                            println!("unbound: {type_id}");
+                        }
+                        for property in &report.missing_required {
+                            println!("missing required binding: {property}");
+                        }
+                        for error in &report.errors {
+                            println!("error: {error}");
+                        }
+                    }
+                    if !report.is_complete() {
+                        bail!("ontology binding coverage is incomplete");
+                    }
                 } else {
-                    println!("{}", serde_json::to_string_pretty(&value)?);
+                    let value = first_principles_agent::ontology::builtin_bindings();
+                    if let Some(path) = out {
+                        let bytes = serde_json::to_vec_pretty(&value)?;
+                        write_private_file(&path, &bytes)?;
+                        println!("已写入 {}（{} 字节）", path.display(), bytes.len());
+                    } else {
+                        println!("{}", serde_json::to_string_pretty(&value)?);
+                    }
                 }
             }
             OntologyCommand::Export {

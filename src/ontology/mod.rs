@@ -14,10 +14,11 @@ pub mod types;
 pub mod validate;
 
 pub use export::{export_goal_log, export_journal, export_session};
+pub use types::{BindingCoverage, binding_coverage, builtin_binding_coverage};
 pub use validate::{ValidationReport, validate_document};
 
 pub const ONTOLOGY_VERSION: &str = "0.98-draft";
-pub const BINDING_VERSION: &str = "1";
+pub const BINDING_VERSION: &str = "2";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportDocument {

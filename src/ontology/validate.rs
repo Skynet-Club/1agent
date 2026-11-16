@@ -609,7 +609,7 @@ mod tests {
                 "@vocab": "https://1agent.dev/ontology/0.98#"
             },
             "ontologyVersion": "0.98-draft",
-            "bindingVersion": "1",
+            "bindingVersion": "2",
             "registrySha256": SHA,
             "@graph": [
                 {
