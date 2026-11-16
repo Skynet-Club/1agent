@@ -1379,6 +1379,7 @@ fn map_goal_error(error: GoalError) -> SurfaceError {
         | GoalError::CommitmentExists(_)
         | GoalError::GoalNotActive(_)
         | GoalError::CommitmentNotPending(_)
+        | GoalError::CommitmentAlreadyLinked { .. }
         | GoalError::SessionAlreadyBound { .. }
         | GoalError::GoalBoundToAnotherSession { .. }
         | GoalError::RunAlreadyBound { .. }
