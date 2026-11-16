@@ -267,6 +267,8 @@ async fn authorize_browser_action(
         session_id: session.task_id().into(),
         origin,
         summary: summary.clone(),
+        action_id: super::current_action_id().unwrap_or_default(),
+        expected_artifact_sha256: None,
     };
     match authorize_request(&request, now_ms()) {
         ActionAuthorization::Allow => Ok(None),

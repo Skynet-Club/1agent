@@ -72,6 +72,13 @@ pub struct ActionRequest {
     pub origin: String,
     #[serde(default)]
     pub summary: String,
+    /// Runtime action id (`run_id:call_id`) when the request came from a run.
+    #[serde(default)]
+    pub action_id: String,
+    /// SHA the action is expected to produce; a different digest at execution
+    /// time invalidates the approval.
+    #[serde(default)]
+    pub expected_artifact_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -93,6 +100,10 @@ pub struct ActionCard {
     pub origin: String,
     #[serde(default)]
     pub summary: String,
+    #[serde(default)]
+    pub action_id: String,
+    #[serde(default)]
+    pub expected_artifact_sha256: Option<String>,
 }
 
 impl ActionCard {
@@ -111,6 +122,8 @@ impl ActionCard {
             && self.target == request.target
             && self.session_id == request.session_id
             && self.origin == request.origin
+            && self.action_id == request.action_id
+            && self.expected_artifact_sha256 == request.expected_artifact_sha256
             && now_ms <= self.expires_at_ms
     }
 }
@@ -136,6 +149,8 @@ fn card_for(request: &ActionRequest, now_ms: u128) -> ActionCard {
         session_id: request.session_id.clone(),
         origin: request.origin.clone(),
         summary: request.summary.clone(),
+        action_id: request.action_id.clone(),
+        expected_artifact_sha256: request.expected_artifact_sha256.clone(),
     }
 }
 
@@ -371,6 +386,8 @@ impl ActionCardStore {
                 && stored.card.session_id == card.session_id
                 && stored.card.action == card.action
                 && stored.card.target == card.target
+                && stored.card.action_id == card.action_id
+                && stored.card.expected_artifact_sha256 == card.expected_artifact_sha256
                 && card.created_at_ms <= stored.card.expires_at_ms
         }) {
             return Ok(existing.card.clone());
@@ -495,7 +512,80 @@ mod tests {
             session_id: "session-1".into(),
             origin: "https://example.com".into(),
             summary: "click example".into(),
+            action_id: String::new(),
+            expected_artifact_sha256: None,
         }
+    }
+
+    #[test]
+    fn approval_card_binds_action_and_expected_artifact_sha() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ActionCardStore::at(dir.path().join("cards.json"));
+        let mut request = request("submit-payment", RiskLevel::Low, false);
+        request.action_id = "run-1:call-1".into();
+        request.expected_artifact_sha256 = Some("a".repeat(64));
+        let ActionAuthorization::Approval { card } = authorize_request(&request, 1_000) else {
+            panic!("expected approval");
+        };
+        let pending = store.request(card).unwrap();
+        store.approve(&pending.card_id, 2_000).unwrap();
+
+        let mut drifted_sha = request.clone();
+        drifted_sha.expected_artifact_sha256 = Some("b".repeat(64));
+        assert!(matches!(
+            store.take_approved(&pending.card_id, &drifted_sha, 3_000),
+            Err(ActionCardError::Mismatch(id)) if id == pending.card_id
+        ));
+
+        let mut drifted_action = request.clone();
+        drifted_action.action_id = "run-1:call-2".into();
+        assert!(matches!(
+            store.take_approved(&pending.card_id, &drifted_action, 3_000),
+            Err(ActionCardError::Mismatch(id)) if id == pending.card_id
+        ));
+
+        let consumed = store
+            .take_approved(&pending.card_id, &request, 3_000)
+            .unwrap();
+        assert_eq!(consumed.action_id, "run-1:call-1");
+        assert_eq!(consumed.expected_artifact_sha256, Some("a".repeat(64)));
+        assert!(matches!(
+            store.take_approved(&pending.card_id, &request, 4_000),
+            Err(ActionCardError::NotPending(id)) if id == pending.card_id
+        ));
+    }
+
+    #[test]
+    fn legacy_action_cards_without_binding_fields_are_readable() {
+        let mut value =
+            serde_json::to_value(card_for(&request("click", RiskLevel::Low, true), 1)).unwrap();
+        let object = value.as_object_mut().unwrap();
+        assert!(object.remove("action_id").is_some());
+        assert!(object.remove("expected_artifact_sha256").is_some());
+        let card: ActionCard = serde_json::from_value(value).unwrap();
+        assert!(card.action_id.is_empty());
+        assert!(card.expected_artifact_sha256.is_none());
+    }
+
+    #[test]
+    fn pending_card_reuse_requires_the_same_action_and_expected_sha() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ActionCardStore::at(dir.path().join("cards.json"));
+        let mut first = request("submit-payment", RiskLevel::Low, false);
+        first.action_id = "run-1:call-1".into();
+        first.expected_artifact_sha256 = Some("a".repeat(64));
+        let card = card_for(&first, 1_000);
+        let first_card = store.request(card.clone()).unwrap();
+
+        let mut changed = first.clone();
+        changed.expected_artifact_sha256 = Some("b".repeat(64));
+        let second_card = store.request(card_for(&changed, 1_100)).unwrap();
+        assert_ne!(first_card.card_id, second_card.card_id);
+
+        let mut same = first.clone();
+        same.action_id = "run-1:call-9".into();
+        let third_card = store.request(card_for(&same, 1_200)).unwrap();
+        assert_ne!(first_card.card_id, third_card.card_id);
     }
 
     #[test]
