@@ -2797,26 +2797,31 @@ impl TuiState {
             frame.area(),
         );
         let folded = self.input_panel_folds(frame.area().width);
+        let input_panel_height = (if folded { 6 } else { 5 })
+            .min(frame.area().height.saturating_sub(4))
+            .max(1);
+        let available_for_clarify = frame
+            .area()
+            .height
+            .saturating_sub(3 + 1 + input_panel_height);
         let clarify_height = self.clarify.as_ref().map(|clarify| {
-            if self.clarify_collapsed {
+            let desired = if self.clarify_collapsed {
                 1
             } else if clarify.panel().questions.len() > 1 {
                 8
             } else {
                 7
-            }
+            };
+            desired.min(available_for_clarify).max(1)
         });
-        let desired_panel_height = clarify_height.unwrap_or(if folded { 6 } else { 5 });
-        let panel_height = desired_panel_height
-            .min(frame.area().height.saturating_sub(4))
-            .max(1);
+        let mut constraints = vec![Constraint::Min(3), Constraint::Length(1)];
+        if let Some(height) = clarify_height {
+            constraints.push(Constraint::Length(height));
+        }
+        constraints.push(Constraint::Length(input_panel_height));
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(3),
-                Constraint::Length(1),
-                Constraint::Length(panel_height),
-            ])
+            .constraints(constraints)
             .split(frame.area());
 
         if self.command_panel.is_some() {
@@ -2830,18 +2835,22 @@ impl TuiState {
             Block::default().style(Style::default().bg(APP_BG)),
             chunks[1],
         );
-        let panel_area = chunks[2];
         if let Some(clarify) = &self.clarify {
-            draw_clarify_bar(frame, clarify, panel_area, self.clarify_collapsed);
-        } else {
-            let composer_area = Rect {
-                x: panel_area.x,
-                y: panel_area.y.saturating_add(if folded { 2 } else { 1 }),
-                width: panel_area.width,
-                height: 3,
-            };
-            self.draw_input_panel(frame, panel_area, composer_area, folded);
+            draw_clarify_bar(
+                frame,
+                clarify,
+                chunks[chunks.len().saturating_sub(2)],
+                self.clarify_collapsed,
+            );
         }
+        let panel_area = *chunks.last().expect("input panel chunk");
+        let composer_area = Rect {
+            x: panel_area.x,
+            y: panel_area.y.saturating_add(if folded { 2 } else { 1 }),
+            width: panel_area.width,
+            height: 3,
+        };
+        self.draw_input_panel(frame, panel_area, composer_area, folded);
 
         if self.slash_drawer_open() {
             let rows = self.filtered_drawer_rows();
@@ -6402,7 +6411,7 @@ fn draw_clarify_bar(frame: &mut Frame, clarify: &TuiClarifyState, area: Rect, co
         let focused = option_index == clarify.option_index();
         let selected =
             answer.and_then(|answer| answer.option_id.as_deref()) == Some(option.id.as_str());
-        let mark = if focused { "› " } else { "  " };
+        let mark = if focused { "› " } else { "· " };
         let check = if selected { "✓ " } else { "  " };
         let text = if option.id == OTHER_OPTION_ID {
             if clarify.editing_other() && focused {
@@ -9528,6 +9537,8 @@ int main(int argc, char **argv) {
         assert!(content.contains("Alpha"));
         assert!(content.contains("其他"));
         assert!(content.contains("Esc收起"));
+        // The clarify bar is stacked above the composer; it does not replace it.
+        assert!(content.contains("就绪"));
     }
 
     #[test]
