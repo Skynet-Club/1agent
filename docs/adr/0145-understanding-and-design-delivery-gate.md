@@ -46,6 +46,17 @@ Three failures compounded:
      as `CompletionArtifactUnfinished` or `CompletionDesignContractGap`.
 6. Keep the design capability card's verification recipe in sync with the
    runtime guard.
+7. Let `browser` open loopback preview pages without `--allow-network` when
+   `allow_loopback=true`, and add `action=audit`. The audit captures real
+   390/768/1440 layout metrics (scrollWidth/clientWidth, placeholder hits,
+   tap-target sizes, h1 count) and PNGs, so a local page can be verified without
+   a terminal session or external network.
+8. Show the answer status, not only the process status, in the TUI:
+   `completed` remains “已完成”; `conditional` is “有条件完成”;
+   `needs_evidence`/`needs_authorization` are “需要处理”. A conditional
+   delivery must not look like a clean success.
+9. Reuse a model-authored “Other, I will explain” option instead of adding a
+   second automatic Other; it collects text and is the only Other shown.
 
 ## Consequences
 

@@ -318,7 +318,9 @@ panel background brightness and slightly darker than the panel. The input box is
 text are all dimmed by 50% (`#08140D`, `#3F644B`, `#487748`); input text stays white. Token metrics sit on the
 right side of the top border while they fit, and otherwise fold to the row below it. The
 input-box top title comes from the run journal; the bottom border
-shows run status, the configured model, the current cognitive mode and `Ctrl+T`. The
+shows run status, the configured model, the current cognitive mode and `Ctrl+T`.
+After a run, the status reflects the answer: `✓ 已完成`, `◐ 有条件完成`,
+`! 需要处理` or failed; a conditional answer is never labeled completed. The
 context meter uses `─`, the same glyph as the fence border, and halves from 20 to 10 cells
 when the panel folds, keeping the reported percentage unchanged. The
 percentage is `tokens sent by the last model request / max_context_tokens`, the same measure
