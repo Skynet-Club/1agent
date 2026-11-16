@@ -608,6 +608,14 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `ContextSummary` requires `context:read` + `memory:read` and filters memory by `bot_id`.
 - `SurfaceService::open` persists security actions to a sibling
   `<graph-stem>-action-log.jsonl`; the log is verified on open and tampering fails closed.
+- Gated CLI runs (`run --authority`) write one `ActionRecord` per tool call to
+  `<journal-dir>/action-records.jsonl`: an `allowed` record before execution,
+  then `executed`/`failed`/`cancelled`/`needs_approval`/`denied` with risk,
+  reversibility, policy outcome/reason, authority profile, approval card and
+  artifact SHA when present. The record embeds in the existing hash-chained
+  action log as an optional payload; legacy entries verify with their original
+  hash. A gated call fails closed if its pre-execution record cannot be
+  written. Authority/Policy remains the only allow/deny source.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
 - Write authority is true by default for local CLI/TUI; `--read-only` disables it.

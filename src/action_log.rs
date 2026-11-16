@@ -7,6 +7,9 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::authority::PolicyOutcome;
+use crate::domain::RiskLevel;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ActionLogError {
     #[error("action actor is empty")]
@@ -29,6 +32,7 @@ pub enum ActionKind {
     Cancel,
     SkillActivate,
     MemoryForget,
+    ToolCall,
 }
 
 impl ActionKind {
@@ -43,6 +47,7 @@ impl ActionKind {
             Self::Cancel => "cancel",
             Self::SkillActivate => "skill_activate",
             Self::MemoryForget => "memory_forget",
+            Self::ToolCall => "tool_call",
         }
     }
 }
@@ -61,6 +66,7 @@ impl std::str::FromStr for ActionKind {
             "cancel" => Ok(Self::Cancel),
             "skill_activate" => Ok(Self::SkillActivate),
             "memory_forget" => Ok(Self::MemoryForget),
+            "tool_call" => Ok(Self::ToolCall),
             other => Err(format!("unknown action kind {other}")),
         }
     }
@@ -88,6 +94,56 @@ pub struct ActionLogSummary {
     pub kinds: Vec<ActionKindCount>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionStatus {
+    Proposed,
+    Allowed,
+    Denied,
+    NeedsApproval,
+    Approved,
+    Rejected,
+    Executed,
+    Failed,
+    Cancelled,
+}
+
+impl ActionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Proposed => "proposed",
+            Self::Allowed => "allowed",
+            Self::Denied => "denied",
+            Self::NeedsApproval => "needs_approval",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Executed => "executed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// One side-effect attempt with its policy and approval context. Stored as an
+/// optional payload on `ActionLogEntry`; old entries without it keep their
+/// original hash and remain readable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ActionRecord {
+    pub action_id: String,
+    pub run_id: String,
+    pub session_id: Option<String>,
+    pub action_type: String,
+    pub risk: RiskLevel,
+    pub reversible: bool,
+    pub policy_outcome: PolicyOutcome,
+    pub policy_reason: Option<String>,
+    pub authority_profile_id: Option<String>,
+    pub approval_card_id: Option<String>,
+    pub status: ActionStatus,
+    pub artifact_sha256: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ActionLogEntry {
@@ -101,6 +157,8 @@ pub struct ActionLogEntry {
     pub reason: String,
     pub previous_sha256: Option<String>,
     pub entry_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<ActionRecord>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -130,6 +188,36 @@ impl ActionLog {
         reason: impl Into<String>,
         now_ms: u128,
     ) -> Result<ActionLogEntry, ActionLogError> {
+        self.push_entry(actor, kind, target, outcome, reason, None, now_ms)
+    }
+
+    /// Record a side-effect attempt with its policy/approval payload. Callers
+    /// may append a second entry for the same `action_id` after execution; the
+    /// latest entry is the authoritative state.
+    pub fn record_action(
+        &mut self,
+        actor: impl Into<String>,
+        kind: ActionKind,
+        target: impl Into<String>,
+        outcome: impl Into<String>,
+        reason: impl Into<String>,
+        action: ActionRecord,
+        now_ms: u128,
+    ) -> Result<ActionLogEntry, ActionLogError> {
+        self.push_entry(actor, kind, target, outcome, reason, Some(action), now_ms)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_entry(
+        &mut self,
+        actor: impl Into<String>,
+        kind: ActionKind,
+        target: impl Into<String>,
+        outcome: impl Into<String>,
+        reason: impl Into<String>,
+        action: Option<ActionRecord>,
+        now_ms: u128,
+    ) -> Result<ActionLogEntry, ActionLogError> {
         let actor = actor.into();
         let target = target.into();
         if actor.trim().is_empty() {
@@ -149,6 +237,7 @@ impl ActionLog {
             reason: reason.into(),
             previous_sha256: self.last_sha256.clone(),
             entry_sha256: String::new(),
+            action,
         };
         entry.entry_sha256 = hash_entry(&entry)?;
         self.next_seq = entry.seq;
@@ -173,6 +262,27 @@ impl ActionLog {
 
     pub fn entries(&self) -> &[ActionLogEntry] {
         &self.entries
+    }
+
+    /// Latest record for an action id. A call may append `allowed` and then
+    /// `executed`/`failed`; the final entry wins.
+    pub fn action_record(&self, action_id: &str) -> Option<&ActionRecord> {
+        self.entries.iter().rev().find_map(|entry| {
+            entry
+                .action
+                .as_ref()
+                .filter(|action| action.action_id == action_id)
+        })
+    }
+
+    pub fn latest_action_records(&self) -> BTreeMap<String, &ActionRecord> {
+        let mut latest = BTreeMap::new();
+        for entry in &self.entries {
+            if let Some(action) = &entry.action {
+                latest.insert(action.action_id.clone(), action);
+            }
+        }
+        latest
     }
 
     pub fn query(
@@ -255,20 +365,49 @@ struct ActionHashPayload<'a> {
     previous_sha256: &'a Option<String>,
 }
 
+#[derive(Serialize)]
+struct ActionHashPayloadWithRecord<'a> {
+    seq: u64,
+    entry_id: &'a str,
+    timestamp_unix_ms: u128,
+    actor: &'a str,
+    kind: ActionKind,
+    target: &'a str,
+    outcome: &'a str,
+    reason: &'a str,
+    previous_sha256: &'a Option<String>,
+    action: &'a ActionRecord,
+}
+
 fn hash_entry(entry: &ActionLogEntry) -> Result<String, ActionLogError> {
-    let payload = ActionHashPayload {
-        seq: entry.seq,
-        entry_id: &entry.entry_id,
-        timestamp_unix_ms: entry.timestamp_unix_ms,
-        actor: &entry.actor,
-        kind: entry.kind,
-        target: &entry.target,
-        outcome: &entry.outcome,
-        reason: &entry.reason,
-        previous_sha256: &entry.previous_sha256,
-    };
-    let bytes =
-        serde_json::to_vec(&payload).map_err(|_| ActionLogError::HashMismatch(entry.seq))?;
+    let bytes = match &entry.action {
+        // Entries written before the action payload existed must verify with
+        // their original payload, not with an extra `"action": null` field.
+        None => serde_json::to_vec(&ActionHashPayload {
+            seq: entry.seq,
+            entry_id: &entry.entry_id,
+            timestamp_unix_ms: entry.timestamp_unix_ms,
+            actor: &entry.actor,
+            kind: entry.kind,
+            target: &entry.target,
+            outcome: &entry.outcome,
+            reason: &entry.reason,
+            previous_sha256: &entry.previous_sha256,
+        }),
+        Some(action) => serde_json::to_vec(&ActionHashPayloadWithRecord {
+            seq: entry.seq,
+            entry_id: &entry.entry_id,
+            timestamp_unix_ms: entry.timestamp_unix_ms,
+            actor: &entry.actor,
+            kind: entry.kind,
+            target: &entry.target,
+            outcome: &entry.outcome,
+            reason: &entry.reason,
+            previous_sha256: &entry.previous_sha256,
+            action,
+        }),
+    }
+    .map_err(|_| ActionLogError::HashMismatch(entry.seq))?;
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
@@ -326,6 +465,91 @@ mod tests {
         );
         assert_eq!(summary.kinds.len(), 3);
         assert_eq!(log.len(), 3);
+    }
+
+    fn action(status: ActionStatus) -> ActionRecord {
+        ActionRecord {
+            action_id: "run-1:call-1".into(),
+            run_id: "run-1".into(),
+            session_id: Some("ses-1".into()),
+            action_type: "write_file".into(),
+            risk: RiskLevel::Medium,
+            reversible: false,
+            policy_outcome: PolicyOutcome::Allow,
+            policy_reason: Some("write within profile tool-profile".into()),
+            authority_profile_id: Some("tool-profile".into()),
+            approval_card_id: None,
+            status,
+            artifact_sha256: None,
+        }
+    }
+
+    #[test]
+    fn action_records_embed_in_the_hash_chain_and_the_latest_wins() {
+        let mut log = ActionLog::default();
+        log.record_action(
+            "owner",
+            ActionKind::SideEffect,
+            "write_file",
+            "allowed",
+            "write within profile",
+            action(ActionStatus::Allowed),
+            1,
+        )
+        .unwrap();
+        let mut executed = action(ActionStatus::Executed);
+        executed.artifact_sha256 = Some("a".repeat(64));
+        log.record_action(
+            "owner",
+            ActionKind::SideEffect,
+            "write_file",
+            "executed",
+            "write within profile",
+            executed,
+            2,
+        )
+        .unwrap();
+        log.verify().unwrap();
+        let latest = log.action_record("run-1:call-1").unwrap();
+        assert_eq!(latest.status, ActionStatus::Executed);
+        assert_eq!(latest.artifact_sha256, Some("a".repeat(64)));
+        assert_eq!(log.latest_action_records().len(), 1);
+        assert_eq!(log.entries()[0].action, Some(action(ActionStatus::Allowed)));
+
+        let mut tampered = log.entries().to_vec();
+        tampered[1].action = Some(action(ActionStatus::Failed));
+        let forged = ActionLog {
+            entries: tampered,
+            next_seq: 2,
+            last_sha256: None,
+        };
+        assert!(matches!(
+            forged.verify().unwrap_err(),
+            ActionLogError::HashMismatch(2)
+        ));
+    }
+
+    #[test]
+    fn legacy_entries_without_action_payload_still_verify() {
+        let mut log = ActionLog::default();
+        log.record("owner", ActionKind::Approve, "ticket-1", "allowed", "ok", 1)
+            .unwrap();
+        log.record(
+            "owner",
+            ActionKind::Retry,
+            "ticket-1",
+            "allowed",
+            "retry",
+            2,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&log.entries()[0]).unwrap();
+        assert!(value.get("action").is_none());
+        let parsed = serde_json::from_value::<ActionLogEntry>(value).unwrap();
+        assert!(parsed.action.is_none());
+        let rebuilt = ActionLog::from_entries(vec![parsed]).unwrap();
+        rebuilt.verify().unwrap();
+        assert!(rebuilt.latest_action_records().is_empty());
     }
 
     #[test]

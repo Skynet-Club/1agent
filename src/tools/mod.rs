@@ -187,6 +187,12 @@ pub trait AgentTool: Send + Sync {
     fn requires_write(&self) -> bool {
         false
     }
+    /// Whether the runtime can plausibly undo this tool's side effect. The
+    /// default treats every write-capable tool as irreversible until it
+    /// declares otherwise.
+    fn reversible(&self) -> bool {
+        !self.requires_write()
+    }
     /// True only for tools with no side effects and no shared mutable state.
     /// The runtime may run these concurrently; everything else stays ordered.
     fn parallel_safe(&self) -> bool {
@@ -248,6 +254,15 @@ impl ToolRegistry {
         self.tools
             .get(name)
             .is_some_and(|tool| tool.requires_write())
+    }
+
+    /// Unknown tools are treated as irreversible.
+    pub fn reversible(&self, name: &str) -> bool {
+        self.tools.get(name).is_some_and(|tool| tool.reversible())
+    }
+
+    pub fn risk(&self, name: &str) -> Option<RiskLevel> {
+        self.tools.get(name).map(|tool| tool.risk())
     }
 
     pub fn capabilities(&self) -> Vec<ToolCapability> {
