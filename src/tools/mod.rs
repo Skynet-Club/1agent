@@ -40,6 +40,7 @@ pub(crate) fn current_action_id() -> Option<String> {
         .ok()
 }
 
+mod acceptance;
 mod browser;
 mod capability;
 mod delegation;
@@ -51,6 +52,7 @@ mod skills;
 mod subagent;
 mod terminal;
 mod web;
+pub use acceptance::*;
 pub use browser::*;
 pub use capability::*;
 pub use delegation::*;
@@ -1212,6 +1214,7 @@ fn bounded_excerpt(
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::default();
     registry.register(Arc::new(ReadFileTool));
+    registry.register(Arc::new(AcceptanceGateTool));
     registry.register(Arc::new(CapabilitySearchTool));
     registry.register(Arc::new(PreviewFileTool));
     registry.register(Arc::new(PdfReadTool::from_env()));
