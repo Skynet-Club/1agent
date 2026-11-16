@@ -13,6 +13,7 @@ use first_principles_agent::domain::{
     ImpactLevel, ModelResponse, ModelTurn, PermissionSet, RuntimeCheckpoint, StopReason,
     TaskRequest, ToolCall, ToolObservation, ToolStatus, UnknownItem, Usage,
 };
+use first_principles_agent::goal::GoalStore;
 use first_principles_agent::journal::{Journal, JournalEventKind};
 use first_principles_agent::ontology::sha256_hex;
 use first_principles_agent::tools::{AgentTool, EditFileTool, WriteFileTool};
@@ -1496,6 +1497,68 @@ fn cq04_successful_spawn_exports_squad_lineage() {
         timeout_member["spawnedBy"]["@id"],
         format!("urn:1agent:tool-call:{run_id}:spawn-timeout")
     );
+}
+
+#[test]
+fn goal_journal_export_is_deterministic_and_validates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("goals.jsonl");
+    let mut store = GoalStore::open(&path).unwrap();
+    store
+        .with_graph_mut(|graph| {
+            graph.create_goal("goal-1", "owner-1", "ship", None, 1)?;
+            graph.add_commitment("commit-1", "goal-1", "write notes", None, 2)?;
+            graph.bind_session("goal-1", "ses-1", 3)?;
+            graph.link_run("goal-1", "run-1", 4)
+        })
+        .unwrap();
+    drop(store);
+
+    let output = run(
+        dir.path(),
+        &[
+            "ontology",
+            "export",
+            "--goal-journal",
+            path.to_str().unwrap(),
+        ],
+    );
+    let document = parse_compact_document(&output, "goal export");
+    let goal = node_with_suffix(&document, "urn:1agent:goal:goal-1");
+    assert_eq!(goal["@type"], "Goal");
+    assert_eq!(goal["status"], "active");
+    assert_eq!(
+        goal["hasCommitment"][0]["@id"],
+        "urn:1agent:commitment:commit-1"
+    );
+    assert_eq!(goal["partOfSession"]["@id"], "urn:1agent:session:ses-1");
+    assert_eq!(goal["runIds"], json!(["run-1"]));
+    let commitment = node_with_suffix(&document, "urn:1agent:commitment:commit-1");
+    assert_eq!(commitment["@type"], "Commitment");
+    assert_eq!(commitment["status"], "pending");
+    assert_eq!(commitment["belongsToGoal"]["@id"], "urn:1agent:goal:goal-1");
+
+    let again = run(
+        dir.path(),
+        &[
+            "ontology",
+            "export",
+            "--goal-journal",
+            path.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(output.stdout, again.stdout);
+
+    let validate = run(
+        dir.path(),
+        &[
+            "ontology",
+            "validate",
+            "--goal-journal",
+            path.to_str().unwrap(),
+        ],
+    );
+    assert_success(&validate, "goal validation");
 }
 
 #[test]

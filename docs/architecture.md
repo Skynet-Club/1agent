@@ -859,6 +859,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   members, project to `SquadMember`; `childRunId` is optional and a failed
   member is never marked completed. Raw policy/card metadata keys and tool
   arguments/content are not exported.
+- `ontology export --goal-journal PATH` projects the hash-chained goal log:
+  Goal and Commitment nodes with statuses, timestamps, title/description SHA
+  and character counts (not prose), commitment→goal links, session stubs and
+  literal run ids. The export reads the log without repairing or locking it.
 
 ## V0 limitations
 

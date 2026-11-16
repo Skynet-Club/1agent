@@ -2689,12 +2689,14 @@ enum OntologyCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Export a session or one journal as deterministic JSON-LD.
+    /// Export a session, one journal, or the goal log as deterministic JSON-LD.
     Export {
-        #[arg(long, conflicts_with = "journal")]
+        #[arg(long, conflicts_with_all = ["journal", "goal_journal"])]
         session: Option<String>,
-        #[arg(long, conflicts_with = "session")]
+        #[arg(long, conflicts_with_all = ["session", "goal_journal"])]
         journal: Option<PathBuf>,
+        #[arg(long, conflicts_with_all = ["session", "journal"])]
+        goal_journal: Option<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
         #[arg(long, default_value = "jsonld")]
@@ -2706,11 +2708,13 @@ enum OntologyCommand {
     },
     /// Validate an exported document or export one source and validate it.
     Validate {
-        #[arg(long, conflicts_with_all = ["journal", "input"])]
+        #[arg(long, conflicts_with_all = ["journal", "goal_journal", "input"])]
         session: Option<String>,
-        #[arg(long, conflicts_with_all = ["session", "input"])]
+        #[arg(long, conflicts_with_all = ["session", "goal_journal", "input"])]
         journal: Option<PathBuf>,
-        #[arg(long, conflicts_with_all = ["session", "journal"])]
+        #[arg(long, conflicts_with_all = ["session", "journal", "input"])]
+        goal_journal: Option<PathBuf>,
+        #[arg(long, conflicts_with_all = ["session", "journal", "goal_journal"])]
         input: Option<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -5787,19 +5791,26 @@ Remove the runtime home; data is kept unless --purge --yes.
 fn ontology_export_for_cli(
     session: Option<&str>,
     journal: Option<&Path>,
+    goal_journal: Option<&Path>,
     journal_dir: &Path,
 ) -> Result<(first_principles_agent::ontology::ExportDocument, String)> {
-    match (session, journal) {
-        (Some(id), None) => {
+    match (session, journal, goal_journal) {
+        (Some(id), None, None) => {
             let document = first_principles_agent::ontology::export_session(journal_dir, id)?;
             Ok((document, format!("session:{id}")))
         }
-        (None, Some(path)) => {
+        (None, Some(path), None) => {
             let document = first_principles_agent::ontology::export_journal(path)?;
             Ok((document, format!("journal:{}", path.display())))
         }
-        (None, None) => bail!("ontology export requires --session or --journal"),
-        (Some(_), Some(_)) => bail!("--session and --journal are mutually exclusive"),
+        (None, None, Some(path)) => {
+            let document = first_principles_agent::ontology::export_goal_log(path)?;
+            Ok((document, format!("goal-journal:{}", path.display())))
+        }
+        (None, None, None) => {
+            bail!("ontology export requires --session, --journal or --goal-journal")
+        }
+        _ => bail!("--session, --journal and --goal-journal are mutually exclusive"),
     }
 }
 
@@ -7971,6 +7982,7 @@ async fn main() -> Result<()> {
             OntologyCommand::Export {
                 session,
                 journal,
+                goal_journal,
                 journal_dir,
                 format,
                 out,
@@ -7979,8 +7991,12 @@ async fn main() -> Result<()> {
                 if format != "jsonld" {
                     bail!("unsupported ontology format '{format}' (expected jsonld)");
                 }
-                let (document, source) =
-                    ontology_export_for_cli(session.as_deref(), journal.as_deref(), &journal_dir)?;
+                let (document, source) = ontology_export_for_cli(
+                    session.as_deref(),
+                    journal.as_deref(),
+                    goal_journal.as_deref(),
+                    &journal_dir,
+                )?;
                 let bytes = serde_json::to_vec(&document.value)?;
                 if let Some(path) = out.as_deref() {
                     write_private_file(path, &bytes)?;
@@ -8010,6 +8026,7 @@ async fn main() -> Result<()> {
             OntologyCommand::Validate {
                 session,
                 journal,
+                goal_journal,
                 input,
                 journal_dir,
                 json,
@@ -8024,6 +8041,7 @@ async fn main() -> Result<()> {
                     let (document, source) = ontology_export_for_cli(
                         session.as_deref(),
                         journal.as_deref(),
+                        goal_journal.as_deref(),
                         &journal_dir,
                     )?;
                     (document.value, source)

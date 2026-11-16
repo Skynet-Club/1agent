@@ -13,6 +13,7 @@ use crate::domain::{
     AgentAnswer, AnswerStatus, ClaimStatus, StopReason, TaskRequest, ToolCall, ToolObservation,
     ToolStatus,
 };
+use crate::goal::{CommitmentStatus, GoalEvent, GoalGraph, GoalStatus};
 use crate::journal::{JournalEvent, JournalEventKind, read_events};
 use crate::tui_session::{SessionMission, TuiSession};
 
@@ -89,6 +90,160 @@ pub fn export_session(
     nodes.insert(session_iri, Value::Object(session_object));
 
     finish(nodes)
+}
+
+/// Project the hash-chained goal log without modifying it. Goal titles and
+/// commitment descriptions are exported as SHA plus character count only.
+pub fn export_goal_log(path: &Path) -> Result<ExportDocument, OntologyError> {
+    const MAX_GOAL_LOG_BYTES: u64 = 16 * 1024 * 1024;
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| OntologyError::Io(format!("{}: {error}", path.display())))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(OntologyError::Io(format!(
+            "{} is not a regular file",
+            path.display()
+        )));
+    }
+    if metadata.len() > MAX_GOAL_LOG_BYTES {
+        return Err(OntologyError::Io(format!(
+            "{} exceeds {MAX_GOAL_LOG_BYTES} bytes",
+            path.display()
+        )));
+    }
+    let content = std::fs::read_to_string(path)
+        .map_err(|error| OntologyError::Io(format!("{}: {error}", path.display())))?;
+    let mut events = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        events.push(serde_json::from_str::<GoalEvent>(line).map_err(|error| {
+            OntologyError::Json(format!("goal log {}: {error}", path.display()))
+        })?);
+    }
+    let graph = GoalGraph::replay(&events)
+        .map_err(|error| OntologyError::Validation(format!("goal log: {error}")))?;
+    let snapshot = graph.snapshot();
+    let mut commitments_by_goal: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for commitment in &snapshot.commitments {
+        commitments_by_goal
+            .entry(commitment.goal_id.clone())
+            .or_default()
+            .insert(ids::commitment_id(&commitment.commitment_id));
+    }
+
+    let mut nodes = BTreeMap::new();
+    for goal in &snapshot.goals {
+        let goal_iri = ids::goal_id(&goal.goal_id);
+        let mut object = Map::new();
+        object.insert("@id".into(), Value::String(goal_iri.clone()));
+        object.insert("@type".into(), Value::String("Goal".into()));
+        object.insert(
+            "status".into(),
+            Value::String(goal_status_text(goal.status).into()),
+        );
+        object.insert("ownerId".into(), Value::String(bounded(&goal.owner_id)));
+        object.insert(
+            "titleSha256".into(),
+            Value::String(super::sha256_hex(goal.title.as_bytes())),
+        );
+        object.insert(
+            "titleChars".into(),
+            Value::from(goal.title.chars().count() as u64),
+        );
+        if let Some(due_ms) = goal.due_ms {
+            object.insert("dueUnixMs".into(), unix_ms_value(due_ms));
+        }
+        object.insert("createdUnixMs".into(), unix_ms_value(goal.created_ms));
+        object.insert("updatedUnixMs".into(), unix_ms_value(goal.updated_ms));
+        if let Some(commitments) = commitments_by_goal.get(&goal.goal_id)
+            && !commitments.is_empty()
+        {
+            object.insert("hasCommitment".into(), refs_array(commitments.clone()));
+        }
+        if let Some(binding) = snapshot
+            .bindings
+            .iter()
+            .find(|binding| binding.goal_id == goal.goal_id)
+        {
+            if let Some(session_id) = &binding.session_id {
+                let session_iri = ids::session_id(session_id);
+                object.insert("partOfSession".into(), ref_iri(&session_iri));
+                nodes.entry(session_iri.clone()).or_insert_with(|| {
+                    json!({
+                        "@id": session_iri,
+                        "@type": "Session",
+                    })
+                });
+            }
+            if !binding.run_ids.is_empty() {
+                object.insert(
+                    "runIds".into(),
+                    Value::Array(
+                        binding
+                            .run_ids
+                            .iter()
+                            .map(|run_id| Value::String(bounded(run_id)))
+                            .collect(),
+                    ),
+                );
+            }
+        }
+        nodes.insert(goal_iri, Value::Object(object));
+    }
+    for commitment in &snapshot.commitments {
+        let commitment_iri = ids::commitment_id(&commitment.commitment_id);
+        let mut object = Map::new();
+        object.insert("@id".into(), Value::String(commitment_iri.clone()));
+        object.insert("@type".into(), Value::String("Commitment".into()));
+        object.insert(
+            "status".into(),
+            Value::String(commitment_status_text(commitment.status).into()),
+        );
+        object.insert(
+            "descriptionSha256".into(),
+            Value::String(super::sha256_hex(commitment.description.as_bytes())),
+        );
+        object.insert(
+            "descriptionChars".into(),
+            Value::from(commitment.description.chars().count() as u64),
+        );
+        if let Some(due_ms) = commitment.due_ms {
+            object.insert("dueUnixMs".into(), unix_ms_value(due_ms));
+        }
+        object.insert("createdUnixMs".into(), unix_ms_value(commitment.created_ms));
+        object.insert("updatedUnixMs".into(), unix_ms_value(commitment.updated_ms));
+        if let Some(closed_ms) = commitment.closed_ms {
+            object.insert("closedUnixMs".into(), unix_ms_value(closed_ms));
+        }
+        object.insert(
+            "belongsToGoal".into(),
+            ref_iri(&ids::goal_id(&commitment.goal_id)),
+        );
+        if let Some(ticket_id) = &commitment.ticket_id {
+            object.insert("ticketId".into(), Value::String(bounded(ticket_id)));
+        }
+        nodes.insert(commitment_iri, Value::Object(object));
+    }
+    finish(nodes)
+}
+
+fn goal_status_text(status: GoalStatus) -> &'static str {
+    match status {
+        GoalStatus::Active => "active",
+        GoalStatus::Paused => "paused",
+        GoalStatus::Achieved => "achieved",
+        GoalStatus::Abandoned => "abandoned",
+    }
+}
+
+fn commitment_status_text(status: CommitmentStatus) -> &'static str {
+    match status {
+        CommitmentStatus::Pending => "pending",
+        CommitmentStatus::Kept => "kept",
+        CommitmentStatus::Missed => "missed",
+        CommitmentStatus::Cancelled => "cancelled",
+    }
 }
 
 pub fn export_journal(journal_path: &Path) -> Result<ExportDocument, OntologyError> {
@@ -860,7 +1015,8 @@ mod tests {
     use crate::ontology::validate::validate_document;
     use crate::tui_session::TuiSession;
 
-    use super::{export_journal, export_session};
+    use super::{export_goal_log, export_journal, export_session};
+    use crate::goal::{CommitmentStatus, GoalStatus};
 
     const RAW_CONTENT: &str = "SENSITIVE_RAW_TOOL_CONTENT";
 
@@ -1308,6 +1464,63 @@ mod tests {
             "urn:1agent:session:ses-parent"
         );
         assert!(validate_document(&standalone.value).ok);
+    }
+
+    #[test]
+    fn goal_log_exports_goals_commitments_and_bindings_without_prose() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("goals.jsonl");
+        let mut store = crate::goal::GoalStore::open(&path).unwrap();
+        store
+            .with_graph_mut(|graph| {
+                graph.create_goal("goal-1", "owner-1", "SECRET GOAL TITLE", Some(1_000), 10)?;
+                graph.add_commitment("commit-1", "goal-1", "SECRET COMMITMENT", Some(500), 11)?;
+                graph.bind_session("goal-1", "ses-1", 12)?;
+                graph.link_run("goal-1", "run-1", 13)
+            })
+            .unwrap();
+        drop(store);
+
+        let document = export_goal_log(&path).unwrap();
+        let text = document.value.to_string();
+        assert!(!text.contains("SECRET GOAL TITLE"));
+        assert!(!text.contains("SECRET COMMITMENT"));
+        let goal = node(&document.value, "urn:1agent:goal:goal-1");
+        assert_eq!(goal["status"], "active");
+        assert_eq!(goal["ownerId"], "owner-1");
+        assert_eq!(goal["titleChars"], 17);
+        assert_eq!(goal["dueUnixMs"], 1_000);
+        assert_eq!(
+            goal["hasCommitment"][0]["@id"],
+            "urn:1agent:commitment:commit-1"
+        );
+        assert_eq!(goal["partOfSession"]["@id"], "urn:1agent:session:ses-1");
+        assert_eq!(goal["runIds"], json!(["run-1"]));
+        let commitment = node(&document.value, "urn:1agent:commitment:commit-1");
+        assert_eq!(commitment["status"], "pending");
+        assert_eq!(commitment["belongsToGoal"]["@id"], "urn:1agent:goal:goal-1");
+        assert_eq!(commitment["descriptionChars"], 17);
+        let report = validate_document(&document.value);
+        assert!(report.ok, "{:?}", report.errors);
+        assert_eq!(document.sha256, export_goal_log(&path).unwrap().sha256);
+
+        let mut store = crate::goal::GoalStore::open(&path).unwrap();
+        store
+            .with_graph_mut(|graph| {
+                graph.close_commitment("commit-1", CommitmentStatus::Kept, "done", 20)?;
+                graph.set_goal_status("goal-1", GoalStatus::Achieved, "done", 21)
+            })
+            .unwrap();
+        drop(store);
+        let closed = export_goal_log(&path).unwrap();
+        assert_eq!(
+            node(&closed.value, "urn:1agent:goal:goal-1")["status"],
+            "achieved"
+        );
+        let commitment = node(&closed.value, "urn:1agent:commitment:commit-1");
+        assert_eq!(commitment["status"], "kept");
+        assert_eq!(commitment["closedUnixMs"], 20);
+        assert!(validate_document(&closed.value).ok);
     }
 
     #[test]
