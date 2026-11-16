@@ -255,6 +255,11 @@ enum Command {
         #[command(subcommand)]
         command: ActionCommand,
     },
+    /// Inspect, link and close goals in the hash-chained goal log.
+    Goal {
+        #[command(subcommand)]
+        command: GoalCommand,
+    },
     Cost {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -2731,6 +2736,51 @@ enum ActionCommand {
         journal: PathBuf,
         #[arg(long)]
         log: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GoalCommand {
+    /// Show goals, commitments and bindings.
+    Status {
+        #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
+        journal: PathBuf,
+        #[arg(long)]
+        goal_id: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bind a session or attribute a run to a goal.
+    Link {
+        #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
+        journal: PathBuf,
+        #[arg(long)]
+        goal_id: String,
+        #[arg(long, conflicts_with = "run")]
+        session: Option<String>,
+        #[arg(long, conflicts_with = "session")]
+        run: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Close a goal with evidence.
+    Close {
+        #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
+        journal: PathBuf,
+        #[arg(long)]
+        goal_id: String,
+        #[arg(long, value_parser = ["achieved", "abandoned"])]
+        closure: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        run: Option<String>,
+        #[arg(long, default_value = "unknown", value_parser = ["passed", "failed", "unknown"])]
+        verification: String,
+        #[arg(long = "open-commitment")]
+        open_commitments: Vec<String>,
         #[arg(long)]
         json: bool,
     },
@@ -5267,6 +5317,26 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or(0)
+}
+
+fn goal_status_label(status: first_principles_agent::GoalStatus) -> &'static str {
+    use first_principles_agent::GoalStatus;
+    match status {
+        GoalStatus::Active => "进行中",
+        GoalStatus::Paused => "暂停",
+        GoalStatus::Achieved => "已达成",
+        GoalStatus::Abandoned => "已放弃",
+    }
+}
+
+fn commitment_status_label(status: first_principles_agent::CommitmentStatus) -> &'static str {
+    use first_principles_agent::CommitmentStatus;
+    match status {
+        CommitmentStatus::Pending => "待兑现",
+        CommitmentStatus::Kept => "已兑现",
+        CommitmentStatus::Missed => "已错过",
+        CommitmentStatus::Cancelled => "已取消",
+    }
 }
 
 fn print_action_card(stored: &first_principles_agent::browser::StoredActionCard) {
@@ -8076,6 +8146,189 @@ async fn main() -> Result<()> {
                 }
                 if !report.ok {
                     std::process::exit(1);
+                }
+            }
+        },
+        Command::Goal { command } => match command {
+            GoalCommand::Status {
+                journal,
+                goal_id,
+                json,
+            } => {
+                let store = first_principles_agent::GoalStore::open(&journal)
+                    .with_context(|| format!("open goal journal {}", journal.display()))?;
+                let snapshot = store.graph().snapshot();
+                let matches_goal =
+                    |id: &str| goal_id.as_deref().is_none_or(|goal_id| goal_id == id);
+                let goals = snapshot
+                    .goals
+                    .into_iter()
+                    .filter(|goal| matches_goal(&goal.goal_id))
+                    .collect::<Vec<_>>();
+                let commitments = snapshot
+                    .commitments
+                    .into_iter()
+                    .filter(|commitment| matches_goal(&commitment.goal_id))
+                    .collect::<Vec<_>>();
+                let bindings = snapshot
+                    .bindings
+                    .into_iter()
+                    .filter(|binding| matches_goal(&binding.goal_id))
+                    .collect::<Vec<_>>();
+                if let Some(goal_id) = goal_id.as_deref()
+                    && goals.is_empty()
+                {
+                    bail!("goal {goal_id} not found in {}", journal.display());
+                }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": true,
+                            "journal": journal.display().to_string(),
+                            "goals": goals,
+                            "commitments": commitments,
+                            "bindings": bindings,
+                        }))?
+                    );
+                } else if goals.is_empty() {
+                    println!("no goals");
+                } else {
+                    for goal in &goals {
+                        println!(
+                            "{}  [{}]  owner={}  {}",
+                            goal.goal_id,
+                            goal_status_label(goal.status),
+                            goal.owner_id,
+                            goal.title
+                        );
+                        if let Some(binding) = bindings
+                            .iter()
+                            .find(|binding| binding.goal_id == goal.goal_id)
+                        {
+                            if let Some(session) = &binding.session_id {
+                                println!("  session: {session}");
+                            }
+                            if !binding.run_ids.is_empty() {
+                                println!("  runs: {}", binding.run_ids.join(", "));
+                            }
+                            if !binding.commitment_ids.is_empty() {
+                                println!("  commitments: {}", binding.commitment_ids.join(", "));
+                            }
+                        }
+                        for commitment in commitments
+                            .iter()
+                            .filter(|commitment| commitment.goal_id == goal.goal_id)
+                        {
+                            println!(
+                                "  - {}  [{}]  {}",
+                                commitment.commitment_id,
+                                commitment_status_label(commitment.status),
+                                commitment.description
+                            );
+                        }
+                    }
+                }
+            }
+            GoalCommand::Link {
+                journal,
+                goal_id,
+                session,
+                run,
+                json,
+            } => {
+                if session.is_none() && run.is_none() {
+                    bail!("goal link needs --session and/or --run");
+                }
+                let mut store = first_principles_agent::GoalStore::open(&journal)
+                    .with_context(|| format!("open goal journal {}", journal.display()))?;
+                if let Some(session_id) = session.as_deref() {
+                    first_principles_agent::bind_session_goal(
+                        &mut store,
+                        &goal_id,
+                        session_id,
+                        now_ms(),
+                    )?;
+                }
+                if let Some(run_id) = run.as_deref() {
+                    first_principles_agent::link_run_to_goal(
+                        &mut store,
+                        &goal_id,
+                        run_id,
+                        now_ms(),
+                    )?;
+                }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": true,
+                            "goal_id": goal_id,
+                            "session_id": session,
+                            "run_id": run,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "linked {goal_id}{}{}",
+                        session
+                            .map(|session| format!(" · session={session}"))
+                            .unwrap_or_default(),
+                        run.map(|run| format!(" · run={run}")).unwrap_or_default()
+                    );
+                }
+            }
+            GoalCommand::Close {
+                journal,
+                goal_id,
+                closure,
+                reason,
+                run,
+                verification,
+                open_commitments,
+                json,
+            } => {
+                let mut store = first_principles_agent::GoalStore::open(&journal)
+                    .with_context(|| format!("open goal journal {}", journal.display()))?;
+                let closure = match closure.as_str() {
+                    "achieved" => first_principles_agent::GoalClosure::Achieved,
+                    "abandoned" => first_principles_agent::GoalClosure::Abandoned,
+                    other => bail!("unknown closure '{other}'"),
+                };
+                let verification = match verification.as_str() {
+                    "passed" => first_principles_agent::GoalVerification::Passed,
+                    "failed" => first_principles_agent::GoalVerification::Failed,
+                    "unknown" => first_principles_agent::GoalVerification::Unknown,
+                    other => bail!("unknown verification '{other}'"),
+                };
+                first_principles_agent::close_goal_with_evidence(
+                    &mut store,
+                    &goal_id,
+                    first_principles_agent::GoalOutcome {
+                        closure,
+                        answer_run_id: run,
+                        verification,
+                        open_commitment_ids: open_commitments,
+                        reason,
+                    },
+                    now_ms(),
+                )?;
+                let status = store
+                    .graph()
+                    .goal(&goal_id)
+                    .map(|goal| goal_status_label(goal.status))
+                    .unwrap_or("unknown");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": true,
+                            "goal_id": goal_id,
+                            "status": status,
+                        }))?
+                    );
+                } else {
+                    println!("closed {goal_id}: {status}");
                 }
             }
         },

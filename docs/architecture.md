@@ -378,7 +378,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   commitment in the same hash-chained append. Commitments are
   `pending -> kept|missed|cancelled` (terminal); a ticket can be linked once
   to a pending commitment, re-linking the same ticket is idempotent, and a
-  different ticket or a closed commitment is rejected.
+  different ticket or a closed commitment is rejected. `1agent goal
+  status|link|close` reads the same log: status prints goals/commitments/
+  bindings, link binds a session and/or attributes a run, and close applies
+  the evidence gate (achieved needs a linked run + passed verification;
+  abandoned lists and cancels pending commitments).
 - `attention_candidates`: deterministic, read-only projections over due, overdue and
   missed commitments plus due goals; fixed urgency ordering and a caller budget.
 - `DelegationRegistry`: observe/suggest/draft/ask/act_and_report profiles intersected with
