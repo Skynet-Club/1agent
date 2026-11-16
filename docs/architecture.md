@@ -836,7 +836,7 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `tool_search`: `search(query, specs, limit)` ranks tools by exact/prefix/name
   token, description token and parameter-name token, deterministically.
   `select` adds the always-on tools (`read_file`, `write_file`, `edit_file`,
-  `terminal_exec`) to the top hits. `1agent tools --query` exposes the ranking;
+  `terminal_exec`, `acceptance_gate`) to the top hits. `1agent tools --query` exposes the ranking;
   `1agent run --tool-query` sets the advertised list, which is journaled in
   `ModelRequested`. With no query, the full permission-filtered list is used.
 - Capability-first discovery: `capabilities/catalog.json` stores capability
@@ -853,8 +853,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `acceptance::close` wraps `verification::verify`, enforces maker–checker
   separation and returns a `CompletionReceipt` with a bounded decision
   (`accepted|conditional|rejected|hacked`). `acceptance_gate` exposes the
-  read-only tool. A tool run, file existence or HTTP 200 is not acceptance; P0
-  does not yet auto-downgrade every completed answer (P1).
+  read-only tool with one flat request; it copies criteria and artifacts into
+  `VerificationInput`. A tool run, file existence or HTTP 200 is not acceptance.
+  The runtime completion gate downgrades a `completed` answer to `conditional`
+  when a successful write-class tool ran and no `accepted` receipt was obtained
+  afterwards; a later write invalidates an earlier receipt. The downgrade is
+  journaled as `CompletionAcceptanceMissing` and the answer gains a high-impact
+  unknown plus a flip condition. This enforces a receipt's presence, not the
+  verifier's real independence; P2 adds an independent verifier and
+  capability-specific checks.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept

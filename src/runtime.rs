@@ -42,6 +42,110 @@ use crate::tools::{ToolCapability, ToolRegistry};
 /// own task assessment calls for gets at most this many corrections.
 const MAX_EVIDENCE_REPLANS: usize = 2;
 
+/// Unknown id used when the runtime downgrades an unaccepted delivery.
+const ACCEPTANCE_UNKNOWN_ID: &str = "completion-acceptance";
+
+/// Runtime completion gate. A completed answer that followed a successful
+/// side-effect tool needs an accepted acceptance receipt from this run. Any
+/// later side effect invalidates an earlier receipt.
+#[derive(Default)]
+struct CompletionGate {
+    side_effect_tools: BTreeSet<String>,
+    accepted_receipt: bool,
+}
+
+impl CompletionGate {
+    fn observe(
+        &mut self,
+        call: &ToolCall,
+        observation: &ToolObservation,
+        tools: &ToolRegistry,
+        batch_has_write: bool,
+    ) {
+        if observation.status != ToolStatus::Ok {
+            return;
+        }
+        if call.name == "acceptance_gate" {
+            // A gate in the same model turn cannot have seen a write's output.
+            if !batch_has_write
+                && observation.metadata.get("decision").map(String::as_str) == Some("accepted")
+            {
+                self.accepted_receipt = true;
+            }
+        } else if tools.requires_write(&call.name) {
+            self.side_effect_tools.insert(call.name.clone());
+            self.accepted_receipt = false;
+        }
+    }
+
+    /// Returns the missing-gate facts when the answer must be downgraded.
+    fn downgrade(&self, answer: &mut AgentAnswer) -> Option<(Vec<String>, String)> {
+        if answer.status != AnswerStatus::Completed
+            || self.side_effect_tools.is_empty()
+            || self.accepted_receipt
+        {
+            return None;
+        }
+        let tools = self.side_effect_tools.iter().cloned().collect::<Vec<_>>();
+        answer.status = AnswerStatus::Conditional;
+        if !answer
+            .unknowns
+            .iter()
+            .any(|unknown| unknown.id == ACCEPTANCE_UNKNOWN_ID)
+        {
+            answer.unknowns.push(UnknownItem {
+                id: ACCEPTANCE_UNKNOWN_ID.into(),
+                description: "交付没有 accepted 验收收据".into(),
+                impact: ImpactLevel::High,
+                why_it_matters: Some(
+                    "模型自述完成不等于验收通过；写入发生后没有独立验收证据".into(),
+                ),
+                reduction_method: Some(
+                    "调用 acceptance_gate，提交验收合同、逐条证据和独立验收人，取得 accepted 收据后再交付"
+                        .into(),
+                ),
+            });
+        }
+        answer.flip_conditions.retain(|condition| {
+            !condition
+                .target_ids
+                .iter()
+                .any(|id| id == ACCEPTANCE_UNKNOWN_ID)
+        });
+        answer.flip_conditions.push(FlipCondition {
+            if_observed: "acceptance_gate 返回 accepted 收据，且收据之后交付物没有再被修改".into(),
+            then: "可以按 completed 交付".into(),
+            target_ids: vec![ACCEPTANCE_UNKNOWN_ID.into()],
+        });
+        let line = format!(
+            "[验收门] 本次运行执行过写入类工具（{}），但没有获得 accepted 验收收据；运行时已把状态降为 conditional。",
+            tools.join("、")
+        );
+        answer.conclusion = format!("{}\n\n{line}", answer.conclusion.trim_end());
+        let reason = format!(
+            "side-effect tools ran without an accepted acceptance receipt: {}",
+            tools.join(", ")
+        );
+        Some((tools, reason))
+    }
+}
+
+fn enforce_completion_gate(
+    journal: &mut Journal,
+    gate: &CompletionGate,
+    mut answer: AgentAnswer,
+) -> Result<AgentAnswer, RuntimeError> {
+    if let Some((tools, reason)) = gate.downgrade(&mut answer) {
+        journal
+            .append(JournalEventKind::CompletionAcceptanceMissing { tools, reason })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal.path().to_path_buf(),
+                source,
+            })?;
+    }
+    Ok(answer)
+}
+
 #[derive(Clone)]
 pub struct ProviderCandidate {
     pub provider: Arc<dyn ModelProvider>,
@@ -1922,6 +2026,7 @@ impl AgentRuntime {
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
         let mut evidence_replans = 0usize;
+        let mut completion_gate = CompletionGate::default();
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
@@ -2406,6 +2511,8 @@ impl AgentRuntime {
                         };
                         answer = repaired.answer;
                         if let Some(stop_reason) = repaired.stop_reason {
+                            answer =
+                                enforce_completion_gate(&mut journal, &completion_gate, answer)?;
                             return finish_with_answer(
                                 &mut journal,
                                 run_id,
@@ -2415,6 +2522,7 @@ impl AgentRuntime {
                             );
                         }
                     }
+                    answer = enforce_completion_gate(&mut journal, &completion_gate, answer)?;
                     if let Some(reason) = answer_needs_evidence_replan(&answer, &request.objective)
                     {
                         if evidence_replans < MAX_EVIDENCE_REPLANS {
@@ -2475,6 +2583,8 @@ impl AgentRuntime {
                         && let Some(answer) = plain_text_chat_answer(&content)
                         && answer.validate(&request).is_ok()
                     {
+                        let answer =
+                            enforce_completion_gate(&mut journal, &completion_gate, answer)?;
                         return finish_with_answer(
                             &mut journal,
                             run_id,
@@ -2521,11 +2631,13 @@ impl AgentRuntime {
                     let stop_reason = repaired
                         .stop_reason
                         .unwrap_or_else(|| stop_reason_for_answer(repaired.answer.status));
+                    let answer =
+                        enforce_completion_gate(&mut journal, &completion_gate, repaired.answer)?;
                     return finish_with_answer(
                         &mut journal,
                         run_id,
                         journal_path,
-                        repaired.answer,
+                        answer,
                         stop_reason,
                     );
                 }
@@ -2555,6 +2667,8 @@ impl AgentRuntime {
                                 "tool-call budget exhausted",
                             )
                             .await;
+                        let answer =
+                            enforce_completion_gate(&mut journal, &completion_gate, answer)?;
                         let stop_reason = if answer.status == AnswerStatus::Completed {
                             StopReason::Completed
                         } else {
@@ -2584,6 +2698,11 @@ impl AgentRuntime {
                         });
                     }
                     tool_calls = tool_calls.saturating_add(calls.len());
+                    // A gate in the same model turn cannot have seen this
+                    // turn's write output, even if it runs in a later group.
+                    let turn_has_write = calls
+                        .iter()
+                        .any(|call| self.tools.requires_write(&call.name));
                     messages.push(ModelMessage::assistant("", calls.clone()));
 
                     for (start, end) in tool_groups(&calls, &self.tools) {
@@ -2683,6 +2802,12 @@ impl AgentRuntime {
                             ]
                         };
                         for (call, observation) in group.iter().zip(observations) {
+                            completion_gate.observe(
+                                call,
+                                &observation,
+                                &self.tools,
+                                turn_has_write,
+                            );
                             journal
                                 .append(JournalEventKind::ToolObserved {
                                     observation: observation.clone(),
@@ -3019,6 +3144,28 @@ fn normalize_unresolved_conflicts(answer: &mut AgentAnswer) {
             conflict.resolution_sources.clear();
             conflict.resolution_claim_ids.clear();
         }
+    }
+    // A flip condition may name the conflict it resolves. Flip targets must be
+    // claims or unknowns, so expand a conflict target to its claims.
+    let conflict_claims = answer
+        .conflicts
+        .iter()
+        .map(|conflict| (conflict.id.clone(), conflict.claim_ids.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for condition in &mut answer.flip_conditions {
+        let mut targets = Vec::new();
+        for id in condition.target_ids.drain(..) {
+            if let Some(claim_ids) = conflict_claims.get(&id) {
+                for claim_id in claim_ids {
+                    if !targets.contains(claim_id) {
+                        targets.push(claim_id.clone());
+                    }
+                }
+            } else if !targets.contains(&id) {
+                targets.push(id);
+            }
+        }
+        condition.target_ids = targets;
     }
 }
 
@@ -4182,6 +4329,40 @@ mod tests {
         assert!(conflict.resolution.is_none());
         assert!(conflict.resolution_sources.is_empty());
         assert!(conflict.resolution_claim_ids.is_empty());
+    }
+
+    #[test]
+    fn flip_condition_conflict_target_is_expanded_to_claims() {
+        let mut answer = AgentAnswer {
+            schema_version: 2,
+            status: AnswerStatus::Completed,
+            conclusion: "conflict".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: vec![ConflictRecord {
+                id: "cf1".into(),
+                claim_ids: ["c3".into(), "c4".into()],
+                status: ConflictStatus::Unresolved,
+                resolution: None,
+                resolution_sources: Vec::new(),
+                resolution_claim_ids: Vec::new(),
+            }],
+            flip_conditions: vec![FlipCondition {
+                if_observed: "user confirms".into(),
+                then: "the conflict is resolved".into(),
+                target_ids: vec!["cf1".into(), "c3".into()],
+            }],
+            action_receipts: Vec::new(),
+            task_need: None,
+        };
+        normalize_unresolved_conflicts(&mut answer);
+        assert_eq!(
+            answer.flip_conditions[0].target_ids,
+            vec!["c3".to_string(), "c4".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -6893,6 +7074,231 @@ mod tests {
         assert!(events.iter().any(|event| matches!(
             &event.event,
             JournalEventKind::AnswerVerificationFailed { round: 1, .. }
+        )));
+    }
+
+    fn accepted_gate_arguments(target: &std::path::Path) -> serde_json::Value {
+        serde_json::json!({
+            "task_id": "task-1",
+            "objective": "write out.txt",
+            "acceptance_criteria": ["out.txt contains hello"],
+            "hidden_criteria": [],
+            "expected_artifacts": [{"path": target}],
+            "risk": "low",
+            "required_verifier": "independent",
+            "residual_risks": [],
+            "executor": "executor:1agent",
+            "verifier": "verifier:audit",
+            "results": [{
+                "criterion": "out.txt contains hello",
+                "passed": true,
+                "evidence": ["sha256 and byte read match"]
+            }],
+            "artifact_checks": [{
+                "path": target,
+                "observed_sha256": "sha256",
+                "passed": true
+            }]
+        })
+    }
+
+    fn write_call(id: &str, target: &std::path::Path, content: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": target, "content": content, "overwrite": true}),
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_after_write_without_acceptance_receipt_is_conditional() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote out.txt"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        assert!(result.answer.conclusion.contains("[验收门]"));
+        assert!(result.answer.unknowns.iter().any(|unknown| {
+            unknown.id == ACCEPTANCE_UNKNOWN_ID && unknown.impact == ImpactLevel::High
+        }));
+        assert!(
+            result.answer.flip_conditions.iter().any(|condition| {
+                condition.target_ids == vec![ACCEPTANCE_UNKNOWN_ID.to_string()]
+            })
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionAcceptanceMissing { tools, .. }
+                if tools == &vec!["write_file".to_string()]
+        )));
+    }
+
+    #[tokio::test]
+    async fn accepted_receipt_after_write_keeps_completed() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote and accepted out.txt"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("写 out.txt 并验收", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert!(!result.answer.conclusion.contains("[验收门]"));
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionAcceptanceMissing { .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn gate_in_the_same_turn_as_a_write_does_not_count() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![
+                        write_call("write-1", &target, "hello"),
+                        ToolCall {
+                            id: "gate-1".into(),
+                            name: "acceptance_gate".into(),
+                            arguments: accepted_gate_arguments(&target),
+                        },
+                    ],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote out.txt"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+    }
+
+    #[tokio::test]
+    async fn write_after_accepted_receipt_invalidates_the_receipt() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-2", &target, "changed")],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote out.txt"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionAcceptanceMissing { .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn completed_without_side_effects_needs_no_acceptance_receipt() {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = workspace.path().join("evidence.txt");
+        std::fs::write(&evidence, "hello").unwrap();
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "read-1".into(),
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({"path": evidence}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("read evidence.txt"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("读 evidence.txt", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionAcceptanceMissing { .. }
         )));
     }
 
