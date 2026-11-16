@@ -25,7 +25,7 @@ video” would be obsolete immediately. The durable unit is a capability:
 2. Add `capability_search`, a read-only tool that searches the embedded catalog
    by capability phrase and returns ranked cards. It never installs or runs a
    candidate.
-3. Seed five capabilities: UI/UX page design, OCR, PDF→HTML, audio
+3. Seed six capabilities: UI/UX page design, UI review/unslop, OCR, PDF→HTML, audio
    transcription and video editing. The four non-design examples prove the
    schema is not web-specific.
 4. Add the system-prompt rule: before a non-trivial build or conversion, search
@@ -64,7 +64,7 @@ cargo test --lib system_prompt_requires_capability_search_before_building
 cargo test --test tools_e2e
 ```
 
-The tests cover catalog validation, deterministic ranking for the five
+The tests cover catalog validation, deterministic ranking for the six
 capabilities, tool listing and the prompt policy. They do not prove that an
 external candidate is safe or that a novel task can be discovered; those are
 P1/P2.
