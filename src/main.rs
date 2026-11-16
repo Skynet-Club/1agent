@@ -250,6 +250,11 @@ enum Command {
         #[command(subcommand)]
         command: OntologyCommand,
     },
+    /// Inspect and verify gated tool action records.
+    Action {
+        #[command(subcommand)]
+        command: ActionCommand,
+    },
     Cost {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -2704,6 +2709,28 @@ enum OntologyCommand {
         input: Option<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ActionCommand {
+    /// Show the latest action record per action id.
+    Show {
+        #[arg(long)]
+        log: PathBuf,
+        #[arg(long)]
+        action_id: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Reconcile one run journal with the action log.
+    Verify {
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        log: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -7957,6 +7984,98 @@ async fn main() -> Result<()> {
                 }
                 if !report.ok {
                     bail!("ontology validation failed for {source}");
+                }
+            }
+        },
+        Command::Action { command } => match command {
+            ActionCommand::Show {
+                log,
+                action_id,
+                json,
+            } => {
+                let journal = first_principles_agent::ActionLogJournal::open(&log)
+                    .with_context(|| format!("open action log {}", log.display()))?;
+                let mut records = journal
+                    .log()
+                    .latest_action_records()
+                    .into_values()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if let Some(action_id) = action_id.as_deref() {
+                    records.retain(|record| record.action_id == action_id);
+                }
+                records.sort_by(|left, right| left.action_id.cmp(&right.action_id));
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "log": log.display().to_string(),
+                            "count": records.len(),
+                            "actions": records,
+                        }))?
+                    );
+                } else if records.is_empty() {
+                    println!("no action records");
+                } else {
+                    for record in &records {
+                        println!(
+                            "{}  {}  [{}]  run={}  risk={:?}  reversible={}  policy={:?}",
+                            record.action_id,
+                            record.action_type,
+                            record.status.as_str(),
+                            record.run_id,
+                            record.risk,
+                            record.reversible,
+                            record.policy_outcome
+                        );
+                        if let Some(reason) = &record.policy_reason {
+                            println!("  reason: {reason}");
+                        }
+                        if let Some(profile) = &record.authority_profile_id {
+                            println!("  profile: {profile}");
+                        }
+                        if let Some(card) = &record.approval_card_id {
+                            println!("  approval: {card}");
+                        }
+                        if let Some(sha) = &record.artifact_sha256 {
+                            println!("  artifact: {sha}");
+                        }
+                    }
+                }
+            }
+            ActionCommand::Verify { journal, log, json } => {
+                let events = first_principles_agent::read_events(&journal)
+                    .with_context(|| format!("read journal {}", journal.display()))?;
+                let action_journal = first_principles_agent::ActionLogJournal::open(&log)
+                    .with_context(|| format!("open action log {}", log.display()))?;
+                let records = action_journal
+                    .log()
+                    .latest_action_records()
+                    .into_values()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let report = first_principles_agent::reconcile_actions(&events, &records);
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": report.ok,
+                            "checked": report.checked,
+                            "journal": journal.display().to_string(),
+                            "log": log.display().to_string(),
+                            "issues": report.issues,
+                        }))?
+                    );
+                } else if report.ok {
+                    println!("action reconciliation ok（{} actions）", report.checked);
+                } else {
+                    for issue in &report.issues {
+                        eprintln!("{}: {:?}: {}", issue.action_id, issue.kind, issue.detail);
+                    }
+                }
+                if !report.ok {
+                    std::process::exit(1);
                 }
             }
         },

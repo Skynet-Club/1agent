@@ -622,7 +622,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `reconcile_actions` (AR-003) compares the gated `ToolObserved` entries of one
   run with its latest `ActionRecord`s: a missing record, a missing journal
   observation, or a tool/status/policy/artifact mismatch is reported; non-gated
-  observations and records from other runs are ignored.
+  observations and records from other runs are ignored. `1agent action show
+  --log PATH [--action-id ID]` prints the latest records; `1agent action verify
+  --journal PATH --log PATH` runs the reconciler and exits non-zero with the
+  issue list when either side is incomplete.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
 - Write authority is true by default for local CLI/TUI; `--read-only` disables it.
