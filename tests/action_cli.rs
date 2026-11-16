@@ -11,6 +11,9 @@ use first_principles_agent::domain::{
     CognitiveMode, RiskLevel, StopReason, TaskRequest, ToolCall, ToolObservation, ToolStatus,
 };
 use first_principles_agent::journal::{Journal, JournalEventKind};
+use first_principles_agent::tool_approval::{
+    ToolApprovalCard, ToolApprovalStatus, ToolApprovalStore,
+};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -21,6 +24,21 @@ fn bin() -> &'static str {
 fn run(args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
+        .output()
+        .unwrap_or_else(|error| panic!("failed to run {args:?}: {error}"))
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+}
+
+fn run_with_store(args: &[&str], store: &Path) -> Output {
+    Command::new(bin())
+        .args(args)
+        .env("ONEAGENT_TOOL_APPROVALS", store)
         .output()
         .unwrap_or_else(|error| panic!("failed to run {args:?}: {error}"))
 }
@@ -273,6 +291,84 @@ fn non_gated_journal_verifies_against_an_empty_log() {
     assert!(verify.status.success(), "{report}");
     assert_eq!(report["ok"], true);
     assert_eq!(report["checked"], 0);
+}
+
+#[test]
+fn action_approval_cards_can_be_listed_approved_and_denied() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("tool-approvals.json");
+    let store = ToolApprovalStore::at(&store_path);
+    let now = now_ms();
+    let first = store
+        .request(ToolApprovalCard::pending(
+            "run-1:call-1",
+            "run-1",
+            Some("ses-1".into()),
+            "write_file",
+            "a".repeat(64),
+            RiskLevel::Medium,
+            false,
+            now,
+        ))
+        .unwrap();
+    let second = store
+        .request(ToolApprovalCard::pending(
+            "run-2:call-1",
+            "run-2",
+            None,
+            "terminal_exec",
+            "b".repeat(64),
+            RiskLevel::High,
+            false,
+            now,
+        ))
+        .unwrap();
+
+    let list = run_with_store(&["action", "list", "--json"], &store_path);
+    let value = parse_stdout(&list);
+    assert!(list.status.success(), "{value}");
+    assert_eq!(value["count"], 2);
+    assert_eq!(value["cards"][0]["status"], "pending");
+
+    let approve = run_with_store(
+        &[
+            "action",
+            "approve",
+            first.card_id.as_str(),
+            "--yes",
+            "--json",
+        ],
+        &store_path,
+    );
+    let value = parse_stdout(&approve);
+    assert!(approve.status.success(), "{value}");
+    assert_eq!(value["status"], "approved");
+
+    let duplicate = run_with_store(
+        &["action", "approve", first.card_id.as_str(), "--yes"],
+        &store_path,
+    );
+    assert!(!duplicate.status.success());
+
+    let deny = run_with_store(
+        &["action", "deny", second.card_id.as_str(), "--json"],
+        &store_path,
+    );
+    let value = parse_stdout(&deny);
+    assert!(deny.status.success(), "{value}");
+    assert_eq!(value["status"], "denied");
+
+    let cards = store.list().unwrap();
+    let first = cards
+        .iter()
+        .find(|card| card.card_id == first.card_id)
+        .unwrap();
+    let second = cards
+        .iter()
+        .find(|card| card.card_id == second.card_id)
+        .unwrap();
+    assert_eq!(first.status, ToolApprovalStatus::Approved);
+    assert_eq!(second.status, ToolApprovalStatus::Denied);
 }
 
 #[test]
