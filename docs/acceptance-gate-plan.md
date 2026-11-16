@@ -69,8 +69,8 @@ Task
 
 - **P0 (done):** contract/receipt model, read-only `acceptance_gate` tool with one flat request, independent verifier check, prompt policy, tests.
 - **P1 (done for runtime enforcement):** runtime `CompletionGate`: a `completed` answer after a successful write-class tool requires an `accepted` receipt from this run; any later write invalidates an earlier receipt, and a gate in the same model turn as a write does not count. The downgrade is `conditional`, carries a high-impact unknown and flip condition, and is journaled as `CompletionAcceptanceMissing`.
-- **P1.5 (done): design delivery guard.** Written HTML artifacts are scanned for placeholder markers; a page contract must name 390/768/1440 viewport evidence, horizontal-scroll, placeholder, tap-target, brief, CTA and design-review checks. A placeholder artifact or an incomplete page contract downgrades to `conditional` and journals `CompletionArtifactUnfinished` or `CompletionDesignContractGap`.
-- **P1 remainder:** a TUI “已验收/未验收/有条件” badge and a CLI to inspect receipts.
+- **P1.5 (done): design delivery guard.** Written HTML artifacts are scanned for placeholder markers; a page contract must name 390/768/1440 viewport evidence, horizontal-scroll, placeholder, tap-target, brief, CTA and design-review checks. A placeholder artifact or an incomplete page contract downgrades to `conditional` and journals `CompletionArtifactUnfinished` or `CompletionDesignContractGap`. `browser action=audit` on a loopback preview URL returns real viewport metrics and PNGs without `--allow-network` or a terminal session.
+- **P1 remainder:** a CLI to inspect receipts. The TUI now distinguishes `已完成` / `有条件完成` / `需要处理` instead of showing every finished run as completed.
 - **P2:** capability-specific verification profiles; verifier subagent; hidden/adversarial checks; target-environment checks (390/768/1440, OCR CER, ffprobe, etc.).
 - **P3:** ontology/Bitable receipts; gate metrics (false accept/rework); human sign-off workflow; periodic revalidation tied to artifact hashes.
 

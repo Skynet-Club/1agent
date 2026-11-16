@@ -38,6 +38,7 @@ User
 - transcript scrolling, mouse selection, copy and cancellation;
 - a bare launch starts a new session; exit prints the explicit `--session` continue command;
 - running line shows `Working...`, elapsed time, input/output tokens and provider cache hit rate;
+- the finished line reflects the answer status: `✓ completed` / `◐ conditional` / `! needs attention` / failed; a conditional delivery is no longer shown as completed;
 - green instrument-panel visual pass: body/work-log contrast 6.0:1 and borders 3.8:1, missing token/cache metrics are hidden instead of shown as placeholders, short terminals use a compact wordmark, an empty composer shows a start hint, and `/help` shows the selected position;
 - work-log information flow: one `Model Request` row per step naming the provider/model and what was sent — `new X, total M (system/user/assistant/tool)` — instead of context-token and available-tool counts; tool results are inserted under their call by call id, so parallel calls do not pile results at the end; common network/timeout/HTTP failures become short Chinese labels with the URL kept, while raw errors stay in `/details`; stop reasons are localized; a Markdown table that would truncate renders as stacked `label` plus `header: value` rows.
 
@@ -216,7 +217,7 @@ The result should include a conclusion, facts, assumptions, unknowns, conflicts,
   --task "Trace the authentication path and list the three riskiest entry points"
 ```
 
-Available tools include `read_file`, `read_pdf`, `search_files`, `fetch_url`, `web_search`, `browser_read`, plus `write_file`, `edit_file` and real PTY terminal tools (writes are on by default; `--read-only` disables them).
+Available tools include `read_file`, `read_pdf`, `search_files`, `fetch_url`, `web_search`, `browser_read`, plus `browser`, `write_file`, `edit_file` and real PTY terminal tools (writes are on by default; `--read-only` disables them). `browser action=audit` captures real 390/768/1440 viewport metrics and PNGs for a loopback preview URL with `allow_loopback=true`.
 
 ### C. Interactive investigation
 

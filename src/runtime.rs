@@ -288,7 +288,11 @@ fn design_contract_gaps(receipt: &CompletionReceipt) -> Vec<String> {
     if !(text.contains("brief") || text.contains("文案") || text.contains("产品名")) {
         missing.push("brief 完整性检查".into());
     }
-    if !(text.contains("cta") || text.contains("行动") || text.contains("动作")) {
+    if !(text.contains("cta")
+        || text.contains("行动")
+        || text.contains("动作")
+        || text.contains("主按钮"))
+    {
         missing.push("主 CTA 检查".into());
     }
     if !(text.contains("unslop")

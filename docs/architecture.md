@@ -800,7 +800,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   different action id or artifact digest after approval is rejected as a
   mismatch and needs a fresh card. Legacy cards without these fields still
   load (empty/none). Generic gated-tool approval cards are not created yet;
-  the binding is enforced at the card/store layer.
+  the binding is enforced at the card/store layer. `browser` can open a
+  `preview_file` loopback URL without `--allow-network` when
+  `allow_loopback=true`; `action=audit` then captures real 390/768/1440
+  scrollWidth/clientWidth, placeholder hits, tap-target sizes, h1 count and
+  PNGs. This is local design-review evidence, not a public-network exemption.
 - `team`: role/action/scope policy. Owner allows all; approver allows
   read+approve; member allows read+write; viewer allows read. Empty scopes mean
   all; a non-empty list must contain the requested scope. Unknown actors,
