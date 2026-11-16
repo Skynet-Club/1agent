@@ -257,6 +257,11 @@ impl AgentTool for SpawnAgentTool {
             timeout_seconds,
         );
         record.spawn_call_id = super::TOOL_CALL_ID.try_with(Clone::clone).ok();
+        let run_context = super::RUN_CONTEXT.try_with(Clone::clone).ok();
+        if let Some(context) = &run_context {
+            record.parent_run_id = Some(context.run_id.clone());
+            record.parent_session_id = context.session_id.clone();
+        }
         let mut registry = RegistryGuard::start(record);
 
         let mut args = vec![
@@ -432,6 +437,12 @@ impl AgentTool for SpawnAgentTool {
         if let Some(child_run_id) = value.get("run_id").and_then(Value::as_str) {
             metadata.insert("child_run_id".into(), child_run_id.to_string());
         }
+        if let Some(context) = &run_context {
+            metadata.insert("parent_run_id".into(), context.run_id.clone());
+            if let Some(session_id) = &context.session_id {
+                metadata.insert("parent_session_id".into(), session_id.clone());
+            }
+        }
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
         }
@@ -517,7 +528,7 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
     }
 
     #[tokio::test]
-    async fn registry_records_spawn_call_and_child_run_lineage() {
+    async fn registry_records_parent_session_run_and_spawn_call_lineage() {
         let dir = tempfile::tempdir().unwrap();
         let program = fake_program(dir.path());
         let workspace = dir.path().join("workspace");
@@ -527,22 +538,42 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
             SpawnAgentTool::new(program).with_depth(0),
         ));
         let call_id = format!("spawn-call-{}", Uuid::new_v4());
-        let observation = registry
-            .execute(
-                &crate::domain::ToolCall {
-                    id: call_id.clone(),
-                    name: "spawn_agent".into(),
-                    arguments: json!({
-                        "task": "child task",
-                        "workspace": workspace,
-                        "allow_write": false
-                    }),
-                },
-                &permissions(dir.path(), true),
-                &CancellationToken::new(),
-            )
+        let context = crate::tools::RunContext {
+            run_id: format!("run-parent-{}", Uuid::new_v4()),
+            session_id: Some(format!("ses-{}", Uuid::new_v4())),
+        };
+        let observation = crate::tools::RUN_CONTEXT
+            .scope(context.clone(), async {
+                registry
+                    .execute(
+                        &crate::domain::ToolCall {
+                            id: call_id.clone(),
+                            name: "spawn_agent".into(),
+                            arguments: json!({
+                                "task": "child task",
+                                "workspace": workspace,
+                                "allow_write": false
+                            }),
+                        },
+                        &permissions(dir.path(), true),
+                        &CancellationToken::new(),
+                    )
+                    .await
+            })
             .await;
         assert_eq!(observation.status, ToolStatus::Ok, "{observation:?}");
+        assert_eq!(
+            observation.metadata.get("parent_run_id"),
+            Some(&context.run_id)
+        );
+        assert_eq!(
+            observation.metadata.get("parent_session_id"),
+            context.session_id.as_ref()
+        );
+        assert_eq!(
+            observation.metadata.get("child_run_id").map(String::as_str),
+            Some("child")
+        );
 
         let expected_workspace = std::fs::canonicalize(&workspace)
             .unwrap()
@@ -557,8 +588,139 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
             .expect("spawned record");
         assert_eq!(record.spawn_call_id.as_deref(), Some(call_id.as_str()));
         assert_eq!(record.child_run_id.as_deref(), Some("child"));
-        assert!(record.parent_session_id.is_none());
+        assert_eq!(
+            record.parent_run_id.as_deref(),
+            Some(context.run_id.as_str())
+        );
+        assert_eq!(
+            record.parent_session_id.as_deref(),
+            context.session_id.as_deref()
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_spawns_keep_their_parent_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace_a = dir.path().join("workspace-a");
+        let workspace_b = dir.path().join("workspace-b");
+        std::fs::create_dir_all(&workspace_a).unwrap();
+        std::fs::create_dir_all(&workspace_b).unwrap();
+        let tool_a = SpawnAgentTool::new(program.clone()).with_depth(0);
+        let tool_b = SpawnAgentTool::new(program).with_depth(0);
+        let permissions_a = permissions(dir.path(), false);
+        let permissions_b = permissions(dir.path(), false);
+        let cancellation_a = CancellationToken::new();
+        let cancellation_b = CancellationToken::new();
+        let context_a = crate::tools::RunContext {
+            run_id: format!("run-a-{}", Uuid::new_v4()),
+            session_id: Some(format!("ses-a-{}", Uuid::new_v4())),
+        };
+        let context_b = crate::tools::RunContext {
+            run_id: format!("run-b-{}", Uuid::new_v4()),
+            session_id: Some(format!("ses-b-{}", Uuid::new_v4())),
+        };
+
+        let future_a = crate::tools::RUN_CONTEXT.scope(
+            context_a.clone(),
+            crate::tools::TOOL_CALL_ID.scope(
+                "call-a".to_string(),
+                tool_a.execute(
+                    json!({"task": "task a", "workspace": workspace_a}),
+                    &permissions_a,
+                    &cancellation_a,
+                ),
+            ),
+        );
+        let future_b = crate::tools::RUN_CONTEXT.scope(
+            context_b.clone(),
+            crate::tools::TOOL_CALL_ID.scope(
+                "call-b".to_string(),
+                tool_b.execute(
+                    json!({"task": "task b", "workspace": workspace_b}),
+                    &permissions_b,
+                    &cancellation_b,
+                ),
+            ),
+        );
+        let (result_a, result_b) = tokio::join!(future_a, future_b);
+        result_a.unwrap();
+        result_b.unwrap();
+
+        let registry_text =
+            std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        let records = registry_text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .collect::<Vec<_>>();
+        let record_a = records
+            .iter()
+            .rfind(|record| {
+                record.workspace
+                    == std::fs::canonicalize(&workspace_a)
+                        .unwrap()
+                        .display()
+                        .to_string()
+            })
+            .expect("record a");
+        let record_b = records
+            .iter()
+            .rfind(|record| {
+                record.workspace
+                    == std::fs::canonicalize(&workspace_b)
+                        .unwrap()
+                        .display()
+                        .to_string()
+            })
+            .expect("record b");
+        assert_eq!(
+            record_a.parent_run_id.as_deref(),
+            Some(context_a.run_id.as_str())
+        );
+        assert_eq!(
+            record_a.parent_session_id.as_deref(),
+            context_a.session_id.as_deref()
+        );
+        assert_eq!(record_a.spawn_call_id.as_deref(), Some("call-a"));
+        assert_eq!(
+            record_b.parent_run_id.as_deref(),
+            Some(context_b.run_id.as_str())
+        );
+        assert_eq!(
+            record_b.parent_session_id.as_deref(),
+            context_b.session_id.as_deref()
+        );
+        assert_eq!(record_b.spawn_call_id.as_deref(), Some("call-b"));
+    }
+
+    #[tokio::test]
+    async fn spawn_outside_a_run_context_keeps_parent_ids_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        tool.execute(
+            json!({"task": "out-of-run child", "workspace": workspace}),
+            &permissions(dir.path(), false),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        let expected_workspace = std::fs::canonicalize(&workspace)
+            .unwrap()
+            .display()
+            .to_string();
+        let registry_text =
+            std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        let record = registry_text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .rfind(|record| record.workspace == expected_workspace)
+            .expect("spawned record");
         assert!(record.parent_run_id.is_none());
+        assert!(record.parent_session_id.is_none());
     }
 
     #[tokio::test]

@@ -187,9 +187,13 @@ pub fn append_record(path: &Path, record: &SubagentRecord) -> std::io::Result<()
         options.mode(0o600);
     }
     let mut file = options.open(path)?;
-    let line = serde_json::to_string(record)
+    // One `write_all` per record: concurrent 1Agent processes append to the
+    // same registry file, and a formatted write can split the JSON and the
+    // newline into separate syscalls that interleave with another record.
+    let mut line = serde_json::to_string(record)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    writeln!(file, "{line}")?;
+    line.push('\n');
+    file.write_all(line.as_bytes())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -394,6 +398,41 @@ mod tests {
         assert_eq!(latest.parent_run_id.as_deref(), Some("run-parent"));
         assert_eq!(latest.spawn_call_id.as_deref(), Some("call-7"));
         assert_eq!(latest.child_run_id.as_deref(), Some("run-child"));
+    }
+
+    #[test]
+    fn concurrent_appends_keep_one_parseable_record_per_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let handles = (0..8)
+            .map(|worker| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for index in 0..50 {
+                        append_record(
+                            &path,
+                            &record(
+                                &format!("sub-{worker}-{index}"),
+                                10,
+                                SubagentStatus::Running,
+                                index,
+                            ),
+                        )
+                        .unwrap();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 400);
+        for line in lines {
+            serde_json::from_str::<SubagentRecord>(line).unwrap();
+        }
     }
 
     #[test]

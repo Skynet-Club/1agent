@@ -63,6 +63,7 @@ pub struct AgentRuntime {
     router: Router,
     tools: ToolRegistry,
     journal_dir: PathBuf,
+    session_id: Option<String>,
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
     route_objective: Option<RouteObjective>,
@@ -114,6 +115,7 @@ impl AgentRuntime {
             router,
             tools,
             journal_dir: journal_dir.into(),
+            session_id: None,
             experience_dir: None,
             shadow_experience: Vec::new(),
             route_objective: None,
@@ -278,6 +280,13 @@ impl AgentRuntime {
         &self.journal_dir
     }
 
+    /// Attribute tool calls from subsequent runs to this session. The TUI
+    /// refreshes it before every run so a session switch cannot leave a stale
+    /// id behind. Runs outside a TUI session keep `None`.
+    pub fn set_session_id(&mut self, session_id: Option<String>) {
+        self.session_id = session_id;
+    }
+
     pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
         self.tools.capabilities()
     }
@@ -352,12 +361,14 @@ impl AgentRuntime {
         calls: &[ToolCall],
         permissions: &crate::domain::PermissionSet,
         cancellation: &CancellationToken,
+        context: &crate::tools::RunContext,
     ) -> Vec<ToolObservation> {
-        futures_util::future::join_all(
-            calls
-                .iter()
-                .map(|call| self.execute_tool(call, permissions, cancellation)),
-        )
+        futures_util::future::join_all(calls.iter().map(|call| {
+            crate::tools::RUN_CONTEXT.scope(
+                context.clone(),
+                self.execute_tool(call, permissions, cancellation),
+            )
+        }))
         .await
     }
 
@@ -1031,6 +1042,10 @@ impl AgentRuntime {
         fast_chat: bool,
     ) -> Result<RunResult, RuntimeError> {
         let run_id = Uuid::new_v4();
+        let run_context = crate::tools::RunContext {
+            run_id: run_id.to_string(),
+            session_id: self.session_id.clone(),
+        };
         let journal_path = self.journal_dir.join(format!("{run_id}.jsonl"));
         let mut journal =
             Journal::create(&journal_path, run_id).map_err(|source| RuntimeError::Journal {
@@ -2157,7 +2172,15 @@ impl AgentRuntime {
                                         observation
                                     }
                                     _ => {
-                                        self.execute_tool(call, &request.permissions, &cancellation)
+                                        crate::tools::RUN_CONTEXT
+                                            .scope(
+                                                run_context.clone(),
+                                                self.execute_tool(
+                                                    call,
+                                                    &request.permissions,
+                                                    &cancellation,
+                                                ),
+                                            )
                                             .await
                                     }
                                 };
@@ -2165,11 +2188,24 @@ impl AgentRuntime {
                             }
                             observations
                         } else if group.len() > 1 {
-                            self.execute_tools_parallel(group, &request.permissions, &cancellation)
-                                .await
+                            self.execute_tools_parallel(
+                                group,
+                                &request.permissions,
+                                &cancellation,
+                                &run_context,
+                            )
+                            .await
                         } else {
                             vec![
-                                self.execute_tool(&group[0], &request.permissions, &cancellation)
+                                crate::tools::RUN_CONTEXT
+                                    .scope(
+                                        run_context.clone(),
+                                        self.execute_tool(
+                                            &group[0],
+                                            &request.permissions,
+                                            &cancellation,
+                                        ),
+                                    )
                                     .await,
                             ]
                         };
@@ -5646,6 +5682,108 @@ mod tests {
             &event.event,
             JournalEventKind::ToolsRequested { granted, .. } if granted.iter().any(|name| name == "web_search")
         )));
+    }
+
+    struct ContextCaptureTool(Arc<Mutex<Vec<crate::tools::RunContext>>>);
+
+    #[async_trait]
+    impl crate::tools::AgentTool for ContextCaptureTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "capture_context".into(),
+                description: "Capture the task-local run context for tests.".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            let context = crate::tools::RUN_CONTEXT
+                .try_with(Clone::clone)
+                .expect("run context should be scoped around tool execution");
+            self.0.lock().unwrap().push(context);
+            Ok(crate::tools::ToolOutcome {
+                summary: "captured".into(),
+                content: "{}".into(),
+                metadata: BTreeMap::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_runs_scope_their_own_run_context() {
+        let workspace_a = tempfile::tempdir().unwrap();
+        let workspace_b = tempfile::tempdir().unwrap();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+
+        let capture_call = || ModelTurn::ToolCalls {
+            calls: vec![ToolCall {
+                id: "call-capture".into(),
+                name: "capture_context".into(),
+                arguments: serde_json::json!({}),
+            }],
+        };
+        let provider_a = Arc::new(ScriptedProvider::new(
+            vec![
+                capture_call(),
+                ModelTurn::Final {
+                    answer: completed_answer("a done"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let provider_b = Arc::new(ScriptedProvider::new(
+            vec![
+                capture_call(),
+                ModelTurn::Final {
+                    answer: completed_answer("b done"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let mut registry_a = ToolRegistry::default();
+        registry_a.register(Arc::new(ContextCaptureTool(captured.clone())));
+        let mut registry_b = ToolRegistry::default();
+        registry_b.register(Arc::new(ContextCaptureTool(captured.clone())));
+        let mut runtime_a = scripted_runtime(workspace_a.path(), provider_a, registry_a);
+        runtime_a.set_session_id(Some("ses-a".into()));
+        let mut runtime_b = scripted_runtime(workspace_b.path(), provider_b, registry_b);
+        runtime_b.set_session_id(Some("ses-b".into()));
+
+        let (result_a, result_b) = tokio::join!(
+            runtime_a.run(
+                TaskRequest::from_objective("整理一下任务 a", workspace_a.path().to_path_buf()),
+                CancellationToken::new(),
+            ),
+            runtime_b.run(
+                TaskRequest::from_objective("整理一下任务 b", workspace_b.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+        );
+        let result_a = result_a.unwrap();
+        let result_b = result_b.unwrap();
+
+        let captured = captured.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        for (result, session_id) in [(&result_a, "ses-a"), (&result_b, "ses-b")] {
+            let context = captured
+                .iter()
+                .find(|context| context.run_id == result.run_id.to_string())
+                .unwrap_or_else(|| panic!("missing context for run {}", result.run_id));
+            assert_eq!(context.session_id.as_deref(), Some(session_id));
+        }
     }
 
     fn answer_with_need(
