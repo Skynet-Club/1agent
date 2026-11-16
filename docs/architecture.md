@@ -347,6 +347,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   into concurrent execution. Contiguous safe calls run as one group; write/terminal calls
   stay ordered. `ToolCalled` and `ToolObserved` events both follow model order, so replay
   and audit are deterministic. An interrupted group remains unpaired and is not resumed.
+- Local preview: `preview_file` serves one regular file or a directory inside a read
+  root on `127.0.0.1` (ephemeral port by default), performs its own `GET /` and returns
+  only after HTTP 200 with a non-empty body. The observation includes URL, status, bytes
+  and SHA-256. It is loopback-only, rejects symlinks and traversal, caps a file at 16 MiB
+  and keeps at most eight servers; the server lives only while the process runs. The
+  system prompt requires website tasks to use it and to return `conditional` with the
+  blocker rather than asking the user to start a server.
 - `EvalReport`: suite outcome counts, decision-completeness policy version/source,
   canonical content digest and per-case results.
 - `EvalReportSummary`: case-content-free status view with schema version, integrity,
