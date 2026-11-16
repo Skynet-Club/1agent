@@ -1,6 +1,6 @@
 # Completion Acceptance Gate — Development Plan
 
-Status: P0 implemented; P1–P3 planned
+Status: P0 and P1 implemented; P2–P3 planned
 Date: 2026-11-16
 Related: [ADR-0144](adr/0144-completion-acceptance.md), `src/verification.rs`, `src/verification_store.rs`, [capability scouting](capability-scouting-plan.md)
 
@@ -67,8 +67,9 @@ Task
 
 ### 3.3 Gate phases
 
-- **P0 (this slice):** contract/receipt model, `acceptance_gate` tool, independent verifier check, prompt policy, tests. No default runtime downgrade yet.
-- **P1:** runtime `CompletionGate`: completed answers for artifact/write tasks require an accepted receipt; TUI shows “已验收/未验收/有条件”; CLI to inspect receipts.
+- **P0 (done):** contract/receipt model, read-only `acceptance_gate` tool with one flat request, independent verifier check, prompt policy, tests.
+- **P1 (done for runtime enforcement):** runtime `CompletionGate`: a `completed` answer after a successful write-class tool requires an `accepted` receipt from this run; any later write invalidates an earlier receipt, and a gate in the same model turn as a write does not count. The downgrade is `conditional`, carries a high-impact unknown and flip condition, and is journaled as `CompletionAcceptanceMissing`.
+- **P1 remainder:** a TUI “已验收/未验收/有条件” badge and a CLI to inspect receipts.
 - **P2:** capability-specific verification profiles; verifier subagent; hidden/adversarial checks; target-environment checks (390/768/1440, OCR CER, ffprobe, etc.).
 - **P3:** ontology/Bitable receipts; gate metrics (false accept/rework); human sign-off workflow; periodic revalidation tied to artifact hashes.
 
@@ -80,14 +81,26 @@ Task
 - The system prompt requires an accepted receipt before delivery and forbids treating a tool run as acceptance.
 - Full `./scripts/verify.sh` passes.
 - The tool is read-only; it does not execute the task or install checkers.
+- A real model can call it once from the advertised schema and answer from the receipt, without an example payload in the task.
 
-## 5. P0 non-goals
+## 4.1 P1 acceptance criteria
 
-- No automatic downgrade of every existing run; that is P1.
+- A `completed` answer after a successful write-class tool is downgraded to `conditional` when no accepted receipt exists.
+- An accepted receipt obtained after the last write keeps `completed`.
+- A write after an accepted receipt invalidates it and forces `conditional`.
+- A gate call in the same model turn as a write does not count.
+- A run with no side-effect tools is not forced through the gate.
+- The downgrade appends `CompletionAcceptanceMissing`, a high-impact unknown and a flip condition.
+- Full `./scripts/verify.sh` passes.
+
+## 5. Non-goals
+
 - No universal “one checklist” — domain checkers remain pluggable.
 - No claim that structural checks prove user value; they prove the contract was met.
 - No automatic human review.
 - No change to Authority/Policy.
+- The P1 gate proves that an accepted receipt exists after the last write. It does not prove the verifier was truly independent or that the receipt covers every artifact; P2 addresses that.
+- No TUI badge or receipt-listing CLI yet; the downgrade is visible in the answer status, conclusion and journal.
 
 ## 6. Risks
 
@@ -95,15 +108,19 @@ Task
 - **Overhead:** not every low-risk task needs a human; risk-scaled levels keep it proportional.
 - **Stale receipts:** bind receipts to artifact hashes/versions; changes invalidate.
 - **False confidence:** a passed contract only proves the stated criteria, not perfection.
-- **Model bypass:** P0 is tool + prompt; P1 must enforce in the runtime.
+- **Model bypass:** P1 catches a missing receipt, but the model can still fabricate the verifier identity and evidence. P2 must run a real independent verifier and bind receipts to artifact hashes.
 
 ## 7. Verification
 
 ```bash
 cargo test --lib acceptance
-cargo test --lib system_prompt_requires_acceptance_gate
+cargo test --lib system_prompt_requires_capability_search_before_building
+cargo test --lib completed_after_write
+cargo test --lib accepted_receipt_after_write
+cargo test --lib write_after_accepted_receipt
+cargo test --lib completed_without_side_effects
 cargo test --test tools_e2e
 ./scripts/verify.sh
 ```
 
-The tests prove the acceptance contract, independent verifier, evidence and artifact checks, decisions and tool contract. They do not prove that a future domain checker is correct or that the model always calls the gate; P1 adds runtime enforcement.
+The tests prove the acceptance contract, evidence and artifact checks, decisions, the flat tool request, the runtime presence gate and receipt staleness. They do not prove that a future domain checker is correct, that the verifier is truly independent, or that a receipt covers every artifact; those remain P2.

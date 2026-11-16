@@ -61,7 +61,13 @@ pub fn search(query: &str, specs: &[ToolSpec], limit: usize) -> Vec<ToolSearchHi
 
 /// Always-on tools needed for basic file and terminal work. They stay visible
 /// even when a query selects a different set.
-pub const ALWAYS_ON: &[&str] = &["read_file", "write_file", "edit_file", "terminal_exec"];
+pub const ALWAYS_ON: &[&str] = &[
+    "read_file",
+    "write_file",
+    "edit_file",
+    "terminal_exec",
+    "acceptance_gate",
+];
 
 /// Select the top query hits plus always-on tools. An empty query returns the
 /// original list; this keeps the default behavior unchanged.
@@ -111,6 +117,10 @@ mod tests {
             spec("edit_file", "Edit a file in place"),
             spec("browser_read", "Read a public web page"),
             spec("terminal_exec", "Run a shell command"),
+            spec(
+                "acceptance_gate",
+                "Close a task with an independent receipt",
+            ),
         ]
     }
 
@@ -157,11 +167,12 @@ mod tests {
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"write_file"));
         assert!(names.contains(&"edit_file"));
+        assert!(names.contains(&"acceptance_gate"));
         assert!(!names.contains(&"browser_read"));
     }
 
     #[test]
     fn empty_query_keeps_the_original_list() {
-        assert_eq!(select("", specs(), 2).len(), 5);
+        assert_eq!(select("", specs(), 2).len(), 6);
     }
 }

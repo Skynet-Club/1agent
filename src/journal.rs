@@ -201,6 +201,12 @@ pub enum JournalEventKind {
         reason: String,
         rounds: usize,
     },
+    /// Side-effect tools ran but the completed answer has no accepted
+    /// acceptance receipt; the runtime downgraded it to `conditional`.
+    CompletionAcceptanceMissing {
+        tools: Vec<String>,
+        reason: String,
+    },
     ReframeProposed {
         proposal: ReframeProposal,
         provider_id: String,
@@ -1430,7 +1436,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             | JournalEventKind::StreamFirstToken { .. }
             | JournalEventKind::ToolsRequested { .. }
             | JournalEventKind::AnswerVerificationFailed { .. }
-            | JournalEventKind::AnswerVerificationExhausted { .. } => {}
+            | JournalEventKind::AnswerVerificationExhausted { .. }
+            | JournalEventKind::CompletionAcceptanceMissing { .. } => {}
         }
     }
 
