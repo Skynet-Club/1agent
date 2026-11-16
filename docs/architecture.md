@@ -749,7 +749,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   submits, cross-origin/download links, password entry and Enter create a
   persistent 0600 card bound to the DOM descriptor/session/origin; a human
   approves with `browser approve`, and the card is re-checked and consumed
-  once before the CDP action.
+  once before the CDP action. Cards also carry the runtime `action_id` and an
+  optional `expected_artifact_sha256`; both are part of the matching key, so a
+  different action id or artifact digest after approval is rejected as a
+  mismatch and needs a fresh card. Legacy cards without these fields still
+  load (empty/none). Generic gated-tool approval cards are not created yet;
+  the binding is enforced at the card/store layer.
 - `team`: role/action/scope policy. Owner allows all; approver allows
   read+approve; member allows read+write; viewer allows read. Empty scopes mean
   all; a non-empty list must contain the requested scope. Unknown actors,

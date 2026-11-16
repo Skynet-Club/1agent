@@ -520,7 +520,11 @@ impl AgentRuntime {
 
         let mut observation = self.tools.execute(call, permissions, cancellation).await;
         if let (Some(context), Some(mut facts)) = (&self.tool_gate, gate_facts) {
-            if let Some(card_id) = observation.metadata.get("approval_card_id") {
+            if let Some(card_id) = observation
+                .metadata
+                .get("approval_card_id")
+                .or_else(|| observation.metadata.get("approval_id"))
+            {
                 facts.approval_card_id = Some(card_id.clone());
             }
             let status = action_status_for(&observation);

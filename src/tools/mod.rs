@@ -31,6 +31,15 @@ tokio::task_local! {
     pub(crate) static RUN_CONTEXT: RunContext;
 }
 
+/// Action id (`run_id:call_id`) of the tool call currently executing, when a
+/// run scoped a context. Used for durable action records and approval cards.
+pub(crate) fn current_action_id() -> Option<String> {
+    let call_id = TOOL_CALL_ID.try_with(Clone::clone).ok()?;
+    RUN_CONTEXT
+        .try_with(|context| format!("{}:{call_id}", context.run_id))
+        .ok()
+}
+
 mod browser;
 mod delegation;
 mod documents;
