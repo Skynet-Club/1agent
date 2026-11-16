@@ -169,6 +169,7 @@ Headless 运行：
 ## 文档
 
 - [设计哲学](docs/design-philosophy.md) — 为什么先问目的、为什么证据优先
+- [Super-Agent 判断准则](docs/super-agent-doctrine.md) — 四问、四家透镜与 12 个判断场景
 - [产品功能](docs/features.md) — 当前能力、边界和明确未实现项
 - [操作手册](docs/manual.md) — 安装、初始化、provider、TUI、运行、导出/恢复
 - [配套设施](docs/ecosystem.md) — Workshop、skyget、Bot 与平台状态

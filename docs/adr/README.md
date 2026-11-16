@@ -142,3 +142,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0136 | Durable Scheduled-Run Ledger and Supervision | [0136-durable-scheduled-run-ledger.md](0136-durable-scheduled-run-ledger.md) |
 | 0137 | MCP Dual-Era Transport, OAuth/CIMD and Tasks/MRTR Gating | [0137-mcp-dual-era-auth-and-tasks.md](0137-mcp-dual-era-auth-and-tasks.md) |
 | 0138 | Skill Evaluation, Lockfile and Script Sandbox | [0138-skill-evaluation-lock-and-sandbox.md](0138-skill-evaluation-lock-and-sandbox.md) |
+| 0140 | Super-Agent 判断准则 — 四问与四家 | [0140-super-agent-four-questions.md](0140-super-agent-four-questions.md) |
