@@ -26,6 +26,8 @@ fn card() -> ActionCard {
         session_id: "session-cli".into(),
         origin: "https://example.com".into(),
         summary: "click <button> text=\"Submit\" at https://example.com".into(),
+        action_id: String::new(),
+        expected_artifact_sha256: None,
     }
 }
 

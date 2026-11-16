@@ -28,6 +28,15 @@ pub struct JournalEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct ParentRunLink {
+    pub parent_run_id: String,
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
+    pub spawn_call_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderFailure {
     pub provider_id: String,
     pub model: String,
@@ -91,6 +100,10 @@ pub enum JournalEventKind {
     },
     ClientRequestLinked {
         client_request_id: String,
+    },
+    /// A child run records the parent run and spawn call that created it.
+    ParentRunLinked {
+        link: ParentRunLink,
     },
     ResumeStarted {
         original_run_id: Uuid,
@@ -456,6 +469,8 @@ pub struct ReplayState {
     pub observations: Vec<ToolObservation>,
     pub checkpoint: Option<RuntimeCheckpoint>,
     pub client_request_id: Option<String>,
+    #[serde(default)]
+    pub parent_run_link: Option<ParentRunLink>,
     #[serde(default)]
     pub reframe_proposal: Option<ReframeProposal>,
     #[serde(default)]
@@ -1326,6 +1341,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
         observations: Vec::new(),
         checkpoint: None,
         client_request_id: None,
+        parent_run_link: None,
         reframe_proposal: None,
         reframe_choice: None,
         reframe_actor: None,
@@ -1342,6 +1358,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::ClientRequestLinked {
                 client_request_id: value,
             } => state.client_request_id = Some(value.clone()),
+            JournalEventKind::ParentRunLinked { link } => {
+                state.parent_run_link = Some(link.clone());
+            }
             JournalEventKind::ReframeProposed { proposal, .. } => {
                 state.reframe_proposal = Some(proposal.clone());
             }

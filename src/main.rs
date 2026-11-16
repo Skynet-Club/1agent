@@ -5919,6 +5919,9 @@ async fn main() -> Result<()> {
             if let Some(experience_dir) = experience_dir {
                 runtime = runtime.with_experience_dir(experience_dir);
             }
+            if let Some(link) = first_principles_agent::runtime::parent_run_link_from_env() {
+                runtime = runtime.with_parent_run_link(link);
+            }
             let streamed = Arc::new(std::sync::atomic::AtomicBool::new(false));
             if stream {
                 let streamed = streamed.clone();

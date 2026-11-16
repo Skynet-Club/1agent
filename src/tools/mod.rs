@@ -139,6 +139,15 @@ pub enum ToolError {
     Cancelled,
     #[error("tool failed: {0}")]
     Failed(String),
+    #[error("tool failed: {message}")]
+    FailedWithMetadata {
+        message: String,
+        metadata: BTreeMap<String, String>,
+    },
+    #[error("tool timed out")]
+    TimedOutWithMetadata(BTreeMap<String, String>),
+    #[error("tool cancelled")]
+    CancelledWithMetadata(BTreeMap<String, String>),
     #[error("unsafe content: {0}")]
     UnsafeContent(String),
 }
@@ -150,10 +159,20 @@ impl ToolError {
             Self::PermissionDenied(_) => "permission_denied",
             Self::ApprovalRequired { .. } => "approval_required",
             Self::InputRequired(_) => "input_required",
-            Self::TimedOut => "timed_out",
-            Self::Cancelled => "cancelled",
-            Self::Failed(_) => "tool_failed",
+            Self::TimedOut | Self::TimedOutWithMetadata(_) => "timed_out",
+            Self::Cancelled | Self::CancelledWithMetadata(_) => "cancelled",
+            Self::Failed(_) | Self::FailedWithMetadata { .. } => "tool_failed",
             Self::UnsafeContent(_) => "unsafe_content",
+        }
+    }
+
+    /// Structured context for a failed observation, when the tool supplied it.
+    pub fn metadata(&self) -> Option<&BTreeMap<String, String>> {
+        match self {
+            Self::FailedWithMetadata { metadata, .. }
+            | Self::TimedOutWithMetadata(metadata)
+            | Self::CancelledWithMetadata(metadata) => Some(metadata),
+            _ => None,
         }
     }
 
@@ -163,8 +182,12 @@ impl ToolError {
             Self::PermissionDenied(_) | Self::ApprovalRequired { .. } | Self::InputRequired(_) => {
                 ToolStatus::PermissionDenied
             }
-            Self::TimedOut => ToolStatus::TimedOut,
-            Self::Cancelled | Self::Failed(_) | Self::UnsafeContent(_) => ToolStatus::Failed,
+            Self::TimedOut | Self::TimedOutWithMetadata(_) => ToolStatus::TimedOut,
+            Self::Cancelled
+            | Self::CancelledWithMetadata(_)
+            | Self::Failed(_)
+            | Self::FailedWithMetadata { .. }
+            | Self::UnsafeContent(_) => ToolStatus::Failed,
         }
     }
 }
@@ -402,6 +425,9 @@ impl ToolRegistry {
                     error.to_string(),
                     started,
                 );
+                if let Some(metadata) = error.metadata() {
+                    observation.metadata.extend(metadata.clone());
+                }
                 if let ToolError::ApprovalRequired { card_id, summary } = &error {
                     observation
                         .metadata
