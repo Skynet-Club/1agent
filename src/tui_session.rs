@@ -129,11 +129,25 @@ pub struct SessionSummary {
 #[serde(deny_unknown_fields)]
 pub struct SessionMission {
     pub id: String,
+    /// Stable goal id shared with the goal log. Legacy sessions that predate
+    /// this field are normalized to their mission id when loaded.
+    #[serde(default)]
+    pub goal_id: String,
     pub goal: String,
     pub workspace: PathBuf,
     pub revision: u32,
     #[serde(default)]
     pub plan: Option<SessionPlan>,
+}
+
+impl SessionMission {
+    pub fn goal_id(&self) -> &str {
+        if self.goal_id.is_empty() {
+            &self.id
+        } else {
+            &self.goal_id
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -293,7 +307,7 @@ impl TuiSession {
         }
 
         let bytes = std::fs::read(&path)?;
-        let record: SessionRecord =
+        let mut record: SessionRecord =
             serde_json::from_slice(&bytes).map_err(TuiSessionError::Json)?;
         if !matches!(record.version, LEGACY_SESSION_VERSION | SESSION_VERSION) {
             return Err(TuiSessionError::UnsupportedVersion(record.version));
@@ -302,7 +316,10 @@ impl TuiSession {
             return Err(TuiSessionError::IdentityMismatch);
         }
         let next_event_seq = last_event_seq(&root.join("events.jsonl"))?;
-        if let Some(mission) = record.mission.as_ref() {
+        if let Some(mission) = record.mission.as_mut() {
+            if mission.goal_id.is_empty() {
+                mission.goal_id = mission.id.clone();
+            }
             validate_mission_binding(&root, mission)?;
         }
         Ok(Self {
@@ -548,6 +565,7 @@ impl TuiSession {
         let workspace = std::fs::canonicalize(workspace)?;
         let mission_id = format!("mission-{}", Uuid::new_v4());
         self.mission = Some(SessionMission {
+            goal_id: mission_id.clone(),
             id: mission_id.clone(),
             goal,
             workspace,
@@ -1057,6 +1075,9 @@ fn validate_sha256(value: &str) -> Result<(), TuiSessionError> {
 }
 
 fn validate_mission_binding(root: &Path, mission: &SessionMission) -> Result<(), TuiSessionError> {
+    if mission.goal_id.is_empty() || contains_disallowed_control(&mission.goal_id) {
+        return Err(TuiSessionError::UnsafeEvent);
+    }
     let root = std::fs::canonicalize(root)?;
     let workspace = std::fs::canonicalize(&mission.workspace)?;
     if !workspace.is_dir() {
@@ -1397,6 +1418,45 @@ mod tests {
                 .and_then(|plan| plan.production_plan_sha256.as_deref()),
             Some(production_plan_sha.as_str())
         );
+    }
+
+    #[test]
+    fn mission_goal_id_is_stable_across_revisions_and_reopen() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let goal_id = session
+            .start_mission("Deliver verified output", workspace.path().to_path_buf())
+            .unwrap()
+            .goal_id()
+            .to_string();
+        assert!(!goal_id.is_empty());
+        session
+            .revise_mission("Deliver verified output v2")
+            .unwrap();
+        assert_eq!(session.mission().unwrap().goal_id(), goal_id);
+        let reopened = TuiSession::open(workspace.path(), Some(session.id())).unwrap();
+        assert_eq!(reopened.mission().unwrap().goal_id(), goal_id);
+    }
+
+    #[test]
+    fn legacy_session_mission_without_goal_id_normalizes_to_mission_id() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut session = TuiSession::open(workspace.path(), None).unwrap();
+        let mission_id = session
+            .start_mission("Deliver verified output", workspace.path().to_path_buf())
+            .unwrap()
+            .id
+            .clone();
+        let path = session.root().join("session.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        record["mission"].as_object_mut().unwrap().remove("goal_id");
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        let session_id = record["id"].as_str().unwrap().to_string();
+        drop(session);
+
+        let reopened = TuiSession::open(workspace.path(), Some(&session_id)).unwrap();
+        assert_eq!(reopened.mission().unwrap().goal_id(), mission_id);
     }
 
     #[test]
