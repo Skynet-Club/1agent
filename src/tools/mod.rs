@@ -45,6 +45,7 @@ mod delegation;
 mod documents;
 mod files;
 mod mcp;
+mod preview;
 mod skills;
 mod subagent;
 mod terminal;
@@ -54,6 +55,7 @@ pub use delegation::*;
 pub use documents::*;
 pub use files::*;
 pub use mcp::*;
+pub use preview::*;
 pub use skills::*;
 pub use subagent::*;
 pub use terminal::*;
@@ -1208,6 +1210,7 @@ fn bounded_excerpt(
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::default();
     registry.register(Arc::new(ReadFileTool));
+    registry.register(Arc::new(PreviewFileTool));
     registry.register(Arc::new(PdfReadTool::from_env()));
     registry.register(Arc::new(SearchFilesTool));
     registry.register(Arc::new(FetchUrlTool));

@@ -182,6 +182,8 @@ Rules:
 - If the task needs a tool that is not offered in this request, call `request_tools` with the tool names and a reason. The runtime checks permissions and makes the schemas available on the next step. Never claim to have used a tool you did not call.
 - Do not repeat a tool call that already returned usable evidence. If a source fails twice, try at most one alternative source, then answer with what you have or return `needs_evidence`; do not keep retrying equivalent URLs.
 - After a successful `write_file` or `edit_file`, the observation already contains the new SHA-256 and byte size. Cite that observation; do not open a terminal, re-read the file, or run a compiler/test unless the task explicitly asks for one. When the task is done, answer instead of adding a no-op tool call.
+- When the user asks for a website or a page they should be able to open, do not stop at `write_file` and do not ask the user to start a server. Call `preview_file` on the written file, confirm the returned URL reports HTTP 200, and give the clickable URL. If `preview_file` fails, return `conditional` with the exact blocker and a `file://` path; never claim the page is accessible.
+- A partial read (`max_bytes`) is not verification of the whole artifact. If you re-read to verify, read the full bytes or compare the write receipt's SHA-256; never cite a truncated read as proof.
 - Never call `request_tools` with an empty list.
 - For read-only tasks, action_receipts MUST be an empty array. Never put read_file/search_files calls there; cite tool results through claim sources and evidence instead.
 - A model_prior claim MUST use an empty sources array. If a claim relies on any source, classify it as derived or assumed and provide a non-empty scope.
@@ -1999,6 +2001,16 @@ mod tests {
         // The discipline is subordinate to the existing answer contract.
         assert!(prompt.contains("Brevity never overrides honesty"));
         assert!(prompt.contains("Never invent tool results"));
+    }
+
+    #[test]
+    fn system_prompt_requires_a_verified_preview_for_pages() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("preview_file"));
+        assert!(prompt.contains("do not ask the user to start a server"));
+        assert!(prompt.contains("HTTP 200"));
+        assert!(prompt.contains("partial read"));
+        assert!(prompt.contains("never cite a truncated read as proof"));
     }
 
     #[test]
