@@ -856,12 +856,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   read-only tool with one flat request; it copies criteria and artifacts into
   `VerificationInput`. A tool run, file existence or HTTP 200 is not acceptance.
   The runtime completion gate downgrades a `completed` answer to `conditional`
-  when a successful write-class tool ran and no `accepted` receipt was obtained
-  afterwards; a later write invalidates an earlier receipt. The downgrade is
-  journaled as `CompletionAcceptanceMissing` and the answer gains a high-impact
-  unknown plus a flip condition. This enforces a receipt's presence, not the
-  verifier's real independence; P2 adds an independent verifier and
-  capability-specific checks.
+  when a successful write-class tool ran and no parsed `accepted` receipt
+  (`decision=accepted`, `outcome=verified`, non-empty task id) was obtained
+  afterwards; a later write invalidates an earlier receipt, and a gate in the
+  same model turn as a write does not count. The downgrade is journaled as
+  `CompletionAcceptanceMissing` and the answer gains a high-impact unknown plus
+  a flip condition. This enforces a receipt's presence, not the verifier's real
+  independence; P2 adds an independent verifier and capability-specific checks.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept

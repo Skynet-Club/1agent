@@ -42,8 +42,10 @@ not the gate.
 6. Add the P1 runtime `CompletionGate`. A successful write-class tool marks the
    run as side-effecting; an `accepted` `acceptance_gate` receipt clears the
    requirement; any later write invalidates it, and a gate in the same model
-   turn as a write does not count because it cannot have seen that output. A
-   `completed` answer that still lacks acceptance is downgraded to
+   turn as a write does not count because it cannot have seen that output. The
+   gate parses the returned `CompletionReceipt` and requires `decision=accepted`,
+   `outcome=verified` and a non-empty task id; tool metadata alone cannot satisfy
+   it. A `completed` answer that still lacks acceptance is downgraded to
    `conditional`, gets a high-impact unknown and a flip condition, and journals
    `CompletionAcceptanceMissing`.
 

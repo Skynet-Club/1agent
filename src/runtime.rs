@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::acceptance::{AcceptanceDecision, CompletionReceipt};
 use crate::action_log::{ActionKind, ActionRecord, ActionStatus};
 use crate::action_log_journal::ActionLogJournal;
 use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
@@ -37,6 +38,7 @@ use crate::router::{
 use crate::task_graph::MandateStrength;
 use crate::tool_approval::{ToolApprovalCard, ToolApprovalError, ToolApprovalStore};
 use crate::tools::{ToolCapability, ToolRegistry};
+use crate::verification::VerificationOutcome;
 
 /// Bounded evidence re-planning: a completed draft that lacks the evidence its
 /// own task assessment calls for gets at most this many corrections.
@@ -69,6 +71,13 @@ impl CompletionGate {
             // A gate in the same model turn cannot have seen a write's output.
             if !batch_has_write
                 && observation.metadata.get("decision").map(String::as_str) == Some("accepted")
+                && serde_json::from_str::<CompletionReceipt>(&observation.content).is_ok_and(
+                    |receipt| {
+                        receipt.decision == AcceptanceDecision::Accepted
+                            && receipt.report.outcome == VerificationOutcome::Verified
+                            && !receipt.task_id.trim().is_empty()
+                    },
+                )
             {
                 self.accepted_receipt = true;
             }
@@ -7189,6 +7198,27 @@ mod tests {
             &event.event,
             JournalEventKind::CompletionAcceptanceMissing { .. }
         )));
+    }
+
+    #[test]
+    fn accepted_metadata_without_a_receipt_does_not_satisfy_the_gate() {
+        let mut gate = CompletionGate::default();
+        let call = ToolCall {
+            id: "gate-1".into(),
+            name: "acceptance_gate".into(),
+            arguments: serde_json::json!({}),
+        };
+        let observation = ToolObservation {
+            call_id: "gate-1".into(),
+            tool: "acceptance_gate".into(),
+            status: ToolStatus::Ok,
+            summary: "acceptance: accepted".into(),
+            content: "not a receipt".into(),
+            error_code: None,
+            metadata: BTreeMap::from([("decision".into(), "accepted".into())]),
+        };
+        gate.observe(&call, &observation, &default_registry(), false);
+        assert!(!gate.accepted_receipt);
     }
 
     #[tokio::test]
