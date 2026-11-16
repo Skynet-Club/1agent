@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::action_log::{ActionKind, ActionRecord, ActionStatus};
+use crate::action_log_journal::ActionLogJournal;
 use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
 use crate::authority::PolicyOutcome;
 use crate::context::{compact_messages_at_tokens, estimate_tokens};
@@ -58,12 +60,94 @@ struct ToolGateContext {
 }
 
 #[derive(Clone)]
+struct GateFacts {
+    action_id: Option<String>,
+    policy_outcome: PolicyOutcome,
+    policy_reason: String,
+    authority_profile_id: Option<String>,
+    approval_card_id: Option<String>,
+    risk: RiskLevel,
+    reversible: bool,
+}
+
+impl GateFacts {
+    fn to_metadata(&self) -> BTreeMap<String, String> {
+        let mut metadata = BTreeMap::new();
+        if let Some(action_id) = &self.action_id {
+            metadata.insert("action_id".into(), action_id.clone());
+        }
+        if let Some(profile_id) = &self.authority_profile_id {
+            metadata.insert("authority_profile_id".into(), profile_id.clone());
+        }
+        if let Some(card_id) = &self.approval_card_id {
+            metadata.insert("approval_card_id".into(), card_id.clone());
+        }
+        metadata.insert(
+            "policy_outcome".into(),
+            policy_outcome_str(self.policy_outcome).into(),
+        );
+        metadata.insert("policy_reason".into(), self.policy_reason.clone());
+        metadata.insert("risk".into(), risk_str(self.risk).into());
+        metadata.insert("reversible".into(), self.reversible.to_string());
+        metadata
+    }
+}
+
+fn policy_outcome_str(outcome: PolicyOutcome) -> &'static str {
+    match outcome {
+        PolicyOutcome::Allow => "allow",
+        PolicyOutcome::RequireApproval => "require_approval",
+        PolicyOutcome::Deny => "deny",
+    }
+}
+
+fn risk_str(risk: RiskLevel) -> &'static str {
+    match risk {
+        RiskLevel::Low => "low",
+        RiskLevel::Medium => "medium",
+        RiskLevel::High => "high",
+    }
+}
+
+fn current_action_id(call: &ToolCall) -> Option<String> {
+    crate::tools::RUN_CONTEXT
+        .try_with(|context| format!("{}:{}", context.run_id, call.id))
+        .ok()
+}
+
+fn action_now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
+fn action_status_for(observation: &ToolObservation) -> ActionStatus {
+    match observation.status {
+        ToolStatus::Ok => ActionStatus::Executed,
+        ToolStatus::PermissionDenied
+            if observation.error_code.as_deref() == Some("approval_required") =>
+        {
+            ActionStatus::NeedsApproval
+        }
+        ToolStatus::PermissionDenied => ActionStatus::Denied,
+        ToolStatus::TimedOut => ActionStatus::Failed,
+        ToolStatus::InvalidArguments => ActionStatus::Failed,
+        ToolStatus::Failed if observation.error_code.as_deref() == Some("cancelled") => {
+            ActionStatus::Cancelled
+        }
+        ToolStatus::Failed => ActionStatus::Failed,
+    }
+}
+
+#[derive(Clone)]
 pub struct AgentRuntime {
     providers: Vec<ProviderCandidate>,
     router: Router,
     tools: ToolRegistry,
     journal_dir: PathBuf,
     session_id: Option<String>,
+    action_log: Option<Arc<Mutex<ActionLogJournal>>>,
     experience_dir: Option<PathBuf>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
     route_objective: Option<RouteObjective>,
@@ -116,6 +200,7 @@ impl AgentRuntime {
             tools,
             journal_dir: journal_dir.into(),
             session_id: None,
+            action_log: None,
             experience_dir: None,
             shadow_experience: Vec::new(),
             route_objective: None,
@@ -199,6 +284,14 @@ impl AgentRuntime {
             strength,
             now_ms,
         });
+        self
+    }
+
+    /// Persist policy/approval decisions for gated tool calls to this
+    /// hash-chained action log. A gated call fails closed if its
+    /// pre-execution record cannot be written.
+    pub fn with_action_log_journal(mut self, journal: ActionLogJournal) -> Self {
+        self.action_log = Some(Arc::new(Mutex::new(journal)));
         self
     }
 
@@ -311,6 +404,7 @@ impl AgentRuntime {
                 metadata: Default::default(),
             };
         }
+        let mut gate_facts: Option<GateFacts> = None;
         if let Some(context) = &self.tool_gate {
             let authorization = context.gate.authorize(
                 &ToolCallRequest {
@@ -322,9 +416,66 @@ impl AgentRuntime {
                 },
                 context.now_ms,
             );
+            let base = GateFacts {
+                action_id: current_action_id(call),
+                policy_outcome: PolicyOutcome::Allow,
+                policy_reason: String::new(),
+                authority_profile_id: context
+                    .gate
+                    .authority_profile_id(&context.actor_id)
+                    .map(str::to_string),
+                approval_card_id: None,
+                risk: self.tools.risk(&call.name).unwrap_or(RiskLevel::Low),
+                reversible: self.tools.reversible(&call.name),
+            };
             match authorization {
-                Ok(authorization) if authorization.outcome == PolicyOutcome::Allow => {}
+                Ok(authorization) if authorization.outcome == PolicyOutcome::Allow => {
+                    let facts = GateFacts {
+                        policy_reason: authorization.reason.clone(),
+                        risk: authorization.risk,
+                        ..base
+                    };
+                    if let Some(error) = self.record_gate_action(
+                        call,
+                        &facts,
+                        ActionStatus::Allowed,
+                        None,
+                        &context.actor_id,
+                    ) {
+                        let mut metadata = facts.to_metadata();
+                        metadata.insert("action_record_error".into(), error.clone());
+                        return ToolObservation {
+                            call_id: call.id.clone(),
+                            tool: call.name.clone(),
+                            status: ToolStatus::Failed,
+                            summary: format!(
+                                "action log write failed; tool {} was not executed: {error}",
+                                call.name
+                            ),
+                            content: String::new(),
+                            error_code: Some("action_record_error".into()),
+                            metadata,
+                        };
+                    }
+                    gate_facts = Some(facts);
+                }
                 Ok(authorization) => {
+                    let facts = GateFacts {
+                        policy_outcome: PolicyOutcome::RequireApproval,
+                        policy_reason: authorization.reason.clone(),
+                        risk: authorization.risk,
+                        ..base
+                    };
+                    let mut metadata = facts.to_metadata();
+                    if let Some(error) = self.record_gate_action(
+                        call,
+                        &facts,
+                        ActionStatus::NeedsApproval,
+                        None,
+                        &context.actor_id,
+                    ) {
+                        metadata.insert("action_record_error".into(), error);
+                    }
                     return ToolObservation {
                         call_id: call.id.clone(),
                         tool: call.name.clone(),
@@ -335,10 +486,25 @@ impl AgentRuntime {
                         ),
                         content: String::new(),
                         error_code: Some("approval_required".into()),
-                        metadata: Default::default(),
+                        metadata,
                     };
                 }
                 Err(error) => {
+                    let facts = GateFacts {
+                        policy_outcome: PolicyOutcome::Deny,
+                        policy_reason: error.to_string(),
+                        ..base
+                    };
+                    let mut metadata = facts.to_metadata();
+                    if let Some(error) = self.record_gate_action(
+                        call,
+                        &facts,
+                        ActionStatus::Denied,
+                        None,
+                        &context.actor_id,
+                    ) {
+                        metadata.insert("action_record_error".into(), error);
+                    }
                     return ToolObservation {
                         call_id: call.id.clone(),
                         tool: call.name.clone(),
@@ -346,12 +512,102 @@ impl AgentRuntime {
                         summary: error.to_string(),
                         content: String::new(),
                         error_code: Some("authority_denied".into()),
-                        metadata: Default::default(),
+                        metadata,
                     };
                 }
             }
         }
-        self.tools.execute(call, permissions, cancellation).await
+
+        let mut observation = self.tools.execute(call, permissions, cancellation).await;
+        if let (Some(context), Some(mut facts)) = (&self.tool_gate, gate_facts) {
+            if let Some(card_id) = observation.metadata.get("approval_card_id") {
+                facts.approval_card_id = Some(card_id.clone());
+            }
+            let status = action_status_for(&observation);
+            if status == ActionStatus::NeedsApproval {
+                facts.policy_outcome = PolicyOutcome::RequireApproval;
+                if let Some(reason) = observation.metadata.get("policy_reason") {
+                    facts.policy_reason = reason.clone();
+                }
+            }
+            let artifact_sha256 = observation.metadata.get("sha256").cloned();
+            let record_error = self.record_gate_action(
+                call,
+                &facts,
+                status,
+                artifact_sha256.as_deref(),
+                &context.actor_id,
+            );
+            let mut metadata = facts.to_metadata();
+            metadata.append(&mut observation.metadata);
+            if let Some(error) = record_error {
+                metadata.insert("action_record_error".into(), error);
+            }
+            observation.metadata = metadata;
+        }
+        observation
+    }
+
+    fn record_gate_action(
+        &self,
+        call: &ToolCall,
+        facts: &GateFacts,
+        status: ActionStatus,
+        artifact_sha256: Option<&str>,
+        actor_id: &str,
+    ) -> Option<String> {
+        let record = self.build_action_record(call, facts, status, artifact_sha256)?;
+        self.append_action_record(&record, actor_id).err()
+    }
+
+    fn build_action_record(
+        &self,
+        call: &ToolCall,
+        facts: &GateFacts,
+        status: ActionStatus,
+        artifact_sha256: Option<&str>,
+    ) -> Option<ActionRecord> {
+        let action_id = facts.action_id.clone()?;
+        let context = crate::tools::RUN_CONTEXT.try_with(Clone::clone).ok()?;
+        Some(ActionRecord {
+            action_id,
+            run_id: context.run_id,
+            session_id: context.session_id,
+            action_type: call.name.clone(),
+            risk: facts.risk,
+            reversible: facts.reversible,
+            policy_outcome: facts.policy_outcome,
+            policy_reason: Some(facts.policy_reason.clone()),
+            authority_profile_id: facts.authority_profile_id.clone(),
+            approval_card_id: facts.approval_card_id.clone(),
+            status,
+            artifact_sha256: artifact_sha256.map(str::to_string),
+        })
+    }
+
+    fn append_action_record(&self, record: &ActionRecord, actor_id: &str) -> Result<(), String> {
+        let Some(journal) = &self.action_log else {
+            return Ok(());
+        };
+        let mut journal = journal
+            .lock()
+            .map_err(|_| "action log lock poisoned".to_string())?;
+        journal
+            .log_mut()
+            .record_action(
+                actor_id,
+                ActionKind::ToolCall,
+                record.action_type.clone(),
+                record.status.as_str(),
+                record.policy_reason.clone().unwrap_or_default(),
+                record.clone(),
+                action_now_ms(),
+            )
+            .map_err(|error| error.to_string())?;
+        journal
+            .persist()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
 
     /// Run a batch of parallel-safe tool calls concurrently. Results are
@@ -2840,6 +3096,8 @@ fn experience_kind_label(kind: crate::experience::ExperienceKind) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action_log::{ActionRecord, ActionStatus};
+    use crate::action_log_journal::ActionLogJournal;
     use crate::authority::{AuthorityProfile, AuthorityRegistry};
     use crate::domain::{
         AgentAnswer, AnswerStatus, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage,
@@ -3009,6 +3267,234 @@ mod tests {
             )
             .await;
         assert_eq!(allowed.status, ToolStatus::Ok, "{allowed:?}");
+    }
+
+    struct WriteProbeTool {
+        active: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl crate::tools::AgentTool for WriteProbeTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "write_probe".into(),
+                description: "write-capable test tool".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Medium
+        }
+
+        fn requires_write(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            self.active.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolOutcome {
+                summary: "wrote".into(),
+                content: "ok".into(),
+                metadata: BTreeMap::new(),
+            })
+        }
+    }
+
+    fn latest_actions(path: &std::path::Path) -> BTreeMap<String, ActionRecord> {
+        ActionLogJournal::open(path)
+            .unwrap()
+            .log()
+            .latest_action_records()
+            .into_iter()
+            .map(|(id, record)| (id, record.clone()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn gated_allow_records_executed_action_and_policy_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("action-records.jsonl");
+        let runtime = gated_runtime(dir.path(), "echo")
+            .with_action_log_journal(ActionLogJournal::open(&log_path).unwrap());
+        let observation = crate::tools::RUN_CONTEXT
+            .scope(
+                crate::tools::RunContext {
+                    run_id: "run-allow".into(),
+                    session_id: Some("ses-allow".into()),
+                },
+                runtime.execute_tool(
+                    &ToolCall {
+                        id: "call-1".into(),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "hi"}),
+                    },
+                    &PermissionSet::default(),
+                    &CancellationToken::new(),
+                ),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::Ok, "{observation:?}");
+        assert_eq!(
+            observation.metadata.get("action_id").map(String::as_str),
+            Some("run-allow:call-1")
+        );
+        assert_eq!(
+            observation
+                .metadata
+                .get("policy_outcome")
+                .map(String::as_str),
+            Some("allow")
+        );
+        assert_eq!(
+            observation
+                .metadata
+                .get("authority_profile_id")
+                .map(String::as_str),
+            Some("tool-profile")
+        );
+        assert_eq!(
+            observation.metadata.get("risk").map(String::as_str),
+            Some("low")
+        );
+        assert_eq!(
+            observation.metadata.get("reversible").map(String::as_str),
+            Some("true")
+        );
+
+        let actions = latest_actions(&log_path);
+        let action = actions.get("run-allow:call-1").expect("action record");
+        assert_eq!(action.status, ActionStatus::Executed);
+        assert_eq!(action.run_id, "run-allow");
+        assert_eq!(action.session_id.as_deref(), Some("ses-allow"));
+        assert_eq!(action.action_type, "echo");
+        assert_eq!(action.policy_outcome, PolicyOutcome::Allow);
+        assert_eq!(action.authority_profile_id.as_deref(), Some("tool-profile"));
+        assert!(action.reversible);
+        assert_eq!(action.artifact_sha256, None);
+    }
+
+    #[tokio::test]
+    async fn gated_deny_records_the_denied_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("action-records.jsonl");
+        let runtime = gated_runtime(dir.path(), "read_file")
+            .with_action_log_journal(ActionLogJournal::open(&log_path).unwrap());
+        let observation = crate::tools::RUN_CONTEXT
+            .scope(
+                crate::tools::RunContext {
+                    run_id: "run-deny".into(),
+                    session_id: None,
+                },
+                runtime.execute_tool(
+                    &ToolCall {
+                        id: "call-2".into(),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "hi"}),
+                    },
+                    &PermissionSet::default(),
+                    &CancellationToken::new(),
+                ),
+            )
+            .await;
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("authority_denied"));
+        assert_eq!(
+            observation
+                .metadata
+                .get("policy_outcome")
+                .map(String::as_str),
+            Some("deny")
+        );
+        let actions = latest_actions(&log_path);
+        let action = actions.get("run-deny:call-2").expect("action record");
+        assert_eq!(action.status, ActionStatus::Denied);
+        assert_eq!(action.policy_outcome, PolicyOutcome::Deny);
+        assert_eq!(action.authority_profile_id.as_deref(), Some("tool-profile"));
+    }
+
+    #[tokio::test]
+    async fn gated_approval_records_needs_approval_without_executing() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("action-records.jsonl");
+        let active = Arc::new(AtomicUsize::new(0));
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "write-profile".into(),
+                actor_id: "owner-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: crate::task_graph::MandateStrength::Write,
+                allowed_tools: vec!["write_probe".into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::High,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("owner-1", "write-profile").unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(WriteProbeTool {
+            active: active.clone(),
+        }));
+        let gate = ExecutionGate::new(authority, &registry);
+        let runtime = AgentRuntime::new(Vec::new(), registry, dir.path().join(".journal"))
+            .with_execution_gate(
+                gate,
+                "owner-1",
+                "repo:1-agent",
+                crate::task_graph::MandateStrength::Write,
+                10,
+            )
+            .with_action_log_journal(ActionLogJournal::open(&log_path).unwrap());
+        let observation = crate::tools::RUN_CONTEXT
+            .scope(
+                crate::tools::RunContext {
+                    run_id: "run-approval".into(),
+                    session_id: Some("ses-approval".into()),
+                },
+                runtime.execute_tool(
+                    &ToolCall {
+                        id: "call-3".into(),
+                        name: "write_probe".into(),
+                        arguments: serde_json::json!({}),
+                    },
+                    &PermissionSet {
+                        allow_write: true,
+                        ..PermissionSet::default()
+                    },
+                    &CancellationToken::new(),
+                ),
+            )
+            .await;
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(observation.status, ToolStatus::PermissionDenied);
+        assert_eq!(observation.error_code.as_deref(), Some("approval_required"));
+        assert_eq!(
+            observation
+                .metadata
+                .get("policy_outcome")
+                .map(String::as_str),
+            Some("require_approval")
+        );
+        let actions = latest_actions(&log_path);
+        let action = actions.get("run-approval:call-3").expect("action record");
+        assert_eq!(action.status, ActionStatus::NeedsApproval);
+        assert_eq!(action.policy_outcome, PolicyOutcome::RequireApproval);
+        assert_eq!(action.risk, RiskLevel::Medium);
+        assert!(!action.reversible);
+        assert_eq!(
+            action.authority_profile_id.as_deref(),
+            Some("write-profile")
+        );
     }
 
     #[test]

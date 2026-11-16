@@ -55,6 +55,13 @@ impl ExecutionGate {
         self.tools.values()
     }
 
+    /// Profile bound to the actor, even when the decision is a denial.
+    pub fn authority_profile_id(&self, actor_id: &str) -> Option<&str> {
+        self.authority
+            .profile_for(actor_id)
+            .map(|profile| profile.profile_id.as_str())
+    }
+
     pub fn authorize(
         &self,
         request: &ToolCallRequest,

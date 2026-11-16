@@ -5841,6 +5841,7 @@ async fn main() -> Result<()> {
             }
             let (objective, objective_source) =
                 resolve_route_objective(route_objective.as_deref())?;
+            let mut action_journal = None;
             let gate = if let Some(path) = authority {
                 let bytes = std::fs::read(&path)
                     .with_context(|| format!("cannot read {}", path.display()))?;
@@ -5848,6 +5849,9 @@ async fn main() -> Result<()> {
                     serde_json::from_slice(&bytes).context("invalid authority config")?;
                 let mut registry = first_principles_agent::AuthorityRegistry::default();
                 registry.apply_config(&config)?;
+                action_journal = Some(first_principles_agent::ActionLogJournal::open(
+                    journal_dir.join("action-records.jsonl"),
+                )?);
                 Some(first_principles_agent::ExecutionGate::new(registry, &tools))
             } else {
                 None
@@ -5898,6 +5902,9 @@ async fn main() -> Result<()> {
                     first_principles_agent::MandateStrength::ReadOnly,
                     now_unix_ms(),
                 );
+                if let Some(journal) = action_journal {
+                    runtime = runtime.with_action_log_journal(journal);
+                }
             }
             if let Some(health) = health {
                 runtime = runtime.with_provider_health(health);
