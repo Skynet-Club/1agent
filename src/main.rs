@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -5862,9 +5863,27 @@ fn ontology_export_for_cli(
     }
 }
 
+/// `1agent` with no arguments keeps the local convenience behavior: open the
+/// TUI. Help stays available through `1agent --help` and `1agent help`.
+fn parse_cli() -> Cli {
+    parse_cli_from(std::env::args_os().collect())
+}
+
+fn parse_cli_from(args: Vec<OsString>) -> Cli {
+    Cli::parse_from(with_default_command(args))
+}
+
+fn with_default_command(mut args: Vec<OsString>) -> Vec<OsString> {
+    if args.len() <= 1 {
+        let program = args.pop().unwrap_or_else(|| OsString::from("1agent"));
+        args = vec![program, OsString::from("tui")];
+    }
+    args
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Cli::parse().command {
+    match parse_cli().command {
         Command::Run {
             task,
             input,
@@ -26575,5 +26594,26 @@ mod why_tests {
         assert!(!text.contains("未知"));
         assert!(!text.contains("翻转条件"));
         assert!(!text.contains("行动收据"));
+    }
+}
+
+#[cfg(test)]
+mod cli_default_tests {
+    use super::*;
+
+    #[test]
+    fn no_arguments_defaults_to_the_tui() {
+        assert_eq!(
+            with_default_command(vec![OsString::from("1agent")]),
+            vec![OsString::from("1agent"), OsString::from("tui")]
+        );
+    }
+
+    #[test]
+    fn explicit_commands_are_not_rewritten() {
+        assert_eq!(
+            with_default_command(vec![OsString::from("1agent"), OsString::from("help")]),
+            vec![OsString::from("1agent"), OsString::from("help")]
+        );
     }
 }
