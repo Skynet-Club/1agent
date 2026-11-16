@@ -616,6 +616,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   action log as an optional payload; legacy entries verify with their original
   hash. A gated call fails closed if its pre-execution record cannot be
   written. Authority/Policy remains the only allow/deny source.
+  `reconcile_actions` (AR-003) compares the gated `ToolObserved` entries of one
+  run with its latest `ActionRecord`s: a missing record, a missing journal
+  observation, or a tool/status/policy/artifact mismatch is reported; non-gated
+  observations and records from other runs are ignored.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
 - Write authority is true by default for local CLI/TUI; `--read-only` disables it.

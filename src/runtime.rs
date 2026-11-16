@@ -93,7 +93,7 @@ impl GateFacts {
     }
 }
 
-fn policy_outcome_str(outcome: PolicyOutcome) -> &'static str {
+pub(crate) fn policy_outcome_str(outcome: PolicyOutcome) -> &'static str {
     match outcome {
         PolicyOutcome::Allow => "allow",
         PolicyOutcome::RequireApproval => "require_approval",
@@ -122,7 +122,7 @@ fn action_now_ms() -> u128 {
         .unwrap_or_default()
 }
 
-fn action_status_for(observation: &ToolObservation) -> ActionStatus {
+pub(crate) fn action_status_for(observation: &ToolObservation) -> ActionStatus {
     match observation.status {
         ToolStatus::Ok => ActionStatus::Executed,
         ToolStatus::PermissionDenied
@@ -3098,6 +3098,7 @@ mod tests {
     use super::*;
     use crate::action_log::{ActionRecord, ActionStatus};
     use crate::action_log_journal::ActionLogJournal;
+    use crate::action_reconcile::reconcile_actions;
     use crate::authority::{AuthorityProfile, AuthorityRegistry};
     use crate::domain::{
         AgentAnswer, AnswerStatus, PermissionSet, RunBudget, ToolCall, ToolStatus, Usage,
@@ -3495,6 +3496,76 @@ mod tests {
             action.authority_profile_id.as_deref(),
             Some("write-profile")
         );
+    }
+
+    #[tokio::test]
+    async fn gated_run_journal_and_action_log_reconcile() {
+        let workspace = tempfile::tempdir().unwrap();
+        let log_path = workspace.path().join("action-records.jsonl");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-1".into(),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"text": "hi"}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("done"),
+                },
+            ],
+            requests,
+        ));
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "tool-profile".into(),
+                actor_id: "owner-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: crate::task_graph::MandateStrength::ReadOnly,
+                allowed_tools: vec!["echo".into()],
+                denied_tools: Vec::new(),
+                max_risk: RiskLevel::Low,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("owner-1", "tool-profile").unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        let gate = ExecutionGate::new(authority, &registry);
+        let runtime = scripted_runtime(workspace.path(), provider, registry)
+            .with_execution_gate(
+                gate,
+                "owner-1",
+                "repo:1-agent",
+                crate::task_graph::MandateStrength::ReadOnly,
+                10,
+            )
+            .with_action_log_journal(ActionLogJournal::open(&log_path).unwrap());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let events = read_events(&result.journal_path).unwrap();
+        let actions = ActionLogJournal::open(&log_path)
+            .unwrap()
+            .log()
+            .latest_action_records()
+            .into_values()
+            .cloned()
+            .collect::<Vec<_>>();
+        let report = reconcile_actions(&events, &actions);
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.checked, 1);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].run_id, result.run_id.to_string());
+        assert_eq!(actions[0].status, ActionStatus::Executed);
     }
 
     #[test]
