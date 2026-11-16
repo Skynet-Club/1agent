@@ -2164,21 +2164,21 @@ impl TuiState {
             }
         }
         if input == TuiInput::Escape {
-            let editing_other = self
+            let editing_text = self
                 .clarify
                 .as_ref()
-                .is_some_and(|clarify| clarify.editing_other());
-            if !editing_other {
+                .is_some_and(|clarify| clarify.editing_text());
+            if !editing_text {
                 self.clarify_collapsed = true;
                 return true;
             }
         }
         if let TuiInput::Char(character) = &input {
-            let editing_other = self
+            let editing_text = self
                 .clarify
                 .as_ref()
-                .is_some_and(|clarify| clarify.editing_other());
-            if !editing_other
+                .is_some_and(|clarify| clarify.editing_text());
+            if !editing_text
                 && let Some(digit) = character.to_digit(10)
                 && digit >= 1
             {
@@ -6381,8 +6381,8 @@ fn draw_clarify_bar(frame: &mut Frame, clarify: &TuiClarifyState, area: Rect, co
     }
     let hint = if clarify.all_resolved() {
         " Enter 提交 · Esc 收起 · Ctrl+C 取消 "
-    } else if clarify.editing_other() {
-        " 输入其他 · Enter 确认 · Esc 返回 "
+    } else if clarify.editing_text() {
+        " 输入内容 · Enter 确认 · Esc 返回 "
     } else {
         " 数字键选择 · ↑↓ 移动 · Enter 确认 · S 跳过 · Esc 收起 "
     };
@@ -6426,15 +6426,20 @@ fn draw_clarify_bar(frame: &mut Frame, clarify: &TuiClarifyState, area: Rect, co
             answer.and_then(|answer| answer.option_id.as_deref()) == Some(option.id.as_str());
         let mark = if focused { "› " } else { "· " };
         let check = if selected { "✓ " } else { "  " };
-        let text = if option.id == OTHER_OPTION_ID {
-            if clarify.editing_other() && focused {
+        let text = if option.id == OTHER_OPTION_ID || option.requires_text {
+            let label = if option.id == OTHER_OPTION_ID {
+                "其他".to_string()
+            } else {
+                option.label.clone()
+            };
+            if clarify.editing_text() && focused {
                 format!(
-                    "{mark}{check}{}. 其他：{}▌",
+                    "{mark}{check}{}. {label}：{}▌",
                     option_index + 1,
                     clarify.other_text()
                 )
             } else {
-                format!("{mark}{check}{}. 其他…", option_index + 1)
+                format!("{mark}{check}{}. {label}…", option_index + 1)
             }
         } else {
             let recommended = if option.recommended { " · 推荐" } else { "" };
@@ -9538,11 +9543,13 @@ int main(int argc, char **argv) {
                         id: "a".into(),
                         label: "Alpha".into(),
                         recommended: true,
+                        requires_text: false,
                     },
                     crate::clarify::ClarifyOption {
                         id: "b".into(),
                         label: "Beta".into(),
                         recommended: false,
+                        requires_text: false,
                     },
                 ],
                 blocking: true,
@@ -9618,7 +9625,7 @@ int main(int argc, char **argv) {
             .collect::<String>()
             .replace(' ', "");
         assert!(content.contains("其他：自定义"));
-        assert!(content.contains("输入其他"));
+        assert!(content.contains("输入内容"));
     }
 
     #[test]

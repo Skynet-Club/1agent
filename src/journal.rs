@@ -207,6 +207,15 @@ pub enum JournalEventKind {
         tools: Vec<String>,
         reason: String,
     },
+    /// A delivered HTML artifact still contains unfinished placeholder text.
+    CompletionArtifactUnfinished {
+        paths: Vec<String>,
+        markers: Vec<String>,
+    },
+    /// A page acceptance contract omitted mandatory responsive/design checks.
+    CompletionDesignContractGap {
+        missing: Vec<String>,
+    },
     ReframeProposed {
         proposal: ReframeProposal,
         provider_id: String,
@@ -1437,7 +1446,9 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             | JournalEventKind::ToolsRequested { .. }
             | JournalEventKind::AnswerVerificationFailed { .. }
             | JournalEventKind::AnswerVerificationExhausted { .. }
-            | JournalEventKind::CompletionAcceptanceMissing { .. } => {}
+            | JournalEventKind::CompletionAcceptanceMissing { .. }
+            | JournalEventKind::CompletionArtifactUnfinished { .. }
+            | JournalEventKind::CompletionDesignContractGap { .. } => {}
         }
     }
 

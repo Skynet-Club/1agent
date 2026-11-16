@@ -24,7 +24,8 @@ pub struct TuiClarifyState {
     panel: ClarifyPanel,
     question_index: usize,
     option_index: usize,
-    editing_other: bool,
+    editing_text: bool,
+    editing_option_id: Option<String>,
     other_text: String,
     error: Option<String>,
 }
@@ -65,7 +66,7 @@ impl AgentTool for ClarifyTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "clarify".into(),
-            description: "Ask the user a blocking structured clarification (1-5 questions, 2-4 options each, an automatic Other and at most one recommended option). Use only when the answer cannot be inferred from the conversation, the journal or memory. Returns answered/skipped/unanswered questions and keeps the default answer valid.".into(),
+            description: "Ask the user a blocking structured clarification (1-5 questions, 2-4 options each, an automatic Other and at most one recommended option). Use only when the answer cannot be inferred from the conversation, the journal or memory. Set `requires_text: true` on any option that asks the user to supply a name, copy, URL, number or other concrete input; selecting it then requires text and an empty promise is not an answer. Returns answered/skipped/unanswered questions and keeps the default answer valid.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -87,7 +88,11 @@ impl AgentTool for ClarifyTool {
                                         "properties": {
                                             "id": {"type": "string"},
                                             "label": {"type": "string"},
-                                            "recommended": {"type": "boolean"}
+                                            "recommended": {"type": "boolean"},
+                                            "requires_text": {
+                                                "type": "boolean",
+                                                "description": "Selecting this option opens a text field; empty text is not an answer."
+                                            }
                                         },
                                         "required": ["id", "label"],
                                         "additionalProperties": false
@@ -175,7 +180,8 @@ impl TuiClarifyState {
             panel,
             question_index: 0,
             option_index: 0,
-            editing_other: false,
+            editing_text: false,
+            editing_option_id: None,
             other_text: String::new(),
             error: None,
         }
@@ -193,8 +199,14 @@ impl TuiClarifyState {
         self.option_index
     }
 
-    pub fn editing_other(&self) -> bool {
-        self.editing_other
+    pub fn editing_text(&self) -> bool {
+        self.editing_text
+    }
+
+    /// The option currently collecting text, if any. `Other` and options
+    /// marked `requires_text` use this path.
+    pub fn editing_option_id(&self) -> Option<&str> {
+        self.editing_option_id.as_deref()
     }
 
     pub fn other_text(&self) -> &str {
@@ -235,8 +247,8 @@ impl TuiClarifyState {
         if let Some(step) = self.expire(now_ms) {
             return step;
         }
-        if self.editing_other {
-            return self.handle_other_input(input, now_ms);
+        if self.editing_text {
+            return self.handle_text_input(input, now_ms);
         }
         match input {
             TuiInput::Up => self.move_option(-1),
@@ -267,7 +279,7 @@ impl TuiClarifyState {
         }
     }
 
-    fn handle_other_input(&mut self, input: TuiInput, now_ms: u128) -> TuiClarifyStep {
+    fn handle_text_input(&mut self, input: TuiInput, now_ms: u128) -> TuiClarifyStep {
         match input {
             TuiInput::Char(character) if !character.is_control() => {
                 if self.other_text.chars().count() < 500 {
@@ -296,20 +308,25 @@ impl TuiClarifyState {
             }
             TuiInput::Enter => {
                 if self.other_text.trim().is_empty() {
-                    self.error = Some("Other 需要输入文本".into());
+                    self.error = Some("此项需要输入文本".into());
                     return TuiClarifyStep::Redraw;
                 }
                 let Some(question) = self.current_question() else {
+                    return TuiClarifyStep::Redraw;
+                };
+                let Some(option_id) = self.editing_option_id.clone() else {
+                    self.editing_text = false;
                     return TuiClarifyStep::Redraw;
                 };
                 let question_id = question.id.clone();
                 let text = self.other_text.clone();
                 match self
                     .panel
-                    .select(&question_id, OTHER_OPTION_ID, Some(&text), now_ms)
+                    .select(&question_id, &option_id, Some(&text), now_ms)
                 {
                     Ok(()) => {
-                        self.editing_other = false;
+                        self.editing_text = false;
+                        self.editing_option_id = None;
                         self.other_text.clear();
                         self.error = None;
                         self.advance_to_unanswered();
@@ -322,7 +339,8 @@ impl TuiClarifyState {
                 }
             }
             TuiInput::Escape => {
-                self.editing_other = false;
+                self.editing_text = false;
+                self.editing_option_id = None;
                 self.other_text.clear();
                 self.error = None;
                 TuiClarifyStep::Redraw
@@ -360,7 +378,8 @@ impl TuiClarifyState {
         self.question_index =
             (self.question_index as isize + delta).rem_euclid(count as isize) as usize;
         self.option_index = 0;
-        self.editing_other = false;
+        self.editing_text = false;
+        self.editing_option_id = None;
         self.other_text.clear();
         self.error = None;
         TuiClarifyStep::Redraw
@@ -373,21 +392,23 @@ impl TuiClarifyState {
         let Some(question) = self.current_question() else {
             return TuiClarifyStep::None;
         };
-        if self.is_resolved(&question.id) {
-            self.advance_to_unanswered();
-            return TuiClarifyStep::Redraw;
-        }
+        let question_id = question.id.clone();
         let Some(option) = question.options.get(self.option_index) else {
             return TuiClarifyStep::None;
         };
-        if option.id == OTHER_OPTION_ID {
-            self.editing_other = true;
+        let option_id = option.id.clone();
+        let requires_text = option.requires_text;
+        if self.is_resolved(&question_id) {
+            self.advance_to_unanswered();
+            return TuiClarifyStep::Redraw;
+        }
+        if option_id == OTHER_OPTION_ID || requires_text {
+            self.editing_text = true;
+            self.editing_option_id = Some(option_id);
             self.other_text.clear();
             self.error = None;
             return TuiClarifyStep::Redraw;
         }
-        let question_id = question.id.clone();
-        let option_id = option.id.clone();
         match self.panel.select(&question_id, &option_id, None, now_ms) {
             Ok(()) => {
                 self.error = None;
@@ -404,7 +425,7 @@ impl TuiClarifyState {
     /// Select an option by its zero-based index. Used by the bottom bar's
     /// number-key shortcuts; selection policy stays in `select_current`.
     pub fn select_option(&mut self, index: usize, now_ms: u128) -> TuiClarifyStep {
-        if self.editing_other || self.all_resolved() {
+        if self.editing_text || self.all_resolved() {
             return TuiClarifyStep::None;
         }
         let Some(question) = self.current_question() else {
@@ -448,7 +469,8 @@ impl TuiClarifyState {
             if !self.is_resolved(&question.id) {
                 self.question_index = index;
                 self.option_index = 0;
-                self.editing_other = false;
+                self.editing_text = false;
+                self.editing_option_id = None;
                 self.other_text.clear();
                 return;
             }
@@ -512,11 +534,13 @@ mod tests {
                     id: "a".into(),
                     label: "Alpha".into(),
                     recommended: true,
+                    requires_text: false,
                 },
                 ClarifyOption {
                     id: "b".into(),
                     label: "Beta".into(),
                     recommended: false,
+                    requires_text: false,
                 },
             ],
             blocking,
@@ -577,7 +601,7 @@ mod tests {
         let mut state = TuiClarifyState::new(panel());
         state.handle_input(TuiInput::Up, 1);
         state.handle_input(TuiInput::Enter, 2);
-        assert!(state.editing_other());
+        assert!(state.editing_text());
         let step = state.handle_input(TuiInput::Enter, 3);
         assert_eq!(step, TuiClarifyStep::Redraw);
         assert!(state.error().is_some());
@@ -590,6 +614,28 @@ mod tests {
         };
         assert_eq!(result.answers[0].other_text.as_deref(), Some("custom"));
         assert_eq!(result.answers[0].status, ClarifyAnswerStatus::Answered);
+    }
+
+    #[test]
+    fn requires_text_option_opens_the_text_field() {
+        let mut question = question("q1", true);
+        question.options[0].requires_text = true;
+        let mut state = TuiClarifyState::new(ClarifyPanel::new(vec![question], 0).unwrap());
+        assert_eq!(
+            state.handle_input(TuiInput::Enter, 1),
+            TuiClarifyStep::Redraw
+        );
+        assert!(state.editing_text());
+        assert_eq!(state.editing_option_id(), Some("a"));
+        for character in "云笺".chars() {
+            state.handle_input(TuiInput::Char(character), 2);
+        }
+        state.handle_input(TuiInput::Enter, 3);
+        let TuiClarifyStep::Finished(result) = state.handle_input(TuiInput::Enter, 4) else {
+            panic!("expected a finished round");
+        };
+        assert_eq!(result.answers[0].option_id.as_deref(), Some("a"));
+        assert_eq!(result.answers[0].other_text.as_deref(), Some("云笺"));
     }
 
     #[test]

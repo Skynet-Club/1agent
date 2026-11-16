@@ -91,15 +91,17 @@
         }
       ],
       "verification": [
-        "390/768/1440 screenshots",
-        "no horizontal scroll",
+        "brief complete: product name, one-line description, three capabilities, primary CTA; none may be placeholder",
+        "no placeholder tokens in user-facing content (【】/占位/待填/TODO/lorem ipsum/example.com)",
+        "real 390/768/1440 screenshots; scrollWidth <= clientWidth at every width",
         "visible focus states",
-        "contrast and tap targets",
+        "contrast and tap targets (mobile tap targets >= 44px)",
         "real CTA, not example.com or a placeholder mailto",
-        "copy answers who/what/why/next"
+        "copy answers who/what/why/next",
+        "unslop / web-ui-audit / impeccable findings and fixes recorded"
       ],
       "fallback": [
-        "ask for audience and CTA",
+        "ask for the missing brief fields and wait; do not substitute placeholders unless the user explicitly chose a prototype",
         "use a minimal design system",
         "return conditional with the design gaps"
       ]

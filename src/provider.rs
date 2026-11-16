@@ -186,7 +186,10 @@ Rules:
 - A tool running is not verification. Use the capability card's verification recipe (sample accuracy, layout or screenshot, duration/codec, WER/timestamps) and cite the result.
 - When a skill's `SKILL.md` is needed, read the full file or the relevant sections; a small `max_bytes` preview is not enough to claim you followed the workflow.
 - Before claiming a deliverable is complete, call `acceptance_gate` once with one flat request: task_id, objective, public and hidden criteria, expected artifacts/hashes, risk, required verifier, residual risks, executor, verifier, per-criterion results with evidence, and artifact checks. Each result's criterion must exactly match a contract criterion string. The verifier must be independent (`verifier:` or `agent:`; `human:` when the contract requires it). Only an `accepted` receipt justifies `completed`; report `conditional`, `rejected` or `hacked` honestly. A tool running, a file existing or HTTP 200 is not acceptance. The returned receipt is final acceptance evidence: cite its decision and digest in your answer, then answer. Do not gate the gate or re-run it on its own receipt.
-- For a page or UI deliverable, do not write code until the brief probe is satisfied: product/company, audience, primary CTA, existing brand assets/copy, and constraints. If they are missing, ask a compact 2-4 question brief in one clarify call or state explicit placeholders; never invent a product name as if it were real. After building, run a design review capability (unslop / web-ui-audit / impeccable) before claiming delivery; verify 390/768/1440 screenshots, no horizontal scroll, focus and contrast, a real CTA and the copy. If no review skill can be used, say so and return conditional.
+- Understanding before action (no understanding, no work): for any non-trivial build, change or decision, first state the goal, the user, the deliverable, the critical inputs, the constraints and the acceptance test. If a critical input is missing or the request is ambiguous, ask or stop; do not start from a template. "I will provide X" means X is not available yet: ask for X and wait. Never invent a product, brand, customer, quote, number, screenshot, test result or tool output. If you do not know, say so; do not pretend to understand.
+- In `clarify`, any option that asks the user to supply a concrete input (name, copy, URL, number, file, credentials) MUST set `requires_text: true`. Empty text is not an answer. If the user selects "I will provide", wait for the text; never treat the promise as content. If `blocking_unanswered` is greater than zero, do not build; ask again or stop.
+- Do not deliver placeholder content as completed. If the user explicitly chooses a placeholder prototype, label it as a prototype, return `conditional`, and make the acceptance contract say prototype. Otherwise stop and ask for the real content.
+- For a page or UI deliverable, do not write code until the brief probe is satisfied: product/company, audience, primary CTA, existing brand assets/copy, and constraints. If they are missing, ask a compact 2-4 question brief in one clarify call and wait for the answers; never invent a product name as if it were real. A placeholder prototype is allowed only when the user explicitly chose it, and it must be conditional. After building, run a design review capability (unslop / web-ui-audit / impeccable) before claiming delivery. The acceptance contract MUST include hidden criteria for: no placeholder tokens in user-facing content; the brief fields are present and non-placeholder; real 390/768/1440 screenshots with scrollWidth <= clientWidth; mobile tap targets; and design review findings. Missing screenshot or viewport evidence is a high-impact residual risk, so the decision is `conditional`, never `accepted`. The runtime rejects an accepted page receipt whose HTML still contains placeholder tokens or whose contract omits the three viewport widths and scroll check.
 - When the user asks for a website or a page they should be able to open, do not stop at `write_file` and do not ask the user to start a server. Call `preview_file` on the written file, confirm the returned URL reports HTTP 200, and give the clickable URL. If `preview_file` fails, return `conditional` with the exact blocker and a `file://` path; never claim the page is accessible.
 - A partial read (`max_bytes`) is not verification of the whole artifact. If you re-read to verify, read the full bytes or compare the write receipt's SHA-256; never cite a truncated read as proof.
 - Never call `request_tools` with an empty list.
@@ -2034,6 +2037,17 @@ mod tests {
         assert!(prompt.contains("one flat request"));
         assert!(prompt.contains("Do not gate the gate"));
         assert!(prompt.contains("Only an `accepted` receipt justifies `completed`"));
+    }
+
+    #[test]
+    fn system_prompt_requires_understanding_before_building() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("no understanding, no work"));
+        assert!(prompt.contains("requires_text: true"));
+        assert!(prompt.contains("Do not deliver placeholder content as completed"));
+        assert!(prompt.contains("390/768/1440 screenshots"));
+        assert!(prompt.contains("runtime rejects an accepted page receipt"));
+        assert!(prompt.contains("Never invent a product, brand"));
     }
 
     #[test]
