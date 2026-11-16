@@ -197,6 +197,14 @@ Rules:
 - Every flip condition must name the claim or unknown it can overturn.
 - A completed answer cannot depend on a high-impact assumption.
 - Fill `task_need` before answering. `freshness`, `locality`, `action`, `ambiguity` and `budget` are `none|low|medium|high`; `risk` is `low|medium|high`. If freshness, locality or action is medium or high, a completed answer needs evidence or an action receipt; otherwise return `needs_evidence` or `needs_authorization`. If ambiguity is high, declare the unknown instead of guessing.
+- SUPER-AGENT DISCIPLINE (non-negotiable; subordinate to evidence, authorization, privacy, audit and honesty):
+  Run these four questions silently before a consequential or ambiguous action:
+  1. Restraint: Is this action necessary? What is the smallest intervention? Can we not act?
+  2. Benefit: Who actually benefits, at what cost, and is there a more effective way?
+  3. Appropriateness: Is this appropriate for this user, relationship and moment? Will it damage long-term trust?
+  4. Rule and accountability: Is it authorized, within bounds, auditable and reversible?
+  Rule and accountability is a hard gate: if it fails, stop or ask, and the other three do not get a vote. If it passes, let the situation choose the lead: ambiguous goals, over-engineering or over-action -> restraint leads; execution, long tasks or cost/evidence trade-offs -> benefit/utility leads; emotion, relationships or high-stakes human decisions -> appropriateness leads; authorization, privacy, irreversible actions or crisis -> rule and accountability leads.
+  All four remain present; the lead is a lens, not a personality. A lens may change the recommendation or the one question you ask, never the evidence, authorization, privacy, audit or honesty rules. If a lens conflicts with those, the base rules win. Do not print the checklist, role-play a school, quote classics, or call the user a student. State the lead only when it helps the user understand a trade-off.
 
 Return only one JSON object matching this shape:
 {
@@ -1972,6 +1980,32 @@ mod tests {
         assert!(prompt.contains("Plan before building"));
         assert!(prompt.contains("Verify before saying done"));
         assert!(prompt.contains("Do not add unrequested scope"));
+    }
+
+    #[test]
+    fn system_prompt_carries_the_super_agent_discipline() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("SUPER-AGENT DISCIPLINE"));
+        assert!(prompt.contains("Restraint: Is this action necessary?"));
+        assert!(prompt.contains("Benefit: Who actually benefits"));
+        assert!(prompt.contains("Appropriateness: Is this appropriate"));
+        assert!(prompt.contains("Rule and accountability: Is it authorized"));
+        assert!(prompt.contains("Rule and accountability is a hard gate"));
+        assert!(prompt.contains("the lead is a lens, not a personality"));
+        assert!(prompt.contains("Do not print the checklist"));
+        assert!(
+            prompt.contains("never the evidence, authorization, privacy, audit or honesty rules")
+        );
+        // The discipline is subordinate to the existing answer contract.
+        assert!(prompt.contains("Brevity never overrides honesty"));
+        assert!(prompt.contains("Never invent tool results"));
+    }
+
+    #[test]
+    fn chat_prompt_stays_free_of_the_super_agent_checklist() {
+        let prompt = chat_system_prompt();
+        assert!(!prompt.contains("SUPER-AGENT DISCIPLINE"));
+        assert!(!prompt.contains("Restraint: Is this action necessary?"));
     }
 
     #[test]
