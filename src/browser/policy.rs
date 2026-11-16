@@ -130,6 +130,7 @@ impl ActionCard {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "decision", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum ActionAuthorization {
     Allow,
     Approval { card: ActionCard },

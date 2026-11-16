@@ -52,6 +52,7 @@ pub struct ToolApprovalCard {
 }
 
 impl ToolApprovalCard {
+    #[allow(clippy::too_many_arguments)]
     pub fn pending(
         action_id: impl Into<String>,
         run_id: impl Into<String>,

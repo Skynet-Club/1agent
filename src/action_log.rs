@@ -194,6 +194,7 @@ impl ActionLog {
     /// Record a side-effect attempt with its policy/approval payload. Callers
     /// may append a second entry for the same `action_id` after execution; the
     /// latest entry is the authoritative state.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_action(
         &mut self,
         actor: impl Into<String>,
