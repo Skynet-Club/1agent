@@ -13,7 +13,7 @@ pub mod ids;
 pub mod types;
 pub mod validate;
 
-pub use export::{export_journal, export_session};
+pub use export::{export_goal_log, export_journal, export_session};
 pub use validate::{ValidationReport, validate_document};
 
 pub const ONTOLOGY_VERSION: &str = "0.98-draft";

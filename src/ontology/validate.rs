@@ -69,6 +69,8 @@ const REFERENCE_FIELDS: &[&str] = &[
     "hasActionInvocation",
     "forAction",
     "partOfRun",
+    "hasCommitment",
+    "belongsToGoal",
 ];
 
 const SESSION_STATUSES: &[&str] = &["active", "archived"];
@@ -127,7 +129,8 @@ const ACTION_STATUSES: &[&str] = &[
 ];
 const POLICY_OUTCOMES: &[&str] = &["allow", "require_approval", "deny"];
 const APPROVAL_STATUSES: &[&str] = &["recorded", "pending", "approved", "denied", "consumed"];
-const GOAL_STATUSES: &[&str] = &["active"];
+const GOAL_STATUSES: &[&str] = &["active", "paused", "achieved", "abandoned"];
+const COMMITMENT_STATUSES: &[&str] = &["pending", "kept", "missed", "cancelled"];
 const SOURCE_KINDS: &[&str] = &["web", "tool", "model_prior", "file", "unknown"];
 
 pub fn validate_document(document: &Value) -> ValidationReport {
@@ -320,6 +323,16 @@ pub fn validate_document(document: &Value) -> ValidationReport {
                     object,
                     "status",
                     GOAL_STATUSES,
+                    &mut errors,
+                    &mut schema_failures,
+                );
+            }
+            Some("Commitment") => {
+                require_status(
+                    id,
+                    object,
+                    "status",
+                    COMMITMENT_STATUSES,
                     &mut errors,
                     &mut schema_failures,
                 );
