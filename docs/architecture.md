@@ -869,6 +869,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   Goal and Commitment nodes with statuses, timestamps, title/description SHA
   and character counts (not prose), commitment→goal links, session stubs and
   literal run ids. The export reads the log without repairing or locking it.
+- Run nodes carry `auditOk`, `replayOk` and up to 16 sorted audit issue codes,
+  so CQ15 is answerable from the document. Eval runs link their case id as
+  `eval:<case-id>`; the Run exports `clientRequestId` and `evalCaseId`, giving
+  CQ11 a case→run mapping without exporting prompts.
 
 ## V0 limitations
 

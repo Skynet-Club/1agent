@@ -279,6 +279,7 @@ fn build_run(
     let mut calls: Vec<(&ToolCall, u128)> = Vec::new();
     let mut observations: Vec<(&ToolObservation, u128)> = Vec::new();
     let mut route: Option<(String, String, String)> = None;
+    let mut client_request_id: Option<String> = None;
     let mut input_tokens = 0u64;
     let mut output_tokens = 0u64;
     let mut cost_micros = 0u64;
@@ -307,6 +308,11 @@ fn build_run(
                 }
                 resumed_from_checkpoint = Some(*resumed_seq);
                 resumed_from_run = Some(original_run_id.to_string());
+            }
+            JournalEventKind::ClientRequestLinked {
+                client_request_id: id,
+            } => {
+                client_request_id = Some(id.clone());
             }
             JournalEventKind::RouteSelected {
                 provider_id,
@@ -781,6 +787,37 @@ fn build_run(
         run_object.insert("inputTokens".into(), Value::from(input_tokens));
         run_object.insert("outputTokens".into(), Value::from(output_tokens));
         run_object.insert("costMicros".into(), Value::from(cost_micros));
+    }
+    if let Some(id) = &client_request_id {
+        run_object.insert("clientRequestId".into(), Value::String(bounded(id)));
+        if let Some(case_id) = id.strip_prefix("eval:") {
+            run_object.insert("evalCaseId".into(), Value::String(bounded(case_id)));
+        }
+    }
+    let audit = crate::journal::audit_events(events);
+    let replay_ok = crate::journal::replay_events(events).is_ok();
+    run_object.insert("auditOk".into(), Value::Bool(audit.ok));
+    run_object.insert("replayOk".into(), Value::Bool(replay_ok));
+    let issue_codes = audit
+        .findings
+        .iter()
+        .filter_map(|finding| {
+            serde_json::to_value(finding.code)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_string))
+        })
+        .collect::<BTreeSet<_>>();
+    if !issue_codes.is_empty() {
+        run_object.insert(
+            "auditIssueCodes".into(),
+            Value::Array(
+                issue_codes
+                    .into_iter()
+                    .take(16)
+                    .map(Value::String)
+                    .collect(),
+            ),
+        );
     }
     if let Some(seq) = checkpoint_seq {
         run_object.insert("checkpointSeq".into(), Value::from(seq));
@@ -1464,6 +1501,103 @@ mod tests {
             "urn:1agent:session:ses-parent"
         );
         assert!(validate_document(&standalone.value).ok);
+    }
+
+    #[test]
+    fn run_exports_eval_case_id_and_audit_status() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_path = workspace.path().join("eval.jsonl");
+        let run_id = Uuid::new_v4();
+        let mut journal = Journal::create(&journal_path, run_id).unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("eval case", workspace.path().to_path_buf()),
+                mode: CognitiveMode::Execute,
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::ClientRequestLinked {
+                client_request_id: "eval:case-11".into(),
+            })
+            .unwrap();
+        for _ in 0..2 {
+            journal
+                .append(crate::journal::JournalEventKind::ToolCalled {
+                    call: ToolCall {
+                        id: "call-1".into(),
+                        name: "read_file".into(),
+                        arguments: json!({"path": "/tmp/x"}),
+                    },
+                })
+                .unwrap();
+        }
+        journal
+            .append(crate::journal::JournalEventKind::ToolObserved {
+                observation: ToolObservation {
+                    call_id: "call-1".into(),
+                    tool: "read_file".into(),
+                    status: ToolStatus::Ok,
+                    summary: "read".into(),
+                    content: "{}".into(),
+                    error_code: None,
+                    metadata: BTreeMap::new(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::AnswerProduced {
+                answer: AgentAnswer {
+                    task_need: None,
+                    schema_version: 2,
+                    status: AnswerStatus::Completed,
+                    conclusion: "done".into(),
+                    claims: vec![Claim {
+                        id: "c1".into(),
+                        text: "done".into(),
+                        status: ClaimStatus::Verified,
+                        sources: vec!["tool:call-1".into()],
+                        scope: None,
+                    }],
+                    evidence: vec![Evidence {
+                        source: "tool:call-1".into(),
+                        statement: "done".into(),
+                        observed_unix_ms: None,
+                        expires_unix_ms: None,
+                        claim_ids: vec!["c1".into()],
+                    }],
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    conflicts: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                },
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        drop(journal);
+
+        let document = export_journal(&journal_path).unwrap();
+        let run = node(&document.value, &format!("urn:1agent:run:{run_id}"));
+        assert_eq!(run["clientRequestId"], "eval:case-11");
+        assert_eq!(run["evalCaseId"], "case-11");
+        assert_eq!(run["auditOk"], json!(false));
+        assert_eq!(run["replayOk"], json!(true));
+        assert!(
+            run["auditIssueCodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|code| code == "duplicate_tool_call"),
+            "{}",
+            run["auditIssueCodes"]
+        );
+        let report = validate_document(&document.value);
+        assert!(report.ok, "{:?}", report.errors);
     }
 
     #[test]
