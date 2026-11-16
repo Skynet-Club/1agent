@@ -927,8 +927,14 @@ async fn run_case(
     }
     let started = std::time::Instant::now();
     let mode = crate::domain::infer_mode(&request);
+    let client_request_id = format!("eval:{}", case.id);
     let result = match runtime
-        .run_with_mode(request, mode, CancellationToken::new())
+        .run_with_mode_and_client_request_id(
+            request,
+            mode,
+            client_request_id,
+            CancellationToken::new(),
+        )
         .await
     {
         Ok(result) => result,
@@ -1832,6 +1838,77 @@ mod tests {
                 usage: crate::domain::Usage::default(),
             })
         }
+    }
+
+    #[tokio::test]
+    async fn eval_runs_link_the_case_id_to_the_journal() {
+        let artifacts = tempfile::tempdir().unwrap();
+        let report = run_suite_with_providers_artifacts(
+            EvalSuite {
+                name: "case-link".into(),
+                suite_version: "1".into(),
+                kind: EvalSuiteKind::ContractFixture,
+                execution_status: EvalExecutionStatus::Unspecified,
+                provider_requirements: Vec::new(),
+                reviewer: None,
+                calibration_required: false,
+                min_decision_completeness_bps: None,
+                cases: vec![EvalCase {
+                    known_facts: Vec::new(),
+                    max_steps: Some(2),
+                    max_tool_calls: None,
+                    timeout_ms: Some(5_000),
+                    id: "case-link".into(),
+                    objective: "Answer briefly.".into(),
+                    setup_files: Vec::new(),
+                    experience_scope: None,
+                    rubric: None,
+                    allow_write: false,
+                    expect: EvalExpectation {
+                        accepted_answer_statuses: Vec::new(),
+                        accepted_stop_reasons: Vec::new(),
+                        required_tools: Vec::new(),
+                        required_any_tools: Vec::new(),
+                        forbidden_tools: Vec::new(),
+                        min_tool_calls: 0,
+                        max_tool_calls: None,
+                        max_provider_calls: None,
+                        max_cost_micros: None,
+                        stop_reason: StopReason::Completed,
+                        answer_status: AnswerStatus::Completed,
+                        min_evidence: 0,
+                        min_claims: 0,
+                        min_unknowns: 0,
+                        min_flip_conditions: 0,
+                        min_high_impact_unknowns: 0,
+                        min_high_impact_assumptions: 0,
+                        min_unresolved_conflicts: 0,
+                        expect_checkpoint: None,
+                        tool_status: None,
+                        tool_error_code: None,
+                        audit_ok: true,
+                    },
+                }],
+            },
+            vec![ProviderCandidate {
+                provider: std::sync::Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            false,
+            Some(artifacts.path().to_path_buf()),
+        )
+        .await
+        .unwrap();
+        let journal_path = report.cases[0]
+            .journal_path
+            .as_ref()
+            .expect("artifact journal path");
+        let events = crate::journal::read_events(journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            crate::journal::JournalEventKind::ClientRequestLinked { client_request_id }
+                if client_request_id == "eval:case-link"
+        )));
     }
 
     #[tokio::test]

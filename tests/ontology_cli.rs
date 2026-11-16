@@ -1562,6 +1562,52 @@ fn goal_journal_export_is_deterministic_and_validates() {
 }
 
 #[test]
+fn eval_case_and_audit_status_are_exported() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("eval.jsonl");
+    let run_id = Uuid::new_v4();
+    let mut journal = Journal::create(&path, run_id).unwrap();
+    journal
+        .append(JournalEventKind::RunStarted {
+            request: TaskRequest::from_objective("eval", dir.path().to_path_buf()),
+            mode: CognitiveMode::Execute,
+        })
+        .unwrap();
+    journal
+        .append(JournalEventKind::ClientRequestLinked {
+            client_request_id: "eval:case-77".into(),
+        })
+        .unwrap();
+    journal
+        .append(JournalEventKind::RunStopped {
+            reason: StopReason::Completed,
+        })
+        .unwrap();
+    drop(journal);
+
+    let (document, _) = export_journal(dir.path(), &path);
+    let run_node = node_with_suffix(&document, &format!("urn:1agent:run:{run_id}"));
+    assert_eq!(run_node["clientRequestId"], "eval:case-77");
+    assert_eq!(run_node["evalCaseId"], "case-77");
+    assert_eq!(run_node["auditOk"], json!(false));
+    assert_eq!(run_node["replayOk"], json!(true));
+    assert!(
+        run_node["auditIssueCodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|code| code == "missing_answer_for_stop" || code == "missing_run_stop"),
+        "{}",
+        run_node["auditIssueCodes"]
+    );
+    let validation = run(
+        dir.path(),
+        &["ontology", "validate", "--journal", path.to_str().unwrap()],
+    );
+    assert_success(&validation, "eval journal validation");
+}
+
+#[test]
 fn policy_and_approval_metadata_is_exported_for_actions() {
     let dir = tempfile::tempdir().unwrap();
     let fixture = build_rich_session(dir.path());

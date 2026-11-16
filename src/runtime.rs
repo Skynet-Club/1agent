@@ -1216,6 +1216,37 @@ impl AgentRuntime {
         mode: CognitiveMode,
         cancellation: CancellationToken,
     ) -> Result<RunResult, RuntimeError> {
+        self.run_with_mode_and_client_id(request, mode, None, cancellation)
+            .await
+    }
+
+    /// Same as [`run_with_mode`](Self::run_with_mode), but journals a client
+    /// request id so callers (for example the eval runner) can map the run
+    /// back to their own case id.
+    pub async fn run_with_mode_and_client_request_id(
+        &self,
+        request: TaskRequest,
+        mode: CognitiveMode,
+        client_request_id: impl Into<String>,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
+        let client_request_id = client_request_id.into();
+        if client_request_id.trim().is_empty() {
+            return Err(RuntimeError::Resume(
+                "client request id must not be empty".into(),
+            ));
+        }
+        self.run_with_mode_and_client_id(request, mode, Some(client_request_id), cancellation)
+            .await
+    }
+
+    async fn run_with_mode_and_client_id(
+        &self,
+        request: TaskRequest,
+        mode: CognitiveMode,
+        client_request_id: Option<String>,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, RuntimeError> {
         let refers_to_context = !request.known_facts.is_empty()
             && crate::domain::has_context_reference(&request.objective);
         let fast_chat = mode == CognitiveMode::DirectAnswer
@@ -1226,7 +1257,14 @@ impl AgentRuntime {
             && crate::domain::looks_like_chat(&request.objective);
         if !fast_chat {
             return self
-                .run_internal(request, None, Some(mode), None, cancellation, false)
+                .run_internal(
+                    request,
+                    None,
+                    Some(mode),
+                    client_request_id,
+                    cancellation,
+                    false,
+                )
                 .await;
         }
         let fast_result = self
@@ -1234,7 +1272,7 @@ impl AgentRuntime {
                 request.clone(),
                 None,
                 Some(mode),
-                None,
+                client_request_id.clone(),
                 cancellation.clone(),
                 true,
             )
@@ -1245,7 +1283,14 @@ impl AgentRuntime {
             // The cheap path admitted that it needed evidence, or its own task
             // assessment says it does. Give the full agent one chance.
             return self
-                .run_internal(request, None, Some(mode), None, cancellation, false)
+                .run_internal(
+                    request,
+                    None,
+                    Some(mode),
+                    client_request_id,
+                    cancellation,
+                    false,
+                )
                 .await;
         }
         Ok(fast_result)
@@ -6379,6 +6424,33 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing context for run {}", result.run_id));
             assert_eq!(context.session_id.as_deref(), Some(session_id));
         }
+    }
+
+    #[tokio::test]
+    async fn run_with_mode_and_client_request_id_links_the_journal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("ok"),
+            }],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, ToolRegistry::default());
+        let result = runtime
+            .run_with_mode_and_client_request_id(
+                TaskRequest::from_objective("write a release note", workspace.path().to_path_buf()),
+                CognitiveMode::DirectAnswer,
+                "eval:case-9",
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ClientRequestLinked { client_request_id }
+                if client_request_id == "eval:case-9"
+        )));
     }
 
     #[tokio::test]
