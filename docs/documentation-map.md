@@ -34,6 +34,8 @@ boundary remains until ADR-003 is accepted.
   export/ID/validation contract and parallel file ownership.
 - [`0.99-goal-kernel-plan.md`](0.99-goal-kernel-plan.md): GoalKernel,
   ActionRuntime and DelegationKernel plan after 0.98.2 acceptance.
+- [`0.99-handoff.md`](0.99-handoff.md): resume checkpoint — what is accepted,
+  what remains, branches/tags, evidence paths and the first next task.
 - [`master-agent.md`](master-agent.md): Master-Agent contracts, commands, safety and live evidence.
 - [`master-multi-goal-production-line.md`](master-multi-goal-production-line.md): planned
   multi-Goal, multi-Master intake, supervision, dispatch and verification program.
