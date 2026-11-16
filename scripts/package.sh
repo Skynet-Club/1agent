@@ -91,7 +91,7 @@ install -m 0644 README.md README.en.md LICENSE CHANGELOG.md SECURITY.md PRIVACY.
 cp -R LICENSES "$package_root/"
 mkdir -p "$package_root/scripts"
 install -m 0755 scripts/install.sh "$package_root/scripts/install.sh"
-cp -R evals configs "$package_root/"
+cp -R evals configs capabilities "$package_root/"
 # Raw evidence contains build-host absolute paths and full journals; keep it in
 # the source repository and ship only the documentation in the public package.
 mkdir -p "$package_root/docs"

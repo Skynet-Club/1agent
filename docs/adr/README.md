@@ -145,3 +145,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0140 | Super-Agent 判断准则 — 四问与四家 | [0140-super-agent-four-questions.md](0140-super-agent-four-questions.md) |
 | 0141 | Clarify Bottom Bar Instead of a Full-Screen Modal | [0141-clarify-bottom-bar.md](0141-clarify-bottom-bar.md) |
 | 0142 | Loopback Preview for Generated Pages | [0142-loopback-preview.md](0142-loopback-preview.md) |
+| 0143 | Capability-First Tool Scouting | [0143-capability-scouting.md](0143-capability-scouting.md) |
