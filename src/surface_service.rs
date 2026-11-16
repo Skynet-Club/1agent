@@ -1371,11 +1371,16 @@ fn map_goal_error(error: GoalError) -> SurfaceError {
         | GoalError::InvalidTitle
         | GoalError::EmptyCommitmentId
         | GoalError::InvalidDescription
-        | GoalError::EmptyTicketId => SurfaceError::invalid(error.to_string()),
+        | GoalError::EmptyTicketId
+        | GoalError::EmptySessionId
+        | GoalError::EmptyRunId => SurfaceError::invalid(error.to_string()),
         GoalError::GoalExists(_)
         | GoalError::CommitmentExists(_)
         | GoalError::GoalNotActive(_)
         | GoalError::CommitmentNotPending(_)
+        | GoalError::SessionAlreadyBound { .. }
+        | GoalError::GoalBoundToAnotherSession { .. }
+        | GoalError::RunAlreadyBound { .. }
         | GoalError::InvalidGoalTransition(_, _) => {
             SurfaceError::new(SurfaceErrorCode::Conflict, error.to_string(), false)
         }

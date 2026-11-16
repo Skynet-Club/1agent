@@ -82,7 +82,7 @@ pub fn export_session(
     }
 
     if let Some(mission) = session.mission() {
-        let goal_iri = ids::goal_id(&mission.id);
+        let goal_iri = ids::goal_id(mission.goal_id());
         session_object.insert("hasGoal".into(), ref_iri(&goal_iri));
         nodes.insert(goal_iri, goal_node(mission, &run_iris));
     }
@@ -600,7 +600,7 @@ fn collect_artifacts(
 
 fn goal_node(mission: &SessionMission, run_iris: &BTreeSet<String>) -> Value {
     json!({
-        "@id": ids::goal_id(&mission.id),
+        "@id": ids::goal_id(mission.goal_id()),
         "@type": "Goal",
         "goalSha256": super::sha256_hex(mission.goal.as_bytes()),
         "goalChars": mission.goal.chars().count() as u64,

@@ -367,6 +367,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
 
 - `GoalGraph`/`GoalStore`: append-only, hash-chained Goal/Commitment events with JSONL
   replay; commitments can reference a Ticket but do not grant execution authority.
+  `GoalSessionBound`/`GoalRunLinked` events project a `GoalBinding` (session, runs,
+  commitments) from the same log. A session has at most one active goal, a goal at
+  most one session, and a run at most one active goal; rebinding the same pair is
+  idempotent. Legacy goal logs and snapshots replay without binding fields.
+  `SessionMission.goal_id` is the explicit session-side link; legacy sessions
+  normalize it to their mission id on load.
 - `attention_candidates`: deterministic, read-only projections over due, overdue and
   missed commitments plus due goals; fixed urgency ordering and a caller budget.
 - `DelegationRegistry`: observe/suggest/draft/ask/act_and_report profiles intersected with

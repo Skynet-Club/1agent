@@ -39,6 +39,16 @@ pub enum GoalError {
     CommitmentNotPending(String),
     #[error("ticket id must not be empty")]
     EmptyTicketId,
+    #[error("session id must not be empty")]
+    EmptySessionId,
+    #[error("run id must not be empty")]
+    EmptyRunId,
+    #[error("session {session_id} is already bound to active goal {goal_id}")]
+    SessionAlreadyBound { session_id: String, goal_id: String },
+    #[error("goal {goal_id} is already bound to session {session_id}")]
+    GoalBoundToAnotherSession { goal_id: String, session_id: String },
+    #[error("run {run_id} is already linked to goal {goal_id}")]
+    RunAlreadyBound { run_id: String, goal_id: String },
     #[error("invalid goal transition from {0:?} to {1:?}")]
     InvalidGoalTransition(GoalStatus, GoalStatus),
     #[error("goal log hash mismatch at {0}")]
@@ -131,6 +141,17 @@ pub struct Commitment {
     pub ticket_id: Option<String>,
 }
 
+/// Explicit Goal ↔ session/run/commitment binding. The fields are derived by
+/// replaying the goal log; no second binding store exists.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GoalBinding {
+    pub goal_id: String,
+    pub session_id: Option<String>,
+    pub run_ids: Vec<String>,
+    pub commitment_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum GoalEventKind {
@@ -141,6 +162,14 @@ pub enum GoalEventKind {
         goal_id: String,
         status: GoalStatus,
         reason: String,
+    },
+    GoalSessionBound {
+        goal_id: String,
+        session_id: String,
+    },
+    GoalRunLinked {
+        goal_id: String,
+        run_id: String,
     },
     CommitmentAdded {
         commitment: Commitment,
@@ -171,12 +200,15 @@ pub struct GoalEvent {
 pub struct GoalSnapshot {
     pub goals: Vec<Goal>,
     pub commitments: Vec<Commitment>,
+    #[serde(default)]
+    pub bindings: Vec<GoalBinding>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct GoalGraph {
     goals: BTreeMap<String, Goal>,
     commitments: BTreeMap<String, Commitment>,
+    bindings: BTreeMap<String, GoalBinding>,
     events: Vec<GoalEvent>,
     next_seq: u64,
     last_sha256: Option<String>,
@@ -195,10 +227,42 @@ impl GoalGraph {
         self.commitments.get(commitment_id)
     }
 
+    pub fn binding(&self, goal_id: &str) -> Option<&GoalBinding> {
+        self.bindings.get(goal_id)
+    }
+
+    /// The current goal binding for a session: prefer the active goal, and
+    /// fall back to a historical binding when the goal is paused or closed.
+    pub fn binding_for_session(&self, session_id: &str) -> Option<&GoalBinding> {
+        let mut historical = None;
+        for binding in self
+            .bindings
+            .values()
+            .filter(|binding| binding.session_id.as_deref() == Some(session_id))
+        {
+            if self
+                .goals
+                .get(&binding.goal_id)
+                .is_some_and(|goal| goal.status == GoalStatus::Active)
+            {
+                return Some(binding);
+            }
+            historical.get_or_insert(binding);
+        }
+        historical
+    }
+
+    pub fn binding_for_run(&self, run_id: &str) -> Option<&GoalBinding> {
+        self.bindings
+            .values()
+            .find(|binding| binding.run_ids.iter().any(|run| run == run_id))
+    }
+
     pub fn snapshot(&self) -> GoalSnapshot {
         GoalSnapshot {
             goals: self.goals.values().cloned().collect(),
             commitments: self.commitments.values().cloned().collect(),
+            bindings: self.bindings.values().cloned().collect(),
         }
     }
 
@@ -258,6 +322,96 @@ impl GoalGraph {
                 goal_id: goal_id.into(),
                 status,
                 reason: reason.into(),
+            },
+            now_ms,
+        )
+    }
+
+    /// Bind an active goal to the session that pursues it. A session can have
+    /// only one active goal at a time; historical bindings stay visible after
+    /// the goal is paused or closed. Re-binding the same pair is idempotent.
+    pub fn bind_session(
+        &mut self,
+        goal_id: &str,
+        session_id: impl Into<String>,
+        now_ms: u128,
+    ) -> Result<(), GoalError> {
+        let session_id = session_id.into();
+        if session_id.trim().is_empty() {
+            return Err(GoalError::EmptySessionId);
+        }
+        let goal = self
+            .goals
+            .get(goal_id)
+            .ok_or_else(|| GoalError::UnknownGoal(goal_id.into()))?;
+        if goal.status != GoalStatus::Active {
+            return Err(GoalError::GoalNotActive(goal_id.into()));
+        }
+        if let Some(binding) = self.bindings.get(goal_id) {
+            match binding.session_id.as_deref() {
+                Some(existing) if existing == session_id => return Ok(()),
+                Some(existing) => {
+                    return Err(GoalError::GoalBoundToAnotherSession {
+                        goal_id: goal_id.into(),
+                        session_id: existing.into(),
+                    });
+                }
+                None => {}
+            }
+        }
+        if let Some(existing) = self.binding_for_session(&session_id)
+            && existing.goal_id != goal_id
+            && self
+                .goals
+                .get(&existing.goal_id)
+                .is_some_and(|goal| goal.status == GoalStatus::Active)
+        {
+            return Err(GoalError::SessionAlreadyBound {
+                session_id,
+                goal_id: existing.goal_id.clone(),
+            });
+        }
+        self.append(
+            GoalEventKind::GoalSessionBound {
+                goal_id: goal_id.into(),
+                session_id,
+            },
+            now_ms,
+        )
+    }
+
+    /// Attribute a run to an active goal. A run belongs to at most one goal;
+    /// re-linking the same run to the same goal is idempotent.
+    pub fn link_run(
+        &mut self,
+        goal_id: &str,
+        run_id: impl Into<String>,
+        now_ms: u128,
+    ) -> Result<(), GoalError> {
+        let run_id = run_id.into();
+        if run_id.trim().is_empty() {
+            return Err(GoalError::EmptyRunId);
+        }
+        let goal = self
+            .goals
+            .get(goal_id)
+            .ok_or_else(|| GoalError::UnknownGoal(goal_id.into()))?;
+        if goal.status != GoalStatus::Active {
+            return Err(GoalError::GoalNotActive(goal_id.into()));
+        }
+        if let Some(existing) = self.binding_for_run(&run_id) {
+            if existing.goal_id == goal_id {
+                return Ok(());
+            }
+            return Err(GoalError::RunAlreadyBound {
+                run_id,
+                goal_id: existing.goal_id.clone(),
+            });
+        }
+        self.append(
+            GoalEventKind::GoalRunLinked {
+                goal_id: goal_id.into(),
+                run_id,
             },
             now_ms,
         )
@@ -403,6 +557,14 @@ impl GoalGraph {
                 if self.goals.contains_key(&goal.goal_id) {
                     return Err(GoalError::GoalExists(goal.goal_id));
                 }
+                self.bindings
+                    .entry(goal.goal_id.clone())
+                    .or_insert_with(|| GoalBinding {
+                        goal_id: goal.goal_id.clone(),
+                        session_id: None,
+                        run_ids: Vec::new(),
+                        commitment_ids: Vec::new(),
+                    });
                 self.goals.insert(goal.goal_id.clone(), goal);
             }
             GoalEventKind::GoalStatusChanged {
@@ -418,12 +580,102 @@ impl GoalGraph {
                 goal.status = status;
                 goal.updated_ms = at_ms;
             }
+            GoalEventKind::GoalSessionBound {
+                goal_id,
+                session_id,
+            } => {
+                let goal = self
+                    .goals
+                    .get(&goal_id)
+                    .ok_or_else(|| GoalError::UnknownGoal(goal_id.clone()))?;
+                if goal.status != GoalStatus::Active {
+                    return Err(GoalError::GoalNotActive(goal_id));
+                }
+                if let Some(binding) = self.bindings.get(&goal_id)
+                    && let Some(existing) = &binding.session_id
+                {
+                    if existing == &session_id {
+                        return Ok(());
+                    }
+                    return Err(GoalError::GoalBoundToAnotherSession {
+                        goal_id,
+                        session_id: existing.clone(),
+                    });
+                }
+                if let Some(existing) = self
+                    .bindings
+                    .values()
+                    .find(|binding| {
+                        binding.session_id.as_deref() == Some(session_id.as_str())
+                            && binding.goal_id != goal_id
+                    })
+                    .filter(|binding| {
+                        self.goals
+                            .get(&binding.goal_id)
+                            .is_some_and(|goal| goal.status == GoalStatus::Active)
+                    })
+                {
+                    return Err(GoalError::SessionAlreadyBound {
+                        session_id,
+                        goal_id: existing.goal_id.clone(),
+                    });
+                }
+                self.bindings
+                    .entry(goal_id.clone())
+                    .or_insert_with(|| GoalBinding {
+                        goal_id,
+                        session_id: None,
+                        run_ids: Vec::new(),
+                        commitment_ids: Vec::new(),
+                    })
+                    .session_id = Some(session_id);
+            }
+            GoalEventKind::GoalRunLinked { goal_id, run_id } => {
+                let goal = self
+                    .goals
+                    .get(&goal_id)
+                    .ok_or_else(|| GoalError::UnknownGoal(goal_id.clone()))?;
+                if goal.status != GoalStatus::Active {
+                    return Err(GoalError::GoalNotActive(goal_id));
+                }
+                if let Some(existing) = self
+                    .bindings
+                    .values()
+                    .find(|binding| binding.run_ids.iter().any(|run| run == &run_id))
+                {
+                    if existing.goal_id == goal_id {
+                        return Ok(());
+                    }
+                    return Err(GoalError::RunAlreadyBound {
+                        run_id,
+                        goal_id: existing.goal_id.clone(),
+                    });
+                }
+                self.bindings
+                    .entry(goal_id.clone())
+                    .or_insert_with(|| GoalBinding {
+                        goal_id,
+                        session_id: None,
+                        run_ids: Vec::new(),
+                        commitment_ids: Vec::new(),
+                    })
+                    .run_ids
+                    .push(run_id);
+            }
             GoalEventKind::CommitmentAdded { commitment } => {
                 if self.commitments.contains_key(&commitment.commitment_id) {
                     return Err(GoalError::CommitmentExists(commitment.commitment_id));
                 }
+                let goal_id = commitment.goal_id.clone();
+                if !self.goals.contains_key(&goal_id) {
+                    return Err(GoalError::UnknownGoal(goal_id));
+                }
+                let commitment_id = commitment.commitment_id.clone();
                 self.commitments
                     .insert(commitment.commitment_id.clone(), commitment);
+                if let Some(binding) = self.bindings.get_mut(&goal_id) {
+                    binding.commitment_ids.push(commitment_id);
+                }
             }
             GoalEventKind::CommitmentClosed {
                 commitment_id,
@@ -553,6 +805,26 @@ impl GoalStore {
             Err(error) => Err(error),
         }
     }
+}
+
+/// Bind a session to a goal through the store's hash-chained log.
+pub fn bind_session_goal(
+    store: &mut GoalStore,
+    goal_id: &str,
+    session_id: &str,
+    now_ms: u128,
+) -> Result<(), GoalError> {
+    store.with_graph_mut(|graph| graph.bind_session(goal_id, session_id, now_ms))
+}
+
+/// Attribute a run to a goal through the store's hash-chained log.
+pub fn link_run_to_goal(
+    store: &mut GoalStore,
+    goal_id: &str,
+    run_id: &str,
+    now_ms: u128,
+) -> Result<(), GoalError> {
+    store.with_graph_mut(|graph| graph.link_run(goal_id, run_id, now_ms))
 }
 
 fn append_events(
@@ -737,6 +1009,140 @@ mod tests {
             .unwrap();
         let reopened = GoalStore::open(&path).unwrap();
         assert_eq!(reopened.graph().snapshot().goals.len(), 2);
+    }
+
+    #[test]
+    fn goal_binding_tracks_session_runs_and_commitments() {
+        let mut graph = GoalGraph::default();
+        graph
+            .create_goal("goal-1", "session:ses-1", "ship", None, 1)
+            .unwrap();
+        graph
+            .add_commitment("commit-1", "goal-1", "write notes", None, 2)
+            .unwrap();
+        graph
+            .add_commitment("commit-2", "goal-1", "run tests", None, 3)
+            .unwrap();
+        graph.bind_session("goal-1", "ses-1", 4).unwrap();
+        graph.link_run("goal-1", "run-1", 5).unwrap();
+        graph.link_run("goal-1", "run-2", 6).unwrap();
+
+        let binding = graph.binding("goal-1").unwrap();
+        assert_eq!(binding.session_id.as_deref(), Some("ses-1"));
+        assert_eq!(binding.run_ids, ["run-1", "run-2"]);
+        assert_eq!(binding.commitment_ids, ["commit-1", "commit-2"]);
+        assert_eq!(
+            graph.binding_for_session("ses-1").unwrap().goal_id,
+            "goal-1"
+        );
+        assert_eq!(graph.binding_for_run("run-2").unwrap().goal_id, "goal-1");
+
+        let replayed = GoalGraph::replay(graph.events()).unwrap();
+        assert_eq!(replayed.snapshot(), graph.snapshot());
+    }
+
+    #[test]
+    fn binding_negative_cases_fail_closed() {
+        let mut graph = GoalGraph::default();
+        graph
+            .create_goal("goal-1", "owner-1", "one", None, 1)
+            .unwrap();
+        graph
+            .create_goal("goal-2", "owner-1", "two", None, 2)
+            .unwrap();
+        assert!(matches!(
+            graph.bind_session("missing", "ses-1", 3).unwrap_err(),
+            GoalError::UnknownGoal(id) if id == "missing"
+        ));
+        assert!(matches!(
+            graph.bind_session("goal-1", "  ", 3).unwrap_err(),
+            GoalError::EmptySessionId
+        ));
+        assert!(matches!(
+            graph.link_run("goal-1", "", 3).unwrap_err(),
+            GoalError::EmptyRunId
+        ));
+
+        graph.bind_session("goal-1", "ses-1", 4).unwrap();
+        let events_after_bind = graph.events().len();
+        graph.bind_session("goal-1", "ses-1", 5).unwrap();
+        assert_eq!(graph.events().len(), events_after_bind);
+        assert!(matches!(
+            graph.bind_session("goal-1", "ses-2", 6).unwrap_err(),
+            GoalError::GoalBoundToAnotherSession { .. }
+        ));
+        assert!(matches!(
+            graph.bind_session("goal-2", "ses-1", 7).unwrap_err(),
+            GoalError::SessionAlreadyBound { .. }
+        ));
+
+        graph.link_run("goal-1", "run-1", 8).unwrap();
+        let events_after_link = graph.events().len();
+        graph.link_run("goal-1", "run-1", 9).unwrap();
+        assert_eq!(graph.events().len(), events_after_link);
+        assert!(matches!(
+            graph.link_run("goal-2", "run-1", 10).unwrap_err(),
+            GoalError::RunAlreadyBound { .. }
+        ));
+
+        graph
+            .set_goal_status("goal-2", GoalStatus::Achieved, "done", 11)
+            .unwrap();
+        assert!(matches!(
+            graph.bind_session("goal-2", "ses-3", 12).unwrap_err(),
+            GoalError::GoalNotActive(id) if id == "goal-2"
+        ));
+        assert!(matches!(
+            graph.link_run("goal-2", "run-2", 13).unwrap_err(),
+            GoalError::GoalNotActive(id) if id == "goal-2"
+        ));
+
+        // A closed goal keeps its history but frees the session for a new goal.
+        graph
+            .set_goal_status("goal-1", GoalStatus::Achieved, "done", 14)
+            .unwrap();
+        graph
+            .create_goal("goal-3", "owner-1", "three", None, 15)
+            .unwrap();
+        graph.bind_session("goal-3", "ses-1", 16).unwrap();
+        assert_eq!(
+            graph.binding_for_session("ses-1").unwrap().goal_id,
+            "goal-3"
+        );
+        assert_eq!(graph.binding("goal-1").unwrap().run_ids, ["run-1"]);
+    }
+
+    #[test]
+    fn store_level_binding_helpers_persist_and_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("goals.jsonl");
+        let mut store = GoalStore::open(&path).unwrap();
+        store
+            .with_graph_mut(|graph| graph.create_goal("goal-1", "owner-1", "ship", None, 1))
+            .unwrap();
+        bind_session_goal(&mut store, "goal-1", "ses-1", 2).unwrap();
+        link_run_to_goal(&mut store, "goal-1", "run-1", 3).unwrap();
+        link_run_to_goal(&mut store, "goal-1", "run-2", 4).unwrap();
+        drop(store);
+
+        let reopened = GoalStore::open(&path).unwrap();
+        let binding = reopened.graph().binding("goal-1").unwrap();
+        assert_eq!(binding.session_id.as_deref(), Some("ses-1"));
+        assert_eq!(binding.run_ids, ["run-1", "run-2"]);
+        assert_eq!(
+            reopened.graph().binding_for_run("run-2").unwrap().goal_id,
+            "goal-1"
+        );
+    }
+
+    #[test]
+    fn legacy_goal_snapshot_without_bindings_is_readable() {
+        let legacy = serde_json::json!({
+            "goals": [],
+            "commitments": []
+        });
+        let snapshot: GoalSnapshot = serde_json::from_value(legacy).unwrap();
+        assert!(snapshot.bindings.is_empty());
     }
 
     #[test]
