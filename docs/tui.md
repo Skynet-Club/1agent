@@ -87,7 +87,10 @@ running 35. Worker mode never exposes Master commands.
 the transcript stays visible and the composer keeps its rows. The file is an
 array or an object with `questions` (≤1 MiB); the bar admits 1–5 questions and
 requires at least one blocking question. The recommended option is first and an `Other` option is
-added automatically. One question uses a 7-row bar; a batch shows one question
+added automatically. An option marked `requires_text` (for example, “我这就给你名字和文案”)
+also opens the inline editor; an empty editor cannot lock the option. A
+promise-to-provide label is normalized to `requires_text` so intent alone never
+counts as a supplied answer. One question uses a 7-row bar; a batch shows one question
 at a time in an 8-row bar with a `第 x/y 题` title.
 
 Keys:
@@ -102,8 +105,9 @@ Keys:
 - `C` or `Enter`: expand a collapsed bar;
 - `Ctrl+C`: cancel the round;
 - `PageUp`/`PageDown`: scroll the transcript while the bar is open;
-- selecting `Other` opens an inline editor; `Enter` validates and locks it,
-  `Esc` leaves the editor; paste is single-line and capped at 500 characters.
+- selecting `Other` or a `requires_text` option opens an inline editor;
+  `Enter` validates and locks it, `Esc` leaves the editor without answering;
+  paste is single-line and capped at 500 characters.
 
 The bar polls expiry every 500 ms; the countdown appears only in the last 60
 seconds. A timed-out round leaves missing questions unanswered and keeps the

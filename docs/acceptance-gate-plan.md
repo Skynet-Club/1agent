@@ -1,6 +1,6 @@
 # Completion Acceptance Gate — Development Plan
 
-Status: P0 and P1 implemented; P2–P3 planned
+Status: P0, P1 and the design delivery guard implemented; P2–P3 planned
 Date: 2026-11-16
 Related: [ADR-0144](adr/0144-completion-acceptance.md), `src/verification.rs`, `src/verification_store.rs`, [capability scouting](capability-scouting-plan.md)
 
@@ -69,6 +69,7 @@ Task
 
 - **P0 (done):** contract/receipt model, read-only `acceptance_gate` tool with one flat request, independent verifier check, prompt policy, tests.
 - **P1 (done for runtime enforcement):** runtime `CompletionGate`: a `completed` answer after a successful write-class tool requires an `accepted` receipt from this run; any later write invalidates an earlier receipt, and a gate in the same model turn as a write does not count. The downgrade is `conditional`, carries a high-impact unknown and flip condition, and is journaled as `CompletionAcceptanceMissing`.
+- **P1.5 (done): design delivery guard.** Written HTML artifacts are scanned for placeholder markers; a page contract must name 390/768/1440 viewport evidence, horizontal-scroll, placeholder, tap-target, brief, CTA and design-review checks. A placeholder artifact or an incomplete page contract downgrades to `conditional` and journals `CompletionArtifactUnfinished` or `CompletionDesignContractGap`.
 - **P1 remainder:** a TUI “已验收/未验收/有条件” badge and a CLI to inspect receipts.
 - **P2:** capability-specific verification profiles; verifier subagent; hidden/adversarial checks; target-environment checks (390/768/1440, OCR CER, ffprobe, etc.).
 - **P3:** ontology/Bitable receipts; gate metrics (false accept/rework); human sign-off workflow; periodic revalidation tied to artifact hashes.
@@ -91,6 +92,9 @@ Task
 - A gate call in the same model turn as a write does not count.
 - A run with no side-effect tools is not forced through the gate.
 - The downgrade appends `CompletionAcceptanceMissing`, a high-impact unknown and a flip condition.
+- A completed page whose HTML still contains placeholder markers is downgraded, even with an accepted receipt.
+- A page acceptance contract without 390/768/1440, scroll, placeholder, tap-target, brief, CTA and design-review checks is downgraded.
+- A clean page with a complete contract keeps `completed`.
 - Full `./scripts/verify.sh` passes.
 
 ## 5. Non-goals
@@ -108,7 +112,7 @@ Task
 - **Overhead:** not every low-risk task needs a human; risk-scaled levels keep it proportional.
 - **Stale receipts:** bind receipts to artifact hashes/versions; changes invalidate.
 - **False confidence:** a passed contract only proves the stated criteria, not perfection.
-- **Model bypass:** P1 catches a missing receipt, but the model can still fabricate the verifier identity and evidence. P2 must run a real independent verifier and bind receipts to artifact hashes.
+- **Model bypass:** P1 catches a missing receipt and P1.5 catches placeholder artifacts and contracts that omit page checks, but the model can still fabricate the verifier identity, the screenshot evidence and the brief. P2 must run a real independent verifier, generate the viewport evidence itself, and bind receipts to artifact hashes.
 
 ## 7. Verification
 
@@ -119,8 +123,12 @@ cargo test --lib completed_after_write
 cargo test --lib accepted_receipt_after_write
 cargo test --lib write_after_accepted_receipt
 cargo test --lib completed_without_side_effects
+cargo test --lib page_with_placeholders
+cargo test --lib page_contract_without_viewport
+cargo test --lib clean_page_with_complete_contract
+cargo test --lib clarify
 cargo test --test tools_e2e
 ./scripts/verify.sh
 ```
 
-The tests prove the acceptance contract, evidence and artifact checks, decisions, the flat tool request, the runtime presence gate and receipt staleness. They do not prove that a future domain checker is correct, that the verifier is truly independent, or that a receipt covers every artifact; those remain P2.
+The tests prove the acceptance contract, evidence and artifact checks, decisions, the flat tool request, the runtime presence gate, receipt staleness, text-required clarify and the page delivery guard. They do not prove that a future domain checker is correct, that the verifier is truly independent, or that supplied screenshots are real; those remain P2.

@@ -310,11 +310,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   admit one question per turn by default, and cap a blocking batch at five. `resolve_round`
   validates `answered|skipped|unanswered` answers with `submitted|cancelled|timed_out|undelivered`
   outcomes and keeps the default answer valid. `ClarifyPanel` adds the blocking panel state
-  machine: one to five questions, per-question lock, required `Other` text, one confirm, cancel,
-  and a 300-second expiry; an all-skipped confirm is a cancellation. `1agent clarify` exposes the
+  machine: one to five questions, per-question lock, required text for `Other`
+  and any option marked `requires_text`, one confirm, cancel, and a 300-second
+  expiry; an all-skipped confirm is a cancellation. A promise-to-provide label
+  (`我这就给`, `i will provide`) is normalized to `requires_text`, so the
+  promise alone cannot become an answered brief. `1agent clarify` exposes the
   gate and round resolution. The TUI `/clarify <questions.json>` command renders a
   bottom clarify bar above the input panel (ADR-0141), with per-question lock,
-  an inline `Other` editor, one confirm, cancel, a 500 ms expiry poll and a
+  an inline text editor for `Other` and text-required options, one confirm,
+  cancel, a 500 ms expiry poll and a
   one-line collapsed pending state; the transcript stays visible. The resolved
   round is shown in the transcript and written to `/details`. The interactive
   TUI registers a `clarify` runtime tool, so the model can open the bar and
@@ -861,8 +865,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   afterwards; a later write invalidates an earlier receipt, and a gate in the
   same model turn as a write does not count. The downgrade is journaled as
   `CompletionAcceptanceMissing` and the answer gains a high-impact unknown plus
-  a flip condition. This enforces a receipt's presence, not the verifier's real
-  independence; P2 adds an independent verifier and capability-specific checks.
+  a flip condition. Page delivery adds another fail-closed layer: every written
+  `.html`/`.htm` artifact is scanned for placeholder markers, and a page
+  acceptance contract must name 390/768/1440, horizontal-scroll, placeholder,
+  tap-target, brief, CTA and design-review checks. Placeholder artifacts journal
+  `CompletionArtifactUnfinished`; incomplete contracts journal
+  `CompletionDesignContractGap`; both downgrade the answer to `conditional`.
+  This enforces a receipt's presence and a page's minimum checks, not the
+  verifier's real independence; P2 adds an independent verifier and generated
+  viewport evidence.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept

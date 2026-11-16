@@ -44,19 +44,46 @@ use crate::verification::VerificationOutcome;
 /// own task assessment calls for gets at most this many corrections.
 const MAX_EVIDENCE_REPLANS: usize = 2;
 
-/// Unknown id used when the runtime downgrades an unaccepted delivery.
+/// Unknown ids used when the runtime downgrades a delivery.
 const ACCEPTANCE_UNKNOWN_ID: &str = "completion-acceptance";
+const UNFINISHED_ARTIFACT_UNKNOWN_ID: &str = "completion-artifact-unfinished";
+const DESIGN_CONTRACT_UNKNOWN_ID: &str = "completion-design-contract";
 
 /// Runtime completion gate. A completed answer that followed a successful
 /// side-effect tool needs an accepted acceptance receipt from this run. Any
-/// later side effect invalidates an earlier receipt.
+/// later side effect invalidates an earlier receipt. Page deliverables also
+/// fail closed on unfinished placeholder content and on acceptance contracts
+/// that omit responsive/design checks.
 #[derive(Default)]
 struct CompletionGate {
     side_effect_tools: BTreeSet<String>,
-    accepted_receipt: bool,
+    accepted_receipt: Option<CompletionReceipt>,
+    written_html: BTreeMap<String, String>,
+    design_task: bool,
+}
+
+enum GateFailure {
+    MissingReceipt {
+        tools: Vec<String>,
+        reason: String,
+    },
+    UnfinishedArtifact {
+        paths: Vec<String>,
+        markers: Vec<String>,
+    },
+    DesignContractGap {
+        missing: Vec<String>,
+    },
 }
 
 impl CompletionGate {
+    fn new(design_task: bool) -> Self {
+        Self {
+            design_task,
+            ..Self::default()
+        }
+    }
+
     fn observe(
         &mut self,
         call: &ToolCall,
@@ -71,72 +98,226 @@ impl CompletionGate {
             // A gate in the same model turn cannot have seen a write's output.
             if !batch_has_write
                 && observation.metadata.get("decision").map(String::as_str) == Some("accepted")
-                && serde_json::from_str::<CompletionReceipt>(&observation.content).is_ok_and(
-                    |receipt| {
-                        receipt.decision == AcceptanceDecision::Accepted
-                            && receipt.report.outcome == VerificationOutcome::Verified
-                            && !receipt.task_id.trim().is_empty()
-                    },
-                )
+                && let Ok(receipt) = serde_json::from_str::<CompletionReceipt>(&observation.content)
+                && receipt.decision == AcceptanceDecision::Accepted
+                && receipt.report.outcome == VerificationOutcome::Verified
+                && !receipt.task_id.trim().is_empty()
             {
-                self.accepted_receipt = true;
+                self.accepted_receipt = Some(receipt);
             }
         } else if tools.requires_write(&call.name) {
             self.side_effect_tools.insert(call.name.clone());
-            self.accepted_receipt = false;
+            self.accepted_receipt = None;
+            if let (Some(path), Some(sha256)) = (
+                observation.metadata.get("path"),
+                observation.metadata.get("sha256"),
+            ) {
+                let lower = path.to_ascii_lowercase();
+                if lower.ends_with(".html") || lower.ends_with(".htm") {
+                    self.written_html.insert(path.clone(), sha256.clone());
+                }
+            }
         }
     }
 
-    /// Returns the missing-gate facts when the answer must be downgraded.
-    fn downgrade(&self, answer: &mut AgentAnswer) -> Option<(Vec<String>, String)> {
-        if answer.status != AnswerStatus::Completed
-            || self.side_effect_tools.is_empty()
-            || self.accepted_receipt
-        {
+    fn downgrade(&self, answer: &mut AgentAnswer) -> Option<GateFailure> {
+        if answer.status != AnswerStatus::Completed || self.side_effect_tools.is_empty() {
             return None;
         }
-        let tools = self.side_effect_tools.iter().cloned().collect::<Vec<_>>();
-        answer.status = AnswerStatus::Conditional;
-        if !answer
-            .unknowns
-            .iter()
-            .any(|unknown| unknown.id == ACCEPTANCE_UNKNOWN_ID)
-        {
-            answer.unknowns.push(UnknownItem {
-                id: ACCEPTANCE_UNKNOWN_ID.into(),
-                description: "交付没有 accepted 验收收据".into(),
-                impact: ImpactLevel::High,
-                why_it_matters: Some(
-                    "模型自述完成不等于验收通过；写入发生后没有独立验收证据".into(),
+        if self.accepted_receipt.is_none() {
+            let tools = self.side_effect_tools.iter().cloned().collect::<Vec<_>>();
+            downgrade_to_conditional(
+                answer,
+                ACCEPTANCE_UNKNOWN_ID,
+                "交付没有 accepted 验收收据",
+                "模型自述完成不等于验收通过；写入发生后没有独立验收证据",
+                "调用 acceptance_gate，提交验收合同、逐条证据和独立验收人，取得 accepted 收据后再交付",
+                &format!(
+                    "[验收门] 本次运行执行过写入类工具（{}），但没有获得 accepted 验收收据；运行时已把状态降为 conditional。",
+                    tools.join("、")
                 ),
-                reduction_method: Some(
-                    "调用 acceptance_gate，提交验收合同、逐条证据和独立验收人，取得 accepted 收据后再交付"
-                        .into(),
-                ),
-            });
+                "acceptance_gate 返回 accepted 收据，且收据之后交付物没有再被修改",
+            );
+            let reason = format!(
+                "side-effect tools ran without an accepted acceptance receipt: {}",
+                tools.join(", ")
+            );
+            return Some(GateFailure::MissingReceipt { tools, reason });
         }
-        answer.flip_conditions.retain(|condition| {
-            !condition
-                .target_ids
-                .iter()
-                .any(|id| id == ACCEPTANCE_UNKNOWN_ID)
-        });
-        answer.flip_conditions.push(FlipCondition {
-            if_observed: "acceptance_gate 返回 accepted 收据，且收据之后交付物没有再被修改".into(),
-            then: "可以按 completed 交付".into(),
-            target_ids: vec![ACCEPTANCE_UNKNOWN_ID.into()],
-        });
-        let line = format!(
-            "[验收门] 本次运行执行过写入类工具（{}），但没有获得 accepted 验收收据；运行时已把状态降为 conditional。",
-            tools.join("、")
-        );
-        answer.conclusion = format!("{}\n\n{line}", answer.conclusion.trim_end());
-        let reason = format!(
-            "side-effect tools ran without an accepted acceptance receipt: {}",
-            tools.join(", ")
-        );
-        Some((tools, reason))
+        if let Some((paths, markers)) = self.unfinished_html() {
+            downgrade_to_conditional(
+                answer,
+                UNFINISHED_ARTIFACT_UNKNOWN_ID,
+                "交付页面仍含未替换的占位内容",
+                "占位内容不是可交付产品，用户无法直接使用或上线",
+                "替换所有占位内容与虚构信息，补真实文案后重新验收",
+                &format!(
+                    "[验收门] 交付页面仍含未替换的占位内容（{}）；运行时已把状态降为 conditional。",
+                    markers.join("、")
+                ),
+                "页面中的占位内容全部替换为真实内容并重新验收",
+            );
+            return Some(GateFailure::UnfinishedArtifact { paths, markers });
+        }
+        if !self.design_task {
+            return None;
+        }
+        if let Some(receipt) = &self.accepted_receipt {
+            let missing = design_contract_gaps(receipt);
+            if !missing.is_empty() {
+                downgrade_to_conditional(
+                    answer,
+                    DESIGN_CONTRACT_UNKNOWN_ID,
+                    "页面验收合同缺少响应式或设计评审证据",
+                    "没有真实视口和设计评审证据，无法证明页面在目标设备上可用",
+                    "补齐 390/768/1440 截图、scrollWidth、点击目标和设计评审后发现，再重新验收",
+                    &format!(
+                        "[验收门] 页面验收合同缺少：{}；运行时已把状态降为 conditional。",
+                        missing.join("、")
+                    ),
+                    "验收合同补齐三档视口、横向滚动、点击目标和设计评审证据",
+                );
+                return Some(GateFailure::DesignContractGap { missing });
+            }
+        }
+        None
     }
+
+    fn unfinished_html(&self) -> Option<(Vec<String>, Vec<String>)> {
+        const MARKERS: &[&str] = &[
+            "【",
+            "占位",
+            "待填",
+            "待替换",
+            "TODO",
+            "FIXME",
+            "lorem ipsum",
+            "example.com",
+            "Your Company",
+        ];
+        const MAX_BYTES: u64 = 4 * 1024 * 1024;
+        let mut paths = Vec::new();
+        let mut markers = BTreeSet::new();
+        for path in self.written_html.keys() {
+            let text = match std::fs::metadata(path) {
+                Ok(metadata) if metadata.len() <= MAX_BYTES => std::fs::read_to_string(path).ok(),
+                _ => None,
+            };
+            let Some(text) = text else {
+                paths.push(path.clone());
+                markers.insert("文件无法读取".to_string());
+                continue;
+            };
+            let lower = text.to_lowercase();
+            let mut found = false;
+            for marker in MARKERS {
+                if lower.contains(&marker.to_lowercase()) {
+                    markers.insert((*marker).to_string());
+                    found = true;
+                }
+            }
+            if found {
+                paths.push(path.clone());
+            }
+        }
+        if paths.is_empty() {
+            None
+        } else {
+            Some((paths, markers.into_iter().collect()))
+        }
+    }
+}
+
+fn downgrade_to_conditional(
+    answer: &mut AgentAnswer,
+    unknown_id: &str,
+    description: &str,
+    why_it_matters: &str,
+    reduction_method: &str,
+    line: &str,
+    flip_if: &str,
+) {
+    answer.status = AnswerStatus::Conditional;
+    if !answer
+        .unknowns
+        .iter()
+        .any(|unknown| unknown.id == unknown_id)
+    {
+        answer.unknowns.push(UnknownItem {
+            id: unknown_id.into(),
+            description: description.into(),
+            impact: ImpactLevel::High,
+            why_it_matters: Some(why_it_matters.into()),
+            reduction_method: Some(reduction_method.into()),
+        });
+    }
+    answer
+        .flip_conditions
+        .retain(|condition| !condition.target_ids.iter().any(|id| id == unknown_id));
+    answer.flip_conditions.push(FlipCondition {
+        if_observed: flip_if.into(),
+        then: "可以按 completed 交付".into(),
+        target_ids: vec![unknown_id.into()],
+    });
+    answer.conclusion = format!("{}\n\n{line}", answer.conclusion.trim_end());
+}
+
+fn design_contract_gaps(receipt: &CompletionReceipt) -> Vec<String> {
+    let text = receipt
+        .acceptance_criteria
+        .iter()
+        .chain(receipt.hidden_criteria.iter())
+        .map(|criterion| criterion.to_lowercase())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut missing = Vec::new();
+    for width in ["390", "768", "1440"] {
+        if !text.contains(width) {
+            missing.push(format!("{width} 宽度证据"));
+        }
+    }
+    if !(text.contains("scroll") || text.contains("溢出") || text.contains("横向")) {
+        missing.push("横向滚动检查".into());
+    }
+    if !(text.contains("占位") || text.contains("placeholder")) {
+        missing.push("占位内容检查".into());
+    }
+    if !(text.contains("点击目标") || text.contains("tap") || text.contains("触控")) {
+        missing.push("移动端点击目标检查".into());
+    }
+    if !(text.contains("brief") || text.contains("文案") || text.contains("产品名")) {
+        missing.push("brief 完整性检查".into());
+    }
+    if !(text.contains("cta") || text.contains("行动") || text.contains("动作")) {
+        missing.push("主 CTA 检查".into());
+    }
+    if !(text.contains("unslop")
+        || text.contains("web-ui-audit")
+        || text.contains("impeccable")
+        || text.contains("设计评审")
+        || text.contains("design review"))
+    {
+        missing.push("设计评审证据".into());
+    }
+    missing
+}
+
+fn looks_like_page_task(objective: &str, deliverable: Option<&str>) -> bool {
+    let text = format!("{} {}", objective, deliverable.unwrap_or_default()).to_lowercase();
+    [
+        "网站",
+        "网页",
+        "页面",
+        "落地页",
+        "主页",
+        "单页",
+        "landing",
+        "website",
+        "web page",
+        "homepage",
+    ]
+    .iter()
+    .any(|keyword| text.contains(keyword))
 }
 
 fn enforce_completion_gate(
@@ -144,13 +325,32 @@ fn enforce_completion_gate(
     gate: &CompletionGate,
     mut answer: AgentAnswer,
 ) -> Result<AgentAnswer, RuntimeError> {
-    if let Some((tools, reason)) = gate.downgrade(&mut answer) {
-        journal
-            .append(JournalEventKind::CompletionAcceptanceMissing { tools, reason })
-            .map_err(|source| RuntimeError::Journal {
-                path: journal.path().to_path_buf(),
-                source,
-            })?;
+    match gate.downgrade(&mut answer) {
+        Some(GateFailure::MissingReceipt { tools, reason }) => {
+            journal
+                .append(JournalEventKind::CompletionAcceptanceMissing { tools, reason })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal.path().to_path_buf(),
+                    source,
+                })?;
+        }
+        Some(GateFailure::UnfinishedArtifact { paths, markers }) => {
+            journal
+                .append(JournalEventKind::CompletionArtifactUnfinished { paths, markers })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal.path().to_path_buf(),
+                    source,
+                })?;
+        }
+        Some(GateFailure::DesignContractGap { missing }) => {
+            journal
+                .append(JournalEventKind::CompletionDesignContractGap { missing })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal.path().to_path_buf(),
+                    source,
+                })?;
+        }
+        None => {}
     }
     Ok(answer)
 }
@@ -2035,7 +2235,10 @@ impl AgentRuntime {
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
         let mut evidence_replans = 0usize;
-        let mut completion_gate = CompletionGate::default();
+        let mut completion_gate = CompletionGate::new(looks_like_page_task(
+            &request.objective,
+            request.deliverable.as_deref(),
+        ));
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
@@ -7111,6 +7314,53 @@ mod tests {
         })
     }
 
+    fn page_gate_arguments(
+        target: &std::path::Path,
+        include_design_checks: bool,
+    ) -> serde_json::Value {
+        let criteria = if include_design_checks {
+            vec![
+                "页面文件已写入且 SHA-256 匹配",
+                "390/768/1440 三档视口截图通过，scrollWidth 不超过 clientWidth",
+                "用户可见内容不含占位内容（placeholder）",
+                "移动端点击目标不小于 44px",
+                "brief 完整：产品名、一句话、三件能力和主 CTA 均非占位",
+                "主 CTA 真实可执行",
+                "已按 unslop / web-ui-audit 设计评审并修复发现",
+            ]
+        } else {
+            vec!["页面文件已写入且 SHA-256 匹配"]
+        };
+        let results = criteria
+            .iter()
+            .map(|criterion| {
+                serde_json::json!({
+                    "criterion": criterion,
+                    "passed": true,
+                    "evidence": ["test evidence"]
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "task_id": "page-1",
+            "objective": "交付页面",
+            "acceptance_criteria": criteria,
+            "hidden_criteria": [],
+            "expected_artifacts": [{"path": target}],
+            "risk": "medium",
+            "required_verifier": "independent",
+            "residual_risks": [],
+            "executor": "model:worker",
+            "verifier": "verifier:audit",
+            "results": results,
+            "artifact_checks": [{
+                "path": target,
+                "observed_sha256": "sha256",
+                "passed": true
+            }]
+        })
+    }
+
     fn write_call(id: &str, target: &std::path::Path, content: &str) -> ToolCall {
         ToolCall {
             id: id.into(),
@@ -7161,6 +7411,145 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn page_with_placeholders_is_conditional_even_with_an_accepted_receipt() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("landing.html");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call(
+                        "write-1",
+                        &target,
+                        "<html><body><h1>【产品名】</h1></body></html>",
+                    )],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: page_gate_arguments(&target, true),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("made the page"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("做一个产品网站页面", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        assert!(result.answer.conclusion.contains("占位内容"));
+        assert!(result.answer.unknowns.iter().any(|unknown| {
+            unknown.id == UNFINISHED_ARTIFACT_UNKNOWN_ID && unknown.impact == ImpactLevel::High
+        }));
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionArtifactUnfinished { markers, .. }
+                if markers.iter().any(|marker| marker == "【")
+        )));
+    }
+
+    #[tokio::test]
+    async fn page_contract_without_viewport_checks_is_conditional() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("landing.html");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call(
+                        "write-1",
+                        &target,
+                        "<html><body><h1>云笺</h1></body></html>",
+                    )],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: page_gate_arguments(&target, false),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("made the page"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("做一个产品网站页面", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        assert!(result.answer.unknowns.iter().any(|unknown| {
+            unknown.id == DESIGN_CONTRACT_UNKNOWN_ID && unknown.impact == ImpactLevel::High
+        }));
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionDesignContractGap { missing }
+                if missing.iter().any(|item| item.contains("390"))
+        )));
+    }
+
+    #[tokio::test]
+    async fn clean_page_with_complete_contract_keeps_completed() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("landing.html");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call(
+                        "write-1",
+                        &target,
+                        "<html><body><h1>云笺</h1></body></html>",
+                    )],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: page_gate_arguments(&target, true),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("made the page"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("做一个产品网站页面", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CompletionArtifactUnfinished { .. }
+                | JournalEventKind::CompletionDesignContractGap { .. }
+        )));
+    }
+
+    #[tokio::test]
     async fn accepted_receipt_after_write_keeps_completed() {
         let workspace = tempfile::tempdir().unwrap();
         let target = workspace.path().join("out.txt");
@@ -7202,7 +7591,7 @@ mod tests {
 
     #[test]
     fn accepted_metadata_without_a_receipt_does_not_satisfy_the_gate() {
-        let mut gate = CompletionGate::default();
+        let mut gate = CompletionGate::new(false);
         let call = ToolCall {
             id: "gate-1".into(),
             name: "acceptance_gate".into(),
@@ -7218,7 +7607,7 @@ mod tests {
             metadata: BTreeMap::from([("decision".into(), "accepted".into())]),
         };
         gate.observe(&call, &observation, &default_registry(), false);
-        assert!(!gate.accepted_receipt);
+        assert!(gate.accepted_receipt.is_none());
     }
 
     #[tokio::test]

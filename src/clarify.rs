@@ -50,8 +50,8 @@ pub enum ClarifyError {
     PanelClosed,
     #[error("clarify panel requires 1..=5 questions and at least one blocking question")]
     InvalidPanel,
-    #[error("the Other option requires non-empty text: {0}")]
-    OtherTextRequired(String),
+    #[error("this option requires non-empty text: {0}")]
+    TextRequired(String),
     #[error("only the Other option may carry other text: {0}")]
     UnexpectedOtherText(String),
 }
@@ -80,6 +80,9 @@ pub struct ClarifyAnswer {
     #[serde(default)]
     pub option_id: Option<String>,
     pub status: ClarifyAnswerStatus,
+    /// Text supplied for an `Other` or `requires_text` option.
+    #[serde(default)]
+    pub other_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -124,12 +127,24 @@ pub fn resolve_round(
                 let option_id = answer.option_id.as_ref().ok_or_else(|| {
                     ClarifyError::AnsweredWithoutOption(answer.question_id.clone())
                 })?;
-                if !question
+                let option = question
                     .options
                     .iter()
-                    .any(|option| option.id == *option_id)
-                {
-                    return Err(ClarifyError::UnknownOptionId(option_id.clone()));
+                    .find(|option| option.id == *option_id)
+                    .ok_or_else(|| ClarifyError::UnknownOptionId(option_id.clone()))?;
+                let text = answer
+                    .other_text
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default();
+                if option.requires_text || option.id == OTHER_OPTION_ID {
+                    if text.is_empty() {
+                        return Err(ClarifyError::TextRequired(answer.question_id.clone()));
+                    }
+                } else if !text.is_empty() {
+                    return Err(ClarifyError::UnexpectedOtherText(
+                        answer.question_id.clone(),
+                    ));
                 }
                 answered += 1;
             }
@@ -137,11 +152,31 @@ pub fn resolve_round(
                 if answer.option_id.is_some() {
                     return Err(ClarifyError::UnexpectedOption(answer.question_id.clone()));
                 }
+                if answer
+                    .other_text
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|text| !text.is_empty())
+                {
+                    return Err(ClarifyError::UnexpectedOtherText(
+                        answer.question_id.clone(),
+                    ));
+                }
                 skipped += 1;
             }
             ClarifyAnswerStatus::Unanswered => {
                 if answer.option_id.is_some() {
                     return Err(ClarifyError::UnexpectedOption(answer.question_id.clone()));
+                }
+                if answer
+                    .other_text
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|text| !text.is_empty())
+                {
+                    return Err(ClarifyError::UnexpectedOtherText(
+                        answer.question_id.clone(),
+                    ));
                 }
                 unanswered += 1;
             }
@@ -272,9 +307,11 @@ impl ClarifyPanel {
     ) -> Result<(), ClarifyError> {
         self.ensure_open(now_ms)?;
         let question = self.question(question_id)?;
-        if !question.options.iter().any(|option| option.id == option_id) {
-            return Err(ClarifyError::UnknownOptionId(option_id.into()));
-        }
+        let option = question
+            .options
+            .iter()
+            .find(|option| option.id == option_id)
+            .ok_or_else(|| ClarifyError::UnknownOptionId(option_id.into()))?;
         if self
             .answers
             .iter()
@@ -283,12 +320,12 @@ impl ClarifyPanel {
             return Err(ClarifyError::DuplicateAnswer(question_id.into()));
         }
         let text = other_text.map(str::trim).unwrap_or("");
-        let other_text = if option_id == OTHER_OPTION_ID {
+        let other_text = if option.requires_text || option_id == OTHER_OPTION_ID {
             if text.is_empty()
                 || text.chars().count() > 500
                 || text.chars().any(crate::safety::is_disallowed_control)
             {
-                return Err(ClarifyError::OtherTextRequired(question_id.into()));
+                return Err(ClarifyError::TextRequired(question_id.into()));
             }
             Some(text.to_string())
         } else {
@@ -332,6 +369,7 @@ impl ClarifyPanel {
                 question_id: answer.question_id.clone(),
                 option_id: answer.option_id.clone(),
                 status: answer.status,
+                other_text: answer.other_text.clone(),
             })
             .collect()
     }
@@ -398,6 +436,11 @@ pub struct ClarifyOption {
     pub label: String,
     #[serde(default)]
     pub recommended: bool,
+    /// Selecting this option must open a text field and submit non-empty text.
+    /// Use it for "I will provide the name/copy" answers; the promise alone is
+    /// not an answer.
+    #[serde(default)]
+    pub requires_text: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -470,6 +513,13 @@ impl ClarifyQuestion {
     /// Add the automatic `Other` option when absent and move the recommended
     /// option first. Validation must run before normalization.
     pub fn normalize(mut self) -> Self {
+        // Backstop for a model that offers "I will provide it" as a plain
+        // choice: the promise is not content, so the frontend must collect text.
+        for option in &mut self.options {
+            if !option.requires_text && promises_to_provide(&option.label) {
+                option.requires_text = true;
+            }
+        }
         if !self
             .options
             .iter()
@@ -479,6 +529,7 @@ impl ClarifyQuestion {
                 id: OTHER_OPTION_ID.into(),
                 label: "Other".into(),
                 recommended: false,
+                requires_text: false,
             });
         }
         self.options.sort_by_key(|option| !option.recommended);
@@ -583,6 +634,22 @@ fn safe_id(value: &str) -> bool {
         })
 }
 
+fn promises_to_provide(label: &str) -> bool {
+    let text = label.to_lowercase();
+    [
+        "我这就给",
+        "我马上给",
+        "稍后给",
+        "我来提供",
+        "我提供",
+        "i will provide",
+        "i'll provide",
+        "i can provide",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
 fn normalize_prompt(prompt: &str) -> String {
     prompt
         .split_whitespace()
@@ -600,6 +667,7 @@ mod tests {
             id: id.into(),
             label: label.into(),
             recommended,
+            requires_text: false,
         }
     }
 
@@ -713,6 +781,7 @@ mod tests {
             question_id: question_id.into(),
             option_id: option_id.map(Into::into),
             status,
+            other_text: None,
         }
     }
 
@@ -869,6 +938,53 @@ mod tests {
     }
 
     #[test]
+    fn promise_to_provide_is_normalized_to_a_text_option() {
+        let mut question = question("q1", "Where is the copy?");
+        question.options[0].label = "我这就给你名字和几句介绍".into();
+        let normalized = question.normalize();
+        let option = normalized
+            .options
+            .iter()
+            .find(|option| option.id == "a")
+            .expect("option a");
+        assert!(option.requires_text);
+    }
+
+    #[test]
+    fn requires_text_options_need_text_and_keep_it() {
+        let mut question = blocking_question("q1", "Product name?");
+        question.options[0].requires_text = true;
+        let mut panel = ClarifyPanel::new(vec![question], 0).unwrap();
+        assert_eq!(
+            panel.select("q1", "a", None, 1),
+            Err(ClarifyError::TextRequired("q1".into()))
+        );
+        panel.select("q1", "a", Some("  云笺  "), 2).unwrap();
+        assert_eq!(panel.answers[0].other_text.as_deref(), Some("云笺"));
+        assert_eq!(panel.confirm(3).unwrap().answered, 1);
+
+        let mut question = blocking_question("q1", "Product name?");
+        question.options[0].requires_text = true;
+        let questions = vec![question.normalize()];
+        assert_eq!(
+            resolve_round(
+                &questions,
+                &[answer("q1", Some("a"), ClarifyAnswerStatus::Answered)],
+                ClarifyOutcome::Submitted,
+            ),
+            Err(ClarifyError::TextRequired("q1".into()))
+        );
+        let mut answered = answer("q1", Some("a"), ClarifyAnswerStatus::Answered);
+        answered.other_text = Some("云笺".into());
+        assert_eq!(
+            resolve_round(&questions, &[answered], ClarifyOutcome::Submitted)
+                .unwrap()
+                .answered,
+            1
+        );
+    }
+
+    #[test]
     fn panel_rejects_non_blocking_empty_and_bad_other() {
         assert_eq!(
             ClarifyPanel::new(Vec::new(), 0).unwrap_err(),
@@ -881,7 +997,7 @@ mod tests {
         let mut panel = ClarifyPanel::new(vec![blocking_question("q1", "Which?")], 0).unwrap();
         assert_eq!(
             panel.select("q1", OTHER_OPTION_ID, None, 1),
-            Err(ClarifyError::OtherTextRequired("q1".into()))
+            Err(ClarifyError::TextRequired("q1".into()))
         );
         assert_eq!(
             panel.select("q1", "a", Some("text"), 1),
