@@ -30,7 +30,7 @@ User
 
 ### 2.1 Interactive TUI (available, RC)
 
-- CLI: `1agent -v` prints the version; `1agent help`, `help advanced` and `help --all` show Chinese command descriptions; every top-level and nested command has one;
+- CLI: `1agent -v` prints the version; `1agent help`, `help advanced` and `help --all` show Chinese command descriptions; every top-level and nested command has one; `help` is a common-commands plus category index with military-green rules and accents on a terminal, and `--help` uses the same view;
 - Single-turn conversation, task runs, status and activity;
 - `/` command drawer with categories, recent commands, fuzzy matching and disabled reasons;
 - six conversation modes: auto, direct answer, evidence research, decision analysis, execute, diagnosis;

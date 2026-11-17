@@ -97,6 +97,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 1agent -v          # 当前版本
 1agent --version   # 同上，兼容旧写法
+1agent help        # 常用命令 + 分类导航（军旅绿）
 1agent setup
 ```
 

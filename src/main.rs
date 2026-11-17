@@ -5052,6 +5052,18 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
             "clarify",
         ],
     ),
+    (
+        "其他",
+        &[
+            "onboard",
+            "init",
+            "completions",
+            "man",
+            "export",
+            "restore",
+            "upgrade",
+        ],
+    ),
 ];
 
 fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
@@ -5079,24 +5091,90 @@ fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
     Ok(())
 }
 
+const MIL_GREEN: &str = "38;2;112;138;65";
+const MIL_GREEN_BRIGHT: &str = "1;38;2;138;166;82";
+const MIL_GREEN_DIM: &str = "38;2;139;150;111";
+const MIL_GREEN_RULE: &str = "38;2;74;89;48";
+
+fn color_enabled() -> bool {
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn green(text: impl AsRef<str>, code: &str) -> String {
+    let text = text.as_ref();
+    if color_enabled() {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+fn green_rule(width: usize) -> String {
+    green("─".repeat(width), MIL_GREEN_RULE)
+}
+
 fn print_public_help() {
-    println!("1Agent — 有证据、可审计的决策代理");
     println!();
-    println!("用法：1agent <命令> [选项]");
+    println!(
+        "{}",
+        green("  1AGENT  ·  有证据、可审计的决策代理", MIL_GREEN_BRIGHT)
+    );
+    println!("  {}", green_rule(58));
     println!();
-    println!("常用命令：");
+    println!("{}", green("  常用", MIL_GREEN_BRIGHT));
     for (name, description) in PUBLIC_COMMANDS {
-        println!("  {name:<12} {description}");
+        println!(
+            "    {} {}  {}",
+            green("•", MIL_GREEN),
+            green(format!("{name:<12}"), MIL_GREEN),
+            green(description, MIL_GREEN_DIM)
+        );
     }
     println!();
-    println!("更多命令：1agent help advanced");
-    println!("全部命令：1agent help --all");
-    println!("版本：    1agent -v");
-    println!("查看某条命令的选项：1agent <命令> --help");
+    println!("{}", green("  分类", MIL_GREEN_BRIGHT));
+    for (group, commands) in ADVANCED_GROUPS {
+        let preview = commands
+            .iter()
+            .take(4)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let more = if commands.len() > 4 { " …" } else { "" };
+        println!(
+            "    {} {}  {} 个命令  {}{}",
+            green("•", MIL_GREEN),
+            green(format!("{group:<10}"), MIL_GREEN),
+            commands.len(),
+            green(preview, MIL_GREEN_DIM),
+            green(more, MIL_GREEN_DIM)
+        );
+    }
+    println!();
+    println!("{}", green("  提示", MIL_GREEN_BRIGHT));
+    println!(
+        "    {} 查看分组详情：{}",
+        green("•", MIL_GREEN),
+        green("1agent help advanced", MIL_GREEN_DIM)
+    );
+    println!(
+        "    {} 查看全部命令：{}",
+        green("•", MIL_GREEN),
+        green("1agent help --all", MIL_GREEN_DIM)
+    );
+    println!(
+        "    {} 查看命令选项：{}",
+        green("•", MIL_GREEN),
+        green("1agent <命令> --help", MIL_GREEN_DIM)
+    );
+    println!(
+        "    {} 当前版本：{}",
+        green("•", MIL_GREEN),
+        green("1agent -v", MIL_GREEN_DIM)
+    );
+    println!();
 }
 
 fn print_advanced_groups(all: bool) {
-    println!("高级命令（按组查看；`1agent <命令> --help` 查看选项）");
     let command = Cli::command();
     let abouts = command
         .get_subcommands()
@@ -5110,14 +5188,22 @@ fn print_advanced_groups(all: bool) {
             )
         })
         .collect::<std::collections::BTreeMap<_, _>>();
+    println!();
+    println!("{}", green("  1AGENT  ·  高级命令", MIL_GREEN_BRIGHT));
+    println!("  {}", green_rule(58));
     let mut listed = std::collections::BTreeSet::new();
     for (group, commands) in ADVANCED_GROUPS {
         println!();
-        println!("{group}：");
+        println!("  {}", green(format!("• {group}"), MIL_GREEN_BRIGHT));
         for command in *commands {
             listed.insert(*command);
             let about = abouts.get(*command).map(String::as_str).unwrap_or("");
-            println!("  {command:<20} {about}");
+            println!(
+                "    {} {}  {}",
+                green("•", MIL_GREEN),
+                green(format!("{command:<20}"), MIL_GREEN),
+                green(about, MIL_GREEN_DIM)
+            );
         }
     }
     if all {
@@ -5139,9 +5225,14 @@ fn print_advanced_groups(all: bool) {
         }
         if !other.is_empty() {
             println!();
-            println!("其他：");
+            println!("  {}", green("• 其他", MIL_GREEN_BRIGHT));
             for (name, about) in other {
-                println!("  {name:<20} {about}");
+                println!(
+                    "    {} {}  {}",
+                    green("•", MIL_GREEN),
+                    green(format!("{name:<20}"), MIL_GREEN),
+                    green(about, MIL_GREEN_DIM)
+                );
             }
         }
     }
@@ -6130,10 +6221,6 @@ fn ontology_export_for_cli(
 
 /// `1agent` with no arguments keeps the local convenience behavior: open the
 /// TUI. Help stays available through `1agent --help` and `1agent help`.
-fn parse_cli() -> Cli {
-    parse_cli_from(std::env::args_os().collect())
-}
-
 fn parse_cli_from(args: Vec<OsString>) -> Cli {
     Cli::parse_from(with_default_command(args))
 }
@@ -6148,7 +6235,16 @@ fn with_default_command(mut args: Vec<OsString>) -> Vec<OsString> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = parse_cli();
+    let args: Vec<OsString> = std::env::args_os().collect();
+    if args.len() == 2
+        && args[1]
+            .to_str()
+            .is_some_and(|argument| matches!(argument, "-h" | "--help"))
+    {
+        print_public_help();
+        return Ok(());
+    }
+    let cli = parse_cli_from(args);
     if cli.version || cli.version_upper {
         println!("1agent {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
