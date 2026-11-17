@@ -54,8 +54,10 @@ was honest but wrong about the local store.
   bigram. That is a known limit; the model must say no record matched rather
   than guess.
 - A previous session that contains the same question and a refusal can also
-  match. It is shown as a record, not hidden; the substantive record wins on
-  score and the model can acknowledge the earlier miss.
+  match, and can rank ahead of the substantive record because the query phrase
+  matches it more closely. It is shown as a record, not hidden; the model sees
+  both and can acknowledge the earlier miss. The first slice does not special-
+  case refusal records.
 - Archived sessions remain searchable until they are trashed. Trashed sessions
   are outside the scanned directory.
 - Session metadata and journal paths are validated under the canonical journal
