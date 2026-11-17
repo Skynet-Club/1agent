@@ -39,5 +39,15 @@ are **blocked** and must not be presented as passed.
 
 ## 4. Local assets
 
-To be filled after the rc.4 package is built. No GitHub release and no push are
-performed by the code-level candidate workflow.
+Built from tag `v1.0.0-rc.4` → `23d12cd` with `./scripts/package.sh
+--linux-only`; tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.4-linux-x86_64.tar.gz` | SHA-256 `36cd694d7c965a92d8a73ebe80b377d0a2901aba1b9975cd19ff5abb966582ff` |
+| Packaged binary | SHA-256 `971451e6622bdd9ee5eaf94f4bd7e52c9141719883b0de1b5269c54c26583bbb` |
+| Provenance | `linux-x86_64.json`, commit `23d12cd`, `git_dirty: false` |
+| Smoke | `sha256sum -c SHA256SUMS` OK; `--version` 1.0.0-rc.4; `doctor` Ok; install to `~/.local` OK |
+
+Evidence: `docs/evidence/release-1.0.0-rc.4-2026-11-18.md`. No GitHub release
+and no push were performed.
