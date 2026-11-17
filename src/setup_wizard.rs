@@ -31,13 +31,13 @@ use crate::provider::list_provider_models;
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
-/// The setup surface reuses the TUI's military-green palette:
-/// mark green, panel text green, panel green and shadow green.
-const ACCENT: &str = "\x1b[38;2;63;185;80m";
-const ACCENT_BOLD: &str = "\x1b[1;38;2;63;185;80m";
-const BODY: &str = "\x1b[38;2;94;158;94m";
-const LINE: &str = "\x1b[38;2;74;120;85m";
-const SHADOW: &str = "\x1b[38;2;58;92;66m";
+/// The setup surface reuses the CLI/TUI military-green palette:
+/// bright accent, dim body, primary lines and rule-coloured shadow.
+const ACCENT: &str = "\x1b[38;2;138;166;82m";
+const ACCENT_BOLD: &str = "\x1b[1;38;2;138;166;82m";
+const BODY: &str = "\x1b[38;2;139;150;111m";
+const LINE: &str = "\x1b[38;2;112;138;65m";
+const SHADOW: &str = "\x1b[38;2;74;89;48m";
 const RED: &str = "\x1b[91m";
 const YELLOW: &str = "\x1b[93m";
 
