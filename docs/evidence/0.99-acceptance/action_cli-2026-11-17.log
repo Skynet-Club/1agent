@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/action_cli.rs (target/debug/deps/action_cli-7cda119da075d2f9)
+
+running 6 tests
+test non_gated_journal_verifies_against_an_empty_log ... ok
+test action_show_rejects_a_corrupt_log ... ok
+test action_verify_fails_when_the_record_is_missing ... ok
+test action_verify_fails_on_status_or_policy_mismatch ... ok
+test action_show_and_verify_pass_for_matching_records ... ok
+test action_approval_cards_can_be_listed_approved_and_denied ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

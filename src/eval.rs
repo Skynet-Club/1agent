@@ -1439,7 +1439,7 @@ fn score_rubric(
     let mut issues = Vec::new();
     for term in &rubric.required_conclusion_terms {
         checks += 1;
-        if conclusion.contains(&term.to_lowercase()) {
+        if conclusion_contains_term(&conclusion, term) {
             passed += 1;
         } else {
             issues.push(format!("rubric: conclusion must contain '{term}'"));
@@ -1482,6 +1482,40 @@ fn score_rubric(
         }
     }
     (passed, checks, issues)
+}
+
+/// Required terms are literal substrings, except that an ISO date also matches
+/// the equivalent Chinese, slash and dot forms. Answers such as
+/// `2026年12月22日` are the same fact as `2026-12-22`.
+fn conclusion_contains_term(conclusion: &str, term: &str) -> bool {
+    let term = term.to_lowercase();
+    if conclusion.contains(&term) {
+        return true;
+    }
+    let Some((year, month, day)) = parse_iso_date(&term) else {
+        return false;
+    };
+    [
+        format!("{year}年{month}月{day}日"),
+        format!("{year}年{month:02}月{day:02}日"),
+        format!("{year}/{month}/{day}"),
+        format!("{year}/{month:02}/{day:02}"),
+        format!("{year}.{month}.{day}"),
+        format!("{year}.{month:02}.{day:02}"),
+    ]
+    .iter()
+    .any(|variant| conclusion.contains(variant))
+}
+
+fn parse_iso_date(term: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = term.split('-');
+    let year = parts.next()?.parse::<u32>().ok()?;
+    let month = parts.next()?.parse::<u32>().ok()?;
+    let day = parts.next()?.parse::<u32>().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    Some((year, month, day))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1613,6 +1647,33 @@ pub fn validate_suite(suite: &EvalSuite) -> Result<(), EvalError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rubric_accepts_equivalent_date_formats() {
+        let answer = crate::domain::AgentAnswer {
+            task_need: None,
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+            status: crate::domain::AnswerStatus::Completed,
+            conclusion: "截止日期是 2026年12月22日。".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        let rubric = EvalRubric {
+            required_conclusion_terms: vec!["2026-12-22".into()],
+            forbidden_conclusion_terms: Vec::new(),
+            required_sources: Vec::new(),
+            required_claim_statuses: Vec::new(),
+        };
+        let (passed, checks, issues) = score_rubric(Some(&rubric), &answer);
+        assert_eq!((passed, checks), (1, 1));
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     #[test]
     fn agent_loop_suite_has_one_hundred_fixed_cases() {

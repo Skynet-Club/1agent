@@ -2,7 +2,7 @@
 
 Date: 2026-11-17  
 Tree: `/home/skynet/1-agent`, branch `0.99-dev`  
-Base HEAD: `29d657d` (this slice is in the working tree until committed)  
+Base HEAD: `29d657d`; remediation commit: `c0fcaa1`  
 Related: ADR-0147, `docs/evidence/0.99-acceptance/README.md` §3 QG1
 
 ## 1. Finding being fixed

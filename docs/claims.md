@@ -308,6 +308,7 @@ file: <路径>              → 文件必须存在
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |
 | 目标 achieved 需要已验证 run 的独立验证记录；缺失/run 错配/自验/Rejected/Hacked 均失败关闭，旧 goal 日志仍可 replay | cmd: cargo test --test goal_cli && cargo test --lib goal | ✅ | 本地 VerificationStore JSONL；验证器独立性由 store 校验，不是签名审批信封；不读取答案正文 |
+| Track Q 最终 99/100：预算停止原因跟随答案状态；修复后高风险答案仍过 re-plan；日期 rubric 等价匹配；7 例质量/安全子集 7/7 | file: docs/evidence/0.99-acceptance/agent-loop-v1-final-2026-11-17/report.json | ✅ | 单次 DeepSeek 运行；残余 chat-19 简单聊天 2 次 provider call；非统计稳定性 |
 
 ## 覆盖率
 

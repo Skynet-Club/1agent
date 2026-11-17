@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/goal_cli.rs (target/debug/deps/goal_cli-ff3cdd3e3d960522)
+
+running 4 tests
+test goal_link_requires_a_session_or_run ... ok
+test goal_close_abandoned_requires_listing_pending_commitments ... ok
+test goal_status_and_link_round_trip ... ok
+test goal_close_requires_a_linked_run_and_passed_verification ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+

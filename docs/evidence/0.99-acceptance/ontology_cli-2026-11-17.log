@@ -1,0 +1,34 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/ontology_cli.rs (target/debug/deps/ontology_cli-ad7aea5b819a5bfe)
+
+running 27 tests
+test write_and_edit_file_tools_emit_artifact_sha_metadata ... ok
+test cq04_successful_spawn_exports_squad_lineage ... ok
+test prompt_derived_session_title_is_hashed_and_redacted ... ok
+test artifact_sha_metadata_joins_to_tool_invocation_and_run ... ok
+test eval_case_and_audit_status_are_exported ... ok
+test cq07_conditional_flip_targets_are_local_ids ... ok
+test journal_export_passes_validate_input ... ok
+test cq01_completed_answer_claims_without_evidence_are_identifiable ... ok
+test ontology_types_and_bindings_are_non_empty_valid_json ... ok
+test cq08_expired_or_untimed_evidence_is_identifiable ... ok
+test missing_session_export_and_validate_fail_without_creating_directory ... ok
+test cq06_needs_authorization_run_and_policy_profile_are_exported ... ok
+test export_redacts_raw_prompt_tool_arguments_tool_content_and_secret_marker ... ok
+test goal_journal_export_is_deterministic_and_validates ... ok
+test v1_session_json_remains_exportable_and_valid ... ok
+test cq14_run_route_and_cost_are_identifiable_for_claim ... ok
+test cq09_resumed_run_reports_original_run_and_checkpoint ... ok
+test cq02_claim_evidence_observation_join_uses_explicit_observed_by ... ok
+test cq_gap_eval_and_audit_projections_are_absent ... ok
+test policy_and_approval_metadata_is_exported_for_actions ... ok
+test binding_coverage_is_complete_and_validated ... ok
+test journal_export_is_compact_deterministic_and_embeds_registry_metadata ... ok
+test cq10_session_fork_is_exported_with_parent_stub_and_validates ... ok
+test session_export_includes_session_run_task_goal_and_validates ... ok
+test validator_accepts_a_completed_claim_without_evidence_known_gap ... ok
+test empty_and_malformed_journals_fail_without_panic ... ok
+test validate_rejects_dangling_reference_and_malformed_json_without_panic ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+

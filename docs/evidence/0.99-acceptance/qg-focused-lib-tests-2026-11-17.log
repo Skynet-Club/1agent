@@ -1,0 +1,168 @@
+=== filter: goal_binding ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 1 test
+test goal::tests::goal_binding_tracks_session_runs_and_commitments ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1193 filtered out; finished in 0.00s
+
+exit=0
+=== filter: close_with_evidence ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 2 tests
+test goal::tests::close_with_evidence_rejects_unproven_achieved ... ok
+test goal::tests::close_with_evidence_achieves_only_with_a_linked_run_and_passed_verification ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1192 filtered out; finished in 0.00s
+
+exit=0
+=== filter: legacy_goal_snapshot ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 1 test
+test goal::tests::legacy_goal_snapshot_without_bindings_is_readable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1193 filtered out; finished in 0.00s
+
+exit=0
+=== filter: commitment_lifecycle ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 2 tests
+test goal::tests::goal_and_commitment_lifecycle_replays ... ok
+test goal::tests::commitment_lifecycle_negatives_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1192 filtered out; finished in 0.00s
+
+exit=0
+=== filter: gated_ ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 8 tests
+test action_reconcile::tests::non_gated_journals_reconcile_without_actions ... ok
+test evolution::tests::proposal_moves_through_human_gated_receipts ... ok
+test ontology::export::tests::gated_actions_and_failed_spawns_export_policy_and_squad_nodes ... ok
+test runtime::tests::gated_approval_records_needs_approval_without_executing ... ok
+test runtime::tests::gated_deny_records_the_denied_action ... ok
+test runtime::tests::gated_allow_records_executed_action_and_policy_metadata ... ok
+test runtime::tests::gated_run_journal_and_action_log_reconcile ... ok
+test runtime::tests::approved_gated_tool_executes_once_after_human_approval ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1186 filtered out; finished in 0.04s
+
+exit=0
+=== filter: approved_gated ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 1 test
+test runtime::tests::approved_gated_tool_executes_once_after_human_approval ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1193 filtered out; finished in 0.04s
+
+exit=0
+=== filter: changed_arguments ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 2 tests
+test tool_approval::tests::changed_arguments_run_or_denial_require_a_new_card ... ok
+test runtime::tests::changed_arguments_require_a_new_approval_card ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1192 filtered out; finished in 0.05s
+
+exit=0
+=== filter: reconcile ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 11 tests
+test action_reconcile::tests::a_missing_action_record_is_reported ... ok
+test action_reconcile::tests::non_gated_journals_reconcile_without_actions ... ok
+test action_reconcile::tests::a_missing_journal_observation_is_reported ... ok
+test action_reconcile::tests::status_policy_and_artifact_mismatches_are_reported ... ok
+test action_reconcile::tests::matching_journal_and_action_records_reconcile ... ok
+test action_reconcile::tests::records_from_other_runs_are_ignored ... ok
+test runtime::tests::gated_run_journal_and_action_log_reconcile ... ok
+test inbox::tests::attention_reconcile_dismisses_cleared_items_only ... ok
+test schedule_ledger::tests::reconcile_marks_claimed_and_running_interrupted_once ... ok
+test inbox::tests::reconcile_closes_accepted_and_cancelled_handoff_items ... ok
+test schedule_ledger::tests::hundred_claimed_slots_reconcile_once_without_duplicates ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 1183 filtered out; finished in 0.89s
+
+exit=0
+=== filter: action_records ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 2 tests
+test action_reconcile::tests::matching_journal_and_action_records_reconcile ... ok
+test action_log::tests::action_records_embed_in_the_hash_chain_and_the_latest_wins ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1192 filtered out; finished in 0.00s
+
+exit=0
+=== filter: legacy_entries ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 1 test
+test action_log::tests::legacy_entries_without_action_payload_still_verify ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1193 filtered out; finished in 0.00s
+
+exit=0
+=== filter: subagent ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 17 tests
+test subagent_registry::tests::lineage_fields_round_trip_and_child_run_is_backfilled ... ok
+test subagent_registry::tests::latest_record_wins_and_root_pid_filters_other_processes ... ok
+test subagent_registry::tests::legacy_records_without_lineage_fields_remain_readable ... ok
+test tools::subagent::tests::spawn_is_write_capable_so_read_only_gates_cannot_bypass_it ... ok
+test subagent_registry::tests::guard_finishes_or_marks_a_dropped_run_cancelled ... ok
+test tools::subagent::tests::parent_rejects_a_child_that_did_not_complete ... ok
+test tools::subagent::tests::rejects_workspace_outside_roots_and_depth_limit ... ok
+test tools::subagent::tests::spawns_a_read_only_child_and_returns_its_conclusion ... ok
+test tools::subagent::tests::child_receives_parent_lineage_environment ... ok
+test tools::subagent::tests::requested_permissions_only_restrict_the_child ... ok
+test tools::subagent::tests::registry_records_parent_session_run_and_spawn_call_lineage ... ok
+test tools::subagent::tests::failed_spawn_observation_keeps_parent_lineage ... ok
+test tools::subagent::tests::spawn_outside_a_run_context_keeps_parent_ids_empty ... ok
+test subagent_registry::tests::concurrent_appends_keep_one_parseable_record_per_line ... ok
+test tools::subagent::tests::fanout_limit_is_enforced ... ok
+test tools::subagent::tests::concurrent_spawns_keep_their_parent_context ... ok
+test tools::subagent::tests::cancelled_spawn_is_structured_and_marked_cancelled ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 1177 filtered out; finished in 0.16s
+
+exit=0
+=== filter: fanout ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 1 test
+test tools::subagent::tests::fanout_limit_is_enforced ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1193 filtered out; finished in 0.02s
+
+exit=0
+=== filter: depth ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-8c01fb92c5b9b692)
+
+running 2 tests
+test cascade::tests::policy_fails_closed_on_depth_or_blast_radius ... ok
+test tools::subagent::tests::rejects_workspace_outside_roots_and_depth_limit ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1192 filtered out; finished in 0.00s
+
+exit=0

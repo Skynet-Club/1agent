@@ -9,6 +9,16 @@
   missing, mismatched, self-verified, rejected or hacked record fails closed.
   Old goal logs remain readable. See ADR-0147,
   `docs/evidence/0.99-qg1-verification/README.md`.
+- Track Q quality: tool/step budget stops now follow the final answer status
+  (`needs_evidence`/`needs_authorization` are not overwritten with
+  `BudgetExhausted`); a semantically invalid automatic repair gets one bounded
+  second attempt with the validation error; repaired answers also pass the
+  high-risk evidence re-plan; rubric dates accept equivalent Chinese/slash/dot
+  forms; evidence-practice questions consult `describe_self` and the replay CLI
+  entry point is stated. Final `agent-loop-v1` run: **99/100**, 0 hard-gate,
+  audit/replay 100/100, rubric 20/20. Residual `chat-19` used 2 provider calls
+  where 1 is allowed. See ADR-0148,
+  `docs/evidence/0.99-track-q-fixes/README.md`.
 
 ## 0.97.0 — 2026-11-14
 

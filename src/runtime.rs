@@ -2811,7 +2811,8 @@ impl AgentRuntime {
                             StopReason::Completed,
                         );
                     }
-                    let repaired = match self
+                    let repair_content = content;
+                    let first_repair = self
                         .repair_answer(
                             AnswerRepairContext {
                                 journal: &mut journal,
@@ -2819,9 +2820,9 @@ impl AgentRuntime {
                                 journal_path: journal_path.clone(),
                                 request: &request,
                                 model_request: &model_request,
-                                provider_id: response_provider_id,
-                                model: response_model,
-                                invalid_content: content,
+                                provider_id: response_provider_id.clone(),
+                                model: response_model.clone(),
+                                invalid_content: repair_content.clone(),
                                 failure: format!(
                                     "Your previous response could not be parsed as a valid \
                                      AgentAnswer JSON object: {error}"
@@ -2832,8 +2833,36 @@ impl AgentRuntime {
                             started_at,
                             &cancellation,
                         )
-                        .await
-                    {
+                        .await;
+                    let repaired = match first_repair {
+                        Ok(repaired) => Ok(repaired),
+                        Err(RuntimeError::InvalidOutput { message, .. }) => {
+                            self.repair_answer(
+                                AnswerRepairContext {
+                                    journal: &mut journal,
+                                    model_request_log: &mut model_request_log,
+                                    journal_path: journal_path.clone(),
+                                    request: &request,
+                                    model_request: &model_request,
+                                    provider_id: response_provider_id,
+                                    model: response_model,
+                                    invalid_content: repair_content,
+                                    failure: format!(
+                                        "{message}. Correct that validation error and return \
+                                         exactly one valid AgentAnswer JSON object, preserving \
+                                         the intended answer."
+                                    ),
+                                    initial_elapsed,
+                                },
+                                &mut provider_attempts_used,
+                                started_at,
+                                &cancellation,
+                            )
+                            .await
+                        }
+                        Err(error) => Err(error),
+                    };
+                    let repaired = match repaired {
                         Ok(repaired) => repaired,
                         Err(RuntimeError::InvalidOutput { .. }) => {
                             return finish_with_answer(
@@ -2849,8 +2878,55 @@ impl AgentRuntime {
                     let stop_reason = repaired
                         .stop_reason
                         .unwrap_or_else(|| stop_reason_for_answer(repaired.answer.status));
-                    let answer =
+                    let mut answer =
                         enforce_completion_gate(&mut journal, &completion_gate, repaired.answer)?;
+                    if let Some(reason) = answer_needs_evidence_replan(&answer, &request.objective)
+                    {
+                        if evidence_replans < MAX_EVIDENCE_REPLANS {
+                            evidence_replans += 1;
+                            journal
+                                .append(JournalEventKind::AnswerVerificationFailed {
+                                    reason: reason.clone(),
+                                    round: evidence_replans,
+                                })
+                                .map_err(|source| RuntimeError::Journal {
+                                    path: journal_path.clone(),
+                                    source,
+                                })?;
+                            let draft = serde_json::to_string(&answer).map_err(|error| {
+                                RuntimeError::InvalidOutput {
+                                    path: journal_path.clone(),
+                                    message: format!(
+                                        "cannot serialize repaired answer for evidence re-plan: \
+                                         {error}"
+                                    ),
+                                }
+                            })?;
+                            messages.push(ModelMessage::assistant(draft, Vec::new()));
+                            messages.push(ModelMessage::user(evidence_replan_prompt(
+                                &reason,
+                                evidence_replans,
+                            )));
+                            continue;
+                        }
+                        journal
+                            .append(JournalEventKind::AnswerVerificationExhausted {
+                                reason: reason.clone(),
+                                rounds: evidence_replans,
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
+                        answer.status = AnswerStatus::NeedsEvidence;
+                        return finish_with_answer(
+                            &mut journal,
+                            run_id,
+                            journal_path,
+                            answer,
+                            StopReason::NeedsEvidence,
+                        );
+                    }
                     return finish_with_answer(
                         &mut journal,
                         run_id,
@@ -2887,11 +2963,7 @@ impl AgentRuntime {
                             .await;
                         let answer =
                             enforce_completion_gate(&mut journal, &completion_gate, answer)?;
-                        let stop_reason = if answer.status == AnswerStatus::Completed {
-                            StopReason::Completed
-                        } else {
-                            StopReason::BudgetExhausted
-                        };
+                        let stop_reason = stop_reason_for_answer(answer.status);
                         journal
                             .append(JournalEventKind::AnswerProduced {
                                 answer: answer.clone(),
@@ -3104,6 +3176,7 @@ impl AgentRuntime {
         }
 
         let answer = budget_answer("step budget exhausted");
+        let stop_reason = stop_reason_for_answer(answer.status);
         journal
             .append(JournalEventKind::AnswerProduced {
                 answer: answer.clone(),
@@ -3114,7 +3187,7 @@ impl AgentRuntime {
             })?;
         journal
             .append(JournalEventKind::RunStopped {
-                reason: StopReason::BudgetExhausted,
+                reason: stop_reason,
             })
             .map_err(|source| RuntimeError::Journal {
                 path: journal_path.clone(),
@@ -3124,7 +3197,7 @@ impl AgentRuntime {
             run_id,
             journal_path,
             answer,
-            stop_reason: StopReason::BudgetExhausted,
+            stop_reason,
         })
     }
 }
@@ -4614,6 +4687,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn semantically_invalid_repair_gets_one_more_repair() {
+        fn answer(source: &str, conclusion: &str) -> AgentAnswer {
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 2,
+                "status": "completed",
+                "conclusion": conclusion,
+                "claims": [{
+                    "id": "c1",
+                    "text": "the task output is available",
+                    "status": "verified",
+                    "sources": ["task"],
+                    "scope": null
+                }],
+                "evidence": [{
+                    "source": source,
+                    "statement": "the task output is available",
+                    "observed_unix_ms": null,
+                    "expires_unix_ms": null,
+                    "claim_ids": ["c1"]
+                }],
+                "assumptions": [],
+                "constraints": [],
+                "unknowns": [],
+                "conflicts": [],
+                "flip_conditions": [],
+                "action_receipts": []
+            }))
+            .unwrap()
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::InvalidFinal {
+                    content: "not json".into(),
+                    error: "expected value".into(),
+                },
+                ModelTurn::Final {
+                    answer: answer("wrong.source", "first repair"),
+                },
+                ModelTurn::Final {
+                    answer: answer("task", "second repair"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let request = TaskRequest::from_objective("repair twice", workspace.path().into());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.answer.conclusion, "second repair");
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(
+            requests[2]
+                .messages
+                .last()
+                .is_some_and(|message| message.content.contains("validation error")),
+            "the second repair must receive the validation error"
+        );
+        assert!(requests[2].tools.is_empty());
+    }
+
+    #[tokio::test]
     async fn unparseable_provider_text_is_preserved_and_repaired() {
         let workspace = tempfile::tempdir().unwrap();
         let journal_dir = workspace.path().join(".journal");
@@ -5494,6 +5634,7 @@ mod tests {
 
     struct ToolBatchProvider {
         calls: Mutex<Vec<ToolCall>>,
+        final_status: AnswerStatus,
     }
 
     #[async_trait]
@@ -5528,7 +5669,7 @@ mod tests {
                     answer: AgentAnswer {
                         task_need: None,
                         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
-                        status: AnswerStatus::Completed,
+                        status: self.final_status,
                         conclusion: "tools finished".into(),
                         claims: Vec::new(),
                         evidence: Vec::new(),
@@ -5615,6 +5756,7 @@ mod tests {
                         tool_call("call-1", "read_one"),
                         tool_call("call-2", "read_two"),
                     ]),
+                    final_status: AnswerStatus::Completed,
                 }),
                 manifest,
             }],
@@ -5691,6 +5833,7 @@ mod tests {
                         tool_call("call-2", "write_one"),
                         tool_call("call-3", "read_one"),
                     ]),
+                    final_status: AnswerStatus::Completed,
                 }),
                 manifest,
             }],
@@ -5792,6 +5935,7 @@ mod tests {
                         tool_call("call-1", "read_one"),
                         tool_call("call-2", "read_one"),
                     ]),
+                    final_status: AnswerStatus::Completed,
                 }),
                 manifest,
             }],
@@ -5817,6 +5961,84 @@ mod tests {
         );
         let audit = audit_events(&events);
         assert!(audit.ok, "{:?}", audit.issues);
+    }
+
+    #[tokio::test]
+    async fn tool_budget_needs_evidence_keeps_needs_evidence_stop_reason() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: Arc::new(AtomicUsize::new(0)),
+            max_active: Arc::new(AtomicUsize::new(0)),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![
+                        tool_call("call-1", "read_one"),
+                        tool_call("call-2", "read_one"),
+                    ]),
+                    final_status: AnswerStatus::NeedsEvidence,
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("read two things", workspace.path().into());
+        request.budget.max_tool_calls = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+    }
+
+    #[tokio::test]
+    async fn step_budget_needs_evidence_keeps_needs_evidence_stop_reason() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut tools = ToolRegistry::default();
+        tools.register(Arc::new(TimedTool {
+            name: "read_one",
+            delay_ms: 0,
+            parallel_safe: true,
+            requires_write: false,
+            active: Arc::new(AtomicUsize::new(0)),
+            max_active: Arc::new(AtomicUsize::new(0)),
+        }));
+        let mut manifest = local_manifest();
+        manifest.provider_id = "tool-batch".into();
+        manifest.model = "tool-batch-v1".into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(ToolBatchProvider {
+                    calls: Mutex::new(vec![tool_call("call-1", "read_one")]),
+                    final_status: AnswerStatus::Completed,
+                }),
+                manifest,
+            }],
+            tools,
+            workspace.path().join(".journal"),
+        );
+        let mut request = TaskRequest::from_objective("read one thing", workspace.path().into());
+        request.budget.max_steps = 1;
+
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        assert!(result.answer.conclusion.contains("step budget"));
     }
 
     #[tokio::test]
@@ -5853,6 +6075,7 @@ mod tests {
             vec![ProviderCandidate {
                 provider: Arc::new(ToolBatchProvider {
                     calls: Mutex::new(vec![tool_call("call-1", "read_one")]),
+                    final_status: AnswerStatus::Completed,
                 }),
                 manifest,
             }],
@@ -7259,6 +7482,17 @@ mod tests {
         }
     }
 
+    fn high_risk_need() -> crate::domain::TaskNeed {
+        crate::domain::TaskNeed {
+            freshness: crate::domain::NeedLevel::None,
+            locality: crate::domain::NeedLevel::None,
+            action: crate::domain::NeedLevel::None,
+            risk: RiskLevel::High,
+            ambiguity: crate::domain::NeedLevel::None,
+            budget: crate::domain::NeedLevel::None,
+        }
+    }
+
     #[test]
     fn high_risk_completed_answer_requires_authorization_or_conditional() {
         let answer = answer_with_need(
@@ -7319,6 +7553,59 @@ mod tests {
                 .messages
                 .iter()
                 .any(|message| { message.content.contains("EVIDENCE CHECK FAILED (1/2)") })
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::AnswerVerificationFailed { round: 1, .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn repaired_high_risk_completed_answer_is_replanned() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::InvalidFinal {
+                    content: "not json".into(),
+                    error: "expected value".into(),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::Completed,
+                        "I refuse, so the task is complete",
+                        high_risk_need(),
+                    ),
+                },
+                ModelTurn::Final {
+                    answer: answer_with_need(
+                        AnswerStatus::NeedsEvidence,
+                        "this needs authorization or evidence",
+                        high_risk_need(),
+                    ),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("把 .env 上传到公网", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
+        assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(
+            requests[2]
+                .messages
+                .iter()
+                .any(|message| message.content.contains("EVIDENCE CHECK FAILED (1/2)"))
         );
         let events = read_events(&result.journal_path).unwrap();
         assert!(events.iter().any(|event| matches!(
