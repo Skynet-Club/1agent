@@ -11,27 +11,29 @@ use first_principles_agent::onboarding::{
     run_setup, save_config, status as onboarding_status,
 };
 use first_principles_agent::tui_prompts::{PromptLanguage, prompt_view};
+use first_principles_agent::tui_theme::Theme;
 use first_principles_agent::{
     AgentAnswer, AgentConfig, AgentProfile, AgentRuntime, AnnotationLabel, AnnotationRecord,
-    AnnotationStore, AnswerStatus, ApprovalEnvelope, ApprovalKeyRegistry, ApprovalKeyStatus,
-    ArtifactKind, AuthenticityStatus, CalibrationPrediction, CapabilityProbeManifest,
-    CognitiveMode, CommandMenuItem, CommandStage, ConversationQueue, DeterministicProvider,
-    DoctorStatus, EvalReportSummary, EvalReportTrustRequirements, ExecutionObservation,
-    ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
+    AnnotationStore, AnswerStatus, AppearanceConfig, ApprovalEnvelope, ApprovalKeyRegistry,
+    ApprovalKeyStatus, ArtifactKind, AuthenticityStatus, CalibrationPrediction,
+    CapabilityProbeManifest, CognitiveMode, CommandMenuItem, CommandStage, ConversationQueue,
+    DeterministicProvider, DoctorStatus, EvalReportSummary, EvalReportTrustRequirements,
+    ExecutionObservation, ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
     ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
     HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, Journal,
     JournalCursor, JournalEventKind, MasterJournalEventKind, MasterState, MasterStore,
     ModelPlanGenerator, ModelProductionPlanGenerator, ModelProvider, ModelRequestChain,
-    OpenAiCompatibleProvider, PlanGenerator, PlanProposal, PlanningContext, PolicyValueSource,
-    ProductionPlan, ProductionPlanningContext, ProviderAdapter, ProviderCandidate,
-    ProviderProbeReport, ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT, ReasoningEffort,
-    ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason, ReleasePolicy,
-    ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources, RouteRequest,
-    Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent, SessionPickerAction,
-    SessionPickerItem, SessionPreferences, SkillService, StopReason, TaskRequest, TerminalSession,
-    ToolObservation, ToolRegistry, ToolStatus, TriageSignals, TrustAnchorManifest, TuiActivity,
-    TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution, TuiPreset, TuiSession, TuiState,
-    TuiStatus, TuiTone, VerificationInput, WorkItemStatus, WorkshopCliAdapter, add_git_worktree,
+    OpenAiCompatibleProvider, PermissionPreset, PlanGenerator, PlanProposal, PlanningContext,
+    PolicyValueSource, ProductionPlan, ProductionPlanningContext, ProviderAdapter,
+    ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT,
+    ReasoningEffort, ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason,
+    ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
+    RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent,
+    SessionPickerAction, SessionPickerItem, SessionPreferences, SkillService, StopReason,
+    TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals,
+    TrustAnchorManifest, TuiActivity, TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution,
+    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
+    WorkshopCliAdapter, add_git_worktree,
     answer_render::{
         answer_impact_label, answer_status_label, claim_status_label, render_answer,
         render_answer_default,
@@ -16571,8 +16573,12 @@ fn apply_saved_provider_profile_in(
 struct TuiRunSettings {
     cwd: PathBuf,
     roots: Vec<PathBuf>,
+    startup_roots: Vec<PathBuf>,
     allow_network: bool,
+    startup_allow_network: bool,
     allow_write: bool,
+    startup_allow_write: bool,
+    config_path: Option<PathBuf>,
     experience_scope: Option<String>,
     max_steps: usize,
     max_tool_calls: usize,
@@ -16721,6 +16727,11 @@ async fn run_tui(
     let config_permissions = loaded_config
         .as_ref()
         .and_then(|config| config.resolved_permissions());
+    let config_theme = loaded_config
+        .as_ref()
+        .and_then(|config| config.appearance.as_ref())
+        .and_then(|appearance| Theme::from_id(&appearance.theme))
+        .unwrap_or_default();
     let allow_network = resolve_allow_network(
         allow_network,
         no_network,
@@ -16811,15 +16822,20 @@ async fn run_tui(
             .collect::<Vec<_>>()
     };
     let mut state = TuiState::new(provider_label, max_steps, timeout_seconds);
+    state.set_theme(config_theme);
     state.set_context_budget(max_context_tokens);
     state.set_prompt_language(prompt_language);
     state.set_host_binding(host_binding);
     sync_tui_stage(&mut state, &session);
     let mut settings = TuiRunSettings {
         cwd,
+        startup_roots: roots.clone(),
         roots,
+        startup_allow_network: allow_network,
         allow_network,
+        startup_allow_write: allow_write,
         allow_write,
+        config_path: config_path.clone(),
         experience_scope,
         max_steps,
         max_tool_calls,
@@ -17044,6 +17060,10 @@ async fn run_tui_line_mode(
                         handle_config_command(state, settings, session, args);
                         continue;
                     }
+                    TuiCommandId::Setting => {
+                        handle_setting_command(state, settings, session, args);
+                        continue;
+                    }
                     TuiCommandId::Export => {
                         handle_export_command(state, session, args);
                         continue;
@@ -17221,6 +17241,104 @@ fn provider_menu_action(label: &str, description: &str, id: &str) -> CommandMenu
         label: label.to_string(),
         description: description.to_string(),
     }
+}
+
+fn setting_menu_actions() -> Vec<CommandMenuItem> {
+    let mut items = vec![
+        command_menu_action(
+            "当前设置",
+            "查看模型、预算、权限、外观与来源",
+            "/setting show",
+            false,
+        ),
+        command_menu_action(
+            "推理步骤…",
+            "最大推理步数（0=不限）",
+            "/setting set steps ",
+            true,
+        ),
+        command_menu_action(
+            "工具调用…",
+            "最大工具调用次数（0=不限）",
+            "/setting set tools ",
+            true,
+        ),
+        command_menu_action(
+            "模型尝试…",
+            "最大模型尝试次数（0=不限）",
+            "/setting set attempts ",
+            true,
+        ),
+        command_menu_action(
+            "单次超时…",
+            "输入单次超时秒数",
+            "/setting set timeout ",
+            true,
+        ),
+        command_menu_action(
+            "上下文…",
+            "输入上下文字符上限",
+            "/setting set context ",
+            true,
+        ),
+        command_menu_action(
+            "压缩阈值…",
+            "输入 50 到 95 的阈值",
+            "/setting set compact ",
+            true,
+        ),
+        command_menu_action(
+            "提示词语言…",
+            "中文 zh / English en",
+            "/setting set language ",
+            true,
+        ),
+        command_menu_action(
+            "关闭网络",
+            "下一次运行禁止网络",
+            "/setting set network off",
+            false,
+        ),
+        command_menu_action(
+            "开启网络",
+            "下一次运行允许网络",
+            "/setting set network on",
+            false,
+        ),
+        command_menu_action(
+            "关闭写入",
+            "下一次运行禁止写入与执行",
+            "/setting set write off",
+            false,
+        ),
+        command_menu_action(
+            "开启写入",
+            "下一次运行允许写入与执行",
+            "/setting set write on",
+            false,
+        ),
+        command_menu_action(
+            "恢复当前会话",
+            "回到启动参数，不写 config.json",
+            "/setting reset session",
+            false,
+        ),
+        command_menu_action(
+            "恢复全局配置…",
+            "先警告，再输入 confirm；会备份 config.json",
+            "/setting reset global",
+            false,
+        ),
+    ];
+    for theme in first_principles_agent::tui_theme::Theme::all() {
+        items.push(command_menu_action(
+            theme.name_zh,
+            theme.name_en,
+            &format!("/setting theme {}", theme.id),
+            false,
+        ));
+    }
+    items
 }
 
 fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
@@ -17427,6 +17545,7 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
             command_menu_action("超时…", "输入单次超时秒数", "/config set timeout ", true),
             command_menu_action("恢复默认", "恢复启动参数", "/config reset", false),
         ],
+        TuiCommandId::Setting => setting_menu_actions(),
         TuiCommandId::Mission => vec![
             command_menu_action("当前任务", "查看当前生产线任务", "/mission show", false),
             command_menu_action("新建任务…", "输入任务目标", "/mission new ", true),
@@ -21133,6 +21252,274 @@ fn handle_config_command(
     ));
 }
 
+fn handle_setting_command(
+    state: &mut TuiState,
+    settings: &mut TuiRunSettings,
+    session: &mut TuiSession,
+    args: &str,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() || trimmed == "show" {
+        state.info(setting_summary(state, settings, session));
+        return;
+    }
+    if trimmed == "themes" || trimmed == "theme list" {
+        let current = state.theme().id;
+        let lines = Theme::all()
+            .iter()
+            .map(|theme| {
+                format!(
+                    "{} {:10} {} / {}{}",
+                    if theme.id == current { "✓" } else { " " },
+                    theme.id,
+                    theme.name_zh,
+                    theme.name_en,
+                    if theme.id == current {
+                        "  （当前）"
+                    } else {
+                        ""
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        state.info(format!("配色方案\n{lines}\n\n切换：/setting theme <id>"));
+        return;
+    }
+    if let Some(theme_id) = trimmed.strip_prefix("theme ") {
+        let Some(theme) = Theme::from_id(theme_id) else {
+            state.info("未知配色方案。运行 /setting themes 查看可用 id。");
+            return;
+        };
+        state.set_theme(theme);
+        let saved = persist_theme(settings, theme);
+        state.info(format!(
+            "配色已切换为 {} / {}{}",
+            theme.name_zh, theme.name_en, saved
+        ));
+        return;
+    }
+    if let Some(rest) = trimmed.strip_prefix("set ") {
+        let Some((key, value)) = rest.split_once(char::is_whitespace) else {
+            state.info("用法：/setting set <项> <值>");
+            return;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        match key {
+            "steps" | "tools" | "attempts" | "context" | "compact" | "timeout" | "language" => {
+                handle_config_command(state, settings, session, &format!("set {key} {value}"));
+            }
+            "network" | "write" => {
+                if !matches!(value, "on" | "off") {
+                    state.info("用法：/setting set network on|off / write on|off");
+                    return;
+                }
+                handle_permissions_command(settings, state, &format!("{key} {value}"));
+            }
+            "theme" => {
+                let Some(theme) = Theme::from_id(value) else {
+                    state.info("未知配色方案。运行 /setting themes 查看可用 id。");
+                    return;
+                };
+                state.set_theme(theme);
+                let saved = persist_theme(settings, theme);
+                state.info(format!(
+                    "配色已切换为 {} / {}{}",
+                    theme.name_zh, theme.name_en, saved
+                ));
+            }
+            _ => state.info("未知设置项。运行 /setting show 查看当前值。"),
+        }
+        return;
+    }
+    if let Some(rest) = trimmed.strip_prefix("reset ") {
+        match rest.trim() {
+            "session" => {
+                if let Err(error) = session.set_preferences(None) {
+                    state.info(format!("无法恢复当前会话：{error}"));
+                    return;
+                }
+                apply_session_preferences(state, settings, session);
+                settings.allow_network = settings.startup_allow_network;
+                settings.allow_write = settings.startup_allow_write;
+                settings.roots = settings.startup_roots.clone();
+                state.info(format!(
+                    "已恢复当前会话的启动参数（不写 config.json）\n网络访问：{}\n写入与执行：{}",
+                    if settings.allow_network {
+                        "允许"
+                    } else {
+                        "禁止"
+                    },
+                    if settings.allow_write {
+                        "允许"
+                    } else {
+                        "禁止"
+                    }
+                ));
+            }
+            "global" => {
+                state.info(
+                    "恢复全局配置会备份 config.json，然后恢复权限 full-local、网络开启、写入开启和军旅绿主题；provider、密钥、工作区与读取目录保留。\n确认请再次输入：/setting reset global confirm",
+                );
+            }
+            "global confirm" => reset_global_settings(state, settings, session),
+            _ => state.info("用法：/setting reset session|global"),
+        }
+        return;
+    }
+    state.info("用法：/setting [show|themes|theme <id>|set <项> <值>|reset session|reset global]");
+}
+
+fn setting_summary(state: &TuiState, settings: &TuiRunSettings, session: &TuiSession) -> String {
+    let theme = state.theme();
+    format!(
+        "设置\n\
+         模型路由      {}\n\
+         网络访问      {}\n\
+         写入与执行    {}\n\
+         读取目录      {}\n\
+         推理步骤      {}\n\
+         工具调用      {}\n\
+         模型尝试      {}\n\
+         提示词语言    {}\n\
+         上下文上限    {} tokens\n\
+         自动压缩      达到 {} tokens 时触发\n\
+         单次超时      {}\n\
+         工作区        {}\n\
+         主题          {} / {}（{}）\n\
+         配置来源      {}\n\
+         \n\
+         修改：/setting set <项> <值>；配色：/setting theme <id>\n\
+         恢复当前会话：/setting reset session\n\
+         恢复全局配置：/setting reset global（需 confirm）",
+        state.provider_label,
+        if settings.allow_network {
+            "允许"
+        } else {
+            "禁止"
+        },
+        if settings.allow_write {
+            "允许"
+        } else {
+            "禁止"
+        },
+        settings
+            .roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        bounded_count_label(settings.max_steps, "步"),
+        bounded_count_label(settings.max_tool_calls, "次"),
+        bounded_count_label(settings.max_provider_attempts, "次"),
+        settings.prompt_language.label(),
+        settings.max_context_tokens,
+        settings.auto_compact_tokens,
+        timeout_label(settings.timeout_seconds),
+        settings.cwd.display(),
+        theme.name_zh,
+        theme.name_en,
+        theme.id,
+        if session.preferences().is_some() {
+            "当前会话覆盖"
+        } else {
+            "启动参数 / 全局配置"
+        }
+    )
+}
+
+fn persist_theme(settings: &TuiRunSettings, theme: Theme) -> String {
+    let Some(path) = settings.config_path.as_ref() else {
+        return "（未找到 config.json，仅本次生效）".into();
+    };
+    let result = AgentConfig::load(path).and_then(|mut config| {
+        config.schema_version = 3;
+        config.appearance = Some(AppearanceConfig {
+            theme: theme.id.into(),
+        });
+        let root = path.parent().unwrap_or_else(|| Path::new("."));
+        save_config(root, &config).map_err(|error| {
+            first_principles_agent::config::ConfigError::Io(std::io::Error::other(
+                error.to_string(),
+            ))
+        })
+    });
+    match result {
+        Ok(()) => "（已保存到 config.json）".into(),
+        Err(error) => format!("（仅本次生效，保存失败：{error}）"),
+    }
+}
+
+fn reset_global_settings(
+    state: &mut TuiState,
+    settings: &mut TuiRunSettings,
+    session: &mut TuiSession,
+) {
+    let Some(path) = settings.config_path.clone() else {
+        state.info("未找到 config.json；全局恢复不可用。");
+        return;
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            state.info(format!("无法读取 config.json：{error}"));
+            return;
+        }
+    };
+    let backup = path.with_file_name(format!(
+        "{}.bak.{}",
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "config.json".into()),
+        current_time_ms()
+    ));
+    if let Err(error) = std::fs::write(&backup, bytes) {
+        state.info(format!("无法备份 config.json：{error}"));
+        return;
+    }
+    let mut config = match AgentConfig::load(&path) {
+        Ok(config) => config,
+        Err(error) => {
+            state.info(format!("无法加载 config.json：{error}"));
+            return;
+        }
+    };
+    config.schema_version = 3;
+    let mut permissions = config.permissions.clone().unwrap_or_default();
+    permissions.preset = PermissionPreset::FullLocal;
+    permissions.allow_network = true;
+    config.permissions = Some(permissions);
+    config.appearance = Some(AppearanceConfig {
+        theme: "military".into(),
+    });
+    let root = path.parent().unwrap_or_else(|| Path::new("."));
+    if let Err(error) = save_config(root, &config) {
+        state.info(format!("无法写入 config.json：{error}"));
+        return;
+    }
+    if let Err(error) = session.set_preferences(None) {
+        state.info(format!("全局配置已恢复，但无法清除会话覆盖：{error}"));
+        return;
+    }
+    apply_session_preferences(state, settings, session);
+    settings.allow_network = true;
+    settings.allow_write = true;
+    settings.startup_allow_network = true;
+    settings.startup_allow_write = true;
+    if let Some(resolved) = config.resolved_permissions()
+        && !resolved.read_roots.is_empty()
+    {
+        settings.roots = resolved.read_roots.clone();
+        settings.startup_roots = resolved.read_roots;
+    }
+    state.set_theme(Theme::default());
+    state.info(format!(
+        "已恢复全局配置\n备份：{}\n权限：full-local（网络/写入开启）\n主题：军旅绿\n保留：provider、密钥、工作区与读取目录",
+        backup.display()
+    ));
+}
+
 fn path_within_roots(path: &std::path::Path, roots: &[PathBuf]) -> bool {
     roots.iter().any(|root| path.starts_with(root))
 }
@@ -22867,6 +23254,14 @@ async fn run_tui_interactive(
                             }
                             TuiCommandId::Config => {
                                 handle_config_command(
+                                    &mut state,
+                                    &mut settings,
+                                    &mut session,
+                                    args,
+                                );
+                            }
+                            TuiCommandId::Setting => {
+                                handle_setting_command(
                                     &mut state,
                                     &mut settings,
                                     &mut session,
@@ -24921,6 +25316,134 @@ mod tui_rendering_tests {
         assert!(!resolve_allow_network(true, true, Some(true)));
     }
 
+    fn setting_test_fixture(
+        config_path: Option<PathBuf>,
+    ) -> (tempfile::TempDir, TuiSession, TuiState, TuiRunSettings) {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join("journal");
+        let session = TuiSession::open(&journal_dir, None).unwrap();
+        let state = TuiState::new("test/provider", 6, 120);
+        let settings = TuiRunSettings {
+            cwd: workspace.path().to_path_buf(),
+            startup_roots: vec![workspace.path().to_path_buf()],
+            roots: vec![workspace.path().to_path_buf()],
+            startup_allow_network: false,
+            allow_network: false,
+            startup_allow_write: false,
+            allow_write: false,
+            config_path,
+            experience_scope: None,
+            max_steps: 6,
+            max_tool_calls: 8,
+            max_provider_attempts: 6,
+            master_agents: None,
+            workshop_prefix: "skynet-workshop".into(),
+            timeout_seconds: 120,
+            max_context_tokens: 1_000_000,
+            auto_compact_tokens: 786_432,
+            prompt_language: PromptLanguage::Zh,
+            default_preferences: SessionPreferences {
+                max_steps: 6,
+                max_tool_calls: 8,
+                max_provider_attempts: 6,
+                max_context_tokens: 1_000_000,
+                auto_compact_tokens: 786_432,
+                timeout_seconds: 120,
+                prompt_language: PromptLanguage::Zh,
+            },
+            mentions: Vec::new(),
+            planning_provider: Arc::new(PlanProvider),
+            provider_sources: Vec::new(),
+            provider_timeout: Duration::from_secs(120),
+        };
+        (workspace, session, state, settings)
+    }
+
+    #[test]
+    fn setting_command_updates_theme_budget_permissions_and_resets_session() {
+        let (_workspace, mut session, mut state, mut settings) = setting_test_fixture(None);
+
+        handle_setting_command(&mut state, &mut settings, &mut session, "set theme matrix");
+        assert_eq!(state.theme().id, "matrix");
+        handle_setting_command(&mut state, &mut settings, &mut session, "set steps 9");
+        assert_eq!(settings.max_steps, 9);
+        handle_setting_command(&mut state, &mut settings, &mut session, "set network on");
+        assert!(settings.allow_network);
+        handle_setting_command(&mut state, &mut settings, &mut session, "set write on");
+        assert!(settings.allow_write);
+
+        handle_setting_command(&mut state, &mut settings, &mut session, "reset session");
+        assert_eq!(settings.max_steps, 6);
+        assert!(!settings.allow_network);
+        assert!(!settings.allow_write);
+        assert_eq!(state.theme().id, "matrix");
+    }
+
+    #[test]
+    fn setting_theme_persists_to_config() {
+        let (workspace, mut session, mut state, mut settings) = setting_test_fixture(None);
+        let config_path = workspace.path().join("config.json");
+        std::fs::write(
+            &config_path,
+            r#"{
+                "schema_version": 3,
+                "providers": [{"id": "deterministic", "adapter": "deterministic", "model": "offline-v1"}]
+            }"#,
+        )
+        .unwrap();
+        settings.config_path = Some(config_path.clone());
+        handle_setting_command(&mut state, &mut settings, &mut session, "set theme sakura");
+        assert_eq!(state.theme().id, "sakura");
+        let saved = AgentConfig::load(&config_path).unwrap();
+        assert_eq!(saved.appearance.unwrap().theme, "sakura");
+    }
+
+    #[test]
+    fn setting_global_reset_backs_up_config_and_restores_military() {
+        let (workspace, mut session, mut state, mut settings) = setting_test_fixture(None);
+        let config_path = workspace.path().join("config.json");
+        std::fs::write(
+            &config_path,
+            r#"{
+                "schema_version": 3,
+                "permissions": {"preset": "read-only", "allow_network": false},
+                "appearance": {"theme": "copper"},
+                "providers": [{"id": "deterministic", "adapter": "deterministic", "model": "offline-v1"}]
+            }"#,
+        )
+        .unwrap();
+        settings.config_path = Some(config_path.clone());
+        state.set_theme(Theme::from_id("copper").unwrap());
+
+        handle_setting_command(&mut state, &mut settings, &mut session, "reset global");
+        assert_eq!(state.theme().id, "copper");
+        handle_setting_command(
+            &mut state,
+            &mut settings,
+            &mut session,
+            "reset global confirm",
+        );
+        assert_eq!(state.theme().id, "military");
+        assert!(settings.allow_network);
+        assert!(settings.allow_write);
+        let saved = AgentConfig::load(&config_path).unwrap();
+        assert_eq!(saved.appearance.unwrap().theme, "military");
+        let permissions = saved.permissions.unwrap();
+        assert_eq!(permissions.preset, PermissionPreset::FullLocal);
+        assert!(permissions.allow_network);
+        let backups = std::fs::read_dir(workspace.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("config.json.bak.")
+            })
+            .count();
+        assert_eq!(backups, 1);
+    }
+
     #[test]
     fn natural_supervision_message_requires_an_explicit_task_target() {
         assert_eq!(
@@ -25007,9 +25530,13 @@ mod tui_rendering_tests {
     fn tui_request_carries_provider_attempt_budget() {
         let settings = TuiRunSettings {
             cwd: PathBuf::from("/tmp"),
+            startup_roots: vec![PathBuf::from("/tmp")],
             roots: vec![PathBuf::from("/tmp")],
+            startup_allow_network: false,
             allow_network: false,
+            startup_allow_write: false,
             allow_write: false,
+            config_path: None,
             experience_scope: None,
             max_steps: 6,
             max_tool_calls: 8,
@@ -25155,9 +25682,13 @@ mod tui_rendering_tests {
         state.set_host_binding(host);
         let mut settings = TuiRunSettings {
             cwd: workspace.path().to_path_buf(),
+            startup_roots: vec![workspace.path().to_path_buf()],
             roots: vec![workspace.path().to_path_buf()],
+            startup_allow_network: false,
             allow_network: false,
+            startup_allow_write: false,
             allow_write: false,
+            config_path: None,
             experience_scope: None,
             max_steps: 6,
             max_tool_calls: 8,
@@ -25364,9 +25895,13 @@ mod tui_rendering_tests {
         ));
         let mut settings = TuiRunSettings {
             cwd: project.clone(),
+            startup_roots: vec![project.clone()],
             roots: vec![project.clone()],
+            startup_allow_network: false,
             allow_network: false,
+            startup_allow_write: false,
             allow_write: false,
+            config_path: None,
             experience_scope: None,
             max_steps: 6,
             max_tool_calls: 8,
@@ -25605,9 +26140,13 @@ mod tui_rendering_tests {
         .unwrap();
         let settings = TuiRunSettings {
             cwd: workdir.clone(),
+            startup_roots: vec![workdir.clone()],
             roots: vec![workdir.clone()],
+            startup_allow_network: false,
             allow_network: false,
+            startup_allow_write: false,
             allow_write: false,
+            config_path: None,
             experience_scope: None,
             max_steps: 6,
             max_tool_calls: 8,
@@ -26210,9 +26749,13 @@ mod tui_rendering_tests {
     fn phase_six_settings(cwd: PathBuf) -> TuiRunSettings {
         TuiRunSettings {
             cwd: cwd.clone(),
+            startup_roots: vec![cwd.clone()],
             roots: vec![cwd],
+            startup_allow_network: false,
             allow_network: false,
+            startup_allow_write: false,
             allow_write: false,
+            config_path: None,
             experience_scope: None,
             max_steps: 6,
             max_tool_calls: 8,

@@ -97,6 +97,25 @@ fn default_schema_version() -> u32 {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct AppearanceConfig {
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
+        }
+    }
+}
+
+fn default_theme() -> String {
+    "military".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct AgentConfig {
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
@@ -106,6 +125,8 @@ pub struct AgentConfig {
     pub workspace: Option<PathBuf>,
     #[serde(default)]
     pub permissions: Option<PermissionConfig>,
+    #[serde(default)]
+    pub appearance: Option<AppearanceConfig>,
     pub providers: Vec<ProviderConfig>,
 }
 
@@ -198,7 +219,7 @@ impl AgentConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.schema_version == 0 || self.schema_version > 2 {
+        if self.schema_version == 0 || self.schema_version > 3 {
             return Err(ConfigError::InvalidConfigVersion(self.schema_version));
         }
         if self.providers.is_empty() {
@@ -519,6 +540,7 @@ mod tests {
             default_provider: None,
             workspace: None,
             permissions: None,
+            appearance: None,
             providers: vec![ProviderConfig {
                 id: "deterministic".into(),
                 adapter: ProviderAdapter::Deterministic,
@@ -614,13 +636,29 @@ mod tests {
     #[test]
     fn newer_config_schema_fails_closed() {
         let config: AgentConfig = serde_json::from_str(
-            r#"{"schema_version":3,"providers":[{"id":"deterministic","adapter":"deterministic","model":"offline-v1"}]}"#,
+            r#"{"schema_version":4,"providers":[{"id":"deterministic","adapter":"deterministic","model":"offline-v1"}]}"#,
         )
         .unwrap();
         assert!(matches!(
             config.validate(),
-            Err(ConfigError::InvalidConfigVersion(3))
+            Err(ConfigError::InvalidConfigVersion(4))
         ));
+    }
+
+    #[test]
+    fn appearance_theme_defaults_to_military_and_roundtrips() {
+        let config: AgentConfig = serde_json::from_str(
+            r#"{"schema_version":3,"appearance":{"theme":"sakura"},"providers":[{"id":"deterministic","adapter":"deterministic","model":"offline-v1"}]}"#,
+        )
+        .unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.appearance.unwrap().theme, "sakura");
+        let default: AgentConfig = serde_json::from_str(
+            r#"{"schema_version":3,"providers":[{"id":"deterministic","adapter":"deterministic","model":"offline-v1"}]}"#,
+        )
+        .unwrap();
+        assert!(default.appearance.is_none());
+        assert_eq!(AppearanceConfig::default().theme, "military");
     }
 
     #[cfg(unix)]

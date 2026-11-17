@@ -621,13 +621,14 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
         .map(|path| absolute_existing(path))
         .collect::<Result<Vec<_>, _>>()?;
     let mut config = existing_config.unwrap_or_else(|| AgentConfig {
-        schema_version: 2,
+        schema_version: 3,
         default_provider: None,
         workspace: None,
         permissions: None,
+        appearance: None,
         providers: Vec::new(),
     });
-    config.schema_version = 2;
+    config.schema_version = 3;
     config.default_provider = Some(spec.id.clone());
     config.workspace = Some(workspace.clone());
     config.permissions = Some(PermissionConfig {

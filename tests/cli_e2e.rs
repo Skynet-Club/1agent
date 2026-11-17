@@ -329,6 +329,43 @@ fn tui_network_permission_defaults_on_and_no_network_disables_it() {
 }
 
 #[test]
+fn tui_setting_menu_shows_values_and_switches_theme() {
+    let workspace = tempfile::tempdir().unwrap();
+    let journal_dir = workspace.path().join("journal");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let mut child = Command::new(binary)
+        .env("ONEAGENT_HOME", workspace.path().join("home"))
+        .args(["tui", "--journal-dir", &journal_dir.display().to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            b"/setting show\n\
+              /settings theme matrix\n\
+              /setting themes\n\
+              /quit\n",
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("设置"));
+    assert!(stdout.contains("主题          军旅绿"));
+    assert!(stdout.contains("配色已切换为 矩阵绿"));
+    assert!(stdout.contains("matrix"));
+}
+
+#[test]
 fn cli_tui_model_permissions_and_tools_are_inspectable_and_controllable() {
     let workspace = tempfile::tempdir().unwrap();
     let journal_dir = workspace.path().join("journal");

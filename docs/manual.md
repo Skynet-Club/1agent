@@ -335,7 +335,8 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | `/export` | 导出会话、报告或证据 |
 | `/copy` | 复制最近回答 |
 | `/cost` | token 与成本 |
-| `/config` | TUI 配置 |
+| `/config` | TUI 配置（兼容入口） |
+| `/setting` | 统一设置：预算、权限、主题、恢复会话/全局 |
 | `/reframe` | 判断目的/手段，必要时追问 |
 
 `/permissions network on|off` 和 `/permissions write on|off` **只影响下一次运行**，不需要重启 TUI。网络默认开启；需要关闭时用 `/permissions network off` 或启动参数 `--no-network`。模型不能给自己提权。
@@ -345,6 +346,10 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 交互式 TUI 默认不限制步数、工具调用、模型尝试和运行时长（`0` 表示不限），适合通过 `lark-cli` 等外部工具完成的长任务；后台 `run`、daemon 和子 Agent 仍使用有限预算。需要收紧时用 `/config set steps 20`、`/config set timeout 300` 等，`/config reset` 恢复默认。单次模型 HTTP 调用仍有 300 秒传输上限。
 
 提示词抽屉支持 `/config set language zh|en`：中文模式显示中文卡片；English 模式只列出在飞书源表中存在逐字英文原文的 14 条卡片，并插入英文原文，没有英文来源的卡片不会用中文回退。
+
+`/setting` 是统一设置入口，`/settings` 是别名；`/config` 保留为兼容入口。`/setting show` 显示模型、网络/写入、读取目录、预算、语言、工作区、主题和来源；`/setting set steps 20`、`/setting set network off`、`/setting set write off` 修改下一次运行；`/setting theme <id>` 切换主题并写入 `config.json` 的 `appearance.theme`。主题：`military` 军旅绿（默认）、`matrix` 矩阵绿、`mono` 黑白灰、`ocean` 深蓝、`sakura` 樱花粉、`copper` 橙铜、`cyber` 赛博风、`wasteland` 末日废土。
+
+恢复分两档：`/setting reset session` 回到启动参数、不写配置；`/setting reset global` 先显示警告，再次输入 `/setting reset global confirm` 才会备份 `config.json` 并恢复权限 full-local、网络/写入开启和军旅绿主题，provider、密钥、工作区与读取目录保留。真正的出厂重置仍需在终端运行 `1agent uninstall --purge --yes`。
 
 > Master/Workshop 命令只在 Workshop Master 绑定下出现；standalone 模式不会显示。
 

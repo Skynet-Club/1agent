@@ -62,6 +62,7 @@ pub enum TuiCommandId {
     Why,
     Clarify,
     Config,
+    Setting,
     Mission,
     Reframe,
     Triage,
@@ -392,6 +393,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         false,
     ),
     command(
+        TuiCommandId::Setting,
+        "/setting",
+        "打开统一设置菜单：模型、预算、权限、外观与恢复",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
         TuiCommandId::Reframe,
         "/reframe",
         "判断请求是目的还是手段，必要时追问一次",
@@ -571,7 +581,11 @@ pub fn resolve_input<'a>(
     let (name, args) = trimmed
         .split_once(char::is_whitespace)
         .map_or((trimmed, ""), |(name, args)| (name, args.trim()));
-    let canonical_name = if name == "/exit" { "/quit" } else { name };
+    let canonical_name = match name {
+        "/exit" => "/quit",
+        "/settings" => "/setting",
+        _ => name,
+    };
     let Some(spec) = COMMANDS
         .iter()
         .copied()
@@ -702,7 +716,8 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
         | TuiCommandId::Cost
         | TuiCommandId::Inbox
         | TuiCommandId::Receipt
-        | TuiCommandId::Config => CommandGroup::Session,
+        | TuiCommandId::Config
+        | TuiCommandId::Setting => CommandGroup::Session,
         TuiCommandId::Frame
         | TuiCommandId::Challenge
         | TuiCommandId::Decide
@@ -1119,6 +1134,7 @@ pub fn command_usage(id: TuiCommandId) -> Option<&'static str> {
         TuiCommandId::Tools => Some("/tools [show|…]"),
         TuiCommandId::Export => Some("/export [session|report|evidence]"),
         TuiCommandId::Config => Some("/config [show|set …]"),
+        TuiCommandId::Setting => Some("/setting [show|set|theme|reset]"),
         TuiCommandId::Reframe => Some("/reframe <请求>"),
         TuiCommandId::Mission => Some("/mission [show|set|…]"),
         TuiCommandId::Plan => Some("/plan [show|revise]"),
@@ -1449,23 +1465,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 30);
+        assert_eq!(standalone.len(), 31);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            32
+            33
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            34
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             35
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            36
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            40
+            41
         );
     }
 
@@ -1512,6 +1528,7 @@ mod tests {
                 "/why",
                 "/clarify",
                 "/config",
+                "/setting",
                 "/reframe",
                 "/mission",
                 "/agents"

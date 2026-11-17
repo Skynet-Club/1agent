@@ -226,7 +226,8 @@ Input beginning with `/` opens the command drawer:
 | `/export` | Export session, report or evidence |
 | `/copy` | Copy the latest answer |
 | `/cost` | Token usage and cost |
-| `/config` | TUI configuration |
+| `/config` | TUI configuration (compatibility entry) |
+| `/setting` | Unified settings: budgets, permissions, theme, session/global reset |
 | `/reframe` | Decide whether the request is a goal or means; ask when needed |
 
 Destructive commands (`/clear`, non-dry-run `/dispatch`, `/control cancel`, `/control takeover`) require a second Enter. Other input cancels the confirmation.
@@ -234,6 +235,10 @@ Destructive commands (`/clear`, non-dry-run `/dispatch`, `/control cancel`, `/co
 The interactive TUI has no default limit on steps, tool calls, provider attempts or run duration (`0` means unlimited), so long tasks that drive external CLIs such as `lark-cli` can finish. Headless `run`, the daemon and subagents keep finite budgets. Tighten a session with `/config set steps 20` or `/config set timeout 300`; `/config reset` restores the defaults. Each model HTTP call still has a 300-second transport ceiling.
 
 The prompt drawer supports `/config set language zh|en`. Chinese mode shows the curated Chinese cards. English mode lists and inserts only the 14 cards whose instruction text exists verbatim in the Feishu source table; cards without an English source stay hidden instead of silently falling back to Chinese.
+
+`/setting` is the unified settings entry; `/settings` is an alias and `/config` remains a compatibility entry. `/setting show` reports the model, network/write gates, read roots, budgets, language, workspace, theme and source. `/setting set steps 20`, `/setting set network off` and `/setting set write off` change the next run. `/setting theme <id>` switches the theme and stores it in `config.json` under `appearance.theme`. Themes: `military` (default), `matrix`, `mono`, `ocean`, `sakura`, `copper`, `cyber`, `wasteland`.
+
+Reset has two levels: `/setting reset session` returns to startup values without touching the config file; `/setting reset global` prints a warning and requires `/setting reset global confirm`, then backs up `config.json` and restores the full-local gate, network/write on and the military theme while preserving providers, keys, workspace and read roots. A factory reset still requires `1agent uninstall --purge --yes` in a terminal.
 
 > Master/Workshop commands only appear in a Workshop Master binding; standalone mode hides them.
 

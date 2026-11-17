@@ -129,7 +129,31 @@ sets a fake `wl-paste` marker, sends an SGR right-click in the composer, and
 checks the screen: the marker is absent after right-click and present after
 Ctrl+V. Raw logs: `verify-1.0.0-rc.4.log`, `right-click-rc.4.log`.
 
-## 11. Not covered
+## 11. rc.5 settings and themes (2026-11-18)
+
+`/setting` is the unified TUI settings entry (`/settings` alias; `/config`
+compatibility). It shows effective values and source, sets budgets, language,
+network/write and theme, and offers two reset levels. `/setting reset global`
+warns first, then requires `confirm`, backs up `config.json`, restores
+full-local/network/write and military green, and preserves providers, keys,
+workspace and read roots.
+
+Eight TUI-only themes are implemented as a post-render remap of the semantic
+base palette: military (default), matrix, mono, ocean, sakura, copper, cyber
+and wasteland. The theme is stored in `config.json` `appearance.theme`
+(schema 3; v1/v2 configs still load). CLI help is unchanged.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1648 total, 0 failed, 13 ignored |
+| TUI interaction | **pass** |
+| Settings e2e | `/setting show`, `/settings theme matrix`, theme list pass |
+| Theme tests | 8 unique themes; military identity; matrix remap |
+| Reset tests | session restores startup; global backups + restores military/full-local |
+
+Raw logs: `verify-1.0.0-rc.5.log`, `tui-interaction-rc.5.log`.
+
+## 12. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0-rc.5 — 2026-11-18
+
+- `/setting` unified settings menu (`/settings` alias; `/config` compatibility):
+  show effective values and source, set budgets/language/network/write/theme,
+  reset the current session, or reset the global config after a warning and
+  `confirm`.
+- Eight TUI-only themes: military green (default), matrix green, monochrome,
+  deep blue, sakura pink, copper orange, cyberpunk and wasteland. The theme is
+  stored in `config.json` under `appearance.theme` and applies immediately.
+  Config schema moves to 3; v1/v2 configs still load.
+- Global reset backs up `config.json`, restores full-local/network/write and
+  military green, and preserves providers, keys, workspace and read roots.
+- Verification: `verify.sh` 1648 total / 0 failed / 13 ignored; TUI interaction
+  pass; settings e2e and 8-theme tests pass.
+
 ## 1.0.0-rc.4 — 2026-11-18
 
 - TUI right-click no longer pastes. The old composer-only binding inserted the

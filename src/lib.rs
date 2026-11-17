@@ -131,6 +131,7 @@ pub mod tui_prompts;
 pub mod tui_session;
 pub mod tui_terminal;
 pub mod tui_text;
+pub mod tui_theme;
 pub mod tui_workspace;
 pub mod unit_economics;
 pub mod usage_ledger;

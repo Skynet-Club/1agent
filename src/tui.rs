@@ -27,6 +27,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::tui_theme::Theme;
+
 /// Whole-terminal backdrop, 80% of the input panel background.
 const APP_BG: Color = Color::Rgb(0x06, 0x10, 0x0a);
 const PANEL_BG: Color = Color::Rgb(0x08, 0x14, 0x0d);
@@ -834,6 +836,7 @@ pub struct TuiState {
     pub max_steps: usize,
     pub timeout_seconds: u64,
     pub prompt_language: PromptLanguage,
+    theme: Theme,
     host_binding: HostBinding,
     command_stage: CommandStage,
     session_id: Option<String>,
@@ -911,6 +914,7 @@ impl TuiState {
             max_steps,
             timeout_seconds,
             prompt_language: PromptLanguage::Zh,
+            theme: Theme::default(),
             host_binding: HostBinding::standalone(),
             command_stage: CommandStage::NoMission,
             session_id: None,
@@ -1458,6 +1462,14 @@ impl TuiState {
 
     pub fn set_prompt_language(&mut self, language: PromptLanguage) {
         self.prompt_language = language;
+    }
+
+    pub fn theme(&self) -> Theme {
+        self.theme
+    }
+
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
     }
 
     /// How many tokens the most recent model request carried.
@@ -3063,6 +3075,7 @@ impl TuiState {
         if self.session_picker_open() {
             self.draw_session_picker(frame, frame.area());
         }
+        self.theme.paint(frame.buffer_mut());
     }
 
     pub fn render_screen(&mut self, columns: usize, _rows: usize) -> String {
