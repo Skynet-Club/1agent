@@ -62,5 +62,15 @@ network as an SSRF fix.
 
 ## 5. Local assets
 
-To be filled after the rc.3 package is built. No GitHub release and no push are
-performed by the code-level candidate workflow.
+Built from tag `v1.0.0-rc.3` → `ccb9e11` with `./scripts/package.sh
+--linux-only`; tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.3-linux-x86_64.tar.gz` | SHA-256 `faee878664755741ae9ac77df9d2966ec6c4dfa1f6a5c0204853d8db224ba987` |
+| Packaged binary | SHA-256 `cfec45b9ee72032b88b66722faf558a5bc12209956f428b123a30466d740e96b` |
+| Provenance | `linux-x86_64.json`, commit `ccb9e11`, `git_dirty: false` |
+| Smoke | `sha256sum -c SHA256SUMS` OK; `--version` 1.0.0-rc.3; `doctor` Ok; install smoke OK; installed TUI shows `网络访问：允许` |
+
+Evidence: `docs/evidence/release-1.0.0-rc.3-2026-11-18.md`. No GitHub release
+and no push were performed.
