@@ -4,8 +4,8 @@ use crate::safety::is_disallowed_control;
 use crate::subagent_registry::SubagentRecord;
 use crate::tui_clarify::{TuiClarifyResult, TuiClarifyState, TuiClarifyStep, outcome_label};
 use crate::tui_commands::{
-    CommandDrawerRow, CommandStage, DrawerEntry, PROMPT_PICKER_ALL, TuiCommandId, TuiCommandSpec,
-    command_usage, drawer_rows, prompt_picker_categories, prompt_picker_rows, visible_commands,
+    CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, TuiCommandSpec, command_usage,
+    drawer_rows, prompt_picker_categories, prompt_picker_rows, visible_commands,
 };
 use crate::tui_host::HostBinding;
 use crate::tui_prompts::{PromptLanguage, prompt_view};
@@ -2555,7 +2555,7 @@ impl TuiState {
                     .min(categories.len().saturating_sub(1)),
             )
             .map(|(category, _)| *category)
-            .unwrap_or(PROMPT_PICKER_ALL)
+            .unwrap_or("加目标")
     }
 
     pub fn prompt_picker_focus(&self) -> PromptPickerFocus {
@@ -3029,15 +3029,23 @@ impl TuiState {
         self.draw_input_panel(frame, panel_area, composer_area, folded);
 
         if self.slash_drawer_open() {
-            let rows = self.filtered_drawer_rows();
-            let display_rows = rows
-                .iter()
-                .map(|row| 1 + usize::from(row.heading.is_some()))
-                .sum::<usize>()
-                .clamp(1, 12);
-            let popup_height = (display_rows + 2) as u16;
-            let popup_height = popup_height.min(chunks[0].height);
-            let popup_width = chunks[0].width.min(86);
+            let (popup_width, popup_height) = if self.prompt_picker_open() {
+                // The picker is a fixed-size surface: the full conversation
+                // width and a stable height, so changing categories or rows
+                // never moves the window under the cursor.
+                (chunks[0].width, chunks[0].height.clamp(10, 24))
+            } else {
+                let rows = self.filtered_drawer_rows();
+                let display_rows = rows
+                    .iter()
+                    .map(|row| 1 + usize::from(row.heading.is_some()))
+                    .sum::<usize>()
+                    .clamp(1, 12);
+                (
+                    chunks[0].width.min(86),
+                    ((display_rows + 2) as u16).min(chunks[0].height),
+                )
+            };
             let popup = Rect {
                 x: chunks[0].x + chunks[0].width.saturating_sub(popup_width) / 2,
                 y: chunks[0].bottom().saturating_sub(popup_height),
@@ -4587,7 +4595,7 @@ impl TuiState {
         let focus = self.prompt_picker_focus();
         let block = menu_block(
             " 提示词补齐 ",
-            "←→ 类目/列表 · ↑↓ 选择 · Enter 应用 · Esc 关闭",
+            "←→ 类目/列表/详情 · ↑↓ 选择 · Enter 应用 · Esc 关闭",
             MENU_BG,
         );
         frame.render_widget(Clear, area);
@@ -4598,7 +4606,11 @@ impl TuiState {
         }
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(28), Constraint::Percentage(72)])
+            .constraints([
+                Constraint::Percentage(22),
+                Constraint::Percentage(34),
+                Constraint::Percentage(44),
+            ])
             .split(inner);
         let category_items = categories
             .iter()
@@ -4636,49 +4648,47 @@ impl TuiState {
             chunks[0],
             &mut category_state,
         );
-        frame.render_widget(
-            Block::default()
-                .borders(Borders::LEFT)
-                .border_style(Style::default().fg(DRAWER_BORDER)),
-            chunks[1],
-        );
+        for index in [1, 2] {
+            frame.render_widget(
+                Block::default()
+                    .borders(Borders::LEFT)
+                    .border_style(Style::default().fg(DRAWER_BORDER)),
+                chunks[index],
+            );
+        }
 
+        let selected_row = rows
+            .get(self.selected_command.min(rows.len().saturating_sub(1)))
+            .copied();
         let mut items = Vec::new();
         let mut selected_item = None;
         for (index, row) in rows.iter().enumerate() {
-            if let Some(heading) = row.heading {
-                items.push(ListItem::new(Line::styled(
-                    format!("  {heading}"),
-                    Style::default()
-                        .fg(PANEL_TEXT_GREEN)
-                        .add_modifier(Modifier::BOLD),
-                )));
-            }
-            let is_selected = focus == PromptPickerFocus::List
-                && self.selected_command.min(rows.len().saturating_sub(1)) == index;
-            let marker = if is_selected { "▌ " } else { "  " };
+            let is_selected = self.selected_command.min(rows.len().saturating_sub(1)) == index;
+            let marker = if is_selected {
+                if focus == PromptPickerFocus::List {
+                    "▌ "
+                } else {
+                    "▸ "
+                }
+            } else {
+                "  "
+            };
             let (name, detail) = match row.entry {
                 DrawerEntry::Prompt(prompt) => {
                     let view = prompt_view(prompt, self.prompt_language)
                         .or_else(|| prompt_view(prompt, PromptLanguage::Zh))
                         .expect("Chinese prompt view is always available");
-                    (
-                        view.name,
-                        format!("{} · {} · {}", view.value, view.category, view.purpose),
-                    )
+                    (view.name, format!("{} · {}", view.value, view.category))
                 }
                 DrawerEntry::Source(source) => (
                     source.topic,
-                    format!(
-                        "{} · {} · {} 条",
-                        source.author, source.category, source.fragments
-                    ),
+                    format!("{} · {}", source.author, source.category),
                 ),
                 DrawerEntry::Command(entry) => {
                     (entry.spec.name, entry.spec.description.to_string())
                 }
             };
-            let style = if is_selected {
+            let style = if is_selected && focus == PromptPickerFocus::List {
                 Style::default()
                     .fg(MIL_GREEN_BRIGHT)
                     .add_modifier(Modifier::BOLD)
@@ -4687,7 +4697,7 @@ impl TuiState {
             };
             items.push(ListItem::new(Line::from(vec![
                 Span::styled(marker, Style::default().fg(MIL_GREEN_BRIGHT)),
-                Span::styled(fit_row(name, 18), style),
+                Span::styled(fit_row(name, 16), style),
                 Span::styled(detail, Style::default().fg(COMMAND_DESCRIPTION)),
             ])));
             if is_selected {
@@ -4709,6 +4719,81 @@ impl TuiState {
             chunks[1],
             &mut list_state,
         );
+        if let Some(row) = selected_row {
+            let detail = self.prompt_detail_text(&row);
+            let detail_area = Rect {
+                x: chunks[2].x.saturating_add(2),
+                y: chunks[2].y,
+                width: chunks[2].width.saturating_sub(2),
+                height: chunks[2].height,
+            };
+            frame.render_widget(
+                Paragraph::new(detail)
+                    .wrap(Wrap { trim: false })
+                    .style(Style::default().fg(Color::White).bg(MENU_BG)),
+                detail_area,
+            );
+        }
+    }
+
+    fn prompt_detail_text(&self, row: &CommandDrawerRow) -> String {
+        match row.entry {
+            DrawerEntry::Prompt(prompt) => {
+                let view = prompt_view(prompt, self.prompt_language)
+                    .or_else(|| prompt_view(prompt, PromptLanguage::Zh))
+                    .expect("Chinese prompt view is always available");
+                let mut text = format!(
+                    "{}\n{} · {} · {}\n\n{}\n\n用途：{}\n何时用：{}\n别用在：{}\n变量：{}\n插入：{}\n输出：{}\n来源：{}",
+                    view.name,
+                    view.value,
+                    view.category,
+                    view.purpose,
+                    view.body,
+                    view.purpose,
+                    view.when,
+                    view.not_when,
+                    if view.variables.is_empty() {
+                        "无"
+                    } else {
+                        view.variables
+                    },
+                    prompt.insertion,
+                    prompt.output,
+                    prompt.source
+                );
+                let cut = text
+                    .char_indices()
+                    .nth(6000)
+                    .map_or(text.len(), |(index, _)| index);
+                text.truncate(cut);
+                text
+            }
+            DrawerEntry::Source(source) => {
+                let body = match self.prompt_language {
+                    PromptLanguage::Zh => source.translation,
+                    PromptLanguage::En => source.original,
+                };
+                let mut text = format!(
+                    "{}\n{} · {} · {} 条\n\n{}\n\n来源：{}\n链接：{}",
+                    source.topic,
+                    source.author,
+                    source.category,
+                    source.fragments,
+                    body,
+                    source.source_doc,
+                    source.link
+                );
+                let cut = text
+                    .char_indices()
+                    .nth(6000)
+                    .map_or(text.len(), |(index, _)| index);
+                text.truncate(cut);
+                text
+            }
+            DrawerEntry::Command(entry) => {
+                format!("{}\n\n{}", entry.spec.name, entry.spec.description)
+            }
+        }
     }
 
     fn draw_command_drawer(&self, frame: &mut Frame, area: Rect) {
@@ -7294,11 +7379,11 @@ mod tests {
         assert!(state.slash_drawer_open());
         assert_eq!(state.command_drawer_title(), " 提示词补齐 ");
         let categories = state.prompt_picker_categories();
-        assert!(categories.iter().any(|(name, _)| *name == "全部"));
-        assert!(categories.iter().any(|(name, _)| *name == "加目标"));
+        assert_eq!(categories.first().map(|(name, _)| *name), Some("加目标"));
         assert!(categories.iter().any(|(name, _)| *name == "原文库"));
+        assert!(!categories.iter().any(|(name, _)| *name == "全部"));
         let rows = state.filtered_drawer_rows();
-        assert!(!rows.is_empty());
+        assert_eq!(rows.len(), 5);
         assert!(rows.iter().all(|row| row.entry.prompt().is_some()));
         select_source_category(&mut state);
         let rows = state.filtered_drawer_rows();
@@ -7334,11 +7419,12 @@ mod tests {
             .join("\n");
         let compact = screen.replace(' ', "");
         assert!(compact.contains("提示词补齐"), "{screen}");
-        assert!(compact.contains("全部(48)"), "{screen}");
+        assert!(!compact.contains("全部(48)"), "{screen}");
         assert!(compact.contains("加目标(5)"), "{screen}");
         assert!(compact.contains("原文库(32)"), "{screen}");
         assert!(compact.contains("真正的目的是"), "{screen}");
-        assert!(compact.contains("←→类目/列表"), "{screen}");
+        assert!(compact.contains("我真正想要的不是这件事本身"), "{screen}");
+        assert!(compact.contains("←→类目/列表/详情"), "{screen}");
     }
 
     #[test]
@@ -7364,15 +7450,16 @@ mod tests {
 
         state.set_input("做个网页 //");
         assert_eq!(state.prompt_picker_focus(), PromptPickerFocus::Categories);
-        state.move_prompt_picker(1);
-        assert_eq!(
-            state.prompt_picker_categories()[state.prompt_category_selected()].0,
-            "加目标"
-        );
         state.prompt_picker_right();
         assert_eq!(state.prompt_picker_focus(), PromptPickerFocus::List);
         state.prompt_picker_enter();
         assert!(state.input().contains("我真正想要的不是这件事本身"));
+        state.set_input("做个网页 //");
+        state.move_prompt_picker(1);
+        assert_eq!(
+            state.prompt_picker_categories()[state.prompt_category_selected()].0,
+            "加深度"
+        );
     }
 
     #[test]
