@@ -67,5 +67,15 @@ new widgets inherit all themes without per-widget colour branches.
 
 ## 5. Local assets
 
-To be filled after the rc.5 package is built. No GitHub release and no push are
-performed by the code-level candidate workflow.
+Built from tag `v1.0.0-rc.5` → `52fcd67` with `./scripts/package.sh
+--linux-only`; tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.5-linux-x86_64.tar.gz` | SHA-256 `c8b74fc769d75f7f589c8e57d1dc4007af4b8e4a2c447692d2d4a36fb8278ee9` |
+| Packaged binary | SHA-256 `55042418fba07c654561cfd80df63aeb11e6b063cb15759408478584ddf7e409` |
+| Provenance | `linux-x86_64.json`, commit `52fcd67`, `git_dirty: false` |
+| Smoke | `sha256sum -c SHA256SUMS` OK; `--version` 1.0.0-rc.5; `doctor` Ok; install to `~/.local` OK; `/setting` smoke OK |
+
+Evidence: `docs/evidence/release-1.0.0-rc.5-2026-11-18.md`. No GitHub release
+and no push were performed.
