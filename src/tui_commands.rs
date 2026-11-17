@@ -858,6 +858,84 @@ fn source_score(source: &PromptSourceGroup, query: &str) -> Option<u8> {
     }
 }
 
+/// Left-hand categories for the two-pane prompt picker.
+pub const PROMPT_PICKER_ALL: &str = "全部";
+pub const PROMPT_PICKER_SOURCES: &str = "原文库";
+
+pub fn prompt_picker_categories(language: PromptLanguage) -> Vec<(&'static str, usize)> {
+    let available = |prompt: &&'static PromptSupplement| prompt_view(prompt, language).is_some();
+    let total = PROMPT_SUPPLEMENTS.iter().filter(available).count();
+    let mut categories = vec![(PROMPT_PICKER_ALL, total)];
+    let mut seen = Vec::new();
+    for prompt in PROMPT_SUPPLEMENTS.iter().filter(available) {
+        if seen.contains(&prompt.category) {
+            continue;
+        }
+        seen.push(prompt.category);
+        let count = PROMPT_SUPPLEMENTS
+            .iter()
+            .filter(available)
+            .filter(|candidate| candidate.category == prompt.category)
+            .count();
+        categories.push((prompt.category, count));
+    }
+    categories.push((PROMPT_PICKER_SOURCES, PROMPT_SOURCE_GROUPS.len()));
+    categories
+}
+
+/// Rows for the right-hand list of the prompt picker. `全部` searches prompts
+/// and the source library; a concrete category narrows to its prompts.
+pub fn prompt_picker_rows(
+    category: &str,
+    query: &str,
+    language: PromptLanguage,
+) -> Vec<CommandDrawerRow> {
+    if category == PROMPT_PICKER_SOURCES {
+        return prompt_drawer_rows(query, language);
+    }
+    let query = query.trim();
+    let available = |prompt: &&'static PromptSupplement| prompt_view(prompt, language).is_some();
+    let in_category =
+        |prompt: &&PromptSupplement| category == PROMPT_PICKER_ALL || prompt.category == category;
+    let mut prompts = PROMPT_SUPPLEMENTS
+        .iter()
+        .filter(available)
+        .filter(in_category)
+        .filter_map(|prompt| prompt_score(prompt, query).map(|score| (score, prompt)))
+        .collect::<Vec<_>>();
+    if !query.is_empty() {
+        prompts.sort_by_key(|(score, _)| *score);
+    }
+
+    let mut rows = Vec::new();
+    let mut last_category = None;
+    for (_, prompt) in prompts {
+        let heading = if !query.is_empty() {
+            (rows.is_empty()).then_some("提示词")
+        } else if category == PROMPT_PICKER_ALL && last_category != Some(prompt.category) {
+            Some(prompt.category)
+        } else {
+            None
+        };
+        last_category = Some(prompt.category);
+        rows.push(CommandDrawerRow {
+            heading,
+            entry: DrawerEntry::Prompt(prompt),
+        });
+    }
+
+    if category == PROMPT_PICKER_ALL && !query.is_empty() {
+        let sources = prompt_drawer_rows(query, language);
+        for (index, mut row) in sources.into_iter().enumerate() {
+            if index == 0 {
+                row.heading = Some("原文库");
+            }
+            rows.push(row);
+        }
+    }
+    rows
+}
+
 /// Source-table rows used by `//` and `//keyword`. Each row is one complete
 /// (author, topic) group; labels and categories come from the table.
 pub fn prompt_drawer_rows(prefix: &str, _language: PromptLanguage) -> Vec<CommandDrawerRow> {
