@@ -10,7 +10,8 @@ means the evidence does not exist on this host.
 
 0.99 QG1 is fixed (goal closure requires a stored verification record); the
 final Track Q run is **99/100** with one named efficiency residual. The 1.0
-code-level candidate passes the local software gates. External audit, real
+code-level candidate passes the local software gates and a local Linux
+`1.0.0-rc.1` package was built from tag `v1.0.0-rc.1`. External audit, real
 Windows/macOS GA, marketplace responsibility and R1–R9 real-user metrics remain
 **blocked**; no GA claim.
 
@@ -30,6 +31,7 @@ Windows/macOS GA, marketplace responsibility and R1–R9 real-user metrics remai
 | TUI interaction | **pass** (real provider; two Ctrl+Q quit) | `docs/evidence/1.0-local-qa-2026-11-17/tui-interaction.log` |
 | 5-cycle soak | **pass** | `docs/evidence/1.0-local-qa-2026-11-17/soak.log` |
 | `release-check.sh` | fmt/clippy/tests/http pass; `ci.sh` blocked at attribution history | `docs/evidence/1.0-local-qa-2026-11-17/release-check.log` |
+| Local package | `1.0.0-rc.1` Linux tar, `reproducible=true`, archive SHA `c39762c8…`; version/doctor smoke pass | `docs/evidence/release-1.0.0-rc.1-2026-11-18.md` |
 
 ## 2. Hard gates (local vs blocked)
 

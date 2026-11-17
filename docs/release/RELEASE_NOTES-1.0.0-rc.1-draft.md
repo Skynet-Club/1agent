@@ -57,5 +57,16 @@ are **blocked** and must not be presented as passed.
 
 ## 4. Local assets
 
-To be filled after the local package is built. No GitHub release and no push
-are performed by the code-level candidate workflow.
+- `dist/1agent-1.0.0-rc.1-linux-x86_64.tar.gz`
+  - SHA-256 `c39762c8f0348316cfe08b4262fcd1f16705fcde3f5b58481e6838d4980075d6`
+  - 10 MB; includes the binary, install/upgrade/uninstall scripts, docs,
+    licenses and provenance.
+- Linux binary inside the archive:
+  - SHA-256 `da2d006b781337e4fca0fb32c41ada616f2c3279ed89a709134d397b270c0605`
+  - `1agent --version` prints `1.0.0-rc.1`; `1agent doctor --json` reports
+    `status: ok` on the existing runtime home.
+- `dist/SHA256SUMS` and `dist/linux-x86_64.json` are present; the package build
+  reported `reproducible=true` (two builds, same SHA).
+- Local tag: `v1.0.0-rc.1` → `88ad7e6`.
+- No GitHub release and no push were performed by this local candidate
+  workflow.
