@@ -117,7 +117,19 @@ Security note: default network widens the prompt-injection egress surface;
 O1 (`browser_read` SSRF) and O2 (journal hash chain) remain open. Evidence:
 `verify-1.0.0-rc.3.log`, `tui-interaction-rc.3.log`.
 
-## 10. Not covered
+## 10. rc.4 right-click paste fix (2026-11-18)
+
+The TUI composer had a right-click binding that read the system clipboard and
+inserted it. Because clipboard content survives a TUI restart, a stale answer
+was reinserted on every right-click. The binding is removed; paste is explicit
+with `Ctrl+V`/`Shift+Insert`.
+
+Verification: `verify.sh` **1640 total / 0 failed / 13 ignored**. A PTY test
+sets a fake `wl-paste` marker, sends an SGR right-click in the composer, and
+checks the screen: the marker is absent after right-click and present after
+Ctrl+V. Raw logs: `verify-1.0.0-rc.4.log`, `right-click-rc.4.log`.
+
+## 11. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

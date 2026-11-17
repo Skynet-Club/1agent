@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0-rc.4 — 2026-11-18
+
+- TUI right-click no longer pastes. The old composer-only binding inserted the
+  system clipboard on every right-click; stale content survived a restart, so
+  it was reinserted repeatedly. Paste is explicit with `Ctrl+V` or
+  `Shift+Insert`. Covered by a PTY test: right-click leaves the composer
+  unchanged, Ctrl+V still pastes.
+- Verification: `verify.sh` 1640 total / 0 failed / 13 ignored; PTY right-click
+  test pass. Includes rc.3 full-power defaults and rc.2 permission-UX fixes.
+
 ## 1.0.0-rc.3 — 2026-11-18
 
 - Full-power defaults for local TUI and `run`: writes, terminal execution and

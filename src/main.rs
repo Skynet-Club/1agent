@@ -22502,9 +22502,9 @@ async fn run_tui_interactive(
             TuiInput::ScrollDown => state.scroll_down(3),
             TuiInput::Paste(text) => state.insert_text(&text),
             TuiInput::PasteClipboard => paste_clipboard_into_composer(&mut state),
-            TuiInput::RightClick { column, row } if state.input_box_contains(column, row) => {
-                paste_clipboard_into_composer(&mut state);
-            }
+            // Right-click must not paste. Stale clipboard content survives a
+            // TUI restart and would be reinserted on every click; explicit
+            // Ctrl+V / Shift+Insert is the only paste path.
             TuiInput::RightClick { .. } => {}
             // Ctrl+Q is handled before overlays and never reaches this dispatch.
             TuiInput::CtrlQ => {}

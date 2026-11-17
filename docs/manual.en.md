@@ -155,7 +155,7 @@ User messages render on the input panel's `#08140D` background with white text, 
 
 Short replies in the same session are resolved against the previous request and answer. If the previous turn asked “who is Feli”, a reply of `felix` continues that thread instead of starting a new search. Prompt-author names are checked against the 48-entry local prompt library (Felix Rieseberg, Karpathy, …) before the web.
 
-Right-click pastes from the clipboard only when the pointer is inside the composer; right-clicking the transcript, work log or any other region does nothing. `Ctrl+V` is not restricted by pointer position.
+Right-click no longer pastes. The old composer-only right-click paste reinserted stale clipboard content that survived restarts, so it was removed. Paste with `Ctrl+V` or `Shift+Insert`.
 
 All popup surfaces (`/details`, `/help`, the `/` command drawer and the `Ctrl+T` mode menu) share one green family: surface `#0A1F12`, border `#3F644B`, bright-green titles and commands, and a `#143D24` selected row. Blue labels and gray panel surfaces are gone.
 
