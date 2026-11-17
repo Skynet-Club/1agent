@@ -3,6 +3,7 @@
 Standard-library client for the local 1Agent HTTP surface. It wraps:
 
 - `GET /v0/health`
+- `GET /v0/openapi`
 - `GET /v0/agent-card`
 - `GET /v0/trust-center`
 - `POST /v0/surface`

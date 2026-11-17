@@ -25,6 +25,8 @@ class Handler(BaseHTTPRequestHandler):
         auth = self.headers.get("authorization")
         if self.path == "/v0/health":
             self._send(200, {"ok": True, "version": "test"})
+        elif self.path == "/v0/openapi":
+            self._send(200, {"openapi": "3.1.0", "info": {"version": "v0"}})
         elif self.path == "/v0/agent-card":
             self._send(200, {"name": "1Agent", "auth": auth})
         elif self.path == "/v0/trust-center":
@@ -73,6 +75,7 @@ class ClientTest(unittest.TestCase):
     def test_read_routes(self):
         client = Client(self.base_url)
         self.assertEqual(client.health()["ok"], True)
+        self.assertEqual(client.openapi()["openapi"], "3.1.0")
         self.assertEqual(client.agent_card()["name"], "1Agent")
         self.assertEqual(client.trust_center()["schema_version"], 1)
 

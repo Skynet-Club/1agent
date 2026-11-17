@@ -1,0 +1,66 @@
+# 1Agent 1.0 status — code-complete candidate
+
+Status: **in progress; not GA**  
+Date: 2026-11-17  
+Scope: code-level 1.0 candidate + local quality gates. This page is a
+measurement review, not a release announcement. A blocked gate is not zero; it
+means the evidence does not exist on this host.
+
+## 0. One-line status
+
+0.99 QG1 is fixed (goal closure requires a stored verification record); the
+final Track Q run is **99/100** with one named efficiency residual. The 1.0
+code-level candidate passes the local software gates. External audit, real
+Windows/macOS GA, marketplace responsibility and R1–R9 real-user metrics remain
+**blocked**; no GA claim.
+
+## 1. Local evidence
+
+| Check | Current result | Evidence |
+|---|---|---|
+| `./scripts/verify.sh` | **pass**; 1196 lib, 1637 total, 0 failed, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify.log` |
+| Track Q `agent-loop-v1` | **99/100**; 0 hard-gate; audit/replay 100/100; rubric 20/20 | `docs/evidence/0.99-acceptance/agent-loop-v1-final-2026-11-17/` |
+| QG1 goal closure | pass; negative cases covered | `docs/evidence/0.99-qg1-verification/README.md`, ADR-0147 |
+| QG2 action chain | pass; reconciliation is on-demand | `docs/evidence/0.99-acceptance/README.md` §3 |
+| QG3 spawn lineage | pass with named residuals | `docs/evidence/0.99-acceptance/README.md` §3 |
+| SDK Python | 6/6 unit tests; health/openapi/agent-card/trust-center/surface | `sdk/python/test_client.py` |
+| Windows GNU check/link | **pass**; `.exe` SHA-256 `535eb260…` | `docs/evidence/platform-1.0-2026-11-17.md` |
+| macOS | **blocked** by host C toolchain (`ring/cc`) | same |
+| HTTP surface e2e | **pass** | `docs/evidence/1.0-local-qa-2026-11-17/http-e2e.log` |
+| TUI interaction | **pass** (real provider; two Ctrl+Q quit) | `docs/evidence/1.0-local-qa-2026-11-17/tui-interaction.log` |
+| 5-cycle soak | **pass** | `docs/evidence/1.0-local-qa-2026-11-17/soak.log` |
+| `release-check.sh` | fmt/clippy/tests/http pass; `ci.sh` blocked at attribution history | `docs/evidence/1.0-local-qa-2026-11-17/release-check.log` |
+
+## 2. Hard gates (local vs blocked)
+
+| Gate | Metric | Current | Status |
+|---|---|---|---|
+| M1 | Long-horizon success | 1h DeepSeek 97.08% historical; Track Q final 99/100; 8h DeepSeek quality not claimed | **Partial** |
+| M4 | Crash recovery ≥95% | 2h crash-injection soak 28,552 cycles / 7,200.20s, exit 0 (0.97 code line); 5-cycle refresh pending | **Local pass (prior line)** |
+| M5 | Replay 100% | 100% structural replay on completed journals; Track Q replay pending | **Local pass (prior line)** |
+| M6 | Zero security incidents | No P0 in local review/tests; risk-12 repaired high-risk gate fixed; no external audit | **Local pass / external blocked** |
+| M13 | Audit completeness 100% | Local `AgentAnswer::validate` and journal audit pass | **Local pass** |
+| M17 | Compacted replay 100% | Forced-compaction fixture replays/audits | **Local pass** |
+| M18 | External audit | 0.97 independent code review 0 P0; no third-party certification | **Blocked (external)** |
+
+## 3. Blocked external gates
+
+- SA100-68 third-party audit / SOC2 / ISO 42001 / EU AI Act mapping.
+- SA100-70 real Windows/macOS GA hosts, code signing, notarization,
+  install/upgrade/uninstall matrix.
+- SA100-71 marketplace (signing/revocation/scanning/responsibility not ready).
+- SA100-73 mobile (not blocking 1.0).
+- R1–R9 real-user activation, retention, value-report adoption, unit economics.
+- A-Gate/W-Gate external checklists and external IdP/org roles.
+
+## 4. Known limits
+
+- CQ3/CQ6/CQ7/CQ9/CQ12/CQ16 remain Partial in the 0.99 ontology matrix.
+- The Track Q suite is one provider/model sample; do not claim statistical
+  stability from one run.
+- No 8h DeepSeek model-quality claim; the prior 8h local-model soak proves
+  runtime stability only.
+- `browser_read` Chrome SSRF and journal hash-chain tamper evidence remain
+  residual security items from the 0.97 review.
+- Public release history/attribution is still governed by the clean-release
+  branch policy; `check-attribution.sh` fails on the development history.

@@ -21,8 +21,8 @@ class ClientError(Exception):
 
 
 class Client:
-    """Client for `GET /v0/health`, `/v0/agent-card`, `/v0/trust-center`
-    and `POST /v0/surface`.
+    """Client for `GET /v0/health`, `/v0/openapi`, `/v0/agent-card`,
+    `/v0/trust-center` and `POST /v0/surface`.
 
     The bearer token is read from the `token` argument or the
     `ONEAGENT_API_TOKEN` environment variable. Never log the token or the
@@ -49,6 +49,9 @@ class Client:
 
     def trust_center(self) -> dict[str, Any]:
         return self._request("GET", "/v0/trust-center")
+
+    def openapi(self) -> dict[str, Any]:
+        return self._request("GET", "/v0/openapi")
 
     def surface(
         self,
