@@ -14,11 +14,13 @@ if [[ ! -x "$PYTE_PYTHON" ]]; then
 fi
 
 render() {
-  timeout 30 "$PYTE_PYTHON" scripts/pty_screenshot.py --cols 120 --rows 40 "$@" 2>/dev/null \
+  timeout 45 "$PYTE_PYTHON" scripts/pty_screenshot.py --cols 120 --rows 40 "$@" 2>/dev/null \
     | tr -d '[:space:]'
 }
 
-greeting="$(render --keys $'你好，模型连接测试\r' --settle 4)"
+# The greeting uses the configured live provider; allow a real model response
+# (the local deepseek-flash sample takes about 8 seconds) before asserting.
+greeting="$(render --keys $'你好，模型连接测试\r' --settle 12)"
 if [[ "$greeting" != *"已完成"* ]]; then
   echo "tui-interaction-check: greeting did not finish" >&2
   exit 1

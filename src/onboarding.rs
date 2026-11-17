@@ -1402,14 +1402,18 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), SetupError> {
 }
 
 fn private_options() -> fs::OpenOptions {
-    let mut options = fs::OpenOptions::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
+        let mut options = fs::OpenOptions::new();
         options.mode(0o600);
         options.custom_flags(libc::O_NOFOLLOW);
+        options
     }
-    options
+    #[cfg(not(unix))]
+    {
+        fs::OpenOptions::new()
+    }
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {

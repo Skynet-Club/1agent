@@ -9,6 +9,12 @@ cd "$ROOT"
 export TMPDIR="${TMPDIR:-$HOME/.cache/1agent-tmp}"
 mkdir -p "$TMPDIR"
 
+# Keep the software tests hermetic: a developer's ~/.1a/config.json must not
+# change provider routing or permission defaults. The TUI interaction check
+# below explicitly unsets this to use the real provider.
+export ONEAGENT_HOME="${ONEAGENT_HOME:-$TMPDIR/oneagent-home}"
+mkdir -p "$ONEAGENT_HOME"
+
 metrics_dir=""
 run_soak=false
 while [[ $# -gt 0 ]]; do
@@ -48,7 +54,7 @@ echo "== ci"
 ./scripts/ci.sh
 
 echo "== tui interaction"
-./scripts/tui-interaction-check.sh
+env -u ONEAGENT_HOME TMPDIR="$TMPDIR" ./scripts/tui-interaction-check.sh
 
 if [[ -n "$metrics_dir" ]]; then
     echo "== metrics gate"

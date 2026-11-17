@@ -979,10 +979,12 @@ fn create_private_dir(path: &Path) -> Result<(), BrowserError> {
 }
 
 fn kill_process_group(child: &mut Child) {
-    if let Some(pid) = child.id() {
+    if child.id().is_some() {
         #[cfg(unix)]
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGTERM);
+        if let Some(pid) = child.id() {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGTERM);
+            }
         }
         let _ = child.start_kill();
     }

@@ -5,7 +5,9 @@
 //! execution time. Cards persist on disk so a human can approve an action from
 //! a separate process while the agent waits.
 
-use std::io::{Read, Write};
+use std::io::Read;
+#[cfg(unix)]
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};

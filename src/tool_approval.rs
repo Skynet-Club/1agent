@@ -7,6 +7,7 @@
 //! Changed arguments, a different run, expiry, denial or reuse require a new
 //! card.
 
+#[cfg(unix)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 

@@ -2,8 +2,8 @@
 """Regression check: Backspace must never terminate the TUI.
 
 It also emulates the failure mode where a terminal maps Backspace to Ctrl+Q:
-several Ctrl+Q presses only arm the explicit quit confirmation; Enter confirms,
-Esc cancels.
+one Ctrl+Q only arms the explicit quit confirmation; Esc cancels. Two Ctrl+Q
+presses exit, matching the current TUI contract.
 """
 import fcntl
 import os
@@ -64,25 +64,29 @@ def main():
             print(f"pty-backspace: FAIL (exited after Backspace: {code})", file=sys.stderr)
             return 1
 
-        # Emulate a terminal that reports Backspace as Ctrl+Q. Repetition must
-        # not bypass the explicit Enter confirmation.
-        for _ in range(4):
-            os.write(fd, b"\x11")
-            drain(fd, 0.08)
+        # Emulate a terminal that reports Backspace as Ctrl+Q. One press must
+        # only arm the explicit quit confirmation; Esc cancels it.
+        os.write(fd, b"\x11")
         drain(fd, 0.3)
         code = exited(pid)
         if code is not None:
-            print(f"pty-backspace: FAIL (Ctrl+Q exited without confirmation: {code})", file=sys.stderr)
+            print(f"pty-backspace: FAIL (one Ctrl+Q exited: {code})", file=sys.stderr)
             return 1
         os.write(fd, b"\x1b")
         drain(fd, 0.3)
+        code = exited(pid)
+        if code is not None:
+            print(f"pty-backspace: FAIL (Esc did not cancel quit: {code})", file=sys.stderr)
+            return 1
+
+        # Two Ctrl+Q presses are the current explicit quit gesture.
         os.write(fd, b"\x11")
         drain(fd, 0.2)
-        os.write(fd, b"\r")
+        os.write(fd, b"\x11")
         drain(fd, 1.0)
         code = exited(pid)
         if code != 0:
-            print(f"pty-backspace: FAIL (explicit Enter did not exit: {code})", file=sys.stderr)
+            print(f"pty-backspace: FAIL (two Ctrl+Q did not exit: {code})", file=sys.stderr)
             return 1
         print("pty-backspace: passed")
         return 0

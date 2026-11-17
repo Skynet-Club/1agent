@@ -89,7 +89,10 @@ def main():
             skip_stub = wcwidth(data[0]) == 2
         rows.append("".join(row).rstrip())
 
-    os.write(fd, b"\x11\r")
+    # The TUI requires two Ctrl+Q presses (or F10) to quit. A single press plus
+    # Enter is interpreted as a cancelled confirmation and leaves the process
+    # running, which makes the caller's timeout look like a TUI hang.
+    os.write(fd, b"\x11\x11")
     drain(1.0)
     try:
         os.waitpid(pid, 0)
