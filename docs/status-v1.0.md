@@ -19,7 +19,7 @@ Windows/macOS GA, marketplace responsibility and R1–R9 real-user metrics remai
 
 | Check | Current result | Evidence |
 |---|---|---|
-| `./scripts/verify.sh` | **pass**; 1196 lib, 1637 total, 0 failed, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify.log` |
+| `./scripts/verify.sh` | **pass**; 1196 lib, 1637 total, 0 failed, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify-1.0.0-rc.1.log` |
 | Track Q `agent-loop-v1` | **99/100**; 0 hard-gate; audit/replay 100/100; rubric 20/20 | `docs/evidence/0.99-acceptance/agent-loop-v1-final-2026-11-17/` |
 | QG1 goal closure | pass; negative cases covered | `docs/evidence/0.99-qg1-verification/README.md`, ADR-0147 |
 | QG2 action chain | pass; reconciliation is on-demand | `docs/evidence/0.99-acceptance/README.md` §3 |
