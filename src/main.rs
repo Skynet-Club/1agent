@@ -5059,6 +5059,21 @@ fn english_command(name: &str) -> &'static str {
         .unwrap_or_default()
 }
 
+fn english_group(group: &str) -> &'static str {
+    match group {
+        "模型与路由" => "Models & Routing",
+        "记忆与协作" => "Memory & Collaboration",
+        "信任与审计" => "Trust & Audit",
+        "运行与运维" => "Operations",
+        "多 Agent 与自治" => "Multi-Agent & Autonomy",
+        "技能与进化" => "Skills & Evolution",
+        "协议与平台" => "Protocols & Platform",
+        "评测与收据" => "Evaluation & Receipts",
+        "其他" => "Other",
+        _ => "",
+    }
+}
+
 const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
     (
         "模型与路由",
@@ -5184,20 +5199,30 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
 
 fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
     if all {
-        print_public_help();
+        print_all_details();
         return Ok(());
     }
     match topic.map(str::trim).filter(|topic| !topic.is_empty()) {
         None => print_public_help(),
         Some("advanced") => print_advanced_groups(false),
         Some(name) => {
+            if let Some((group, _)) = find_group(name) {
+                print_group_detail(group);
+                return Ok(());
+            }
             let mut command = Cli::command();
             if let Some(subcommand) = command.find_subcommand_mut(name) {
+                println!();
+                println!(
+                    "  {}  {}",
+                    green(name, MIL_GREEN_BRIGHT),
+                    green(english_command(name), MIL_GREEN_FAINT)
+                );
                 subcommand.print_help()?;
                 println!();
             } else {
                 eprintln!("错误：未知帮助主题“{name}”");
-                eprintln!("下一步：1agent help advanced");
+                eprintln!("下一步：1agent help <分类> 或 1agent help <命令>");
                 std::process::exit(2);
             }
         }
@@ -5228,6 +5253,151 @@ fn green_rule(width: usize) -> String {
     green("─".repeat(width), MIL_GREEN_RULE)
 }
 
+fn find_group(topic: &str) -> Option<(&'static str, &'static [&'static str])> {
+    ADVANCED_GROUPS
+        .iter()
+        .find(|(group, _)| {
+            *group == topic || english_group(group).eq_ignore_ascii_case(topic.trim())
+        })
+        .map(|(group, commands)| (*group, *commands))
+}
+
+fn print_command_detail(command: &mut clap::Command, name: &str) {
+    let about = command
+        .get_about()
+        .map(|about| about.to_string())
+        .unwrap_or_default();
+    let english = english_command(name);
+    println!(
+        "    {} {}  {}  {}  {}",
+        green("•", MIL_GREEN),
+        green(format!("{name:<20}"), MIL_GREEN),
+        green(about, MIL_GREEN_DIM),
+        green("·", MIL_GREEN_FAINT),
+        green(english, MIL_GREEN_FAINT)
+    );
+    let rendered = command
+        .render_usage()
+        .to_string()
+        .replace("first-principles-agent", "1agent");
+    let rendered = rendered.trim();
+    let rendered = rendered.strip_prefix("Usage:").unwrap_or(rendered).trim();
+    let usage = if rendered.starts_with("1agent") {
+        rendered.to_string()
+    } else {
+        format!("1agent {rendered}")
+    };
+    if !usage.is_empty() {
+        println!(
+            "        {} {}",
+            green("用法 · Usage：", MIL_GREEN_DIM),
+            green(usage, MIL_GREEN_FAINT)
+        );
+    }
+    let mut options = Vec::new();
+    for argument in command.get_arguments() {
+        if matches!(argument.get_id().as_str(), "help" | "version")
+            || argument.get_index().is_some()
+        {
+            continue;
+        }
+        let label = if let Some(long) = argument.get_long() {
+            format!("--{long}")
+        } else if let Some(short) = argument.get_short() {
+            format!("-{short}")
+        } else {
+            continue;
+        };
+        if !options.contains(&label) {
+            options.push(label);
+        }
+    }
+    if !options.is_empty() {
+        let shown = options
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let more = if options.len() > 10 { " …" } else { "" };
+        println!(
+            "        {} {}{}",
+            green("选项 · Options：", MIL_GREEN_DIM),
+            green(shown, MIL_GREEN_FAINT),
+            green(more, MIL_GREEN_FAINT)
+        );
+    }
+}
+
+fn print_group_detail(group: &str) {
+    let Some((group, commands)) = find_group(group) else {
+        return;
+    };
+    let mut command = Cli::command();
+    println!();
+    println!(
+        "{}",
+        green(
+            format!("  {group} · {}", english_group(group)),
+            MIL_GREEN_BRIGHT
+        )
+    );
+    println!("  {}", green_rule(58));
+    for name in commands {
+        if let Some(subcommand) = command.find_subcommand_mut(name) {
+            print_command_detail(subcommand, name);
+        }
+    }
+    println!();
+    println!(
+        "    {} 查看完整选项 · Full options：{}",
+        green("•", MIL_GREEN),
+        green("1agent help <命令> 或 1agent <命令> --help", MIL_GREEN_DIM)
+    );
+    println!();
+}
+
+fn print_all_details() {
+    let mut command = Cli::command();
+    let mut seen = std::collections::BTreeSet::new();
+    println!();
+    println!(
+        "{}",
+        green(
+            "  1AGENT  ·  全部命令详情 · All command details",
+            MIL_GREEN_BRIGHT
+        )
+    );
+    println!("  {}", green_rule(58));
+    println!();
+    println!("{}", green("  常用 · Common", MIL_GREEN_BRIGHT));
+    for (name, _) in PUBLIC_COMMANDS {
+        if let Some(subcommand) = command.find_subcommand_mut(name) {
+            print_command_detail(subcommand, name);
+            seen.insert(*name);
+        }
+    }
+    for (group, commands) in ADVANCED_GROUPS {
+        println!();
+        println!(
+            "  {}",
+            green(
+                format!("• {group} · {}", english_group(group)),
+                MIL_GREEN_BRIGHT
+            )
+        );
+        for name in *commands {
+            if !seen.insert(*name) {
+                continue;
+            }
+            if let Some(subcommand) = command.find_subcommand_mut(name) {
+                print_command_detail(subcommand, name);
+            }
+        }
+    }
+    println!();
+}
+
 fn print_public_help() {
     println!();
     println!(
@@ -5236,7 +5406,7 @@ fn print_public_help() {
     );
     println!("  {}", green_rule(58));
     println!();
-    println!("{}", green("  常用", MIL_GREEN_BRIGHT));
+    println!("{}", green("  常用 · Common", MIL_GREEN_BRIGHT));
     for (name, description) in PUBLIC_COMMANDS {
         let english = english_command(name);
         println!(
@@ -5249,7 +5419,7 @@ fn print_public_help() {
         );
     }
     println!();
-    println!("{}", green("  分类", MIL_GREEN_BRIGHT));
+    println!("{}", green("  分类 · Categories", MIL_GREEN_BRIGHT));
     let command = Cli::command();
     let abouts = command
         .get_subcommands()
@@ -5265,7 +5435,13 @@ fn print_public_help() {
         .collect::<std::collections::BTreeMap<_, _>>();
     for (group, commands) in ADVANCED_GROUPS {
         println!();
-        println!("  {}", green(format!("• {group}"), MIL_GREEN_BRIGHT));
+        let english = english_group(group);
+        let label = if english.is_empty() {
+            format!("• {group}")
+        } else {
+            format!("• {group} · {english}")
+        };
+        println!("  {}", green(label, MIL_GREEN_BRIGHT));
         for command in *commands {
             let about = abouts.get(*command).map(String::as_str).unwrap_or("");
             let english = english_command(command);
@@ -5280,24 +5456,32 @@ fn print_public_help() {
         }
     }
     println!();
-    println!("{}", green("  提示", MIL_GREEN_BRIGHT));
+    println!("{}", green("  提示 · Tips", MIL_GREEN_BRIGHT));
     println!(
-        "    {} 查看分组详情：{}",
+        "    {} 命令详情（选项） · Command details：{}",
         green("•", MIL_GREEN),
-        green("1agent help advanced", MIL_GREEN_DIM)
+        green("1agent help <命令>   例：1agent help run", MIL_GREEN_DIM)
     );
     println!(
-        "    {} 查看全部命令：{}",
+        "    {} 分类详情 · Category details：{}",
+        green("•", MIL_GREEN),
+        green(
+            "1agent help <分类>   例：1agent help 协议与平台",
+            MIL_GREEN_DIM
+        )
+    );
+    println!(
+        "    {} 全部详情 · All details：{}",
         green("•", MIL_GREEN),
         green("1agent help --all", MIL_GREEN_DIM)
     );
     println!(
-        "    {} 查看命令选项：{}",
+        "    {} 高级索引 · Advanced index：{}",
         green("•", MIL_GREEN),
-        green("1agent <命令> --help", MIL_GREEN_DIM)
+        green("1agent help advanced", MIL_GREEN_DIM)
     );
     println!(
-        "    {} 当前版本：{}",
+        "    {} 当前版本 · Version：{}",
         green("•", MIL_GREEN),
         green("1agent -v", MIL_GREEN_DIM)
     );
@@ -5319,12 +5503,24 @@ fn print_advanced_groups(all: bool) {
         })
         .collect::<std::collections::BTreeMap<_, _>>();
     println!();
-    println!("{}", green("  1AGENT  ·  高级命令", MIL_GREEN_BRIGHT));
+    println!(
+        "{}",
+        green(
+            "  1AGENT  ·  高级命令索引 · Advanced command index",
+            MIL_GREEN_BRIGHT
+        )
+    );
     println!("  {}", green_rule(58));
     let mut listed = std::collections::BTreeSet::new();
     for (group, commands) in ADVANCED_GROUPS {
         println!();
-        println!("  {}", green(format!("• {group}"), MIL_GREEN_BRIGHT));
+        let english = english_group(group);
+        let label = if english.is_empty() {
+            format!("• {group}")
+        } else {
+            format!("• {group} · {english}")
+        };
+        println!("  {}", green(label, MIL_GREEN_BRIGHT));
         for command in *commands {
             listed.insert(*command);
             let about = abouts.get(*command).map(String::as_str).unwrap_or("");
@@ -5358,7 +5554,7 @@ fn print_advanced_groups(all: bool) {
         }
         if !other.is_empty() {
             println!();
-            println!("  {}", green("• 其他", MIL_GREEN_BRIGHT));
+            println!("  {}", green("• 其他 · Other", MIL_GREEN_BRIGHT));
             for (name, about) in other {
                 let english = english_command(&name);
                 println!(
@@ -27208,6 +27404,16 @@ mod cli_help_tests {
                         .any(|character| character.is_ascii_alphabetic()),
                 "nested command `{}` is not bilingual: {about}",
                 subcommand.get_name()
+            );
+        }
+    }
+
+    #[test]
+    fn every_advanced_group_has_an_english_name() {
+        for (group, _) in ADVANCED_GROUPS {
+            assert!(
+                !english_group(group).is_empty(),
+                "group `{group}` has no English name"
             );
         }
     }
