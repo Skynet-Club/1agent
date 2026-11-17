@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.0.0-rc.1 — 2026-11-18
 
+- Code-level 1.0 candidate (not GA). This line includes the 0.98 real-world/
+  presence work and the 0.99 Goal/Action/Delegation kernels; see
+  `docs/status-v1.0.md` and `docs/1.0-code-complete-plan.md`. External audit,
+  real Windows/macOS GA, marketplace responsibility and R1–R9 user metrics are
+  blocked and not claimed.
 - Goal closure evidence: `goal close --closure achieved` now requires a
   `--verification-id` from a `VerificationStore`; the record must belong to the
   linked answer run and be `Verified`, with distinct executor and verifier.

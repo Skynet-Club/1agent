@@ -16,12 +16,12 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** Stable candidate: **0.97.0** (2026-11-14). Development branch: **0.98.0-dev** (2026-11-15), not released. Testing, feedback and contributions are welcome.  
-> 0.98-dev adds guided `setup`/`status`, a sandboxed CDP browser with mandatory human action cards, MCP dual-era transport with OAuth/PKCE, CIMD, tool-definition pinning and Tasks/MRTR gating, skill execution eval/blind comparison/lockfile/bwrap script sandbox, and a durable scheduled-run ledger with a 100-process crash matrix. Release gates still require real workflows, provider-backed M1/soak runs, adaptive red team and owner approval.  
-> This release: the AG-23 intelligent loop (`describe_self`/`request_tools`/evidence re-plan); a ≤1h real-task gate at M1 97.08%; an 8h local runtime soak with zero crashes; cost governance and one independent code-level security review.  
+> **This project is under active development.** Current code line: **1.0.0-rc.1** (2026-11-18, code-level release candidate, **not GA**). 0.99 code-level acceptance passed; Track Q is 99/100. Testing, feedback and contributions are welcome.  
+> 1.0 status and blocked gates: [status-v1.0](docs/status-v1.0.md) · [code-complete plan](docs/1.0-code-complete-plan.md). External audit, real Windows/macOS GA, marketplace and R1–R9 metrics remain **blocked**; no GA claim.  
+> This line includes the 0.98 real-world/presence work and the 0.99 Goal/Action/Delegation kernels, plus QG1 goal-closure evidence and the Track Q safety/quality fixes.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> The Linux 0.97.0 RC is a local packaging candidate, not published yet; a public release still needs rebuilt clean history and release-asset confirmation.  
-> Features and usage: [RELEASE_0.97.en.md](docs/release/RELEASE_0.97.en.md) · [feature matrix](docs/release/FEATURES-0.97.md)
+> 1.0.0-rc.1 local candidate notes: [release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.1-draft.md)  
+> 0.97 features and entry points: [RELEASE_0.97.en.md](docs/release/RELEASE_0.97.en.md) · [feature matrix](docs/release/FEATURES-0.97.md)
 
 ---
 

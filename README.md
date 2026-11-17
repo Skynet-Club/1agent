@@ -18,12 +18,12 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 当前开发分支 **0.98.0-dev**（2026-11-15 更新）；0.97.0 RC 是本地打包候选，尚未公开发布。  
-> 0.98 重点：Real World——可授权、可接管、可回滚的浏览器写操作；MCP dual-era 与工具定义固定；技能执行评测与持久 canary；跨重启调度账本与 systemd 守护。  
+> **项目仍在持续开发。** 当前代码线 **1.0.0-rc.1**（2026-11-18，code-level release candidate，**不是 GA**）；0.99 code-level 验收通过，Track Q 99/100。  
+> 1.0 状态与阻塞项：[status-v1.0](docs/status-v1.0.md) · [code-complete plan](docs/1.0-code-complete-plan.md)。  
+> 外部审计、真实 Windows/macOS GA、marketplace 与 R1–R9 用户指标仍 **blocked**；不宣称 GA。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
-> 公开发布前仍需完成人工验收、打包门禁与发布资产确认。  
 > 0.97 证据与入口：[RELEASE_0.97.md](docs/release/RELEASE_0.97.md) · [0.97 功能矩阵](docs/release/FEATURES-0.97.md)  
-> 0.98 开发进度：[进度账本](docs/0.98-progress.md) · [功能矩阵草稿](docs/release/FEATURES-0.98-draft.md)
+> 1.0.0-rc.1 本地候选说明：[release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.1-draft.md)
 
 ---
 
