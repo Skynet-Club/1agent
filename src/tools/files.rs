@@ -20,9 +20,80 @@ use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
 const MAX_CONTENT_CHARS: usize = 256 * 1024;
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 const MAX_PATH_CHARS: usize = 4096;
+const MAX_DIFF_LINES: usize = 12;
+const MAX_DIFF_CHARS: usize = 2_000;
 
 fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
+}
+
+/// A compact, bounded line diff for the work log. It trims the common prefix
+/// and suffix and shows the changed middle; this is a preview, not a patch.
+fn line_diff(old: &str, new: &str) -> (usize, usize, String) {
+    let old_lines = old.lines().collect::<Vec<_>>();
+    let new_lines = new.lines().collect::<Vec<_>>();
+    let mut prefix = 0usize;
+    while prefix < old_lines.len()
+        && prefix < new_lines.len()
+        && old_lines[prefix] == new_lines[prefix]
+    {
+        prefix += 1;
+    }
+    let mut suffix = 0usize;
+    while suffix < old_lines.len().saturating_sub(prefix)
+        && suffix < new_lines.len().saturating_sub(prefix)
+        && old_lines[old_lines.len() - 1 - suffix] == new_lines[new_lines.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let old_middle = &old_lines[prefix..old_lines.len().saturating_sub(suffix)];
+    let new_middle = &new_lines[prefix..new_lines.len().saturating_sub(suffix)];
+
+    let mut preview = String::new();
+    let mut shown = 0usize;
+    let mut truncated = false;
+    for line in old_middle {
+        if shown >= MAX_DIFF_LINES {
+            truncated = true;
+            break;
+        }
+        preview.push('-');
+        preview.push_str(line);
+        preview.push('\n');
+        shown += 1;
+    }
+    for line in new_middle {
+        if shown >= MAX_DIFF_LINES {
+            truncated = true;
+            break;
+        }
+        preview.push('+');
+        preview.push_str(line);
+        preview.push('\n');
+        shown += 1;
+    }
+    if preview.is_empty() {
+        preview.push_str("(no textual change)\n");
+    }
+    if truncated {
+        preview.push_str("…\n");
+    }
+    if preview.chars().count() > MAX_DIFF_CHARS {
+        preview = preview.chars().take(MAX_DIFF_CHARS).collect();
+        preview.push('…');
+    }
+    (new_middle.len(), old_middle.len(), preview)
+}
+
+fn insert_diff_metadata(
+    metadata: &mut BTreeMap<String, String>,
+    added_lines: usize,
+    removed_lines: usize,
+    diff: &str,
+) {
+    metadata.insert("added_lines".into(), added_lines.to_string());
+    metadata.insert("removed_lines".into(), removed_lines.to_string());
+    metadata.insert("diff".into(), diff.to_string());
 }
 
 async fn resolve_target(path: &str, permissions: &PermissionSet) -> Result<PathBuf, ToolError> {
@@ -189,10 +260,23 @@ impl AgentTool for WriteFileTool {
                 "file already exists; pass overwrite=true to replace it".into(),
             ));
         }
+        let old_content = if existed {
+            match tokio::fs::metadata(&target).await {
+                Ok(metadata) if metadata.len() <= MAX_FILE_BYTES as u64 => tokio::fs::read(&target)
+                    .await
+                    .ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            }
+        } else {
+            String::new()
+        };
         atomic_write(&target, content).await?;
 
         let bytes = content.len();
         let digest = sha256_hex(content.as_bytes());
+        let (added_lines, removed_lines, diff) = line_diff(&old_content, content);
         let summary = format!(
             "已{}文件 {}（{bytes} 字节，sha256 {digest}）",
             if existed { "覆盖" } else { "创建" },
@@ -202,16 +286,22 @@ impl AgentTool for WriteFileTool {
             "path": target.display().to_string(),
             "bytes": bytes,
             "created": !existed,
-            "sha256": digest
+            "sha256": digest,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+            "diff": diff
         });
+        let mut metadata = BTreeMap::from([
+            ("sha256".into(), digest.clone()),
+            ("path".into(), target.display().to_string()),
+            ("bytes".into(), bytes.to_string()),
+            ("created".into(), (!existed).to_string()),
+        ]);
+        insert_diff_metadata(&mut metadata, added_lines, removed_lines, &diff);
         Ok(ToolOutcome {
             summary,
             content: content_json.to_string(),
-            metadata: BTreeMap::from([
-                ("sha256".into(), digest.clone()),
-                ("path".into(), target.display().to_string()),
-                ("bytes".into(), bytes.to_string()),
-            ]),
+            metadata,
         })
     }
 }
@@ -337,6 +427,7 @@ impl AgentTool for EditFileTool {
         let replacements = if replace_all { occurrences } else { 1 };
         let before = sha256_hex(text.as_bytes());
         let after = sha256_hex(updated.as_bytes());
+        let (added_lines, removed_lines, diff) = line_diff(&text, &updated);
         let summary = format!(
             "已编辑 {}（{replacements} 处替换，sha256 {after}）",
             target.display()
@@ -347,17 +438,22 @@ impl AgentTool for EditFileTool {
             "bytes_before": text.len(),
             "bytes_after": updated.len(),
             "sha256_before": before,
-            "sha256_after": after
+            "sha256_after": after,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+            "diff": diff
         });
+        let mut metadata = BTreeMap::from([
+            ("sha256".into(), after.clone()),
+            ("sha256_before".into(), before),
+            ("path".into(), target.display().to_string()),
+            ("bytes".into(), updated.len().to_string()),
+        ]);
+        insert_diff_metadata(&mut metadata, added_lines, removed_lines, &diff);
         Ok(ToolOutcome {
             summary,
             content: content_json.to_string(),
-            metadata: BTreeMap::from([
-                ("sha256".into(), after.clone()),
-                ("sha256_before".into(), before),
-                ("path".into(), target.display().to_string()),
-                ("bytes".into(), updated.len().to_string()),
-            ]),
+            metadata,
         })
     }
 }
@@ -392,6 +488,18 @@ mod tests {
         .await
     }
 
+    #[test]
+    fn line_diff_previews_changed_lines() {
+        let (added, removed, diff) = line_diff("a\nb\nc\n", "a\nB\nc\n");
+        assert_eq!((added, removed), (1, 1));
+        assert!(diff.contains("-b"), "{diff}");
+        assert!(diff.contains("+B"), "{diff}");
+
+        let (added, removed, diff) = line_diff("", "x\ny\n");
+        assert_eq!((added, removed), (2, 0));
+        assert_eq!(diff, "+x\n+y\n");
+    }
+
     #[tokio::test]
     async fn writes_new_files_and_requires_overwrite() {
         let dir = tempfile::tempdir().unwrap();
@@ -403,6 +511,9 @@ mod tests {
         assert_eq!(outcome.metadata["sha256"], sha256_hex(b"first\n"));
         assert_eq!(outcome.metadata["path"], target.display().to_string());
         assert_eq!(outcome.metadata["bytes"], "6");
+        assert_eq!(outcome.metadata["added_lines"], "1");
+        assert_eq!(outcome.metadata["removed_lines"], "0");
+        assert_eq!(outcome.metadata["diff"], "+first\n");
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "first\n");
 
         let error = write(&tool, &target, "second\n", false).await.unwrap_err();
@@ -464,6 +575,10 @@ mod tests {
             sha256_hex(b"alpha beta alpha\n")
         );
         assert_eq!(outcome.metadata["bytes"], "17");
+        assert_eq!(outcome.metadata["added_lines"], "1");
+        assert_eq!(outcome.metadata["removed_lines"], "1");
+        assert!(outcome.metadata["diff"].contains("-alpha beta alpha"));
+        assert!(outcome.metadata["diff"].contains("+gamma beta gamma"));
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
             "gamma beta gamma\n"

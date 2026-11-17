@@ -24162,6 +24162,40 @@ fn append_work_events(
 
 fn work_tool_detail(call: &first_principles_agent::ToolCall) -> String {
     let mut detail = call.name.clone();
+    let path = call
+        .arguments
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    match call.name.as_str() {
+        "read_file" | "read_pdf" => {
+            if !path.is_empty() {
+                return format!("Read {}", bounded_tui_text(path, 120));
+            }
+        }
+        "search_files" => {
+            let query = call
+                .arguments
+                .get("query")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            let path = if path.is_empty() { "." } else { path };
+            return if query.is_empty() {
+                format!("List files in {}", bounded_tui_text(path, 120))
+            } else {
+                format!(
+                    "Search {} in {}",
+                    bounded_tui_text(query, 80),
+                    bounded_tui_text(path, 120)
+                )
+            };
+        }
+        "write_file" | "edit_file" if !path.is_empty() => {
+            return bounded_tui_text(path, 120);
+        }
+        _ => {}
+    }
     let key = match call.name.as_str() {
         "read_file" | "read_pdf" | "write_file" | "edit_file" => "path",
         "search_files" => "query",
@@ -24207,7 +24241,31 @@ fn work_tool_detail(call: &first_principles_agent::ToolCall) -> String {
     detail
 }
 
+fn file_change_detail(observation: &ToolObservation) -> Option<String> {
+    if observation.status != ToolStatus::Ok {
+        return None;
+    }
+    if !matches!(observation.tool.as_str(), "edit_file" | "write_file")
+        || !observation.metadata.contains_key("path")
+    {
+        return None;
+    }
+    let added = observation.metadata.get("added_lines")?;
+    let removed = observation.metadata.get("removed_lines")?;
+    let mut detail = format!("✓ +{added} -{removed}");
+    if let Some(diff) = observation.metadata.get("diff") {
+        for line in diff.lines() {
+            detail.push('\n');
+            detail.push_str(&sanitize_tui_inline(line));
+        }
+    }
+    Some(detail)
+}
+
 fn work_result_detail(observation: &ToolObservation) -> String {
+    if let Some(detail) = file_change_detail(observation) {
+        return detail;
+    }
     let summary = sanitize_tui_inline(&observation.summary);
     let mut detail = if observation.status == ToolStatus::Ok {
         if summary.is_empty() {
@@ -24349,14 +24407,14 @@ fn sanitize_tui_inline(value: &str) -> String {
 
 fn tool_activity_kind(name: &str) -> TuiActivityKind {
     match name {
-        "read_file" | "read_pdf" => TuiActivityKind::Reading,
+        "read_file" | "read_pdf" | "search_files" => TuiActivityKind::Exploring,
         "write_file" => TuiActivityKind::Writing,
-        "edit_file" => TuiActivityKind::Updating,
+        "edit_file" => TuiActivityKind::Editing,
         "terminal_create" => TuiActivityKind::Creating,
         "terminal_exec" | "terminal_write" | "terminal_output" | "terminal_destroy" => {
             TuiActivityKind::Bash
         }
-        "search_files" | "web_search" => TuiActivityKind::Searching,
+        "web_search" => TuiActivityKind::Searching,
         "fetch_url" | "browser_read" => TuiActivityKind::Fetching,
         "spawn_agent" => TuiActivityKind::Spawning,
         name if name.starts_with("mcp_") => TuiActivityKind::Querying,
@@ -26397,6 +26455,60 @@ mod tui_rendering_tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn work_tool_details_use_explored_and_edited_wording() {
+        let call = |name: &str, arguments: serde_json::Value| first_principles_agent::ToolCall {
+            id: "call-1".into(),
+            name: name.into(),
+            arguments,
+        };
+        assert_eq!(
+            work_tool_detail(&call(
+                "read_file",
+                serde_json::json!({"path": "src/main.rs"})
+            )),
+            "Read src/main.rs"
+        );
+        assert_eq!(
+            work_tool_detail(&call(
+                "search_files",
+                serde_json::json!({"query": "goHomeFilter", "path": "community-site.tsx"})
+            )),
+            "Search goHomeFilter in community-site.tsx"
+        );
+        assert_eq!(
+            work_tool_detail(&call(
+                "edit_file",
+                serde_json::json!({"path": "community-site.tsx"})
+            )),
+            "community-site.tsx"
+        );
+        assert_eq!(tool_activity_kind("read_file"), TuiActivityKind::Exploring);
+        assert_eq!(tool_activity_kind("edit_file"), TuiActivityKind::Editing);
+    }
+
+    #[test]
+    fn file_edits_render_a_bounded_diff_in_the_work_log() {
+        let observation = first_principles_agent::ToolObservation {
+            call_id: "call-1".into(),
+            tool: "edit_file".into(),
+            status: ToolStatus::Ok,
+            summary: "已编辑 /tmp/community-site.tsx".into(),
+            content: String::new(),
+            error_code: None,
+            metadata: std::collections::BTreeMap::from([
+                ("path".into(), "/tmp/community-site.tsx".into()),
+                ("added_lines".into(), "2".into()),
+                ("removed_lines".into(), "1".into()),
+                ("diff".into(), "-old line\n+new line\n+another line".into()),
+            ]),
+        };
+        assert_eq!(
+            work_result_detail(&observation),
+            "✓ +2 -1\n-old line\n+new line\n+another line"
+        );
     }
 
     #[test]
