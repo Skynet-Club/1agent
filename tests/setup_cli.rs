@@ -153,7 +153,7 @@ fn status_json_contract_on_unconfigured_home() {
 }
 
 #[test]
-fn help_advanced_lists_groups() {
+fn help_advanced_redirects_to_all_details() {
     let output = run(&["help", "advanced"]);
 
     assert!(
@@ -162,18 +162,9 @@ fn help_advanced_lists_groups() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    for group in [
-        "模型与路由",
-        "记忆与协作",
-        "信任与审计",
-        "运行与运维",
-        "多 Agent 与自治",
-        "技能与进化",
-        "协议与平台",
-        "评测与收据",
-    ] {
-        assert!(stdout.contains(group), "missing advanced group: {group}");
-    }
+    assert!(stdout.contains("高级命令详情已合并"));
+    assert!(stdout.contains("1agent help --all"));
+    assert!(stdout.contains("1agent help <分类>"));
 }
 
 #[test]
