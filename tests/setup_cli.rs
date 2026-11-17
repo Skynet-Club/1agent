@@ -270,7 +270,7 @@ fn permissions_show_and_set_are_config_backed() {
     let (_, shown) = run_json(&["permissions", "show", "--root", &home_arg, "--json"]);
     assert_eq!(shown["preset"], "safe");
     assert_eq!(shown["allow_write"], true);
-    assert_eq!(shown["allow_network"], false);
+    assert_eq!(shown["allow_network"], true);
 
     let (output, changed) = run_json(&[
         "permissions",

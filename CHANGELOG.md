@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0-rc.3 — 2026-11-18
+
+- Full-power defaults for local TUI and `run`: writes, terminal execution and
+  network tools are enabled without flags. `--no-network` disables network for
+  a run and `--read-only` disables writes; TUI `/permissions network off`
+  still applies to the next run. New installs default to `full-local`.
+- The TUI now honors the configured permission preset: a `full-local` config
+  with a stale `allow_network: false` field resolves to network on instead of
+  staying offline. Eval/benchmark keep explicit `--allow-network` for
+  reproducibility.
+- Security: default network widens prompt-injection egress; O1 `browser_read`
+  SSRF and O2 journal hash-chain residuals are called out in the release notes.
+  The rc.2 no-self-elevation rule remains.
+- Verification: `verify.sh` 1640 total / 0 failed / 13 ignored; TUI interaction
+  pass; claims 258 checked. Track Q rc.2 remains 99/100.
+
 ## 1.0.0-rc.2 — 2026-11-18
 
 - Permission UX fix (includes rc.1): the model can no longer promise to grant

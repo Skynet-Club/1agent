@@ -566,7 +566,7 @@ pub async fn run_setup(options: SetupOptions) -> Result<SetupReport, SetupError>
         .as_ref()
         .and_then(|config| config.permissions.as_ref())
         .map(|permissions| permissions.allow_network)
-        .unwrap_or(false);
+        .unwrap_or(true);
     let permissions = PermissionConfig {
         preset,
         read_roots: read_roots.clone(),

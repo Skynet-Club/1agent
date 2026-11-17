@@ -16,11 +16,11 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** Current code line: **1.0.0-rc.2** (2026-11-18, code-level release candidate, **not GA**). 0.99 code-level acceptance passed; Track Q is 99/100. Testing, feedback and contributions are welcome.  
+> **This project is under active development.** Current code line: **1.0.0-rc.3** (2026-11-18, code-level release candidate, **not GA**). 0.99 code-level acceptance passed; Track Q is 99/100. Testing, feedback and contributions are welcome.  
 > 1.0 status and blocked gates: [status-v1.0](docs/status-v1.0.md) · [code-complete plan](docs/1.0-code-complete-plan.md). External audit, real Windows/macOS GA, marketplace and R1–R9 metrics remain **blocked**; no GA claim.  
 > This line includes the 0.98 real-world/presence work and the 0.99 Goal/Action/Delegation kernels, plus QG1 goal-closure evidence and the Track Q safety/quality fixes.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> 1.0.0-rc.2 local candidate notes: [release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.2-draft.md)  
+> 1.0.0-rc.3 local candidate notes: [release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.3-draft.md)  
 > 0.97 features and entry points: [RELEASE_0.97.en.md](docs/release/RELEASE_0.97.en.md) · [feature matrix](docs/release/FEATURES-0.97.md)
 
 ---
@@ -31,7 +31,7 @@ Most agents hand you a polished drill recommendation.
 |---|---|
 | **Ask for the purpose** | Distinguish goals from means; ask the one question that can change the plan |
 | **Evidence first** | Journals, receipts and replay are product primitives; “done” without a journal is not done |
-| **Humans stay in control** | Local CLI/TUI enable writes and terminal execution by default; `--read-only` disables them; network requires `--allow-network`; irreversible actions need confirmation |
+| **Humans stay in control** | Local CLI/TUI run at full power by default: writes, terminal execution and network are on; `--read-only` disables writes and `--no-network` disables network; irreversible actions still need confirmation |
 | **Local-first** | One runtime home (`$HOME/.1a`); data can be exported and restored; no cloud account required |
 | **Provider-neutral** | Deterministic provider and OpenAI-compatible providers; models are replaceable and routing is explainable |
 | **Reversible** | Soft/hard memory forget, skill rollback and evolution rollback; changes can be undone |
@@ -185,7 +185,7 @@ The future is open and iterative: computer-use, voice/image understanding, autom
 
 ## Security and privacy
 
-- Local writes and terminal execution are enabled by default; `--read-only` disables them; network access and high-risk actions still require explicit authority.
+- Local writes, terminal execution and network access are enabled by default; `--read-only` disables writes, `--no-network` disables network; high-risk actions still require explicit authority.
 - Keys are referenced through environment variables or local key files and are not written to journals, reports or configuration.
 - Exports exclude key material; restore and migration are checked with SHA-256.
 - See repository [`SECURITY.md`](SECURITY.md), [`PRIVACY.md`](PRIVACY.md) and [Design Philosophy](docs/design-philosophy.en.md).

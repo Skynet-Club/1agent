@@ -14,8 +14,8 @@ use crate::runtime::ProviderCandidate;
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPreset {
     ReadOnly,
-    #[default]
     Safe,
+    #[default]
     FullLocal,
 }
 
@@ -66,15 +66,29 @@ impl PermissionPreset {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionConfig {
     #[serde(default)]
     pub preset: PermissionPreset,
     #[serde(default)]
     pub read_roots: Vec<PathBuf>,
-    #[serde(default)]
+    #[serde(default = "default_allow_network")]
     pub allow_network: bool,
+}
+
+impl Default for PermissionConfig {
+    fn default() -> Self {
+        Self {
+            preset: PermissionPreset::default(),
+            read_roots: Vec::new(),
+            allow_network: true,
+        }
+    }
+}
+
+fn default_allow_network() -> bool {
+    true
 }
 
 fn default_schema_version() -> u32 {
@@ -544,6 +558,12 @@ mod tests {
         let full = PermissionPreset::FullLocal.permission_set(Some(workspace), &[], false);
         assert!(full.allow_write);
         assert!(full.allow_network);
+
+        let default = PermissionConfig::default();
+        assert_eq!(default.preset, PermissionPreset::FullLocal);
+        assert!(default.allow_network);
+        let parsed: PermissionConfig = serde_json::from_str("{}").unwrap();
+        assert!(parsed.allow_network);
 
         assert_eq!(
             PermissionPreset::parse("read-only"),

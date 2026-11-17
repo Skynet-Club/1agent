@@ -244,7 +244,7 @@
 - **不是 Bot**：没有人格、Web/IM/Voice 界面、Companion Contract。
 - **不是多租户产品**：没有组织 IdP、租户隔离和第三方审计。
 - **不是“任意网站操作”工具**：只能渲染并读取页面，不能点击或截图。
-- **不是绕过授权**：本地写/执行默认开启；网络需 `--allow-network`，高风险动作仍受 Authority/Policy 和审批约束。
+- **不是绕过授权**：本地写/执行/网络默认开启；`--read-only` 关写、`--no-network` 关网，高风险动作仍受 Authority/Policy 和审批约束。
 
 ## 6. 相关文档
 

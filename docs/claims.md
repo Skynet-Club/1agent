@@ -309,7 +309,7 @@ file: <路径>              → 文件必须存在
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |
 | 目标 achieved 需要已验证 run 的独立验证记录；缺失/run 错配/自验/Rejected/Hacked 均失败关闭，旧 goal 日志仍可 replay | cmd: cargo test --test goal_cli && cargo test --lib goal | ✅ | 本地 VerificationStore JSONL；验证器独立性由 store 校验，不是签名审批信封；不读取答案正文 |
 | Track Q 最终 99/100：预算停止原因跟随答案状态；修复后高风险答案仍过 re-plan；日期 rubric 等价匹配；7 例质量/安全子集 7/7 | file: docs/evidence/0.99-acceptance/agent-loop-v1-final-2026-11-17/report.json | ✅ | 单次 DeepSeek 运行；残余 chat-19 简单聊天 2 次 provider call；非统计稳定性 |
-| 模型不能自我提权；TUI 用 `/permissions network on|off`、`/permissions write on|off`（下一次运行生效，无需重启）；网络拒绝错误与 `describe_self` 给出该命令；clarify 选项必须是人类可执行的 | cmd: cargo test --lib system_prompt_does_not_let_the_model_grant_permissions && cargo test --lib self_model_reports_only_available_tools_and_live_budgets && cargo test --lib network_permission_is_required_before_fetching | ✅ | 不自动改权限；仍需人类输入命令；只覆盖本机 TUI/headless 提示 |
+| 默认满血：本地 CLI/TUI 写入与网络开启；`--no-network` 关闭网络；TUI `/permissions network off` 仅影响下一次运行；模型不能自我提权，网络拒绝错误与 `describe_self` 给出准确命令；clarify 选项必须是人类可执行的 | cmd: cargo test --test cli_e2e tui_network_permission_defaults_on_and_no_network_disables_it && cargo test --lib system_prompt_does_not_let_the_model_grant_permissions && cargo test --lib self_model_reports_only_available_tools_and_live_budgets | ✅ | 不自动改权限；仍需人类输入命令；默认开网扩大提示注入外发面，O1/O2 仍为残余风险 |
 
 ## 覆盖率
 

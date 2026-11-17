@@ -117,8 +117,12 @@ enum Command {
         base_url: Option<String>,
         #[arg(long, env = "AGENT_API_KEY", hide_env_values = true)]
         api_key: Option<String>,
-        #[arg(long)]
+        /// Compatibility flag; network is enabled by default.
+        #[arg(long, hide = true)]
         allow_network: bool,
+        /// Disable network tools for this run (default: enabled).
+        #[arg(long)]
+        no_network: bool,
         #[arg(long, conflicts_with = "allow_write")]
         read_only: bool,
         #[arg(long, hide = true)]
@@ -208,8 +212,12 @@ enum Command {
         base_url: Option<String>,
         #[arg(long, env = "AGENT_API_KEY", hide_env_values = true)]
         api_key: Option<String>,
-        #[arg(long)]
+        /// Compatibility flag; network is enabled by default.
+        #[arg(long, hide = true)]
         allow_network: bool,
+        /// Disable network tools for this run (default: enabled).
+        #[arg(long)]
+        no_network: bool,
         #[arg(long, conflicts_with = "allow_write")]
         read_only: bool,
         #[arg(long, hide = true)]
@@ -6392,7 +6400,7 @@ fn permission_json(config: &AgentConfig) -> Value {
         json!({
             "preset": preset,
             "allow_write": true,
-            "allow_network": false,
+            "allow_network": true,
             "read_roots": [],
         })
     }
@@ -6554,6 +6562,7 @@ async fn main() -> Result<()> {
             base_url,
             api_key,
             allow_network,
+            no_network,
             read_only,
             allow_write: _allow_write,
             read_root,
@@ -6631,13 +6640,14 @@ async fn main() -> Result<()> {
             let resolved_permissions = loaded_config
                 .as_ref()
                 .and_then(|config| config.resolved_permissions());
-            request.permissions.allow_network = if allow_network {
-                true
-            } else {
+            let effective_network = resolve_allow_network(
+                allow_network,
+                no_network,
                 resolved_permissions
                     .as_ref()
-                    .is_some_and(|permissions| permissions.allow_network)
-            };
+                    .map(|permissions| permissions.allow_network),
+            );
+            request.permissions.allow_network = effective_network;
             request.permissions.allow_write = if read_only {
                 false
             } else {
@@ -6667,7 +6677,14 @@ async fn main() -> Result<()> {
             let (candidates, mut tools) = if let Some(config) = &loaded_config {
                 (config.build_providers(timeout)?, default_registry())
             } else {
-                build_runtime_parts(&provider, model, base_url, api_key, allow_network, timeout)?
+                build_runtime_parts(
+                    &provider,
+                    model,
+                    base_url,
+                    api_key,
+                    effective_network,
+                    timeout,
+                )?
             };
             if let Some(path) = mcp_config {
                 for tool in first_principles_agent::load_mcp_tools(&path).await? {
@@ -6821,6 +6838,7 @@ async fn main() -> Result<()> {
             base_url,
             api_key,
             allow_network,
+            no_network,
             read_only,
             allow_write: _allow_write,
             read_root,
@@ -6845,6 +6863,7 @@ async fn main() -> Result<()> {
                 base_url,
                 api_key,
                 allow_network,
+                no_network,
                 !read_only,
                 read_root,
                 journal_dir,
@@ -15369,6 +15388,16 @@ fn build_runtime_parts(
     Ok((vec![candidate], tools))
 }
 
+fn resolve_allow_network(cli_allow: bool, cli_no_network: bool, config: Option<bool>) -> bool {
+    if cli_no_network {
+        false
+    } else if cli_allow {
+        true
+    } else {
+        config.unwrap_or(true)
+    }
+}
+
 fn canonical_or_original(path: &PathBuf) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.clone())
 }
@@ -16615,6 +16644,7 @@ async fn run_tui(
     base_url: Option<String>,
     api_key: Option<String>,
     allow_network: bool,
+    no_network: bool,
     allow_write: bool,
     read_root: Vec<PathBuf>,
     journal_dir: PathBuf,
@@ -16687,9 +16717,23 @@ async fn run_tui(
         timeout_seconds
     };
     let timeout = Duration::from_secs(provider_timeout_seconds.max(1));
+    let loaded_config = config_path.as_ref().map(AgentConfig::load).transpose()?;
+    let config_permissions = loaded_config
+        .as_ref()
+        .and_then(|config| config.resolved_permissions());
+    let allow_network = resolve_allow_network(
+        allow_network,
+        no_network,
+        config_permissions
+            .as_ref()
+            .map(|permissions| permissions.allow_network),
+    );
+    let allow_write = allow_write
+        && config_permissions
+            .as_ref()
+            .is_none_or(|permissions| permissions.allow_write);
     let (provider_label, mut candidates, mut tools, provider_sources) =
-        if let Some(config_path) = config_path {
-            let config = AgentConfig::load(&config_path)?;
+        if let Some(config) = loaded_config {
             let provider_sources = provider_sources_from_config(&config);
             let label = config
                 .manifests()?
@@ -24867,6 +24911,15 @@ mod tui_rendering_tests {
     use async_trait::async_trait;
     use first_principles_agent::subagent_registry::SubagentStatus;
     use first_principles_agent::{CognitiveMode, RiskLevel};
+
+    #[test]
+    fn network_defaults_on_and_explicit_opt_outs_win() {
+        assert!(resolve_allow_network(false, false, None));
+        assert!(resolve_allow_network(false, false, Some(true)));
+        assert!(!resolve_allow_network(false, false, Some(false)));
+        assert!(resolve_allow_network(true, false, Some(false)));
+        assert!(!resolve_allow_network(true, true, Some(true)));
+    }
 
     #[test]
     fn natural_supervision_message_requires_an_explicit_task_target() {

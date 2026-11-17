@@ -93,7 +93,31 @@ provider/model sample, so the residual moved rather than disappeared. Evidence:
 `docs/evidence/1.0-local-qa-2026-11-17/agent-loop-v1-rc2-2026-11-18/` and
 `verify-1.0.0-rc.2.log`.
 
-## 9. Not covered
+## 9. rc.3 full-power defaults (2026-11-18)
+
+Local TUI and `run` now enable writes, terminal execution and network by
+default. `--no-network` and `--read-only` are the explicit opt-outs; the TUI
+still applies `/permissions network off|on` to the next run only.
+
+The TUI previously ignored the configured permission preset. A `full-local`
+config with a stale `allow_network: false` field stayed offline. The TUI now
+resolves the preset through `AgentConfig::resolved_permissions`, so
+`full-local` means network on. New installs default to `full-local`; explicit
+`safe`/`read-only` configs keep their gate. `eval`/`benchmark-run` keep their
+explicit `--allow-network` flag so benchmark inputs stay reproducible.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1640 total, 0 failed, 13 ignored |
+| claims table | well-formed; 258 checked (234 verified / 16 partial / 8 no evidence) |
+| TUI interaction | **pass** (real provider; two-Ctrl+Q quit) |
+| Default/opt-out e2e | `tui_network_permission_defaults_on_and_no_network_disables_it` pass, including stale `full-local` + `allow_network:false` |
+
+Security note: default network widens the prompt-injection egress surface;
+O1 (`browser_read` SSRF) and O2 (journal hash chain) remain open. Evidence:
+`verify-1.0.0-rc.3.log`, `tui-interaction-rc.3.log`.
+
+## 10. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

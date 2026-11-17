@@ -10,17 +10,19 @@ means the evidence does not exist on this host.
 
 0.99 QG1 is fixed (goal closure requires a stored verification record); the
 rc.2 Track Q run is **99/100** with one named efficiency residual (`intro-20`).
-The 1.0 code-level candidate passes the local software gates; rc.2 adds the TUI
-permission UX fix and is packaged as Linux `1.0.0-rc.2` from tag
-`v1.0.0-rc.2`. External audit, real Windows/macOS GA, marketplace
+The 1.0 code-level candidate passes the local software gates; rc.3 makes local
+TUI/`run` full-power by default (network and writes on, `--no-network` /
+`--read-only` opt-outs) and packages as Linux `1.0.0-rc.3` from tag
+`v1.0.0-rc.3`. External audit, real Windows/macOS GA, marketplace
 responsibility and R1–R9 real-user metrics remain **blocked**; no GA claim.
 
 ## 1. Local evidence
 
 | Check | Current result | Evidence |
 |---|---|---|
-| `./scripts/verify.sh` | **pass**; 1638 total, 0 failed, 13 ignored, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify-1.0.0-rc.2.log` |
+| `./scripts/verify.sh` | **pass**; 1640 total, 0 failed, 13 ignored, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify-1.0.0-rc.3.log` |
 | Track Q `agent-loop-v1` | **99/100** (rc.2); 0 hard-gate; audit/replay 100/100; rubric 20/20; residual `intro-20` efficiency | `docs/evidence/1.0-local-qa-2026-11-17/agent-loop-v1-rc2-2026-11-18/` |
+| Default permissions | rc.3 full-power: network and writes on; `--no-network`/`--read-only` opt-outs; TUI honors configured `full-local` | `tui_network_permission_defaults_on_and_no_network_disables_it` |
 | QG1 goal closure | pass; negative cases covered | `docs/evidence/0.99-qg1-verification/README.md`, ADR-0147 |
 | QG2 action chain | pass; reconciliation is on-demand | `docs/evidence/0.99-acceptance/README.md` §3 |
 | QG3 spawn lineage | pass with named residuals | `docs/evidence/0.99-acceptance/README.md` §3 |
@@ -28,7 +30,7 @@ responsibility and R1–R9 real-user metrics remain **blocked**; no GA claim.
 | Windows GNU check/link | **pass**; `.exe` SHA-256 `535eb260…` | `docs/evidence/platform-1.0-2026-11-17.md` |
 | macOS | **blocked** by host C toolchain (`ring/cc`) | same |
 | HTTP surface e2e | **pass** | `docs/evidence/1.0-local-qa-2026-11-17/http-e2e.log` |
-| TUI interaction | **pass** (real provider; two Ctrl+Q quit) | `docs/evidence/1.0-local-qa-2026-11-17/tui-interaction.log` |
+| TUI interaction | **pass** (real provider; two Ctrl+Q quit) | `docs/evidence/1.0-local-qa-2026-11-17/tui-interaction-rc.3.log` |
 | 5-cycle soak | **pass** | `docs/evidence/1.0-local-qa-2026-11-17/soak.log` |
 | `release-check.sh` | fmt/clippy/tests/http pass; `ci.sh` blocked at attribution history | `docs/evidence/1.0-local-qa-2026-11-17/release-check.log` |
 | Local package | `1.0.0-rc.2` Linux tar, `reproducible=true`, archive SHA `52d45aa5…`, binary `6fd90537…`; SHA256SUMS/version/doctor/install smoke pass | `docs/evidence/release-1.0.0-rc.2-2026-11-18.md` |

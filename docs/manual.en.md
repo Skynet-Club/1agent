@@ -262,7 +262,8 @@ Common limits:
 | `--timeout-seconds` | 120 | Per-run timeout |
 | `--max-context-tokens` | 1000000 | Context token budget; auto-compact at 786,432 |
 | `--read-root` | current directory | Read-only root; repeatable |
-| `--allow-network` | off | Allow provider network access |
+| `--allow-network` | on (compatibility) | Network tools are on by default; kept for old scripts |
+| `--no-network` | off | Disable network tools for this run |
 
 ## 6. Sessions and workspace
 
@@ -350,7 +351,7 @@ export SURFACE_TOKEN="$(openssl rand -hex 32)"
 |---|---|
 | `1agent: command not found` | Ensure `$HOME/.local/bin` is in `PATH` |
 | Provider credentials not ready | `1agent providers --config configs/example.json --check` |
-| Network request denied | Add `--allow-network` and verify the endpoint |
+| Network request denied | Network is on by default; if disabled, remove `--no-network` (TUI: `/permissions network on`) and verify the endpoint |
 | File read denied | Use `--read-root` or switch the workspace in `/workspace` |
 | TUI rendering issues | Use a real terminal; Linux x86_64 is the validated platform |
 | doctor reports journal/home issues | Stop writers, then run `1agent doctor`; do not edit hash chains |

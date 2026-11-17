@@ -282,6 +282,53 @@ fn cli_tui_epistemic_commands_bind_results_to_journal_evidence() {
 }
 
 #[test]
+fn tui_network_permission_defaults_on_and_no_network_disables_it() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let run = |extra: &[&str]| {
+        let journal_dir = workspace.path().join(format!("journal-{}", extra.len()));
+        let mut child = Command::new(binary)
+            .env("ONEAGENT_HOME", workspace.path().join("home"))
+            .args(["tui", "--journal-dir", &journal_dir.display().to_string()])
+            .args(extra)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"/permissions show\n/quit\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    assert!(run(&[]).contains("网络访问：允许"));
+    assert!(run(&["--no-network"]).contains("网络访问：禁止"));
+
+    let config = workspace.path().join("config.json");
+    std::fs::write(
+        &config,
+        r#"{
+            "schema_version": 2,
+            "permissions": {"preset": "full-local", "allow_network": false},
+            "providers": [{"id": "deterministic", "adapter": "deterministic", "model": "offline-v1"}]
+        }"#,
+    )
+    .unwrap();
+    let config_arg = config.display().to_string();
+    assert!(run(&["--config", config_arg.as_str()]).contains("网络访问：允许"));
+}
+
+#[test]
 fn cli_tui_model_permissions_and_tools_are_inspectable_and_controllable() {
     let workspace = tempfile::tempdir().unwrap();
     let journal_dir = workspace.path().join("journal");

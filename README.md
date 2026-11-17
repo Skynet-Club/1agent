@@ -18,12 +18,12 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 当前代码线 **1.0.0-rc.2**（2026-11-18，code-level release candidate，**不是 GA**）；0.99 code-level 验收通过，Track Q 99/100。  
+> **项目仍在持续开发。** 当前代码线 **1.0.0-rc.3**（2026-11-18，code-level release candidate，**不是 GA**）；0.99 code-level 验收通过，Track Q 99/100。  
 > 1.0 状态与阻塞项：[status-v1.0](docs/status-v1.0.md) · [code-complete plan](docs/1.0-code-complete-plan.md)。  
 > 外部审计、真实 Windows/macOS GA、marketplace 与 R1–R9 用户指标仍 **blocked**；不宣称 GA。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
 > 0.97 证据与入口：[RELEASE_0.97.md](docs/release/RELEASE_0.97.md) · [0.97 功能矩阵](docs/release/FEATURES-0.97.md)  
-> 1.0.0-rc.2 本地候选说明：[release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.2-draft.md)
+> 1.0.0-rc.3 本地候选说明：[release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.3-draft.md)
 
 ---
 
@@ -33,7 +33,7 @@
 |---|---|
 | **先问目的** | 区分“目标”与“手段”；必要时只问一个能改变方案的问题 |
 | **证据优先** | journal、receipt、replay 是产品原语；没有 journal 的“完成”不算完成 |
-| **人在回路** | 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭；网络需 `--allow-network`；不可逆动作逐次确认 |
+| **人在回路** | 本地 CLI/TUI 默认满血：文件写入、终端执行和网络开启；`--read-only` 关闭写入，`--no-network` 关闭网络；不可逆动作逐次确认 |
 | **本地优先** | 单一 runtime home（`$HOME/.1a`）；数据可导出、可恢复；不要求云账户 |
 | **Provider 中立** | 确定性 provider、OpenAI-compatible provider；模型可替换，路由可解释 |
 | **可逆** | 记忆软/硬遗忘、技能回滚、进化回滚；变更必须能撤回 |
@@ -196,7 +196,7 @@ Headless 运行：
 
 ## 安全与隐私
 
-- 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭；网络和外部副作用仍需显式授权。
+- 本地 CLI/TUI 默认满血：文件写入、终端执行和网络开启；`--read-only` 关闭写入，`--no-network` 关闭网络；高风险和不可逆动作仍需显式授权。
 - 密钥通过环境变量或本地密钥文件引用，不写入 journal、报告或配置。
 - 导出包不包含密钥材料；恢复和迁移有 SHA-256 校验。
 - 详细边界见仓库 `SECURITY.md`、`PRIVACY.md` 和 [DESIGN.md](docs/design-philosophy.md)。

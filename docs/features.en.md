@@ -241,7 +241,7 @@ The local CLI/TUI allows file writes and terminal execution by default. With Sky
 - **Not Bot**: no persona, Web/IM/Voice UX or Companion Contract.
 - **Not multi-tenant**: no organization IdP, tenant isolation or third-party audit.
 - **Not an “operate any website” tool**: it can render and read pages, not click or take screenshots.
-- **Not an authorization bypass**: local writes/execution are on by default; network needs `--allow-network`, and high-risk actions still pass Authority/Policy and approvals.
+- **Not an authorization bypass**: local writes, execution and network are on by default; `--read-only` disables writes and `--no-network` disables network, while high-risk actions still pass Authority/Policy and approvals.
 
 ## 6. Related documentation
 

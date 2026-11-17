@@ -210,7 +210,7 @@ Provider 告警历史：
 | `Ctrl+Q` | 连按两次退出；第一次提示，`Esc` 或 `Enter` 取消。外层终端占用 `Ctrl+Q` 时用 `F10`、`Alt+Q` 或 `/quit` |
 | `Ctrl+C` | 复制选中文本 |
 
-> 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭。最终是否执行仍由 Authority/Policy 和 Workshop 决定。网络默认关闭；TUI 用 `/permissions network on`（下一次运行生效，无需重启），headless 用 `--allow-network`。
+> 本地 CLI/TUI 默认满血：文件写入、终端执行和网络开启；`--read-only` 关闭写入，`--no-network` 关闭网络。最终是否执行仍由 Authority/Policy 和 Workshop 决定。TUI 内 `/permissions network off|on` 只影响下一次运行，无需重启。
 
 会话输入框使用深绿色面板：背景、边框与面板文字整体压暗 50%；输入内容保持白色。宽度足够时，token 指标嵌在输入框顶部边框的右侧：
 
@@ -337,7 +337,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | `/config` | TUI 配置 |
 | `/reframe` | 判断目的/手段，必要时追问 |
 
-`/permissions network on|off` 和 `/permissions write on|off` **只影响下一次运行**，不需要重启 TUI。模型不能给自己提权；需要联网时按提示运行 `/permissions network on`，再重试任务。headless 运行才使用 `--allow-network`。
+`/permissions network on|off` 和 `/permissions write on|off` **只影响下一次运行**，不需要重启 TUI。网络默认开启；需要关闭时用 `/permissions network off` 或启动参数 `--no-network`。模型不能给自己提权。
 
 破坏性命令（`/clear`、非 dry-run 的 `/dispatch`、`/control cancel`、`/control takeover`）需要第二次 Enter 确认；其他输入会取消确认。
 
@@ -375,7 +375,8 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | `--timeout-seconds` | 120 | 单次运行超时 |
 | `--max-context-tokens` | 1000000 | 上下文 token 预算；达到 786,432 自动压缩 |
 | `--read-root` | 当前目录 | 允许读写的根目录，可重复 |
-| `--allow-network` | 关闭 | 允许 provider 网络访问 |
+| `--allow-network` | 开启（兼容保留） | 网络工具默认开启；该参数保留用于旧脚本 |
+| `--no-network` | 关闭 | 关闭本轮网络工具 |
 | `--read-only` | 关闭 | 关闭文件写入和终端执行 |
 | `--allow-write` | 兼容保留 | 默认已开启；与 `--read-only` 互斥 |
 
@@ -398,7 +399,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | `preview_file` | 在 `127.0.0.1` 起本地静态预览并自检 HTTP 200，返回可点击 URL；进程退出即停止 |
 | `read_pdf` | 调用系统 `pdftotext` 抽取 PDF 文本；受读根、符号链接和控制字符约束 |
 | `search_files` | 在读根内搜索文本；跳过不安全文件 |
-| `fetch_url` | 只读抓取公网 HTTPS 页面并抽取正文；需要 `--allow-network` |
+| `fetch_url` | 只读抓取公网 HTTPS 页面并抽取正文；网络默认开启，`--no-network` 可关闭 |
 | `web_search` | 公网搜索，返回最多 8 条标题/URL/摘要；Bing RSS 尽力而为，可能限流 |
 | `browser_read` | 无头 Chrome 渲染公网 HTTPS 页面并抽取正文；只读，不支持点击/输入 |
 | `browser` | CDP 浏览器沙箱：open/navigate/read/click/type/press/screenshot/close；按钮/提交/跨域或下载链接/密码输入/Enter 返回 `approval_required`，人工用 `browser approve` 后带 `approval_id` 重试 |
@@ -602,7 +603,7 @@ export SURFACE_TOKEN="$(openssl rand -hex 32)"
 |---|---|
 | `1agent: command not found` | 确认 `$HOME/.local/bin` 在 `PATH` |
 | provider 凭据未就绪 | `1agent providers --config configs/example.json --check` |
-| 网络请求被拒绝 | TUI 内运行 `/permissions network on`（下一次运行生效，无需重启）；headless 加 `--allow-network`；并确认端点可信 |
+| 网络请求被拒绝 | 网络默认开启；若被关闭，TUI 内运行 `/permissions network on`（下一次运行生效，无需重启），headless 去掉 `--no-network`；并确认端点可信 |
 | 文件读取被拒绝 | 使用 `--read-root` 指向授权目录；TUI 在 `/workspace` 中切换 |
 | TUI 显示异常 | 使用真实终端；当前只保证 Linux x86_64 |
 | TUI 闪退 | 查看 `$HOME/.1a/tui-crash.log`；记录复现时的粘贴内容、退格/空格/鼠标操作和终端尺寸 |

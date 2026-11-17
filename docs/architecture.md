@@ -909,7 +909,7 @@ Rejected outcomes; Verified outcomes are not surfaced.
   tasks and memory references; stale fingerprints miss and rebuild, and the
   graph remains a projection rather than a second source of truth.
 - Execute-mode requests stop at `needs_authorization` without calling a provider.
-- Provider network access requires explicit `--allow-network`.
+- Network tools are enabled by default for local CLI/TUI runs; `--no-network` disables them for a run. Provider credentials still require HTTPS outside loopback.
 - API keys are read from an environment variable or hidden CLI option and are not journaled.
 - Non-loopback provider credentials require HTTPS; plaintext HTTP is limited to loopback development.
 - Release verification fails closed on dirty source, missing artifact roles, digest drift,
