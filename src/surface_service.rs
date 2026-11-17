@@ -1385,6 +1385,9 @@ fn map_goal_error(error: GoalError) -> SurfaceError {
         | GoalError::RunAlreadyBound { .. }
         | GoalError::InsufficientEvidence { .. }
         | GoalError::EvidenceRunNotLinked { .. }
+        | GoalError::MissingVerification { .. }
+        | GoalError::VerificationRunMismatch { .. }
+        | GoalError::InvalidVerificationEvidence { .. }
         | GoalError::OpenCommitmentsRemain { .. }
         | GoalError::OpenCommitmentUnlisted { .. }
         | GoalError::CommitmentGoalMismatch { .. }

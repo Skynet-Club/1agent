@@ -3021,6 +3021,12 @@ enum GoalCommand {
         run: Option<String>,
         #[arg(long, default_value = "unknown", value_parser = ["passed", "failed", "unknown"])]
         verification: String,
+        /// Verification record that proves the linked run passed. Required for
+        /// an achieved closure; the record is read from this store.
+        #[arg(long, default_value_os_t = home_or_legacy("verification.jsonl", ".1a/verification.jsonl"))]
+        verification_store: PathBuf,
+        #[arg(long)]
+        verification_id: Option<String>,
         #[arg(long = "open-commitment")]
         open_commitments: Vec<String>,
         #[arg(long)]
@@ -9148,6 +9154,8 @@ async fn main() -> Result<()> {
                 reason,
                 run,
                 verification,
+                verification_store,
+                verification_id,
                 open_commitments,
                 json,
             } => {
@@ -9158,12 +9166,76 @@ async fn main() -> Result<()> {
                     "abandoned" => first_principles_agent::GoalClosure::Abandoned,
                     other => bail!("unknown closure '{other}'"),
                 };
-                let verification = match verification.as_str() {
+                let verification_flag = verification;
+                let mut verification = match verification_flag.as_str() {
                     "passed" => first_principles_agent::GoalVerification::Passed,
                     "failed" => first_principles_agent::GoalVerification::Failed,
                     "unknown" => first_principles_agent::GoalVerification::Unknown,
                     other => bail!("unknown verification '{other}'"),
                 };
+                let verification_evidence =
+                    if closure == first_principles_agent::GoalClosure::Achieved {
+                        let verification_id = verification_id.context(
+                            "achieved closure requires --verification-id from a verification store",
+                        )?;
+                        let run_id = run.as_deref().context(
+                            "achieved closure requires --run with the verified answer run",
+                        )?;
+                        let verification_store_path = verification_store;
+                        let verification_db =
+                            first_principles_agent::verification_store::VerificationStore::open(
+                                &verification_store_path,
+                            )
+                            .with_context(|| {
+                                format!(
+                                    "open verification store {}",
+                                    verification_store_path.display()
+                                )
+                            })?;
+                        let record = verification_db
+                            .records()
+                            .iter()
+                            .find(|record| record.verification_id == verification_id)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "verification record '{verification_id}' not found in {}",
+                                    verification_store_path.display()
+                                )
+                            })?;
+                        if record.run_id != run_id {
+                            bail!(
+                                "verification '{}' belongs to run {}, not {}",
+                                record.verification_id,
+                                record.run_id,
+                                run_id
+                            );
+                        }
+                        if record.report.outcome
+                            != first_principles_agent::verification::VerificationOutcome::Verified
+                        {
+                            bail!(
+                                "verification '{}' is {:?}, not verified",
+                                record.verification_id,
+                                record.report.outcome
+                            );
+                        }
+                        if verification_flag == "failed" {
+                            bail!(
+                                "--verification failed contradicts verified record '{}'",
+                                record.verification_id
+                            );
+                        }
+                        verification = first_principles_agent::GoalVerification::Passed;
+                        Some(first_principles_agent::GoalVerificationEvidence {
+                            verification_id: record.verification_id.clone(),
+                            run_id: record.run_id.clone(),
+                            executor_id: record.report.executor_id.clone(),
+                            verifier_id: record.report.verifier_id.clone(),
+                            verified_at_ms: record.at_ms,
+                        })
+                    } else {
+                        None
+                    };
                 first_principles_agent::close_goal_with_evidence(
                     &mut store,
                     &goal_id,
@@ -9171,6 +9243,7 @@ async fn main() -> Result<()> {
                         closure,
                         answer_run_id: run,
                         verification,
+                        verification_evidence,
                         open_commitment_ids: open_commitments,
                         reason,
                     },

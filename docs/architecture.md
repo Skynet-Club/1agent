@@ -401,16 +401,19 @@ Rejected outcomes; Verified outcomes are not surfaced.
   idempotent. Legacy goal logs and snapshots replay without binding fields.
   `SessionMission.goal_id` is the explicit session-side link; legacy sessions
   normalize it to their mission id on load. `close_goal_with_evidence` admits
-  `achieved` only when the answer run is linked to the goal and verification
-  passed; `abandoned` requires a reason and cancels every enumerated pending
-  commitment in the same hash-chained append. Commitments are
-  `pending -> kept|missed|cancelled` (terminal); a ticket can be linked once
-  to a pending commitment, re-linking the same ticket is idempotent, and a
-  different ticket or a closed commitment is rejected. `1agent goal
-  status|link|close` reads the same log: status prints goals/commitments/
-  bindings, link binds a session and/or attributes a run, and close applies
-  the evidence gate (achieved needs a linked run + passed verification;
-  abandoned lists and cancels pending commitments).
+  `achieved` only when the answer run is linked to the goal, verification
+  passed, and a `GoalVerificationEvidence` record with a matching run id and
+  distinct executor/verifier is stored in the hash-chained event; the
+  CLI reads that record from `VerificationStore` via
+  `--verification-store`/`--verification-id`. `abandoned` requires a reason and
+  cancels every enumerated pending commitment in the same hash-chained append.
+  Commitments are `pending -> kept|missed|cancelled` (terminal); a ticket can be
+  linked once to a pending commitment, re-linking the same ticket is
+  idempotent, and a different ticket or a closed commitment is rejected.
+  `1agent goal status|link|close` reads the same log: status prints goals/
+  commitments/bindings, link binds a session and/or attributes a run, and close
+  applies the evidence gate (achieved needs a linked run + stored verified
+  record; abandoned lists and cancels pending commitments).
 - `attention_candidates`: deterministic, read-only projections over due, overdue and
   missed commitments plus due goals; fixed urgency ordering and a caller budget.
 - `DelegationRegistry`: observe/suggest/draft/ask/act_and_report profiles intersected with

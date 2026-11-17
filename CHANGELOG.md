@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Goal closure evidence: `goal close --closure achieved` now requires a
+  `--verification-id` from a `VerificationStore`; the record must belong to the
+  linked answer run and be `Verified`, with distinct executor and verifier.
+  `GoalOutcome`/`GoalStatusChanged` carry the verification provenance, and a
+  missing, mismatched, self-verified, rejected or hacked record fails closed.
+  Old goal logs remain readable. See ADR-0147,
+  `docs/evidence/0.99-qg1-verification/README.md`.
+
 ## 0.97.0 — 2026-11-14
 
 - Safety and packaging review: an independent code-level audit found no P0 and

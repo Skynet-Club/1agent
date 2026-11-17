@@ -307,6 +307,7 @@ file: <路径>              → 文件必须存在
 | 菜单项只来自已注册命令 | test: every_entry_carries_a_real_command_name | ✅ | 只证明在注册表内；`implemented` 标志恒为 true，见下方缺陷 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |
 | 需求重构带来的成本下降 | 无 | ❌ | 未做对照实验 |
+| 目标 achieved 需要已验证 run 的独立验证记录；缺失/run 错配/自验/Rejected/Hacked 均失败关闭，旧 goal 日志仍可 replay | cmd: cargo test --test goal_cli && cargo test --lib goal | ✅ | 本地 VerificationStore JSONL；验证器独立性由 store 校验，不是签名审批信封；不读取答案正文 |
 
 ## 覆盖率
 

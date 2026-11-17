@@ -146,7 +146,7 @@
 
 | 能力 | 状态 | 当前边界 |
 |---|---|---|
-| Goal / Commitment | 可用（RC） | 状态机、持久化、Commitment→Ticket 关联；依赖/证据/Recurrence 仍在补齐 |
+| Goal / Commitment | 可用（RC） | 状态机、持久化、Commitment→Ticket 关联；`achieved` 必须携带 `VerificationStore` 中已验证的 `--verification-id`（run 匹配、executor≠verifier），证据写入 goal log；依赖/Recurrence 仍在补齐 |
 | Attention | 基础可用 | 确定性截止提醒、预算、去重、snooze；全量候选/Digest 研发中 |
 | PersonalContextGraph | MVP | 从 Goal/Commitment/Ticket/Thread/Memory 只读重建；跨端/大规模压测未做 |
 | DelegationProfile | 可用（模块） | observe/suggest/draft/ask/act-and-report；运行时接线和真实动作域仍有限 |

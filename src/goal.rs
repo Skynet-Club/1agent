@@ -60,6 +60,18 @@ pub enum GoalError {
     InsufficientEvidence { goal_id: String, reason: String },
     #[error("run {run_id} is not linked to goal {goal_id}")]
     EvidenceRunNotLinked { run_id: String, goal_id: String },
+    #[error("goal {goal_id} cannot be achieved without a verification record for run {run_id}")]
+    MissingVerification { goal_id: String, run_id: String },
+    #[error(
+        "verification {verification_id} belongs to run {evidence_run_id}, not goal run {answer_run_id}"
+    )]
+    VerificationRunMismatch {
+        verification_id: String,
+        evidence_run_id: String,
+        answer_run_id: String,
+    },
+    #[error("verification evidence for goal {goal_id} is invalid: {reason}")]
+    InvalidVerificationEvidence { goal_id: String, reason: String },
     #[error("goal {goal_id} still has open commitments: {commitment_ids:?}")]
     OpenCommitmentsRemain {
         goal_id: String,
@@ -182,9 +194,23 @@ pub enum GoalVerification {
     Unknown,
 }
 
-/// Evidence for closing a goal. `achieved` needs a run linked to the goal and
-/// a passed verification; `abandoned` needs a reason and must enumerate every
-/// pending commitment, which is cancelled in the same hash-chained log.
+/// Provenance of the independent verification that justifies an achieved goal.
+/// The goal log stores these identifiers so replay does not need the
+/// verification store; a closure without this evidence fails closed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GoalVerificationEvidence {
+    pub verification_id: String,
+    pub run_id: String,
+    pub executor_id: String,
+    pub verifier_id: String,
+    pub verified_at_ms: u128,
+}
+
+/// Evidence for closing a goal. `achieved` needs a run linked to the goal,
+/// a passed verification, and the verification record that proves it;
+/// `abandoned` needs a reason and must enumerate every pending commitment,
+/// which is cancelled in the same hash-chained log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct GoalOutcome {
@@ -192,6 +218,8 @@ pub struct GoalOutcome {
     #[serde(default)]
     pub answer_run_id: Option<String>,
     pub verification: GoalVerification,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_evidence: Option<GoalVerificationEvidence>,
     #[serde(default)]
     pub open_commitment_ids: Vec<String>,
     pub reason: String,
@@ -218,6 +246,8 @@ pub enum GoalEventKind {
         goal_id: String,
         status: GoalStatus,
         reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        verification_evidence: Option<GoalVerificationEvidence>,
     },
     GoalSessionBound {
         goal_id: String,
@@ -378,6 +408,7 @@ impl GoalGraph {
                 goal_id: goal_id.into(),
                 status,
                 reason: reason.into(),
+                verification_evidence: None,
             },
             now_ms,
         )
@@ -547,11 +578,44 @@ impl GoalGraph {
                         commitment_ids: pending,
                     });
                 }
+                let evidence = outcome.verification_evidence.as_ref().ok_or_else(|| {
+                    GoalError::MissingVerification {
+                        goal_id: goal_id.into(),
+                        run_id: run_id.into(),
+                    }
+                })?;
+                if evidence.verification_id.trim().is_empty() {
+                    return Err(GoalError::InvalidVerificationEvidence {
+                        goal_id: goal_id.into(),
+                        reason: "verification id is empty".into(),
+                    });
+                }
+                if evidence.run_id != run_id {
+                    return Err(GoalError::VerificationRunMismatch {
+                        verification_id: evidence.verification_id.clone(),
+                        evidence_run_id: evidence.run_id.clone(),
+                        answer_run_id: run_id.into(),
+                    });
+                }
+                if evidence.executor_id.trim().is_empty() || evidence.verifier_id.trim().is_empty()
+                {
+                    return Err(GoalError::InvalidVerificationEvidence {
+                        goal_id: goal_id.into(),
+                        reason: "executor and verifier ids must be non-empty".into(),
+                    });
+                }
+                if evidence.executor_id == evidence.verifier_id {
+                    return Err(GoalError::InvalidVerificationEvidence {
+                        goal_id: goal_id.into(),
+                        reason: "executor and verifier must differ".into(),
+                    });
+                }
                 self.append(
                     GoalEventKind::GoalStatusChanged {
                         goal_id: goal_id.into(),
                         status: GoalStatus::Achieved,
                         reason: outcome.reason,
+                        verification_evidence: Some(evidence.clone()),
                     },
                     now_ms,
                 )
@@ -587,6 +651,7 @@ impl GoalGraph {
                         goal_id: goal_id.into(),
                         status: GoalStatus::Abandoned,
                         reason,
+                        verification_evidence: None,
                     },
                     now_ms,
                 )
@@ -1117,6 +1182,16 @@ fn hash_event(event: &GoalEvent) -> Result<String, GoalError> {
 mod tests {
     use super::*;
 
+    fn verification_evidence(run_id: &str) -> GoalVerificationEvidence {
+        GoalVerificationEvidence {
+            verification_id: format!("verification-{run_id}"),
+            run_id: run_id.into(),
+            executor_id: "executor-1".into(),
+            verifier_id: "verifier-1".into(),
+            verified_at_ms: 99,
+        }
+    }
+
     #[test]
     fn goal_and_commitment_lifecycle_replays() {
         let mut graph = GoalGraph::default();
@@ -1368,6 +1443,7 @@ mod tests {
             closure: GoalClosure::Achieved,
             answer_run_id: Some("run-1".into()),
             verification: GoalVerification::Passed,
+            verification_evidence: Some(verification_evidence("run-1")),
             open_commitment_ids: Vec::new(),
             reason: "tests and artifacts verified".into(),
         };
@@ -1395,6 +1471,7 @@ mod tests {
                 closure: GoalClosure::Achieved,
                 answer_run_id: run.map(str::to_string),
                 verification,
+                verification_evidence: None,
                 open_commitment_ids: open.iter().map(|id| id.to_string()).collect(),
                 reason: reason.into(),
             }
@@ -1496,6 +1573,7 @@ mod tests {
             closure: GoalClosure::Abandoned,
             answer_run_id: None,
             verification: GoalVerification::Unknown,
+            verification_evidence: None,
             open_commitment_ids: open.iter().map(|id| id.to_string()).collect(),
             reason: reason.into(),
         };
@@ -1561,6 +1639,72 @@ mod tests {
     }
 
     #[test]
+    fn close_with_evidence_requires_matching_independent_verification() {
+        fn graph() -> GoalGraph {
+            let mut graph = GoalGraph::default();
+            graph
+                .create_goal("goal-1", "owner-1", "ship", None, 1)
+                .unwrap();
+            graph.link_run("goal-1", "run-1", 2).unwrap();
+            graph
+        }
+        let base = GoalOutcome {
+            closure: GoalClosure::Achieved,
+            answer_run_id: Some("run-1".into()),
+            verification: GoalVerification::Passed,
+            verification_evidence: None,
+            open_commitment_ids: Vec::new(),
+            reason: "verified".into(),
+        };
+
+        assert!(matches!(
+            graph().close_with_evidence("goal-1", base.clone(), 3).unwrap_err(),
+            GoalError::MissingVerification { goal_id, run_id }
+                if goal_id == "goal-1" && run_id == "run-1"
+        ));
+
+        let mut mismatched = base.clone();
+        mismatched.verification_evidence = Some(verification_evidence("run-2"));
+        assert!(matches!(
+            graph().close_with_evidence("goal-1", mismatched, 3).unwrap_err(),
+            GoalError::VerificationRunMismatch {
+                evidence_run_id,
+                answer_run_id,
+                ..
+            } if evidence_run_id == "run-2" && answer_run_id == "run-1"
+        ));
+
+        let mut self_verified = base.clone();
+        let mut evidence = verification_evidence("run-1");
+        evidence.verifier_id = evidence.executor_id.clone();
+        self_verified.verification_evidence = Some(evidence);
+        assert!(matches!(
+            graph().close_with_evidence("goal-1", self_verified, 3).unwrap_err(),
+            GoalError::InvalidVerificationEvidence { reason, .. }
+                if reason.contains("differ")
+        ));
+
+        let mut valid = base;
+        valid.verification_evidence = Some(verification_evidence("run-1"));
+        let mut graph = graph();
+        graph.close_with_evidence("goal-1", valid, 3).unwrap();
+        assert_eq!(graph.goal("goal-1").unwrap().status, GoalStatus::Achieved);
+        let closed = graph
+            .events()
+            .iter()
+            .find_map(|event| match &event.kind {
+                GoalEventKind::GoalStatusChanged {
+                    status: GoalStatus::Achieved,
+                    verification_evidence,
+                    ..
+                } => verification_evidence.clone(),
+                _ => None,
+            })
+            .expect("closure evidence is stored in the goal event");
+        assert_eq!(closed.verification_id, "verification-run-1");
+    }
+
+    #[test]
     fn store_level_close_helper_persists_and_replays() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("goals.jsonl");
@@ -1577,6 +1721,7 @@ mod tests {
                 closure: GoalClosure::Achieved,
                 answer_run_id: Some("run-1".into()),
                 verification: GoalVerification::Passed,
+                verification_evidence: Some(verification_evidence("run-1")),
                 open_commitment_ids: Vec::new(),
                 reason: "verified".into(),
             },
