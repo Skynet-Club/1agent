@@ -37,7 +37,7 @@ User
 - `Ctrl+T` or `/mode` opens the mode menu;
 - `Ctrl+K` opens the command drawer;
 - transcript scrolling, mouse selection, copy and cancellation;
-- a bare launch starts a new session; exit prints the explicit `--session` continue command;
+- a bare launch starts a new session; exit requires explicit confirmation (`Ctrl+Q` twice, or `F10` / `Alt+Q` / `/quit` when the host reserves Ctrl+Q; `Enter`/`Esc` cancels), and the exit banner prints the explicit `--session` continue command;
 - running line shows `Working...`, elapsed time, input/output tokens and provider cache hit rate;
 - the finished line reflects the answer status: `✓ completed` / `◐ conditional` / `! needs attention` / failed; a conditional delivery is no longer shown as completed;
 - green instrument-panel visual pass: body/work-log contrast 6.0:1 and borders 3.8:1, missing token/cache metrics are hidden instead of shown as placeholders, short terminals use a compact wordmark, an empty composer shows a start hint, and `/help` shows the selected position;

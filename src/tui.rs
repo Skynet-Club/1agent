@@ -2328,7 +2328,7 @@ impl TuiState {
             return true;
         }
         self.quit_requested = true;
-        self.set_notice("再次按 Ctrl+Q 退出，Esc 取消");
+        self.set_notice("再次按 Ctrl+Q / F10 退出，Esc 取消");
         false
     }
 
@@ -3805,9 +3805,9 @@ impl TuiState {
         };
         let mode = self.displayed_mode().label_zh();
         if status.is_empty() {
-            format!("{model} · {mode} · Ctrl + T 切换模式 ")
+            format!("{model} · {mode} · Ctrl + T 切换模式 · F10 退出 ")
         } else {
-            format!("{status} · {model} · {mode} · Ctrl + T 切换模式 ")
+            format!("{status} · {model} · {mode} · Ctrl + T 切换模式 · F10 退出 ")
         }
     }
 
@@ -8345,6 +8345,7 @@ mod tests {
         assert!(tight.contains("证据研究"), "mode: {row}");
         assert!(!tight.contains("模式："), "mode stays unprefixed: {row}");
         assert!(tight.contains("Ctrl+T切换模式"), "hint: {row}");
+        assert!(tight.contains("F10退出"), "quit hint: {row}");
         assert!(
             !tight.contains("上下文"),
             "context stays on the top border: {row}"

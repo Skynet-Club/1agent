@@ -160,6 +160,14 @@ fn map_key(key: KeyEvent) -> Option<TuiInput> {
     if matches!(key.kind, KeyEventKind::Release) {
         return None;
     }
+    // Some terminal hosts reserve Ctrl+Q for pane/tab focus. Keep Ctrl+Q as
+    // the primary shortcut, but offer F10 and Alt+Q as host-safe aliases.
+    if key.code == KeyCode::F(10)
+        || (key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q')))
+    {
+        return Some(TuiInput::CtrlQ);
+    }
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Tab => return Some(TuiInput::CtrlTab),
@@ -483,6 +491,14 @@ mod tests {
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
             Some(TuiInput::CtrlTab)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE)),
+            Some(TuiInput::CtrlQ)
+        );
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT)),
+            Some(TuiInput::CtrlQ)
         );
     }
 
