@@ -22298,6 +22298,10 @@ async fn run_tui_interactive(
             TuiInput::Char(character) => state.insert_char(character),
             TuiInput::Backspace => state.backspace(),
             TuiInput::Delete => state.delete(),
+            TuiInput::Left if state.prompt_picker_open() => state.prompt_picker_left(),
+            TuiInput::Right if state.prompt_picker_open() => state.prompt_picker_right(),
+            TuiInput::Up if state.prompt_picker_open() => state.move_prompt_picker(-1),
+            TuiInput::Down if state.prompt_picker_open() => state.move_prompt_picker(1),
             TuiInput::Left if state.input().is_empty() && !state.secret_input_active() => {
                 open_tui_session_picker(&mut state, &session);
             }
@@ -22337,6 +22341,15 @@ async fn run_tui_interactive(
             }
             TuiInput::PageUp => state.scroll_up(8),
             TuiInput::PageDown => state.scroll_down(8),
+            TuiInput::Tab if state.prompt_picker_open() => {
+                if state.prompt_picker_focus()
+                    == first_principles_agent::tui::PromptPickerFocus::Categories
+                {
+                    state.prompt_picker_right();
+                } else {
+                    state.complete_selected_command();
+                }
+            }
             TuiInput::Tab if state.slash_drawer_open() => {
                 state.complete_selected_command();
             }
@@ -22429,6 +22442,11 @@ async fn run_tui_interactive(
             }
             TuiInput::Resize => {}
             TuiInput::Enter => {
+                if state.prompt_picker_open() {
+                    state.prompt_picker_enter();
+                    draw_tui_frame(&mut terminal, &mut state)?;
+                    continue;
+                }
                 if state.secret_input_active() {
                     if let Some((provider_id, provider_model, key)) = state.take_secret_input() {
                         state.set_notice("正在验证 API Key 并获取模型列表…");
@@ -23278,12 +23296,27 @@ async fn run_tui_task(
                     Some(TuiInput::Char(character)) => state.insert_char(character),
                     Some(TuiInput::Backspace) => state.backspace(),
                     Some(TuiInput::Delete) => state.delete(),
+                    Some(TuiInput::Left) if state.prompt_picker_open() => {
+                        state.prompt_picker_left()
+                    }
+                    Some(TuiInput::Right) if state.prompt_picker_open() => {
+                        state.prompt_picker_right()
+                    }
+                    Some(TuiInput::Up) if state.prompt_picker_open() => {
+                        state.move_prompt_picker(-1)
+                    }
+                    Some(TuiInput::Down) if state.prompt_picker_open() => {
+                        state.move_prompt_picker(1)
+                    }
                     Some(TuiInput::Left) => state.move_left(),
                     Some(TuiInput::Right) => state.move_right(),
                     Some(TuiInput::CtrlA) => state.move_home(),
                     Some(TuiInput::CtrlD) => state.delete(),
                     Some(TuiInput::Paste(text)) => state.insert_text(&text),
                     Some(TuiInput::PasteClipboard) => paste_clipboard_into_composer(state),
+                    Some(TuiInput::Enter) if state.prompt_picker_open() => {
+                        state.prompt_picker_enter();
+                    }
                     Some(TuiInput::Enter) => {
                         state.queue_input();
                     }

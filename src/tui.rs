@@ -4,8 +4,8 @@ use crate::safety::is_disallowed_control;
 use crate::subagent_registry::SubagentRecord;
 use crate::tui_clarify::{TuiClarifyResult, TuiClarifyState, TuiClarifyStep, outcome_label};
 use crate::tui_commands::{
-    CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, TuiCommandSpec, command_usage,
-    drawer_rows, prompt_drawer_rows, visible_commands,
+    CommandDrawerRow, CommandStage, DrawerEntry, PROMPT_PICKER_ALL, TuiCommandId, TuiCommandSpec,
+    command_usage, drawer_rows, prompt_picker_categories, prompt_picker_rows, visible_commands,
 };
 use crate::tui_host::HostBinding;
 use crate::tui_prompts::{PromptLanguage, prompt_view};
@@ -784,6 +784,46 @@ impl SessionPickerState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptPickerFocus {
+    Categories,
+    List,
+}
+
+/// The last prompt-library trigger in the composer. `；；` and `;;` are
+/// unambiguous; `//` is ignored when it belongs to a URL or path (`://`, `///`).
+fn prompt_marker(input: &str) -> Option<(usize, usize)> {
+    let mut best: Option<(usize, usize)> = None;
+    for (marker, length) in [("；；", "；；".len()), (";;", 2)] {
+        if let Some(position) = input.rfind(marker) {
+            best = Some(match best {
+                Some((best_position, best_length)) if best_position > position => {
+                    (best_position, best_length)
+                }
+                _ => (position, length),
+            });
+        }
+    }
+    let mut search_end = input.len();
+    while let Some(position) = input[..search_end].rfind("//") {
+        let before = input[..position].chars().next_back();
+        if before != Some(':') && before != Some('/') {
+            best = Some(match best {
+                Some((best_position, best_length)) if best_position > position => {
+                    (best_position, best_length)
+                }
+                _ => (position, 2),
+            });
+            break;
+        }
+        if position == 0 {
+            break;
+        }
+        search_end = position;
+    }
+    best
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiState {
     pub last_instruction: String,
@@ -850,6 +890,8 @@ pub struct TuiState {
     follow_control_hovered: bool,
     scroll_from_bottom: usize,
     selected_command: usize,
+    prompt_category_selected: usize,
+    prompt_focus: PromptPickerFocus,
     activity_frame: usize,
     clarify: Option<TuiClarifyState>,
     clarify_collapsed: bool,
@@ -925,6 +967,8 @@ impl TuiState {
             follow_control_hovered: false,
             scroll_from_bottom: 0,
             selected_command: 0,
+            prompt_category_selected: 0,
+            prompt_focus: PromptPickerFocus::Categories,
             activity_frame: 0,
             clarify: None,
             clarify_collapsed: false,
@@ -1563,6 +1607,9 @@ impl TuiState {
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.selected_command = 0;
+        self.prompt_category_selected = 0;
+        self.prompt_focus = PromptPickerFocus::Categories;
+        self.sync_prompt_picker_after_edit();
         self.slash_drawer_dismissed = false;
         self.pending_confirmation = None;
         self.history_cursor = None;
@@ -1579,6 +1626,8 @@ impl TuiState {
         self.selection_anchor = None;
         self.clear_transcript_selection();
         self.selected_command = 0;
+        self.prompt_category_selected = 0;
+        self.prompt_focus = PromptPickerFocus::Categories;
         self.slash_drawer_dismissed = false;
         self.pending_confirmation = None;
         self.history_cursor = None;
@@ -1728,6 +1777,8 @@ impl TuiState {
         self.input_cursor = self.input.len();
         self.input_scroll = 0;
         self.selected_command = 0;
+        self.prompt_category_selected = 0;
+        self.prompt_focus = PromptPickerFocus::Categories;
         self.slash_drawer_dismissed = false;
         self.pending_confirmation = None;
         self.history_cursor = Some(index);
@@ -1744,6 +1795,8 @@ impl TuiState {
             self.input_cursor = self.input.len();
             self.input_scroll = 0;
             self.selected_command = 0;
+            self.prompt_category_selected = 0;
+            self.prompt_focus = PromptPickerFocus::Categories;
             self.slash_drawer_dismissed = false;
         } else {
             self.history_cursor = None;
@@ -1801,6 +1854,7 @@ impl TuiState {
         self.clear_transcript_selection();
         self.input_scroll = self.input_scroll.min(self.input_cursor);
         self.selected_command = 0;
+        self.sync_prompt_picker_after_edit();
         if self.secret_input.is_none() {
             self.slash_drawer_dismissed = false;
         }
@@ -1815,12 +1869,14 @@ impl TuiState {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
             self.selection_anchor = None;
+            self.sync_prompt_picker_after_edit();
             return;
         }
         let previous = previous_grapheme_boundary(&self.input, self.input_cursor);
         if previous < self.input_cursor {
             self.input.replace_range(previous..self.input_cursor, "");
             self.input_cursor = previous;
+            self.sync_prompt_picker_after_edit();
         }
     }
 
@@ -1831,11 +1887,13 @@ impl TuiState {
             self.input.replace_range(start..end, "");
             self.input_cursor = start;
             self.selection_anchor = None;
+            self.sync_prompt_picker_after_edit();
             return;
         }
         let next = next_grapheme_boundary(&self.input, self.input_cursor);
         if next > self.input_cursor {
             self.input.replace_range(self.input_cursor..next, "");
+            self.sync_prompt_picker_after_edit();
         }
     }
 
@@ -2278,7 +2336,11 @@ impl TuiState {
 
     pub fn filtered_drawer_rows(&self) -> Vec<CommandDrawerRow> {
         if let Some((_, query)) = self.prompt_drawer_parts() {
-            return prompt_drawer_rows(query, self.prompt_language);
+            return prompt_picker_rows(
+                self.selected_prompt_category(),
+                query,
+                self.prompt_language,
+            );
         }
         drawer_rows(
             &self.input,
@@ -2468,18 +2530,113 @@ impl TuiState {
     }
 
     fn prompt_drawer_parts(&self) -> Option<(&str, &str)> {
-        if let Some(query) = self.input.strip_prefix("//")
-            && !query.chars().any(char::is_whitespace)
-        {
-            return Some(("", query));
-        }
-        let separator = self.input.rfind(" //")?;
-        let base = self.input[..separator].trim_end();
-        let query = &self.input[separator + 1..];
-        if base.is_empty() || query.chars().any(char::is_whitespace) {
+        let (start, len) = prompt_marker(&self.input)?;
+        let base = self.input[..start].trim_end();
+        let query = &self.input[start + len..];
+        if query.chars().any(char::is_whitespace) {
             return None;
         }
         Some((base, query))
+    }
+
+    pub fn prompt_picker_open(&self) -> bool {
+        self.prompt_drawer_parts().is_some()
+    }
+
+    fn prompt_categories(&self) -> Vec<(&'static str, usize)> {
+        prompt_picker_categories(self.prompt_language)
+    }
+
+    fn selected_prompt_category(&self) -> &'static str {
+        let categories = self.prompt_categories();
+        categories
+            .get(
+                self.prompt_category_selected
+                    .min(categories.len().saturating_sub(1)),
+            )
+            .map(|(category, _)| *category)
+            .unwrap_or(PROMPT_PICKER_ALL)
+    }
+
+    pub fn prompt_picker_focus(&self) -> PromptPickerFocus {
+        self.prompt_focus
+    }
+
+    pub fn prompt_picker_categories(&self) -> Vec<(&'static str, usize)> {
+        self.prompt_categories()
+    }
+
+    pub fn prompt_category_selected(&self) -> usize {
+        self.prompt_category_selected
+            .min(self.prompt_categories().len().saturating_sub(1))
+    }
+
+    pub fn select_prompt_category(&mut self, index: usize) {
+        let count = self.prompt_categories().len();
+        if count == 0 {
+            return;
+        }
+        self.prompt_category_selected = index.min(count - 1);
+        self.selected_command = 0;
+    }
+
+    fn sync_prompt_picker_after_edit(&mut self) {
+        if !self.prompt_picker_open() {
+            return;
+        }
+        let categories = self.prompt_categories();
+        self.prompt_category_selected = self
+            .prompt_category_selected
+            .min(categories.len().saturating_sub(1));
+        self.prompt_focus = if self
+            .prompt_drawer_parts()
+            .is_some_and(|(_, query)| !query.is_empty())
+        {
+            PromptPickerFocus::List
+        } else {
+            PromptPickerFocus::Categories
+        };
+        self.selected_command = 0;
+    }
+
+    pub fn move_prompt_picker(&mut self, delta: isize) {
+        match self.prompt_focus {
+            PromptPickerFocus::Categories => {
+                let count = self.prompt_categories().len();
+                if count == 0 {
+                    return;
+                }
+                let current = self.prompt_category_selected.min(count - 1) as isize;
+                self.prompt_category_selected =
+                    (current + delta).rem_euclid(count as isize) as usize;
+                self.selected_command = 0;
+            }
+            PromptPickerFocus::List => self.move_command_selection(delta),
+        }
+    }
+
+    pub fn prompt_picker_right(&mut self) {
+        if self.prompt_focus == PromptPickerFocus::Categories {
+            self.prompt_focus = PromptPickerFocus::List;
+            self.selected_command = 0;
+        }
+    }
+
+    pub fn prompt_picker_left(&mut self) {
+        self.prompt_focus = PromptPickerFocus::Categories;
+    }
+
+    pub fn prompt_picker_enter(&mut self) -> bool {
+        match self.prompt_focus {
+            PromptPickerFocus::Categories => {
+                self.prompt_focus = PromptPickerFocus::List;
+                self.selected_command = 0;
+            }
+            PromptPickerFocus::List => {
+                self.complete_selected_command();
+            }
+        }
+        true
     }
 
     pub fn slash_drawer_open(&self) -> bool {
@@ -4423,7 +4580,142 @@ impl TuiState {
         }
     }
 
+    fn draw_prompt_picker(&self, frame: &mut Frame, area: Rect) {
+        let categories = self.prompt_picker_categories();
+        let selected_category = self.prompt_category_selected();
+        let rows = self.filtered_drawer_rows();
+        let focus = self.prompt_picker_focus();
+        let block = menu_block(
+            " 提示词补齐 ",
+            "←→ 类目/列表 · ↑↓ 选择 · Enter 应用 · Esc 关闭",
+            MENU_BG,
+        );
+        frame.render_widget(Clear, area);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.is_empty() {
+            return;
+        }
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(28), Constraint::Percentage(72)])
+            .split(inner);
+        let category_items = categories
+            .iter()
+            .enumerate()
+            .map(|(index, (category, count))| {
+                let is_selected = index == selected_category;
+                let marker = if is_selected {
+                    if focus == PromptPickerFocus::Categories {
+                        "▌ "
+                    } else {
+                        "▸ "
+                    }
+                } else {
+                    "  "
+                };
+                let style = if is_selected {
+                    Style::default()
+                        .fg(MIL_GREEN_BRIGHT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(PANEL_TEXT_GREEN)
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(marker, Style::default().fg(MIL_GREEN_BRIGHT)),
+                    Span::styled(format!("{category} ({count})"), style),
+                ]))
+            })
+            .collect::<Vec<_>>();
+        let mut category_state = ListState::default();
+        category_state.select(Some(selected_category));
+        frame.render_stateful_widget(
+            List::new(category_items)
+                .style(Style::default().bg(MENU_BG))
+                .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
+            chunks[0],
+            &mut category_state,
+        );
+        frame.render_widget(
+            Block::default()
+                .borders(Borders::LEFT)
+                .border_style(Style::default().fg(DRAWER_BORDER)),
+            chunks[1],
+        );
+
+        let mut items = Vec::new();
+        let mut selected_item = None;
+        for (index, row) in rows.iter().enumerate() {
+            if let Some(heading) = row.heading {
+                items.push(ListItem::new(Line::styled(
+                    format!("  {heading}"),
+                    Style::default()
+                        .fg(PANEL_TEXT_GREEN)
+                        .add_modifier(Modifier::BOLD),
+                )));
+            }
+            let is_selected = focus == PromptPickerFocus::List
+                && self.selected_command.min(rows.len().saturating_sub(1)) == index;
+            let marker = if is_selected { "▌ " } else { "  " };
+            let (name, detail) = match row.entry {
+                DrawerEntry::Prompt(prompt) => {
+                    let view = prompt_view(prompt, self.prompt_language)
+                        .or_else(|| prompt_view(prompt, PromptLanguage::Zh))
+                        .expect("Chinese prompt view is always available");
+                    (
+                        view.name,
+                        format!("{} · {} · {}", view.value, view.category, view.purpose),
+                    )
+                }
+                DrawerEntry::Source(source) => (
+                    source.topic,
+                    format!(
+                        "{} · {} · {} 条",
+                        source.author, source.category, source.fragments
+                    ),
+                ),
+                DrawerEntry::Command(entry) => {
+                    (entry.spec.name, entry.spec.description.to_string())
+                }
+            };
+            let style = if is_selected {
+                Style::default()
+                    .fg(MIL_GREEN_BRIGHT)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(MIL_GREEN_BRIGHT)
+            };
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(MIL_GREEN_BRIGHT)),
+                Span::styled(fit_row(name, 18), style),
+                Span::styled(detail, Style::default().fg(COMMAND_DESCRIPTION)),
+            ])));
+            if is_selected {
+                selected_item = Some(items.len() - 1);
+            }
+        }
+        if items.is_empty() {
+            items.push(ListItem::new(Line::styled(
+                " 该类目还没有匹配的提示词",
+                Style::default().fg(PANEL_TEXT_GREEN),
+            )));
+        }
+        let mut list_state = ListState::default();
+        list_state.select(selected_item);
+        frame.render_stateful_widget(
+            List::new(items)
+                .style(Style::default().bg(MENU_BG))
+                .highlight_style(Style::default().bg(MENU_SELECTED_BG)),
+            chunks[1],
+            &mut list_state,
+        );
+    }
+
     fn draw_command_drawer(&self, frame: &mut Frame, area: Rect) {
+        if self.prompt_picker_open() {
+            self.draw_prompt_picker(frame, area);
+            return;
+        }
         let rows = self.filtered_drawer_rows();
         let selected = rows
             .len()
@@ -4631,8 +4923,8 @@ impl TuiState {
     }
 
     fn command_drawer_title(&self) -> &'static str {
-        if self.prompt_drawer_parts().is_some() {
-            " 原文库 "
+        if self.prompt_picker_open() {
+            " 提示词补齐 "
         } else if self.host_binding.is_workshop_master() {
             " 总控命令 "
         } else {
@@ -6726,6 +7018,16 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
+    fn select_source_category(state: &mut TuiState) {
+        let index = state
+            .prompt_picker_categories()
+            .iter()
+            .position(|(name, _)| *name == "原文库")
+            .expect("source category");
+        state.select_prompt_category(index);
+        state.prompt_focus = PromptPickerFocus::List;
+    }
+
     fn code_tone_at_word(line: &str, language: &str, word: &str) -> TuiTone {
         let ranges = highlight_code_line(line, language);
         let start = line.find(word).expect("word should exist");
@@ -6986,11 +7288,19 @@ mod tests {
     }
 
     #[test]
-    fn double_slash_opens_the_whole_source_library() {
+    fn double_slash_opens_the_prompt_picker_and_source_category() {
         let mut state = TuiState::new("mock", 6, 120);
         state.set_input("//");
         assert!(state.slash_drawer_open());
-        assert_eq!(state.command_drawer_title(), " 原文库 ");
+        assert_eq!(state.command_drawer_title(), " 提示词补齐 ");
+        let categories = state.prompt_picker_categories();
+        assert!(categories.iter().any(|(name, _)| *name == "全部"));
+        assert!(categories.iter().any(|(name, _)| *name == "加目标"));
+        assert!(categories.iter().any(|(name, _)| *name == "原文库"));
+        let rows = state.filtered_drawer_rows();
+        assert!(!rows.is_empty());
+        assert!(rows.iter().all(|row| row.entry.prompt().is_some()));
+        select_source_category(&mut state);
         let rows = state.filtered_drawer_rows();
         assert_eq!(rows.len(), 32);
         assert!(rows.iter().all(|row| row.entry.source().is_some()));
@@ -7008,7 +7318,7 @@ mod tests {
     }
 
     #[test]
-    fn source_drawer_previews_the_complete_body_before_insert() {
+    fn prompt_picker_renders_categories_and_list() {
         let mut state = TuiState::new("mock", 6, 120);
         state.set_input("//");
         let backend = TestBackend::new(120, 40);
@@ -7023,9 +7333,61 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let compact = screen.replace(' ', "");
-        assert!(compact.contains("ThinkBeforeCoding"), "{screen}");
-        assert!(compact.contains("先想再写"), "{screen}");
-        assert!(compact.contains("Enter插入"), "{screen}");
+        assert!(compact.contains("提示词补齐"), "{screen}");
+        assert!(compact.contains("全部(48)"), "{screen}");
+        assert!(compact.contains("加目标(5)"), "{screen}");
+        assert!(compact.contains("原文库(32)"), "{screen}");
+        assert!(compact.contains("真正的目的是"), "{screen}");
+        assert!(compact.contains("←→类目/列表"), "{screen}");
+    }
+
+    #[test]
+    fn prompt_picker_right_enters_list_and_enter_inserts() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("做个网页 //验收");
+        assert!(state.slash_drawer_open());
+        assert_eq!(state.prompt_picker_focus(), PromptPickerFocus::List);
+        let rows = state.filtered_drawer_rows();
+        let index = rows
+            .iter()
+            .position(|row| {
+                row.entry
+                    .prompt()
+                    .is_some_and(|prompt| prompt.name == "先说验收标准")
+            })
+            .expect("prompt row");
+        state.selected_command = index;
+        assert!(state.prompt_picker_enter());
+        assert!(state.input().contains("先别动手"));
+        assert!(state.input().contains("验收标准"));
+        assert!(!state.slash_drawer_open());
+
+        state.set_input("做个网页 //");
+        assert_eq!(state.prompt_picker_focus(), PromptPickerFocus::Categories);
+        state.move_prompt_picker(1);
+        assert_eq!(
+            state.prompt_picker_categories()[state.prompt_category_selected()].0,
+            "加目标"
+        );
+        state.prompt_picker_right();
+        assert_eq!(state.prompt_picker_focus(), PromptPickerFocus::List);
+        state.prompt_picker_enter();
+        assert!(state.input().contains("我真正想要的不是这件事本身"));
+    }
+
+    #[test]
+    fn prompt_marker_accepts_adjacent_and_semicolon_triggers() {
+        for input in ["做个网页//", "做个网页；；", "做个网页;;"] {
+            let mut state = TuiState::new("mock", 6, 120);
+            state.set_input(input);
+            assert!(state.slash_drawer_open(), "{input}");
+            assert!(state.prompt_picker_open(), "{input}");
+        }
+        let mut state = TuiState::new("mock", 6, 120);
+        state.set_input("https://example.com");
+        assert!(!state.prompt_picker_open());
+        state.set_input("see file:///tmp/x");
+        assert!(!state.prompt_picker_open());
     }
 
     #[test]
@@ -7033,7 +7395,8 @@ mod tests {
         let mut state = TuiState::new("mock", 6, 120);
         state.set_input("做跨境电商 //");
         assert!(state.slash_drawer_open());
-        assert_eq!(state.command_drawer_title(), " 原文库 ");
+        assert_eq!(state.command_drawer_title(), " 提示词补齐 ");
+        select_source_category(&mut state);
         let rows = state.filtered_drawer_rows();
         assert!(rows.iter().all(|row| row.entry.source().is_some()));
         let source = rows[0].entry.source().expect("source row");
@@ -7050,6 +7413,7 @@ mod tests {
         let mut state = TuiState::new("mock", 6, 120);
         state.set_prompt_language(PromptLanguage::En);
         state.set_input("做跨境电商 //Altitude");
+        select_source_category(&mut state);
         let rows = state.filtered_drawer_rows();
         assert!(rows.iter().all(|row| row.entry.source().is_some()));
         let index = rows
@@ -7079,6 +7443,7 @@ mod tests {
     fn inserting_the_same_source_twice_does_not_duplicate_it() {
         let mut state = TuiState::new("mock", 6, 120);
         state.set_input("//");
+        select_source_category(&mut state);
         let source = state.filtered_drawer_rows()[0]
             .entry
             .source()
@@ -7087,6 +7452,7 @@ mod tests {
         assert!(state.complete_selected_command());
         let first = state.input().to_string();
         state.set_input(&format!("{first} //"));
+        select_source_category(&mut state);
         state.selected_command = 0;
         assert!(state.complete_selected_command());
         assert_eq!(state.input().matches(source.translation).count(), 1);
