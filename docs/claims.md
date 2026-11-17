@@ -217,6 +217,7 @@ file: <路径>              → 文件必须存在
 | 工作日志中的本地路径与 URL 为亮绿色 | test: work_log_colors_links_bright_green | ✅ | 绝对/相对路径与常见扩展名；URL 仅 http(s)；统一使用 WorkLink 亮绿色 |
 | 工作日志动作名称和 `•` 为亮绿，详情与 `⎿` 结果为深绿且不加粗 | test: work_log_uses_bright_green_labels_and_deep_green_details | ✅ | 80x20 TestBackend：动作名如“模型思考 Thinking”为 `#8aa652`；详情/结果 `#8b966f`；均无 BOLD |
 | 文件编辑在工作日志显示 `✓ +N -M` 和最多 12 行 diff，`+` 亮军绿、`-` 红 | test: work_log_colors_added_and_removed_diff_lines | ✅ | 文件工具把 added/removed/diff 写入 ToolObservation.metadata；真实任务把 `alpha` 改成 `beta` 后工作日志出现 `编辑 Edited`、`✓ +1 -1`、`-alpha`、`+beta` |
+| `Ctrl+Q` 连按两次退出；`F10` / `Alt+Q` / `/quit` 是外层占用时的兜底 | test: maps_keys_and_control_shortcuts | ✅ | PTY：`\x11\x11` 与 F10 两次均 exit 0；底栏显示 `F10 退出`；`Enter`/`Esc` 取消 |
 | TUI 主题、欢迎页和退出页与 CLI `help` 军绿一致 | test: tui_palette_matches_the_cli_military_green | ✅ | `#708a41 / #8aa652 / #8b966f / #687358 / #4a5930`；退出 banner ANSI 同步；错误红/警告黄保留 |
 | 最终答案使用“结论 Conclusion”`#4a5930` 边框、`#8aa652` 加粗标题、白色正文 | test: final_answer_is_wrapped_in_a_conclusion_fence | ✅ | direct/structured 共用；围栏内上下各留一空行；真实 PTY 证据 `docs/evidence/tui-2026-11-10/conclusion-fence.txt` |
 | 结论正文支持 Markdown 标题、列表、任务框、分隔线和链接高亮 | test: conclusion_markdown_renders_headings_bullets_and_bold_labels | ✅ | `##` 粗体标题；`- ` 项目符号；`1.` 有序行；`- [x]`→☑/☐；`---`→分隔线；`**重点**` 加粗标签；URL/路径使用链接色；正文不残留 `**` |

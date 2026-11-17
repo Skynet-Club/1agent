@@ -207,7 +207,7 @@ Provider 告警历史：
 | `Ctrl+T` | 打开对话模式菜单 |
 | `Ctrl+K` | 打开 `/` 命令抽屉 |
 | `Ctrl+O` | 打开/关闭运行详情与过程记录 |
-| `Ctrl+Q` | 连按两次退出；第一次提示，`Esc` 或 `Enter` 取消 |
+| `Ctrl+Q` | 连按两次退出；第一次提示，`Esc` 或 `Enter` 取消。外层终端占用 `Ctrl+Q` 时用 `F10`、`Alt+Q` 或 `/quit` |
 | `Ctrl+C` | 复制选中文本 |
 
 > 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭。最终是否执行仍由 Authority/Policy 和 Workshop 决定。网络仍需 `--allow-network`。
