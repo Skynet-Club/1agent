@@ -147,3 +147,5 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0142 | Loopback Preview for Generated Pages | [0142-loopback-preview.md](0142-loopback-preview.md) |
 | 0143 | Capability-First Tool Scouting | [0143-capability-scouting.md](0143-capability-scouting.md) |
 | 0144 | Completion Acceptance Contract and Receipt | [0144-completion-acceptance.md](0144-completion-acceptance.md) |
+| 0145 | Understanding Gate, Text-Required Clarify and Design Delivery Guard | [0145-understanding-and-design-delivery-gate.md](0145-understanding-and-design-delivery-gate.md) |
+| 0146 | Read-Only Cross-Session Recall | [0146-read-only-cross-session-recall.md](0146-read-only-cross-session-recall.md) |

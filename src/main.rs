@@ -6668,6 +6668,9 @@ async fn main() -> Result<()> {
                     tools.register(tool);
                 }
             }
+            tools.register(Arc::new(first_principles_agent::SessionSearchTool::new(
+                journal_dir.clone(),
+            )));
             let (objective, objective_source) =
                 resolve_route_objective(route_objective.as_deref())?;
             let mut action_journal = None;
@@ -16655,6 +16658,10 @@ async fn run_tui(
             tools.register(tool);
         }
     }
+    tools.register(Arc::new(
+        first_principles_agent::SessionSearchTool::new(journal_dir.clone())
+            .with_current_session(session.id()),
+    ));
     let planning_provider = candidates
         .first()
         .map(|candidate| candidate.provider.clone())
@@ -22828,8 +22835,9 @@ async fn run_tui_interactive(
                         {
                             continue;
                         }
-                        let request = settings
-                            .request_with_known_facts(task, session_context_facts(&session));
+                        let mut known_facts = session_context_facts(&session);
+                        known_facts.extend(cross_session_context_facts(&session, task));
+                        let request = settings.request_with_known_facts(task, known_facts);
                         let inferred = infer_mode(&request);
                         state.set_last_inferred(inferred);
                         let mode = state.effective_mode(inferred);
@@ -23508,6 +23516,28 @@ fn push_bounded_fact(
     *total_chars += length;
     facts.push(fact);
     true
+}
+
+fn cross_session_context_facts(session: &TuiSession, objective: &str) -> Vec<String> {
+    if !first_principles_agent::domain::asks_about_past_conversation(objective) {
+        return Vec::new();
+    }
+    match first_principles_agent::session_recall::recall_sessions(
+        session.journal_root(),
+        Some(session.id()),
+        objective,
+        3,
+    ) {
+        Ok(hits) => first_principles_agent::session_recall::prompt_facts(
+            &hits,
+            objective,
+            now_unix_ms(),
+            4_000,
+        ),
+        Err(error) => vec![format!(
+            "Cross-session memory search failed: {error}. Do not claim to remember; tell the user the local session store could not be read."
+        )],
+    }
 }
 
 fn session_context_facts(session: &TuiSession) -> Vec<String> {
@@ -26264,6 +26294,69 @@ mod tui_rendering_tests {
         assert!(preview.contains("最近结论"), "{preview}");
         assert!(preview.contains("连接测试成功。"), "{preview}");
         assert!(preview.contains("证据"), "{preview}");
+    }
+
+    #[test]
+    fn cross_session_facts_recall_an_earlier_session() {
+        let workspace = tempfile::tempdir().unwrap();
+        let older_id = "ses_fg0000000000";
+        let mut older = TuiSession::open(workspace.path(), Some(older_id)).unwrap();
+        older.rename("F 和 G 开头的英文单词").unwrap();
+        let journal_path = workspace.path().join("fg.jsonl");
+        let mut journal =
+            first_principles_agent::Journal::create(&journal_path, Uuid::new_v4()).unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective(
+                    "要F开头的，G再中间的",
+                    workspace.path().to_path_buf(),
+                ),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::AnswerProduced {
+                answer: first_principles_agent::AgentAnswer {
+                    schema_version: first_principles_agent::ANSWER_SCHEMA_VERSION,
+                    status: AnswerStatus::Completed,
+                    conclusion: "flagship、foreground、forging、fulgent、foregleam".into(),
+                    claims: Vec::new(),
+                    evidence: Vec::new(),
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    conflicts: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                    task_need: None,
+                },
+            })
+            .unwrap();
+        journal
+            .append(first_principles_agent::JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        older.record_journal(&journal_path).unwrap();
+
+        let current = TuiSession::open(workspace.path(), None).unwrap();
+        let facts =
+            cross_session_context_facts(&current, "昨天我们聊的 F开头和G开头你还有印象吗？");
+        let text = facts.join("\n");
+        assert!(text.contains(older_id), "{text}");
+        assert!(text.contains("flagship"), "{text}");
+        assert!(text.contains("Earlier user request: 要F开头的"), "{text}");
+        assert!(!text.contains("found no matching"), "{text}");
+
+        assert!(
+            cross_session_context_facts(&current, "给我做个网站").is_empty(),
+            "a fresh task must not trigger recall"
+        );
+        let no_match = cross_session_context_facts(&current, "昨天我们聊的火星天气你还有印象吗？");
+        assert!(
+            no_match.join("").contains("found no matching"),
+            "{no_match:?}"
+        );
     }
 
     #[test]

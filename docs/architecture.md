@@ -49,6 +49,17 @@ separate append-only `events.jsonl` for host binding, command decisions, task su
 and session closure. These events are correlated with, but do not replace, run journals
 or Master journals.
 
+Cross-session recall is read-only over that store (`session_recall`, ADR-0146). On a
+memory question ("昨天/上次/还记得/印象/remember"), the TUI searches other sessions'
+titles, user requests and answer conclusions, excludes the current session, and injects
+at most three bounded records with exact snippets into `CONVERSATION CONTEXT`. The
+`session_search` tool exposes the same search to a full run; an empty query lists recent
+sessions. It never uses or returns tool observations, never edits or forgets records, and never
+promotes a retrieved statement to verified truth. No match is an explicit fact, and the
+prompt requires the model to say it has no record instead of inventing one. The separate
+encrypted `MemoryService` remains a curated store; this path does not auto-write
+conversations into it.
+
 First-principles commands use two paths. `/frame`, `/challenge`, `/decide` and
 `/postmortem` create model runs with an explicit cognitive mode. `/evidence`, `/audit`
 and `/report` are deterministic journal views and never upgrade a model statement into

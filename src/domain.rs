@@ -1716,6 +1716,50 @@ pub fn has_context_reference(objective: &str) -> bool {
     )
 }
 
+/// True when the user is asking about an earlier conversation rather than
+/// starting a fresh task. This only decides whether to retrieve cross-session
+/// records; it is not evidence that a record exists.
+pub fn asks_about_past_conversation(objective: &str) -> bool {
+    let lower = objective.to_lowercase();
+    let direct = contains_any(
+        &lower,
+        &[
+            "昨天",
+            "昨晚",
+            "前天",
+            "上次",
+            "上回",
+            "印象",
+            "聊过",
+            "聊的",
+            "说过",
+            "提到过",
+            "记忆",
+            "会话",
+            "历史对话",
+            "我们聊",
+            "我们说过",
+            "我们讨论过",
+        ],
+    );
+    let remember = contains_any(&lower, &["记得", "还记"])
+        && contains_any(&lower, &["你", "吗", "我们", "还"]);
+    direct
+        || remember
+        || contains_any_word(
+            &lower,
+            &[
+                "remember",
+                "recall",
+                "yesterday",
+                "last time",
+                "we talked",
+                "we discussed",
+                "previous conversation",
+            ],
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1882,6 +1926,27 @@ mod tests {
         assert!(has_context_reference("what about its price?"));
         assert!(!has_context_reference("介绍一下你自己"));
         assert!(!has_context_reference("如何切换模式？"));
+    }
+
+    #[test]
+    fn past_conversation_questions_are_detected() {
+        for text in [
+            "昨天我们聊的 F开头和G开头你还有印象吗？",
+            "你还记得上次那个方案吗？",
+            "我们之前提到过什么？",
+            "do you remember what we discussed yesterday?",
+            "what did we talk about last time?",
+        ] {
+            assert!(asks_about_past_conversation(text), "{text}");
+        }
+        for text in [
+            "记得把文件改一下",
+            "给我做个网站",
+            "解释一下这个报错",
+            "介绍一下你自己",
+        ] {
+            assert!(!asks_about_past_conversation(text), "{text}");
+        }
     }
 
     #[test]
