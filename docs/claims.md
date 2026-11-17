@@ -209,18 +209,20 @@ file: <路径>              → 文件必须存在
 | Master 状态卡覆盖理解/规划/批准/分配/启动/Worker/收集/验收/汇报 | test: activity_taxonomy_is_bilingual_and_color_coded | ✅ | 持久卡片；下一步命令写在 footer |
 | 工具调用和结果实时写入主会话工作日志 | test: work_entries_use_a_bilingual_label_in_the_transcript_log | ✅ | journal 增量驱动；状态与详情用 ` · ` 分隔；真实 PTY 证据 `docs/evidence/tui-2026-11-10/work-log.txt`；Bash 输出有长度上限 |
 | 整个 TUI 大背景为暗绿色，为输入面板 80% 亮度且更暗 | test: terminal_backdrop_is_darker_green_than_the_input_panel | ✅ | 大背景 `#06100A`、输入面板 `#08140D`；欢迎页、主会话和命令面板共用大背景 |
-| 欢迎页 `1` 保持亮绿，`Agent`/底部文字深绿，域名亮绿 | test: welcome_logo_highlights_the_s_and_paints_the_rest_dark_green | ✅ | 真实 PTY：`1`=`3fb950`，`Agent`/说明=`487748`，`SKYNET.CLUB`=`00ff00`；退出 banner 同步 |
+| 欢迎页 `1` 保持亮绿，`Agent`/底部文字深绿，域名亮绿 | test: welcome_logo_highlights_the_s_and_paints_the_rest_dark_green | ✅ | 真实 PTY：`1`=`#8aa652`，`Agent`/说明=`#8b966f`，`SKYNET.CLUB`=`#8aa652`，阴影 `#4a5930`；退出 banner 使用同一组值 |
 | TUI 输入框/状态/模型/模式共用深绿围栏，token 指标嵌在顶部边框右侧 | test: composer_and_panel_text_share_one_fence | ✅ | 暗绿背景/边框/文字整体压暗 50%、白色输入；底部模型/模式；`T` 亮绿加粗；上下文只在顶部进度条 |
 | 窄终端时 token 指标折入围栏内下一行，进度条减半，不再截断 | test: narrow_terminal_folds_metrics_inside_the_same_fence | ✅ | 72 列真实 PTY 证据 `docs/evidence/tui-2026-11-10/input-panel-folded.txt`；进度条 20→10 格，百分比不变 |
 | 用户消息整行使用会话框背景 `#08140D`、白色文字 | test: user_message_and_answer_are_separated_by_an_empty_gap_row | ✅ | 真实 PTY 采样用户行 bg=08140d；回答前的空白行不继承该背景 |
 | 右键粘贴仅在输入框内部触发 | test: right_click_paste_is_limited_to_the_composer | ✅ | 输入框矩形命中测试；真实 PTY：框外右键无提示，框内右键出现“已从剪贴板粘贴”；Ctrl+V 不受限 |
 | 工作日志中的本地路径与 URL 为亮绿色 | test: work_log_colors_links_bright_green | ✅ | 绝对/相对路径与常见扩展名；URL 仅 http(s)；统一使用 WorkLink 亮绿色 |
-| 工作日志动作名称和 `•` 为亮绿，详情与 `⎿` 结果为深绿且不加粗 | test: work_log_uses_bright_green_labels_and_deep_green_details | ✅ | 80x20 TestBackend：动作名如“模型思考 Thinking”为 LightGreen；详情/结果 `#487748`；均无 BOLD |
-| 最终答案使用“结论 Conclusion”深绿边框、亮绿加粗标题、白色正文 | test: final_answer_is_wrapped_in_a_conclusion_fence | ✅ | direct/structured 共用；围栏内上下各留一空行；真实 PTY 证据 `docs/evidence/tui-2026-11-10/conclusion-fence.txt` |
+| 工作日志动作名称和 `•` 为亮绿，详情与 `⎿` 结果为深绿且不加粗 | test: work_log_uses_bright_green_labels_and_deep_green_details | ✅ | 80x20 TestBackend：动作名如“模型思考 Thinking”为 `#8aa652`；详情/结果 `#8b966f`；均无 BOLD |
+| 文件编辑在工作日志显示 `✓ +N -M` 和最多 12 行 diff，`+` 亮军绿、`-` 红 | test: work_log_colors_added_and_removed_diff_lines | ✅ | 文件工具把 added/removed/diff 写入 ToolObservation.metadata；真实任务把 `alpha` 改成 `beta` 后工作日志出现 `编辑 Edited`、`✓ +1 -1`、`-alpha`、`+beta` |
+| TUI 主题、欢迎页和退出页与 CLI `help` 军绿一致 | test: tui_palette_matches_the_cli_military_green | ✅ | `#708a41 / #8aa652 / #8b966f / #687358 / #4a5930`；退出 banner ANSI 同步；错误红/警告黄保留 |
+| 最终答案使用“结论 Conclusion”`#4a5930` 边框、`#8aa652` 加粗标题、白色正文 | test: final_answer_is_wrapped_in_a_conclusion_fence | ✅ | direct/structured 共用；围栏内上下各留一空行；真实 PTY 证据 `docs/evidence/tui-2026-11-10/conclusion-fence.txt` |
 | 结论正文支持 Markdown 标题、列表、任务框、分隔线和链接高亮 | test: conclusion_markdown_renders_headings_bullets_and_bold_labels | ✅ | `##` 粗体标题；`- ` 项目符号；`1.` 有序行；`- [x]`→☑/☐；`---`→分隔线；`**重点**` 加粗标签；URL/路径使用链接色；正文不残留 `**` |
 | 结论正文支持列宽对齐的 Markdown 表格 | test: conclusion_markdown_renders_an_aligned_table | ✅ | 表头、分隔行和数据行等宽；超宽单元格截断并补空格；窄终端按行折行 |
 | 系统提示要求多维度答案使用短段落/列表/对比表，避免一整段长文 | test: system_prompt_carries_the_occam_style_laws | ✅ | 新增 `Format for scanning` 规则；Markdown 允许且优先用于提升可读性 |
-| 结构化推理区块全部深绿，只有结论答案为白色 | test: structured_sections_are_deep_green_while_the_answer_stays_white | ✅ | 主张/依据/假设/约束/未知/冲突/翻转条件的标题、标签、项目符号与正文均为 `#487748`；围栏内答案为白色 |
+| 结构化推理区块全部深绿，只有结论答案为白色 | test: structured_sections_are_deep_green_while_the_answer_stays_white | ✅ | 主张/依据/假设/约束/未知/冲突/翻转条件的标题、标签、项目符号与正文均为 `#8b966f`；围栏内答案为白色 |
 | `/` 命令抽屉的指令名称和说明均为亮绿色 | test: command_drawer_uses_bright_green_entries | ✅ | 名称加粗、说明不加粗；窗体背景 `#0A1F12`，选中行 `#143D24` |
 | 所有 TUI 弹窗（详情/命令面板/抽屉/模式菜单）使用绿色系背景 | test: interaction_overlays_use_green_surfaces | ✅ | 背景 `#0A1F12`、选中 `#143D24` 均为绿系；详情边框亮绿；真实 PTY 采样确认 |
 | `/` 命令抽屉可搜索 48 条提示词补充 | test: prompt_supplements_are_featured_and_searchable | ✅ | 按名称/分类/触发/用途搜索；中文空查询含 3 条精选；输入 `//` 浏览全部 48 条；English 空查询列出 14 条有英文原文的卡片；真实 PTY `/验收` 命中 |

@@ -30,14 +30,21 @@ use unicode_width::UnicodeWidthStr;
 /// Whole-terminal backdrop, 80% of the input panel background.
 const APP_BG: Color = Color::Rgb(0x06, 0x10, 0x0a);
 const PANEL_BG: Color = Color::Rgb(0x08, 0x14, 0x0d);
-const PANEL_GREEN: Color = Color::Rgb(0x4a, 0x78, 0x55);
-const PANEL_TEXT_GREEN: Color = Color::Rgb(0x5e, 0x9e, 0x5e);
+const PANEL_GREEN: Color = MIL_GREEN_RULE;
+const PANEL_TEXT_GREEN: Color = MIL_GREEN_DIM;
 const INPUT_BG: Color = PANEL_BG;
 const CODE_BG: Color = Color::Indexed(236);
 const CODE_ADDED_BG: Color = Color::Indexed(22);
 const CODE_REMOVED_BG: Color = Color::Indexed(52);
 const MUTED_TEXT: Color = Color::Indexed(245);
-const MARK_GREEN: Color = Color::Rgb(0x3f, 0xb9, 0x50);
+/// Military-green palette shared with the CLI help output. Keep these RGB
+/// values in sync with `MIL_GREEN*` in `main.rs` and `tui_terminal.rs`.
+const MIL_GREEN: Color = Color::Rgb(0x70, 0x8a, 0x41);
+const MIL_GREEN_BRIGHT: Color = Color::Rgb(0x8a, 0xa6, 0x52);
+const MIL_GREEN_DIM: Color = Color::Rgb(0x8b, 0x96, 0x6f);
+const MIL_GREEN_FAINT: Color = Color::Rgb(0x68, 0x73, 0x58);
+const MIL_GREEN_RULE: Color = Color::Rgb(0x4a, 0x59, 0x30);
+const MARK_GREEN: Color = MIL_GREEN_BRIGHT;
 const LINK: Color = MARK_GREEN;
 const LINK_HOVER: Color = Color::Rgb(0xb7, 0xff, 0xc8);
 const MAX_INPUT_BYTES: usize = 64 * 1024;
@@ -45,11 +52,11 @@ const COMMAND_DESCRIPTION: Color = PANEL_TEXT_GREEN;
 const DRAWER_BORDER: Color = PANEL_GREEN;
 const MENU_BG: Color = Color::Rgb(0x0a, 0x1f, 0x12);
 const MENU_SELECTED_BG: Color = Color::Rgb(0x14, 0x3d, 0x24);
-const MENU_LABEL: Color = Color::LightGreen;
+const MENU_LABEL: Color = MIL_GREEN_BRIGHT;
 const MENU_HINT: Color = PANEL_TEXT_GREEN;
-const MENU_DIM: Color = Color::Rgb(0x3a, 0x5c, 0x42);
+const MENU_DIM: Color = MIL_GREEN_FAINT;
 const CONCLUSION_BORDER: Color = PANEL_GREEN;
-const LOCAL_FILE_GREEN: Color = MARK_GREEN;
+const LOCAL_FILE_GREEN: Color = MIL_GREEN;
 
 /// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,9 +292,11 @@ pub enum TuiActivityKind {
     Requesting,
     Thinking,
     Reading,
+    Exploring,
     Writing,
     Creating,
     Updating,
+    Editing,
     Searching,
     Fetching,
     Querying,
@@ -364,9 +373,11 @@ impl TuiActivityKind {
             Self::Requesting => ("模型请求", "Model Request"),
             Self::Thinking => ("模型思考", "Thinking"),
             Self::Reading => ("读取", "Reading"),
+            Self::Exploring => ("探索", "Explored"),
             Self::Writing => ("写入", "Writing"),
             Self::Creating => ("创建", "Creating"),
             Self::Updating => ("修改", "Updating"),
+            Self::Editing => ("编辑", "Edited"),
             Self::Searching => ("搜索", "Searching"),
             Self::Fetching => ("抓取", "Fetching"),
             Self::Querying => ("查询", "Querying"),
@@ -2993,7 +3004,7 @@ impl TuiState {
                     Span::styled(
                         "❯ ",
                         Style::default()
-                            .fg(Color::LightGreen)
+                            .fg(MIL_GREEN_BRIGHT)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(header, Style::default().add_modifier(Modifier::BOLD)),
@@ -3374,6 +3385,13 @@ impl TuiState {
                     let line_width = usize::from(width)
                         .saturating_sub(line_prefix.width())
                         .max(1);
+                    let line_tone = if text_line.starts_with('+') {
+                        TuiTone::Success
+                    } else if text_line.starts_with('-') {
+                        TuiTone::Danger
+                    } else {
+                        TuiTone::WorkText
+                    };
                     for wrapped in wrap_display(text_line, line_width) {
                         let line_prefix = if first {
                             first_prefix
@@ -3388,13 +3406,13 @@ impl TuiState {
                         );
                         lines.push(TranscriptVisualLine {
                             kind: TranscriptKind::WorkResult,
-                            tone: TuiTone::WorkText,
+                            tone: line_tone,
                             text: format!("{line_prefix}{wrapped}"),
                             prompt_text: None,
                             prefix_len: line_prefix.width(),
-                            prefix_tone: TuiTone::WorkText,
+                            prefix_tone: line_tone,
                             label_range: None,
-                            label_tone: TuiTone::WorkText,
+                            label_tone: line_tone,
                             syntax_ranges,
                             background: None,
                         });
@@ -3829,7 +3847,7 @@ impl TuiState {
 
         let mut spans = vec![Span::styled(
             "❯ ",
-            Style::default().fg(Color::LightGreen).bg(PANEL_BG),
+            Style::default().fg(MIL_GREEN_BRIGHT).bg(PANEL_BG),
         )];
         if self.secret_input.is_some() {
             let masked = "•".repeat(self.input[self.input_scroll..visible_end].chars().count());
@@ -3925,7 +3943,7 @@ impl TuiState {
                     Block::bordered()
                         .border_style(
                             Style::default()
-                                .fg(Color::LightGreen)
+                                .fg(MIL_GREEN_BRIGHT)
                                 .bg(MENU_BG)
                                 .add_modifier(Modifier::BOLD),
                         )
@@ -3965,11 +3983,11 @@ impl TuiState {
                     Style::default().fg(MENU_LABEL)
                 };
                 ListItem::new(Line::from(vec![
-                    Span::styled(bar, Style::default().fg(Color::LightGreen)),
+                    Span::styled(bar, Style::default().fg(MIL_GREEN_BRIGHT)),
                     Span::styled(
                         format!("{marker} "),
                         Style::default().fg(if is_active {
-                            Color::LightGreen
+                            MIL_GREEN_BRIGHT
                         } else {
                             MENU_HINT
                         }),
@@ -4379,11 +4397,11 @@ impl TuiState {
                 .map(|(index, item)| {
                     let bar = if index == selected { "▌ " } else { "  " };
                     ListItem::new(Line::from(vec![
-                        Span::styled(bar, Style::default().fg(Color::LightGreen)),
+                        Span::styled(bar, Style::default().fg(MIL_GREEN_BRIGHT)),
                         Span::styled(
                             fit_row(&item.label, 18),
                             Style::default()
-                                .fg(Color::LightGreen)
+                                .fg(MIL_GREEN_BRIGHT)
                                 .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
@@ -4438,9 +4456,9 @@ impl TuiState {
                     } else {
                         (
                             Style::default()
-                                .fg(Color::LightGreen)
+                                .fg(MIL_GREEN_BRIGHT)
                                 .add_modifier(Modifier::BOLD),
-                            Style::default().fg(Color::LightGreen),
+                            Style::default().fg(MIL_GREEN_BRIGHT),
                         )
                     };
                     (entry.spec.name, detail, name_style, detail_style)
@@ -4453,9 +4471,9 @@ impl TuiState {
                         view.name,
                         format!("{} · {} · {}", view.value, view.category, view.purpose),
                         Style::default()
-                            .fg(Color::LightGreen)
+                            .fg(MIL_GREEN_BRIGHT)
                             .add_modifier(Modifier::BOLD),
-                        Style::default().fg(Color::LightGreen),
+                        Style::default().fg(MIL_GREEN_BRIGHT),
                     )
                 }
                 DrawerEntry::Source(source) => (
@@ -4465,13 +4483,13 @@ impl TuiState {
                         source.author, source.category, source.fragments
                     ),
                     Style::default()
-                        .fg(Color::LightGreen)
+                        .fg(MIL_GREEN_BRIGHT)
                         .add_modifier(Modifier::BOLD),
-                    Style::default().fg(Color::LightGreen),
+                    Style::default().fg(MIL_GREEN_BRIGHT),
                 ),
             };
             items.push(ListItem::new(Line::from(vec![
-                Span::styled(bar, Style::default().fg(Color::LightGreen)),
+                Span::styled(bar, Style::default().fg(MIL_GREEN_BRIGHT)),
                 Span::styled(fit_row(name, 22), name_style),
                 Span::styled(detail, detail_style),
             ])));
@@ -5043,9 +5061,11 @@ fn activity_kind_tone(kind: TuiActivityKind) -> TuiTone {
         | TuiActivityKind::Requesting
         | TuiActivityKind::Thinking
         | TuiActivityKind::Reading
+        | TuiActivityKind::Exploring
         | TuiActivityKind::Writing
         | TuiActivityKind::Creating
         | TuiActivityKind::Updating
+        | TuiActivityKind::Editing
         | TuiActivityKind::Searching
         | TuiActivityKind::Fetching
         | TuiActivityKind::Querying
@@ -5313,7 +5333,7 @@ fn shortcut_key_spans(text: String, base: Style) -> Vec<Span<'static>> {
     spans.push(Span::styled("Ctrl + ".to_string(), base));
     spans.push(Span::styled(
         "T".to_string(),
-        base.fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+        base.fg(MIL_GREEN_BRIGHT).add_modifier(Modifier::BOLD),
     ));
     if key + 1 < text.len() {
         spans.push(Span::styled(text[key + 1..].to_string(), base));
@@ -5326,7 +5346,7 @@ fn tone_style(tone: TuiTone) -> Style {
         TuiTone::Default => Style::default().fg(Color::Reset),
         TuiTone::Accent => Style::default().fg(MARK_GREEN).add_modifier(Modifier::BOLD),
         TuiTone::Success => Style::default()
-            .fg(Color::LightGreen)
+            .fg(MIL_GREEN_BRIGHT)
             .add_modifier(Modifier::BOLD),
         TuiTone::Warning => Style::default()
             .fg(Color::Yellow)
@@ -5334,23 +5354,23 @@ fn tone_style(tone: TuiTone) -> Style {
         TuiTone::Danger => Style::default()
             .fg(Color::LightRed)
             .add_modifier(Modifier::BOLD),
-        TuiTone::Evidence => Style::default().fg(Color::Cyan),
+        TuiTone::Evidence => Style::default().fg(MIL_GREEN_DIM),
         TuiTone::Code => Style::default().fg(Color::Indexed(252)),
         TuiTone::Keyword => Style::default()
-            .fg(Color::LightMagenta)
+            .fg(MIL_GREEN_BRIGHT)
             .add_modifier(Modifier::BOLD),
         TuiTone::Function => Style::default()
-            .fg(Color::Yellow)
+            .fg(MIL_GREEN_BRIGHT)
             .add_modifier(Modifier::BOLD),
         TuiTone::Type => Style::default()
-            .fg(Color::Cyan)
+            .fg(MIL_GREEN_DIM)
             .add_modifier(Modifier::BOLD),
-        TuiTone::String => Style::default().fg(Color::LightGreen),
-        TuiTone::Number => Style::default().fg(Color::Magenta),
+        TuiTone::String => Style::default().fg(MIL_GREEN_BRIGHT),
+        TuiTone::Number => Style::default().fg(MIL_GREEN_DIM),
         TuiTone::Comment => Style::default()
-            .fg(Color::DarkGray)
+            .fg(MIL_GREEN_FAINT)
             .add_modifier(Modifier::ITALIC),
-        TuiTone::Reference => Style::default().fg(Color::LightCyan),
+        TuiTone::Reference => Style::default().fg(MIL_GREEN),
         TuiTone::Supplementary => Style::default()
             .fg(Color::Indexed(245))
             .add_modifier(Modifier::DIM),
@@ -5360,12 +5380,12 @@ fn tone_style(tone: TuiTone) -> Style {
         TuiTone::Link => Style::default().fg(MARK_GREEN),
         TuiTone::LocalFile => Style::default().fg(LOCAL_FILE_GREEN),
         TuiTone::WorkText => Style::default().fg(PANEL_TEXT_GREEN),
-        TuiTone::WorkLink => Style::default().fg(Color::LightGreen),
+        TuiTone::WorkLink => Style::default().fg(MIL_GREEN_BRIGHT),
         TuiTone::SectionText => Style::default().fg(PANEL_TEXT_GREEN),
-        TuiTone::Border => Style::default().fg(Color::DarkGray),
+        TuiTone::Border => Style::default().fg(MIL_GREEN_RULE),
         TuiTone::ConclusionBorder => Style::default().fg(CONCLUSION_BORDER),
         TuiTone::ConclusionTitle => Style::default()
-            .fg(Color::LightGreen)
+            .fg(MIL_GREEN_BRIGHT)
             .add_modifier(Modifier::BOLD),
         TuiTone::Strong => Style::default()
             .fg(Color::White)
@@ -6682,7 +6702,7 @@ fn menu_block(title: &str, hint: &str, background: Color) -> Block<'static> {
         .title_top(Line::from(Span::styled(
             format!(" {} ", title.trim()),
             Style::default()
-                .fg(Color::LightGreen)
+                .fg(MIL_GREEN_BRIGHT)
                 .add_modifier(Modifier::BOLD),
         )))
         .border_style(Style::default().fg(DRAWER_BORDER))
@@ -7173,7 +7193,7 @@ mod tests {
             .cell((geometry.text_x - 2, geometry.row))
             .unwrap();
         assert_eq!(prompt_cell.symbol(), "❯");
-        assert_eq!(prompt_cell.fg, Color::LightGreen);
+        assert_eq!(prompt_cell.fg, MIL_GREEN_BRIGHT);
         assert!(!prompt_cell.modifier.contains(Modifier::BOLD));
         assert_eq!(
             terminal
@@ -7238,7 +7258,7 @@ mod tests {
             .cell((geometry.text_x - 2, geometry.row))
             .unwrap();
         assert_eq!(prompt.symbol(), "❯");
-        assert_eq!(prompt.fg, Color::LightGreen);
+        assert_eq!(prompt.fg, MIL_GREEN_BRIGHT);
     }
 
     #[test]
@@ -7405,10 +7425,10 @@ mod tests {
     #[test]
     fn transcript_semantic_tones_match_the_palette() {
         assert_eq!(tone_style(TuiTone::Accent).fg, Some(MARK_GREEN));
-        assert_eq!(tone_style(TuiTone::Success).fg, Some(Color::LightGreen));
+        assert_eq!(tone_style(TuiTone::Success).fg, Some(MIL_GREEN_BRIGHT));
         assert_eq!(tone_style(TuiTone::Warning).fg, Some(Color::Yellow));
         assert_eq!(tone_style(TuiTone::Danger).fg, Some(Color::LightRed));
-        assert_eq!(tone_style(TuiTone::Evidence).fg, Some(Color::Cyan));
+        assert_eq!(tone_style(TuiTone::Evidence).fg, Some(MIL_GREEN_DIM));
         assert_eq!(
             tone_style(TuiTone::Supplementary).fg,
             Some(Color::Indexed(245))
@@ -7439,16 +7459,16 @@ mod tests {
         assert_eq!(tone_style(TuiTone::Link).fg, Some(MARK_GREEN));
         assert_eq!(tone_style(TuiTone::LocalFile).fg, Some(LOCAL_FILE_GREEN));
         assert_eq!(tone_style(TuiTone::WorkText).fg, Some(PANEL_TEXT_GREEN));
-        assert_eq!(tone_style(TuiTone::WorkLink).fg, Some(Color::LightGreen));
+        assert_eq!(tone_style(TuiTone::WorkLink).fg, Some(MIL_GREEN_BRIGHT));
         assert_eq!(tone_style(TuiTone::SectionText).fg, Some(PANEL_TEXT_GREEN));
-        assert_eq!(tone_style(TuiTone::Border).fg, Some(Color::DarkGray));
+        assert_eq!(tone_style(TuiTone::Border).fg, Some(MIL_GREEN_RULE));
         assert_eq!(
             tone_style(TuiTone::ConclusionBorder).fg,
             Some(CONCLUSION_BORDER)
         );
         assert_eq!(
             tone_style(TuiTone::ConclusionTitle).fg,
-            Some(Color::LightGreen)
+            Some(MIL_GREEN_BRIGHT)
         );
         assert!(
             tone_style(TuiTone::ConclusionTitle)
@@ -7588,8 +7608,8 @@ mod tests {
 
         // Action names and the bullet are bright-green accents; process text
         // and results stay deep green.
-        assert_eq!(marker.fg, Color::LightGreen);
-        assert_eq!(label.fg, Color::LightGreen);
+        assert_eq!(marker.fg, MIL_GREEN_BRIGHT);
+        assert_eq!(label.fg, MIL_GREEN_BRIGHT);
         assert!(!label.modifier.contains(Modifier::BOLD));
         assert_eq!(result.fg, PANEL_TEXT_GREEN);
         assert!(!result.modifier.contains(Modifier::BOLD));
@@ -7600,6 +7620,37 @@ mod tests {
             .expect("work detail line");
         assert_eq!(detail.tone, TuiTone::WorkText);
         assert_eq!(detail.label_tone, TuiTone::WorkLink);
+    }
+
+    #[test]
+    fn tui_palette_matches_the_cli_military_green() {
+        assert_eq!(MIL_GREEN, Color::Rgb(0x70, 0x8a, 0x41));
+        assert_eq!(MIL_GREEN_BRIGHT, Color::Rgb(0x8a, 0xa6, 0x52));
+        assert_eq!(MIL_GREEN_DIM, Color::Rgb(0x8b, 0x96, 0x6f));
+        assert_eq!(MIL_GREEN_FAINT, Color::Rgb(0x68, 0x73, 0x58));
+        assert_eq!(MIL_GREEN_RULE, Color::Rgb(0x4a, 0x59, 0x30));
+        assert_eq!(MARK_GREEN, MIL_GREEN_BRIGHT);
+        assert_eq!(PANEL_TEXT_GREEN, MIL_GREEN_DIM);
+        assert_eq!(PANEL_GREEN, MIL_GREEN_RULE);
+        assert_eq!(CONCLUSION_BORDER, MIL_GREEN_RULE);
+    }
+
+    #[test]
+    fn work_log_colors_added_and_removed_diff_lines() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_work_call("c1", TuiActivityKind::Editing, "/tmp/community-site.tsx");
+        state.push_work_result_for("c1", "✓ +1 -1\n-old line\n+new line", TuiTone::Success);
+        let lines = state.build_transcript_lines(120);
+        let removed = lines
+            .iter()
+            .find(|line| line.text.contains("-old line"))
+            .expect("removed diff line");
+        let added = lines
+            .iter()
+            .find(|line| line.text.contains("+new line"))
+            .expect("added diff line");
+        assert_eq!(removed.tone, TuiTone::Danger);
+        assert_eq!(added.tone, TuiTone::Success);
     }
 
     #[test]
@@ -7784,7 +7835,7 @@ mod tests {
             .map(|x| terminal.backend().buffer().cell((x, title_y)).unwrap())
             .find(|cell| cell.symbol() == "结")
             .expect("conclusion title glyph");
-        assert_eq!(title_cell.fg, Color::LightGreen);
+        assert_eq!(title_cell.fg, MIL_GREEN_BRIGHT);
         assert!(title_cell.modifier.contains(Modifier::BOLD));
 
         let body = state
@@ -7866,49 +7917,61 @@ mod tests {
     #[test]
     fn activity_taxonomy_is_bilingual_and_color_coded() {
         let cases = [
-            (TuiActivityKind::Reading, "读取", "Reading", Color::Cyan),
-            (TuiActivityKind::Writing, "写入", "Writing", Color::Cyan),
-            (TuiActivityKind::Updating, "修改", "Updating", Color::Cyan),
-            (TuiActivityKind::Bash, "执行命令", "Bash", Color::Cyan),
-            (TuiActivityKind::Searching, "搜索", "Searching", Color::Cyan),
-            (TuiActivityKind::Fetching, "抓取", "Fetching", Color::Cyan),
-            (TuiActivityKind::Querying, "查询", "Querying", Color::Cyan),
-            (TuiActivityKind::Spawning, "分队", "Squad", Color::Cyan),
+            (TuiActivityKind::Reading, "读取", "Reading", MIL_GREEN_DIM),
+            (
+                TuiActivityKind::Exploring,
+                "探索",
+                "Explored",
+                MIL_GREEN_DIM,
+            ),
+            (TuiActivityKind::Writing, "写入", "Writing", MIL_GREEN_DIM),
+            (TuiActivityKind::Updating, "修改", "Updating", MIL_GREEN_DIM),
+            (TuiActivityKind::Editing, "编辑", "Edited", MIL_GREEN_DIM),
+            (TuiActivityKind::Bash, "执行命令", "Bash", MIL_GREEN_DIM),
+            (
+                TuiActivityKind::Searching,
+                "搜索",
+                "Searching",
+                MIL_GREEN_DIM,
+            ),
+            (TuiActivityKind::Fetching, "抓取", "Fetching", MIL_GREEN_DIM),
+            (TuiActivityKind::Querying, "查询", "Querying", MIL_GREEN_DIM),
+            (TuiActivityKind::Spawning, "分队", "Squad", MIL_GREEN_DIM),
             (
                 TuiActivityKind::MasterUnderstanding,
                 "任务理解",
                 "MissionUnderstanding",
-                Color::Cyan,
+                MIL_GREEN_DIM,
             ),
             (
                 TuiActivityKind::MasterPlanning,
                 "任务规划",
                 "MissionPlanning",
-                Color::Cyan,
+                MIL_GREEN_DIM,
             ),
             (
                 TuiActivityKind::MasterAssignment,
                 "任务分配",
                 "TaskAssignment",
-                Color::Cyan,
+                MIL_GREEN_DIM,
             ),
             (
                 TuiActivityKind::MasterStarting,
                 "任务启动",
                 "TaskStarting",
-                Color::Cyan,
+                MIL_GREEN_DIM,
             ),
             (
                 TuiActivityKind::WorkerRunning,
                 "Worker运行",
                 "WorkerRunning",
-                Color::Cyan,
+                MIL_GREEN_DIM,
             ),
             (
                 TuiActivityKind::MasterVerifying,
                 "任务验收",
                 "MissionVerification",
-                Color::LightGreen,
+                MIL_GREEN_BRIGHT,
             ),
             (TuiActivityKind::Blocked, "阻塞", "Blocked", Color::LightRed),
         ];
@@ -8234,7 +8297,7 @@ mod tests {
             .iter()
             .find(|cell| cell.symbol() == "┌")
             .expect("details border");
-        assert_eq!(border.fg, Color::LightGreen);
+        assert_eq!(border.fg, MIL_GREEN_BRIGHT);
 
         state.close_details();
         state.toggle_mode_menu();
@@ -8290,7 +8353,7 @@ mod tests {
             .map(|x| terminal.backend().buffer().cell((x, 19)).unwrap())
             .find(|cell| cell.symbol() == "T")
             .expect("T shortcut key");
-        assert_eq!(key.fg, Color::LightGreen);
+        assert_eq!(key.fg, MIL_GREEN_BRIGHT);
         assert!(key.modifier.contains(Modifier::BOLD));
     }
 
@@ -8806,7 +8869,7 @@ mod tests {
             .buffer()
             .cell((area.x + 2, row_y(header_row)))
             .unwrap();
-        assert_eq!(border.fg, Color::LightGreen);
+        assert_eq!(border.fg, MIL_GREEN_BRIGHT);
         assert!(border.modifier.contains(Modifier::BOLD));
         assert_eq!(border.bg, CODE_BG);
         let language_column =
@@ -8827,7 +8890,7 @@ mod tests {
                 .cell((area.x + 2, row_y(body_row)))
                 .unwrap()
                 .fg,
-            Color::LightGreen
+            MIL_GREEN_BRIGHT
         );
         assert_eq!(
             terminal
@@ -8836,7 +8899,7 @@ mod tests {
                 .cell((area.x + 2, row_y(footer_row)))
                 .unwrap()
                 .fg,
-            Color::LightGreen
+            MIL_GREEN_BRIGHT
         );
         assert_eq!(
             terminal
@@ -9171,7 +9234,7 @@ int main(int argc, char **argv) {
                 .cell((word_x("int"), y))
                 .unwrap()
                 .fg,
-            Color::Cyan
+            MIL_GREEN_DIM
         );
         assert_eq!(
             terminal
@@ -9180,7 +9243,7 @@ int main(int argc, char **argv) {
                 .cell((word_x("main"), y))
                 .unwrap()
                 .fg,
-            Color::Yellow
+            MIL_GREEN_BRIGHT
         );
     }
 
@@ -9282,7 +9345,7 @@ int main(int argc, char **argv) {
         assert!(
             buffer.content.iter().any(|cell| {
                 cell.symbol() != " "
-                    && cell.fg == Color::LightGreen
+                    && cell.fg == MIL_GREEN_BRIGHT
                     && cell.modifier.contains(Modifier::BOLD)
             }),
             "command names are bright green and bold"
@@ -9290,7 +9353,7 @@ int main(int argc, char **argv) {
         assert!(
             buffer.content.iter().any(|cell| {
                 cell.symbol() != " "
-                    && cell.fg == Color::LightGreen
+                    && cell.fg == MIL_GREEN_BRIGHT
                     && !cell.modifier.contains(Modifier::BOLD)
             }),
             "command descriptions are bright green"

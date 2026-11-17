@@ -331,9 +331,9 @@ pub fn write_session_banner(
     continue_command: &str,
     use_color: bool,
 ) -> std::io::Result<()> {
-    const WORD: &str = "\x1b[38;2;72;119;72m";
-    const SHADOW: &str = "\x1b[38;2;58;92;66m";
-    const GREEN: &str = "\x1b[1;38;5;10m";
+    const WORD: &str = "\x1b[38;2;112;138;65m";
+    const SHADOW: &str = "\x1b[38;2;74;89;48m";
+    const GREEN: &str = "\x1b[1;38;2;138;166;82m";
     const RESET: &str = "\x1b[0m";
 
     writeln!(writer)?;
@@ -535,8 +535,8 @@ mod tests {
         )
         .unwrap();
         let output = String::from_utf8(output).unwrap();
-        assert!(output.contains("\x1b[38;2;72;119;72m"));
-        assert!(output.contains("\x1b[1;38;5;10m"));
+        assert!(output.contains("\x1b[38;2;112;138;65m"));
+        assert!(output.contains("\x1b[1;38;2;138;166;82m"));
         // The banner writes the logo one styled span at a time, so the plain text
         // is not contiguous; assert on the glyph the art is drawn with.
         let glyph = EXIT_LOGO[0]
