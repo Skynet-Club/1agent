@@ -1494,7 +1494,7 @@ impl AgentTool for McpTool {
     ) -> Result<ToolOutcome, ToolError> {
         if !permissions.allow_network {
             return Err(ToolError::PermissionDenied(
-                "MCP tools require --allow-network".into(),
+                "MCP tools require network permission; in the TUI run /permissions network on for the next run, or pass --allow-network for headless".into(),
             ));
         }
         validate_tool_arguments(&self.input_schema, &arguments)?;

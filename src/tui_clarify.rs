@@ -66,7 +66,7 @@ impl AgentTool for ClarifyTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "clarify".into(),
-            description: "Ask the user a blocking structured clarification (1-5 questions, 2-4 options each, an automatic Other and at most one recommended option). Use only when the answer cannot be inferred from the conversation, the journal or memory. Set `requires_text: true` on any option that asks the user to supply a name, copy, URL, number or other concrete input; selecting it then requires text and an empty promise is not an answer. Returns answered/skipped/unanswered questions and keeps the default answer valid.".into(),
+            description: "Ask the user a blocking structured clarification (1-5 questions, 2-4 options each, an automatic Other and at most one recommended option). Use only when the answer cannot be inferred from the conversation, the journal or memory. Set `requires_text: true` on any option that asks the user to supply a name, copy, URL, number or other concrete input; selecting it then requires text and an empty promise is not an answer. Options must be answerable by the human; never offer an option that promises the agent will grant itself a permission or perform an action it cannot do. Returns answered/skipped/unanswered questions and keeps the default answer valid.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {

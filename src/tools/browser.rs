@@ -109,7 +109,7 @@ impl AgentTool for BrowserReadTool {
     ) -> Result<ToolOutcome, ToolError> {
         if !permissions.allow_network {
             return Err(ToolError::PermissionDenied(
-                "network permission is disabled; pass --allow-network".into(),
+                "network permission is disabled; in the TUI run /permissions network on for the next run, or pass --allow-network for headless".into(),
             ));
         }
         let raw_url = arguments
@@ -456,7 +456,7 @@ impl AgentTool for BrowserTool {
             && !session.allow_loopback()
         {
             return Err(ToolError::PermissionDenied(
-                "browser session is not loopback-only; pass --allow-network for external pages"
+                "browser session is not loopback-only; in the TUI run /permissions network on for the next run, or pass --allow-network for headless external pages"
                     .into(),
             ));
         }

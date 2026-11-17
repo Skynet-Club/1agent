@@ -1199,7 +1199,7 @@ impl AgentRuntime {
                 denied.push(ToolRequestDenial {
                     name: name.clone(),
                     code: "network_not_allowed".into(),
-                    message: "network permission is disabled".into(),
+                    message: "network permission is disabled; in the TUI run /permissions network on for the next run, or pass --allow-network for headless".into(),
                 });
                 continue;
             }

@@ -210,7 +210,7 @@ Provider 告警历史：
 | `Ctrl+Q` | 连按两次退出；第一次提示，`Esc` 或 `Enter` 取消。外层终端占用 `Ctrl+Q` 时用 `F10`、`Alt+Q` 或 `/quit` |
 | `Ctrl+C` | 复制选中文本 |
 
-> 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭。最终是否执行仍由 Authority/Policy 和 Workshop 决定。网络仍需 `--allow-network`。
+> 本地 CLI/TUI 默认允许文件写入和终端执行；`--read-only` 可关闭。最终是否执行仍由 Authority/Policy 和 Workshop 决定。网络默认关闭；TUI 用 `/permissions network on`（下一次运行生效，无需重启），headless 用 `--allow-network`。
 
 会话输入框使用深绿色面板：背景、边框与面板文字整体压暗 50%；输入内容保持白色。宽度足够时，token 指标嵌在输入框顶部边框的右侧：
 
@@ -336,6 +336,8 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 | `/cost` | token 与成本 |
 | `/config` | TUI 配置 |
 | `/reframe` | 判断目的/手段，必要时追问 |
+
+`/permissions network on|off` 和 `/permissions write on|off` **只影响下一次运行**，不需要重启 TUI。模型不能给自己提权；需要联网时按提示运行 `/permissions network on`，再重试任务。headless 运行才使用 `--allow-network`。
 
 破坏性命令（`/clear`、非 dry-run 的 `/dispatch`、`/control cancel`、`/control takeover`）需要第二次 Enter 确认；其他输入会取消确认。
 
@@ -600,7 +602,7 @@ export SURFACE_TOKEN="$(openssl rand -hex 32)"
 |---|---|
 | `1agent: command not found` | 确认 `$HOME/.local/bin` 在 `PATH` |
 | provider 凭据未就绪 | `1agent providers --config configs/example.json --check` |
-| 网络请求被拒绝 | 显式加 `--allow-network`，并确认端点可信 |
+| 网络请求被拒绝 | TUI 内运行 `/permissions network on`（下一次运行生效，无需重启）；headless 加 `--allow-network`；并确认端点可信 |
 | 文件读取被拒绝 | 使用 `--read-root` 指向授权目录；TUI 在 `/workspace` 中切换 |
 | TUI 显示异常 | 使用真实终端；当前只保证 Linux x86_64 |
 | TUI 闪退 | 查看 `$HOME/.1a/tui-crash.log`；记录复现时的粘贴内容、退格/空格/鼠标操作和终端尺寸 |

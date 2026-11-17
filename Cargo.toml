@@ -1,6 +1,6 @@
 [package]
 name = "first-principles-agent"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 default-run = "first-principles-agent"
 edition = "2024"
 description = "Evidence-accountable, provider-neutral decision agent"

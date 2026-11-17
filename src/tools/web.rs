@@ -398,7 +398,7 @@ impl AgentTool for FetchUrlTool {
     ) -> Result<ToolOutcome, ToolError> {
         if !permissions.allow_network {
             return Err(ToolError::PermissionDenied(
-                "network permission is disabled; pass --allow-network".into(),
+                "network permission is disabled; in the TUI run /permissions network on for the next run, or pass --allow-network for headless".into(),
             ));
         }
         let raw_url = arguments
@@ -553,7 +553,7 @@ impl AgentTool for WebSearchTool {
     ) -> Result<ToolOutcome, ToolError> {
         if !permissions.allow_network {
             return Err(ToolError::PermissionDenied(
-                "network permission is disabled; pass --allow-network".into(),
+                "network permission is disabled; in the TUI run /permissions network on for the next run, or pass --allow-network for headless".into(),
             ));
         }
         let query = arguments
@@ -679,6 +679,10 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, ToolError::PermissionDenied(_)));
+        assert!(
+            error.to_string().contains("/permissions network on"),
+            "the denial must name the TUI remediation: {error}"
+        );
     }
 
     #[tokio::test]

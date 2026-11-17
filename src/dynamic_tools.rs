@@ -122,10 +122,16 @@ pub fn render_self_model(
 ) -> String {
     let mut limitations = Vec::new();
     if !permissions.allow_write {
-        limitations.push("write tools are disabled in this run");
+        limitations.push(
+            "write tools are disabled in this run; the user can run /permissions write on \
+             for the next run",
+        );
     }
     if !permissions.allow_network {
-        limitations.push("network tools are disabled in this run");
+        limitations.push(
+            "network tools are disabled in this run; the user can run /permissions network on \
+             for the next run",
+        );
     }
     if !tools.iter().any(|tool| tool.requires_write) {
         limitations.push("no write tools are available");
@@ -264,15 +270,18 @@ mod tests {
         assert_eq!(value["permissions"]["allow_write"], false);
         assert_eq!(value["tools"].as_array().unwrap().len(), 2);
         let limitations = value["limitations"].as_array().unwrap();
+        assert!(limitations.iter().any(|line| {
+            line.as_str().is_some_and(|line| {
+                line.contains("write tools are disabled in this run")
+                    && line.contains("/permissions write on")
+            })
+        }));
         assert!(
             limitations
                 .iter()
-                .any(|line| line == "write tools are disabled in this run")
-        );
-        assert!(
-            limitations
-                .iter()
-                .any(|line| line == "network tools are disabled in this run")
+                .any(|line| line.as_str().is_some_and(|line| line
+                    .contains("network tools are disabled in this run")
+                    && line.contains("/permissions network on")))
         );
     }
 }

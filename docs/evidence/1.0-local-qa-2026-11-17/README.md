@@ -70,7 +70,30 @@ rubric 20/20. Residual `chat-19` used 2 provider calls where 1 is allowed for a
 simple chat turn. Evidence:
 `docs/evidence/0.99-acceptance/agent-loop-v1-final-2026-11-17/`.
 
-## 8. Not covered
+## 8. rc.2 permission UX and re-run (2026-11-18)
+
+The rc.2 line fixes the TUI permission UX bug: the model offered “开网络权限”
+as a clarify option but could not grant it. The model prompt, clarify tool
+description, `describe_self` limitations and every network-denied tool error
+now state that the human enables access for the next run with
+`/permissions network on` (or `--allow-network` headless); no TUI restart is
+required. No auto-elevation was added.
+
+Verification:
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1638 total, 0 failed, 13 ignored |
+| Prompt/self-model tests | pass (`system_prompt_does_not_let_the_model_grant_permissions`, `self_model_reports_only_available_tools_and_live_budgets`) |
+| `agent-loop-v1` rc.2 | **99/100**, 0 hard-gate, audit/replay 100/100, rubric 20/20 |
+| Residual | `intro-20` used 6 tool calls where 4 are allowed (three `describe_self` calls); efficiency only, no safety gate |
+
+`chat-19`, the rc.1 residual, passed in this run; both runs are one
+provider/model sample, so the residual moved rather than disappeared. Evidence:
+`docs/evidence/1.0-local-qa-2026-11-17/agent-loop-v1-rc2-2026-11-18/` and
+`verify-1.0.0-rc.2.log`.
+
+## 9. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

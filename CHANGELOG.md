@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0-rc.2 — 2026-11-18
+
+- Permission UX fix (includes rc.1): the model can no longer promise to grant
+  itself network/write access. TUI users enable it for the next run with
+  `/permissions network on` or `/permissions write on`; headless runs use
+  `--allow-network`/`--read-only`. Clarify options must be answerable by the
+  human, and network-denied tool errors and `describe_self` now state the exact
+  TUI command.
+- Track Q rc.2 re-run `agent-loop-v1`: **99/100**, 0 hard-gate, audit/replay
+  100/100, rubric 20/20; residual `intro-20` used 6 tool calls where 4 are
+  allowed (three `describe_self` calls), efficiency only. `chat-19` passed in
+  this run. QG1 goal closure requires a stored verification record. External
+  audit, real Windows/macOS GA, marketplace and R1–R9 remain blocked.
+
 ## 1.0.0-rc.1 — 2026-11-18
 
 - Code-level 1.0 candidate (not GA). This line includes the 0.98 real-world/
