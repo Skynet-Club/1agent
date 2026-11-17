@@ -57,6 +57,13 @@ Three failures compounded:
    delivery must not look like a clean success.
 9. Reuse a model-authored “Other, I will explain” option instead of adding a
    second automatic Other; it collects text and is the only Other shown.
+10. Make browser approval cards survive a later human turn. The card no longer
+    matches on the runtime `action_id` (which necessarily changes between
+    runs); it still matches action, target, browser session, origin and
+    optional artifact digest, is one-shot, and lasts 10 minutes. Opening the
+    same loopback page again is idempotent and does not reload it, preserving
+    the DOM-bound card. The prompt tells the model not to reopen/navigate after
+    `approval_required`.
 
 ## Consequences
 

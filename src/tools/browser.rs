@@ -239,6 +239,21 @@ fn url_is_loopback(url: &str) -> bool {
         })
 }
 
+/// Same local page for an idempotent `open`: origin and path match, while
+/// query/fragment differences do not force a reload. A reload would change the
+/// page instance and invalidate an approved DOM-bound action card.
+fn same_loopback_page(left: &str, right: &str) -> bool {
+    let (Ok(left), Ok(right)) = (Url::parse(left), Url::parse(right)) else {
+        return false;
+    };
+    url_is_loopback(left.as_str())
+        && url_is_loopback(right.as_str())
+        && left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+        && left.path() == right.path()
+}
+
 fn approval_store() -> ActionCardStore {
     ActionCardStore::default_store()
 }
@@ -361,7 +376,7 @@ impl AgentTool for BrowserTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "browser".into(),
-            description: "Computer-use browser sandbox. Supports open/navigate/read/click/type/press/screenshot/audit/close. `audit` returns real viewport metrics (scrollWidth/clientWidth, placeholder hits, tap-target sizes) and PNG paths for local design review; use it with `allow_loopback=true` on a preview_file URL and no network permission. Every http(s) host, including subresources, must be explicitly allowlisted; loopback requires allow_loopback. The browser cannot run in read-only mode. Buttons, submits, cross-origin links, password entry and Enter create a persistent action card: ask the human to run `1agent browser approve <card_id>`, then retry with approval_id. Password fields require secret_ref, never plaintext.".into(),
+            description: "Computer-use browser sandbox. Supports open/navigate/read/click/type/press/screenshot/audit/close. `audit` returns real viewport metrics (scrollWidth/clientWidth, placeholder hits, tap-target sizes) and PNG paths for local design review; use it with `allow_loopback=true` on a preview_file URL and no network permission. Every http(s) host, including subresources, must be explicitly allowlisted; loopback requires allow_loopback. The browser cannot run in read-only mode. Buttons, submits, cross-origin links, password entry and Enter create a persistent action card: ask the human to run `1agent browser approve <card_id>`, then retry with approval_id. After `approval_required`, keep the current browser session: do not call open or navigate again, because a reload invalidates the DOM-bound card; retry the exact same selector/action with approval_id. Cards last 10 minutes; if expired, regenerate. Password fields require secret_ref, never plaintext.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -487,14 +502,15 @@ impl AgentTool for BrowserTool {
                     session.navigate(url).await.map_err(browser_tool_error)?;
                     *guard = Some(session);
                 } else {
-                    guard
-                        .as_ref()
-                        .ok_or_else(|| {
-                            ToolError::Failed("browser is not open; use action=open".into())
-                        })?
-                        .navigate(url)
-                        .await
-                        .map_err(browser_tool_error)?;
+                    let session = guard.as_ref().ok_or_else(|| {
+                        ToolError::Failed("browser is not open; use action=open".into())
+                    })?;
+                    let current = session.current_url().await.map_err(browser_tool_error)?;
+                    let already_open =
+                        current == url || (action == "open" && same_loopback_page(&current, url));
+                    if !already_open {
+                        session.navigate(url).await.map_err(browser_tool_error)?;
+                    }
                 }
                 browser_read_outcome(guard.as_ref().expect("session exists"), "open").await
             }
@@ -880,6 +896,18 @@ printf '<html><head><style>.x{}</style><script>bad()</script></head><body><h1>Re
         assert!(url_is_loopback("http://[::1]:8765/"));
         assert!(!url_is_loopback("https://example.com/"));
         assert!(!url_is_loopback("not a url"));
+        assert!(same_loopback_page(
+            "http://127.0.0.1:40593/?v=2",
+            "http://127.0.0.1:40593/"
+        ));
+        assert!(!same_loopback_page(
+            "http://127.0.0.1:40593/a",
+            "http://127.0.0.1:40593/b"
+        ));
+        assert!(!same_loopback_page(
+            "https://example.com/a",
+            "https://example.com/a"
+        ));
     }
 
     #[tokio::test]
