@@ -60,6 +60,9 @@ was honest but wrong about the local store.
   case refusal records.
 - Archived sessions remain searchable until they are trashed. Trashed sessions
   are outside the scanned directory.
+- A hit must include at least one run snippet. Runs whose answer is the
+  unrepairable-answer placeholder (`answer repair failed`) are skipped, so a
+  failed question cannot rank above the session that actually answered it.
 - Session metadata and journal paths are validated under the canonical journal
   root; symlinked `session.json` files and out-of-root journals are ignored.
 
