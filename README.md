@@ -95,7 +95,8 @@ cd 1agent-0.97.0
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 
-1agent --version
+1agent -v          # 当前版本
+1agent --version   # 同上，兼容旧写法
 1agent setup
 ```
 

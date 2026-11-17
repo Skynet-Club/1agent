@@ -163,14 +163,14 @@ fn help_advanced_lists_groups() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     for group in [
-        "provider",
-        "memory",
-        "trust",
-        "ops",
-        "master",
-        "evolution",
-        "protocol",
-        "eval",
+        "模型与路由",
+        "记忆与协作",
+        "信任与审计",
+        "运行与运维",
+        "多 Agent 与自治",
+        "技能与进化",
+        "协议与平台",
+        "评测与收据",
     ] {
         assert!(stdout.contains(group), "missing advanced group: {group}");
     }
