@@ -190,7 +190,7 @@
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 浏览器 / computer-use | **部分** | `browser_read` 可渲染并抽取正文；`browser` 支持点击/输入/截图/`audit`（本地 loopback 页面可用 `allow_loopback=true` 做 390/768/1440 视口审计），按钮/提交等需动作卡；通用视觉理解未实现 |
+| 浏览器 / computer-use | **部分** | `browser_read` 可渲染并抽取正文；`browser` 支持点击/输入/截图/`audit`（本地 loopback 页面可用 `allow_loopback=true` 做 390/768/1440 视口审计），按钮/提交等需动作卡；审批卡跨轮 10 分钟内有效，批准后带 `approval_id` 重试同一动作；通用视觉理解未实现 |
 | 通用子 Agent | **部分** | `spawn_agent` 有界子进程（深度 2、独立 journal/工作区）；子 Agent 的 write/network 只能与父权限取交集，不能放大；`spawn_agent` 自身按写工具分类，只读/KILL/Authority 写门在启动前生效；Master→Worker 仍是独立路径 |
 | MCP 客户端 | **部分** | stdio + streamable HTTP（JSON/SSE 响应、`Mcp-Session-Id`、bearer token 从环境变量/0600 文件读或 `token_exchange` 交换、per-server `timeout_seconds`）：发现并调用工具；OAuth claims 校验、手动 token exchange（RFC 8693 风格，写 0600 文件）、RFC 8414/OpenID issuer discovery（元数据 issuer 必须回显、远程 issuer 的发现端点必须 HTTPS、IPv6 loopback 支持）、spawn 时自动 exchange、到期前 30s 主动刷新与 401 时再交换一次已提供；0600 token 文件在 Unix 用 `O_NOFOLLOW`+`fstat` 读；工具市场未实现 |
 | 常驻 daemon/Routine/Trigger | **部分** | interval、文件 trigger、重启补跑、`--routine-skill`、`schedule health`；失败/超时可写告警日志并发 webhook；`--heartbeat` + `1agent watchdog` 提供带外存活检查；`--quiet-hours` 在窗口内跳过到期任务（任务保持 due，静默期睡眠取 `min(poll, 窗口剩余毫秒)`，窗口结束边界即重查）；升级阶梯可手动投影/投递（`inbox escalate`）或由 daemon 自动投递（`--escalate-*`）；daemon 维护循环提供 handoff reconcile、alert/goal 投影、attention 清理与轻量周期 digest；`digest` 台阶、按渠道 ladder 未实现；ack 只停止升级、不改 inbox 状态；跨重启去重仅对维护状态部分接入 |
