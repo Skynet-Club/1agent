@@ -171,6 +171,16 @@ pub fn recall_sessions(
             let (Some(request), Some(answer)) = (replay.request, replay.answer) else {
                 continue;
             };
+            // An unrepairable structured answer is a runtime failure message,
+            // not a memory. Recalling it would rank the failed question above
+            // the session that actually answered it.
+            if answer
+                .constraints
+                .iter()
+                .any(|constraint| constraint == "answer repair failed")
+            {
+                continue;
+            }
             let request_text = compact(&request.objective, MAX_REQUEST_CHARS);
             let conclusion_text = compact(&answer.conclusion, MAX_CONCLUSION_CHARS);
             let (request_score, request_terms) =
@@ -224,7 +234,7 @@ pub fn recall_sessions(
                 continue;
             }
         }
-        if terms.is_empty() && evidence.is_empty() {
+        if evidence.is_empty() {
             continue;
         }
         matched_terms.truncate(8);
@@ -642,7 +652,7 @@ mod tests {
         }
     }
 
-    fn write_run(root: &Path, request: &str, conclusion: &str) -> PathBuf {
+    fn write_run_with_answer(root: &Path, request: &str, answer: AgentAnswer) -> PathBuf {
         let path = root.join(format!("{}.jsonl", Uuid::new_v4()));
         let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
         journal
@@ -652,9 +662,7 @@ mod tests {
             })
             .unwrap();
         journal
-            .append(JournalEventKind::AnswerProduced {
-                answer: answer(conclusion),
-            })
+            .append(JournalEventKind::AnswerProduced { answer })
             .unwrap();
         journal
             .append(JournalEventKind::RunStopped {
@@ -664,13 +672,13 @@ mod tests {
         path
     }
 
-    fn session(root: &Path, id: &str, title: &str, runs: &[(&str, &str)]) {
+    fn write_run(root: &Path, request: &str, conclusion: &str) -> PathBuf {
+        write_run_with_answer(root, request, answer(conclusion))
+    }
+
+    fn session_with_journals(root: &Path, id: &str, title: &str, journals: Vec<PathBuf>) {
         let session_root = root.join(".sessions").join(id);
         std::fs::create_dir_all(&session_root).unwrap();
-        let journals = runs
-            .iter()
-            .map(|(request, conclusion)| write_run(root, request, conclusion))
-            .collect::<Vec<_>>();
         let record = serde_json::json!({
             "version": 2,
             "id": id,
@@ -684,6 +692,14 @@ mod tests {
             serde_json::to_vec(&record).unwrap(),
         )
         .unwrap();
+    }
+
+    fn session(root: &Path, id: &str, title: &str, runs: &[(&str, &str)]) {
+        let journals = runs
+            .iter()
+            .map(|(request, conclusion)| write_run(root, request, conclusion))
+            .collect::<Vec<_>>();
+        session_with_journals(root, id, title, journals);
     }
 
     #[test]
@@ -730,6 +746,19 @@ mod tests {
         );
         let word_hits = recall_sessions(root, None, "flagship", 3).unwrap();
         assert_eq!(word_hits[0].session_id, "ses_fg", "{word_hits:?}");
+    }
+
+    #[test]
+    fn unrepairable_runtime_answers_are_not_recalled() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let mut failed = answer("模型返回的答案结构无法修复，已降级为需要证据");
+        failed.status = AnswerStatus::NeedsEvidence;
+        failed.constraints = vec!["answer repair failed".into()];
+        let journal = write_run_with_answer(root, "F开头的单词", failed);
+        session_with_journals(root, "ses_failed", "F 和 G 开头的单词", vec![journal]);
+        let hits = recall_sessions(root, None, "F开头的单词", 3).unwrap();
+        assert!(hits.is_empty(), "{hits:?}");
     }
 
     #[test]
