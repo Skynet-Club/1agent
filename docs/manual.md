@@ -16,8 +16,11 @@ tar -xzf 1agent-0.98.0-dev-linux-x86_64.tar.gz
 cd 1agent-0.98.0-dev
 ./scripts/install.sh --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
-1agent --version
+1agent -v          # 当前版本
+1agent --version   # 兼容旧写法
 ```
+
+命令列表和说明均为中文：`1agent help`（常用）、`1agent help advanced`（分组）、`1agent help --all`（全部）。
 
 安装脚本只复制二进制，不会自动初始化或删除数据。  
 不要把 `1agent` 当 root 运行；默认使用当前用户的 runtime home。

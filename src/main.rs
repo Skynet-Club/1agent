@@ -70,24 +70,33 @@ use uuid::Uuid;
 #[command(
     name = "1agent",
     version,
-    about = "Evidence-accountable decision agent",
-    disable_help_subcommand = true
+    about = "有证据、可审计的决策代理",
+    disable_help_subcommand = true,
+    disable_version_flag = true
 )]
 struct Cli {
+    /// 显示当前版本号
+    #[arg(short = 'v', long = "version")]
+    version: bool,
+    /// 兼容旧的大写形式
+    #[arg(short = 'V', hide = true)]
+    version_upper: bool,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum Command {
     /// Public, grouped help; advanced commands stay discoverable.
+    #[command(about = "查看分组帮助")]
     Help {
         /// `advanced` lists the advanced groups; a command name prints its help.
         topic: Option<String>,
         #[arg(long)]
         all: bool,
     },
+    #[command(about = "运行一次无界面任务")]
     Run {
         #[arg(long, conflicts_with = "input")]
         task: Option<String>,
@@ -182,6 +191,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "打开交互式终端界面")]
     Tui {
         #[arg(
             long,
@@ -234,33 +244,40 @@ enum Command {
         #[arg(long)]
         route_objective: Option<String>,
     },
+    #[command(about = "多 Agent 任务编排与主管")]
     Master {
         #[command(subcommand)]
         command: MasterCommand,
     },
+    #[command(about = "本地定时任务与健康检查")]
     Schedule {
         #[command(subcommand)]
         command: ScheduleCommand,
     },
+    #[command(about = "技能生命周期管理")]
     Skill {
         #[command(subcommand)]
         command: SkillCommand,
     },
     /// Read-only 1AO semantic export and validation.
+    #[command(about = "只读 1AO 语义导出与校验")]
     Ontology {
         #[command(subcommand)]
         command: OntologyCommand,
     },
     /// Inspect and verify gated tool action records.
+    #[command(about = "查看并校验受控工具动作记录")]
     Action {
         #[command(subcommand)]
         command: ActionCommand,
     },
     /// Inspect, link and close goals in the hash-chained goal log.
+    #[command(about = "查看、关联和关闭长期目标")]
     Goal {
         #[command(subcommand)]
         command: GoalCommand,
     },
+    #[command(about = "查看模型调用成本与用量")]
     Cost {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -268,6 +285,7 @@ enum Command {
         json: bool,
     },
     /// Local 0.97 gate metrics derived from run journals.
+    #[command(about = "从运行日志生成本地指标")]
     Metrics {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -296,6 +314,7 @@ enum Command {
         max_denied_observations: Option<u64>,
     },
     /// M19–M23 answer-quality board over caller-supplied JSONL samples.
+    #[command(about = "回答质量评分板")]
     AnswerQuality {
         #[arg(long)]
         input: PathBuf,
@@ -303,12 +322,14 @@ enum Command {
         json: bool,
     },
     /// Validate the golden-set prompt inventory (not a blind review).
+    #[command(about = "校验黄金题提示词清单")]
     GoldenCheck {
         #[arg(long, default_value = "evals/golden-set-v1.jsonl")]
         input: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "运行日志保留与清理")]
     Retention {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -321,12 +342,14 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看模型服务告警")]
     ProviderAlerts {
         #[arg(long)]
         alert_log: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "发送本地或 HTTPS 通知")]
     Notify {
         #[arg(long)]
         webhook: String,
@@ -338,6 +361,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "汇总近期运行、告警和待办")]
     Digest {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -369,6 +393,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "单位经济与成本核算")]
     UnitEconomics {
         #[arg(long, default_value_t = 0)]
         revenue_micros: u64,
@@ -381,6 +406,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "信任中心与安全证据")]
     TrustCenter {
         /// Repeatable evaluation disclosure JSON file.
         #[arg(long)]
@@ -409,6 +435,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "价值周报与已验收结果成本")]
     ValueReport {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -436,6 +463,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "运行基准评测")]
     Benchmark {
         /// JSONL: one {"completed":bool,"crashed":bool,"replay_verified":bool} per line.
         #[arg(long)]
@@ -450,6 +478,7 @@ enum Command {
         json: bool,
     },
     /// Run an eval suite N times and feed the samples to the benchmark gate.
+    #[command(about = "重复运行评测套件并汇入基准门")]
     BenchmarkRun {
         #[arg(long, default_value = "evals/core.json")]
         suite: PathBuf,
@@ -493,6 +522,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成副作用补偿与修复计划")]
     RepairPlan {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -503,6 +533,7 @@ enum Command {
         json: bool,
     },
     /// Record that a human performed an applied side effect's compensation.
+    #[command(about = "记录人工完成的补偿")]
     RepairMark {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -518,6 +549,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看我不在时发生了什么")]
     AwayDigest {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -530,6 +562,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看和编辑用户模型")]
     UserModel {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -542,10 +575,12 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看平台适配与能力状态")]
     Platform {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成和校验 Agent Card")]
     AgentCard {
         #[arg(long)]
         json: bool,
@@ -566,10 +601,12 @@ enum Command {
         #[arg(long, value_name = "HEX")]
         trusted_key: Option<String>,
     },
+    #[command(about = "校验 Agent Card 信任链")]
     CardTrust {
         #[command(subcommand)]
         command: CardTrustCommand,
     },
+    #[command(about = "生成静态运行看板")]
     Dashboard {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -582,6 +619,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "运行常驻调度守护进程")]
     Daemon {
         #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
         store: PathBuf,
@@ -672,6 +710,7 @@ enum Command {
         #[arg(long, value_name = "AFTER_MS=ACTION")]
         digest_escalation_step: Vec<String>,
     },
+    #[command(about = "心跳监控与暂停/恢复建议")]
     Watchdog {
         #[arg(long)]
         heartbeat: PathBuf,
@@ -714,16 +753,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "管理本地加密密钥")]
     Key {
         #[command(subcommand)]
         command: KeyCommand,
     },
+    #[command(about = "审计运行日志")]
     Audit {
         #[arg(long)]
         journal: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查询和导出审计存储")]
     AuditStore {
         #[arg(long)]
         kind: String,
@@ -752,26 +794,32 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看任务图快照或演示")]
     TaskGraph {
         #[command(subcommand)]
         command: TaskGraphCommand,
     },
+    #[command(about = "分层记忆的检索、导出与轮换")]
     Memory {
         #[command(subcommand)]
         command: MemoryCommand,
     },
+    #[command(about = "查看和处理 Agent 收件箱")]
     Inbox {
         #[command(subcommand)]
         command: InboxCommand,
     },
+    #[command(about = "幂等记录与重放")]
     Idempotency {
         #[command(subcommand)]
         command: IdempotencyCommand,
     },
+    #[command(about = "聊天入口与任务桥接")]
     ChatBridge {
         #[command(subcommand)]
         command: ChatBridgeCommand,
     },
+    #[command(about = "把收件箱项目转为通知")]
     InboxNotify {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -795,24 +843,29 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看通知送达回执")]
     NotifyReceipts {
         #[arg(long)]
         log: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "组织级审计链查询")]
     OrgAudit {
         #[command(subcommand)]
         command: OrgAuditCommand,
     },
+    #[command(about = "创建、接受或取消交接")]
     Handoff {
         #[command(subcommand)]
         command: HandoffCommand,
     },
+    #[command(about = "独立验证记录与汇总")]
     Verification {
         #[command(subcommand)]
         command: VerificationCommand,
     },
+    #[command(about = "校验 MCP 令牌")]
     McpTokenCheck {
         /// JSON claims that were already signature-verified by the caller.
         #[arg(long, value_name = "PATH")]
@@ -832,6 +885,7 @@ enum Command {
         json: bool,
     },
     /// Exchange an OAuth subject token for an audience-restricted MCP token.
+    #[command(about = "用 OAuth 主体令牌换取受限 MCP 令牌")]
     McpTokenExchange {
         /// Token endpoint URL; mutually exclusive with --issuer.
         #[arg(long, conflicts_with = "issuer")]
@@ -857,6 +911,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "按风险设置自治档位")]
     Autonomy {
         #[arg(long, default_value = "suggest")]
         level: String,
@@ -878,6 +933,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查询某领域的自治建议")]
     AutonomyFor {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -904,6 +960,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "升级处理与告警")]
     Escalate {
         #[arg(long, default_value_t = 0)]
         created_ms: u128,
@@ -918,6 +975,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "告警预算与抑制")]
     AlarmBudget {
         #[arg(long, default_value_t = 50)]
         urgency: u8,
@@ -934,6 +992,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "结构化澄清问答")]
     Clarify {
         /// JSON array of questions, or an object with a `questions` array.
         #[arg(long)]
@@ -952,6 +1011,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "检查 computer-use 计划与授权")]
     CuaCheck {
         #[arg(long, default_value = "click")]
         action: String,
@@ -968,6 +1028,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "检查级联遏制配置")]
     CascadeCheck {
         #[arg(long)]
         root: String,
@@ -987,12 +1048,14 @@ enum Command {
         json: bool,
     },
     /// Run cascade fault-injection scenarios from a JSONL file.
+    #[command(about = "运行级联故障注入场景")]
     CascadeBench {
         #[arg(long)]
         input: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "检查预算与成本门")]
     BudgetCheck {
         #[arg(long, default_value_t = 0)]
         cost_micros: u64,
@@ -1011,6 +1074,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "校验团队角色与权限")]
     TeamCheck {
         #[arg(long, default_value = "member")]
         role: String,
@@ -1028,6 +1092,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "引导式首次设置")]
     Onboard {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         memory_journal: PathBuf,
@@ -1076,14 +1141,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "本地 HTTP Surface API")]
     Surface {
         #[command(subcommand)]
         command: SurfaceCommand,
     },
+    #[command(about = "结构重放运行日志")]
     Replay {
         #[arg(long)]
         journal: PathBuf,
     },
+    #[command(about = "查看 OpenTelemetry 导出配置")]
     Otel {
         #[arg(long)]
         journal: PathBuf,
@@ -1091,6 +1159,7 @@ enum Command {
         json: bool,
     },
     /// Post journal-derived spans to an OTLP/HTTP JSON collector.
+    #[command(about = "导出 journal span 到 OTLP/HTTP")]
     OtelExport {
         #[arg(long)]
         journal: PathBuf,
@@ -1105,6 +1174,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "运行评测套件")]
     Eval {
         #[arg(long, default_value = "evals/core.json")]
         suite: PathBuf,
@@ -1126,6 +1196,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "检查评测结果")]
     EvalInspect {
         #[arg(long)]
         report: PathBuf,
@@ -1144,6 +1215,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "启动本地 HTTP 服务")]
     Serve {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -1170,6 +1242,7 @@ enum Command {
         #[arg(long)]
         alert_webhook: Option<String>,
     },
+    #[command(about = "查看模型服务列表")]
     Providers {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -1186,12 +1259,14 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出可用工具及参数")]
     Tools {
         #[arg(long)]
         json: bool,
         #[arg(long)]
         query: Option<String>,
     },
+    #[command(about = "查看模型路由计划")]
     RoutePlan {
         #[arg(long, conflicts_with = "input")]
         task: Option<String>,
@@ -1210,6 +1285,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看历史运行")]
     History {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -1218,22 +1294,27 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "标注评测结果")]
     Annotate {
         #[command(subcommand)]
         command: AnnotateCommand,
     },
+    #[command(about = "管理发布审批")]
     Approval {
         #[command(subcommand)]
         command: ApprovalCommand,
     },
+    #[command(about = "校验构建来源与发布证明")]
     Provenance {
         #[command(subcommand)]
         command: ProvenanceCommand,
     },
+    #[command(about = "生成发布验证清单")]
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,
     },
+    #[command(about = "从检查点续跑")]
     Resume {
         #[arg(long)]
         journal: PathBuf,
@@ -1264,16 +1345,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看可续跑状态")]
     ResumeStatus {
         #[arg(long)]
         journal: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "管理经验与教训")]
     Experience {
         #[command(subcommand)]
         command: ExperienceCommand,
     },
+    #[command(about = "重新定义问题与目标")]
     Reframe {
         #[arg(long, conflicts_with = "input")]
         task: Option<String>,
@@ -1310,6 +1394,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看决策收据")]
     Receipt {
         #[arg(long)]
         journal: PathBuf,
@@ -1317,6 +1402,7 @@ enum Command {
         json: bool,
     },
     /// Index reframe decision receipts across a journal directory.
+    #[command(about = "索引重构决策收据")]
     ReceiptIndex {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
@@ -1324,6 +1410,7 @@ enum Command {
         json: bool,
     },
     /// Guided first run: provider, credential, model, permissions, smoke.
+    #[command(about = "引导式首次设置")]
     Setup {
         #[arg(long)]
         check: bool,
@@ -1366,6 +1453,7 @@ enum Command {
         json: bool,
     },
     /// Readiness, provider, permission and last-run summary.
+    #[command(about = "查看就绪状态与最近运行")]
     Status {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1373,44 +1461,53 @@ enum Command {
         json: bool,
     },
     /// Local browser sandbox probe (advanced).
+    #[command(about = "本地浏览器沙箱与审批")]
     Browser {
         #[command(subcommand)]
         command: BrowserCommand,
     },
     /// Model-blind browser credentials (advanced).
+    #[command(about = "浏览器凭据管理")]
     Secret {
         #[command(subcommand)]
         command: SecretCommand,
     },
     /// Show, explain or set the read-only/safe/full-local preset.
+    #[command(about = "查看和设置权限预设")]
     Permissions {
         #[command(subcommand)]
         command: PermissionsCommand,
     },
     /// List, show, select or test the configured provider.
+    #[command(about = "查看、选择和测试模型服务")]
     Model {
         #[command(subcommand)]
         command: ModelCommand,
     },
     /// Generate shell completion scripts.
+    #[command(about = "生成 Shell 补全脚本")]
     Completions {
         #[arg(value_name = "bash|zsh|fish|powershell|elvish")]
         shell: String,
     },
     /// Print a roff man page.
+    #[command(about = "输出 roff 手册页")]
     Man,
+    #[command(about = "初始化运行时目录")]
     Init {
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "本地环境诊断")]
     Doctor {
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "导出运行时数据")]
     Export {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1419,6 +1516,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "从导出包恢复")]
     Restore {
         #[arg(long)]
         bundle: PathBuf,
@@ -1427,6 +1525,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "升级运行时数据")]
     Upgrade {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1437,6 +1536,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "卸载运行时数据")]
     Uninstall {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1451,6 +1551,7 @@ enum Command {
 
 #[derive(Subcommand)]
 enum SecretCommand {
+    #[command(about = "设置浏览器凭据")]
     Set {
         #[arg(long)]
         label: String,
@@ -1464,12 +1565,14 @@ enum SecretCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出凭据引用")]
     List {
         #[arg(long)]
         store: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "删除凭据")]
     Remove {
         #[arg(long)]
         label: String,
@@ -1483,6 +1586,7 @@ enum SecretCommand {
 #[derive(Subcommand)]
 enum BrowserCommand {
     /// Launch a headed browser and hold it for human takeover.
+    #[command(about = "打开有界面浏览器并交给人工接管")]
     Open {
         #[arg(long)]
         url: String,
@@ -1497,6 +1601,7 @@ enum BrowserCommand {
         json: bool,
     },
     /// Record a bounded screencast to numbered JPEG frames + index.json.
+    #[command(about = "录制有界截屏为 JPEG 帧和索引")]
     Record {
         #[arg(long)]
         url: String,
@@ -1512,11 +1617,13 @@ enum BrowserCommand {
         json: bool,
     },
     /// List persistent browser action cards.
+    #[command(about = "列出待处理的浏览器动作卡")]
     Approvals {
         #[arg(long)]
         json: bool,
     },
     /// Approve one pending action card after showing its ground-truth descriptor.
+    #[command(about = "批准一个待处理动作卡")]
     Approve {
         card_id: String,
         /// Skip the interactive prompt (still an explicit human declaration).
@@ -1526,12 +1633,14 @@ enum BrowserCommand {
         json: bool,
     },
     /// Deny one pending action card.
+    #[command(about = "拒绝一个待处理动作卡")]
     Deny {
         card_id: String,
         #[arg(long)]
         json: bool,
     },
     /// Launch Chrome, navigate, and report title/text/AX nodes.
+    #[command(about = "打开 Chrome 并报告标题、正文和可访问性节点")]
     Probe {
         #[arg(long)]
         url: String,
@@ -1551,18 +1660,21 @@ enum BrowserCommand {
 
 #[derive(Subcommand)]
 enum PermissionsCommand {
+    #[command(about = "显示当前权限预设")]
     Show {
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "解释当前权限边界")]
     Explain {
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "设置权限预设")]
     Set {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1581,18 +1693,21 @@ enum PermissionsCommand {
 
 #[derive(Subcommand)]
 enum ModelCommand {
+    #[command(about = "列出已配置模型服务")]
     List {
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "显示某个模型服务详情")]
     Show {
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "选择默认模型服务")]
     Use {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1600,6 +1715,7 @@ enum ModelCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "测试模型服务连通性")]
     Test {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -1612,12 +1728,14 @@ enum ModelCommand {
 
 #[derive(Subcommand)]
 enum MasterCommand {
+    #[command(about = "校验主管配置")]
     Validate {
         #[arg(long)]
         plan: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出生产任务")]
     ProductionTaskList {
         #[arg(long)]
         plan: PathBuf,
@@ -1626,6 +1744,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成生产计划")]
     Schedule {
         #[arg(long)]
         input: PathBuf,
@@ -1636,6 +1755,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "分派任务")]
     Assign {
         #[arg(long)]
         plan: PathBuf,
@@ -1644,6 +1764,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "分类和优先级")]
     Triage {
         #[arg(long)]
         task: String,
@@ -1658,6 +1779,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "探测能力")]
     CapabilityProbe {
         #[arg(long)]
         manifest: PathBuf,
@@ -1668,6 +1790,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成主管计划")]
     Plan {
         #[arg(long)]
         task: String,
@@ -1707,6 +1830,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "初始化主管状态")]
     Init {
         #[arg(long)]
         plan: PathBuf,
@@ -1721,6 +1845,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看主管状态")]
     Status {
         #[arg(long)]
         trace_id: String,
@@ -1729,6 +1854,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "批准计划或任务")]
     Approve {
         #[arg(long)]
         trace_id: String,
@@ -1739,6 +1865,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "拒绝计划或任务")]
     Reject {
         #[arg(long)]
         trace_id: String,
@@ -1751,6 +1878,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "要求修订")]
     Revise {
         #[arg(long)]
         trace_id: String,
@@ -1767,6 +1895,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "运行主管任务")]
     Run {
         #[arg(long)]
         trace_id: String,
@@ -1785,6 +1914,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "轮询任务状态")]
     Poll {
         #[arg(long)]
         trace_id: String,
@@ -1795,6 +1925,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "验证任务结果")]
     Verify {
         #[arg(long)]
         trace_id: String,
@@ -1805,6 +1936,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "重试失败任务")]
     Retry {
         #[arg(long)]
         trace_id: String,
@@ -1821,6 +1953,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "请求重新规划")]
     ReplanRequest {
         #[arg(long)]
         trace_id: String,
@@ -1837,6 +1970,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "应用重新规划")]
     ReplanApply {
         #[arg(long)]
         trace_id: String,
@@ -1853,6 +1987,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "暂停任务")]
     Pause {
         #[arg(long)]
         trace_id: String,
@@ -1863,6 +1998,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "恢复任务")]
     Resume {
         #[arg(long)]
         trace_id: String,
@@ -1873,6 +2009,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "人工接管")]
     Takeover {
         #[arg(long)]
         trace_id: String,
@@ -1887,6 +2024,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "接受结果")]
     Accept {
         #[arg(long)]
         trace_id: String,
@@ -1899,6 +2037,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "退回结果")]
     Return {
         #[arg(long)]
         trace_id: String,
@@ -1913,6 +2052,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "收回任务")]
     Reclaim {
         #[arg(long)]
         trace_id: String,
@@ -1932,6 +2072,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "取消任务")]
     Cancel {
         #[arg(long)]
         trace_id: String,
@@ -1948,6 +2089,7 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "审计主管运行")]
     Audit {
         #[arg(long)]
         trace_id: String,
@@ -1956,18 +2098,21 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出 Agent")]
     Agents {
         #[arg(long, default_value = "skynet-workshop")]
         prefix: String,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出任务")]
     Jobs {
         #[arg(long, default_value = "skynet-workshop")]
         prefix: String,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "查看事件流")]
     Events {
         #[arg(long, default_value = "skynet-workshop")]
         prefix: String,
@@ -1982,12 +2127,14 @@ enum MasterCommand {
 
 #[derive(Subcommand)]
 enum TaskGraphCommand {
+    #[command(about = "输出任务图快照")]
     Snapshot {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成演示任务图")]
     Demo {
         #[arg(long, default_value_os_t = home_or_legacy("task-graph.jsonl", ".1a/task-graph.jsonl"))]
         store: PathBuf,
@@ -1998,6 +2145,7 @@ enum TaskGraphCommand {
 
 #[derive(Subcommand)]
 enum MemoryCommand {
+    #[command(about = "检索记忆")]
     Recall {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -2014,6 +2162,7 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "合并重复记忆")]
     Consolidate {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -2026,6 +2175,7 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "导出记忆")]
     Export {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
         journal: PathBuf,
@@ -2036,12 +2186,14 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "校验记忆完整性")]
     Verify {
         #[arg(long)]
         backup: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "轮换作用域密钥")]
     RotateKey {
         #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
@@ -2054,6 +2206,7 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "轮换主密钥")]
     RotateMasterKey {
         #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
         payloads: PathBuf,
@@ -2066,6 +2219,7 @@ enum MemoryCommand {
 
 #[derive(Subcommand)]
 enum InboxCommand {
+    #[command(about = "列出收件箱项目")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2076,6 +2230,7 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "新增收件箱项目")]
     Add {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2092,6 +2247,7 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "处理收件箱项目")]
     Resolve {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2109,6 +2265,7 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "延后项目")]
     Snooze {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2120,6 +2277,7 @@ enum InboxCommand {
         json: bool,
     },
     /// Return an open/snoozed item to open (for example, cancel a snooze).
+    #[command(about = "重新打开项目")]
     Reopen {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2129,6 +2287,7 @@ enum InboxCommand {
         json: bool,
     },
     /// Stop escalation for an item without resolving it.
+    #[command(about = "确认升级但不处理")]
     Ack {
         #[arg(long)]
         state: PathBuf,
@@ -2137,6 +2296,7 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "同步交接终态")]
     Reconcile {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2147,6 +2307,7 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "升级项目")]
     Escalate {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2173,6 +2334,7 @@ enum InboxCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "同步外部项目")]
     Sync {
         #[arg(long, default_value_os_t = home_or_legacy("inbox.jsonl", ".1a/inbox.jsonl"))]
         store: PathBuf,
@@ -2194,6 +2356,7 @@ enum InboxCommand {
 
 #[derive(Subcommand)]
 enum IdempotencyCommand {
+    #[command(about = "记录幂等键")]
     Record {
         #[arg(long, default_value_os_t = home_or_legacy("idempotency.jsonl", ".1a/idempotency.jsonl"))]
         store: PathBuf,
@@ -2207,6 +2370,7 @@ enum IdempotencyCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "重放幂等操作")]
     Replay {
         #[arg(long, default_value_os_t = home_or_legacy("idempotency.jsonl", ".1a/idempotency.jsonl"))]
         store: PathBuf,
@@ -2221,6 +2385,7 @@ enum IdempotencyCommand {
 
 #[derive(Subcommand)]
 enum ChatBridgeCommand {
+    #[command(about = "把聊天消息转成任务")]
     Task {
         #[arg(long)]
         message: PathBuf,
@@ -2231,6 +2396,7 @@ enum ChatBridgeCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "把回复写回聊天")]
     Reply {
         #[arg(long)]
         result: PathBuf,
@@ -2243,6 +2409,7 @@ enum ChatBridgeCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "导入聊天消息")]
     Ingest {
         #[arg(long)]
         inbox: PathBuf,
@@ -2267,6 +2434,7 @@ enum ChatBridgeCommand {
 
 #[derive(Subcommand)]
 enum VerificationCommand {
+    #[command(about = "记录独立验证")]
     Record {
         #[arg(long, default_value_os_t = home_or_legacy("verification.jsonl", ".1a/verification.jsonl"))]
         store: PathBuf,
@@ -2285,6 +2453,7 @@ enum VerificationCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "汇总验证结果")]
     Summary {
         #[arg(long, default_value_os_t = home_or_legacy("verification.jsonl", ".1a/verification.jsonl"))]
         store: PathBuf,
@@ -2299,6 +2468,7 @@ enum VerificationCommand {
 
 #[derive(Subcommand)]
 enum HandoffCommand {
+    #[command(about = "创建交接")]
     Create {
         #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
         store: PathBuf,
@@ -2322,6 +2492,7 @@ enum HandoffCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "接受交接")]
     Accept {
         #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
         store: PathBuf,
@@ -2332,6 +2503,7 @@ enum HandoffCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "取消交接")]
     Cancel {
         #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
         store: PathBuf,
@@ -2344,6 +2516,7 @@ enum HandoffCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出交接")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("handoffs.jsonl", ".1a/handoffs.jsonl"))]
         store: PathBuf,
@@ -2358,6 +2531,7 @@ enum HandoffCommand {
 
 #[derive(Subcommand)]
 enum CardTrustCommand {
+    #[command(about = "添加 Agent Card 信任锚")]
     Add {
         #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
         store: PathBuf,
@@ -2368,6 +2542,7 @@ enum CardTrustCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "撤销信任锚")]
     Revoke {
         #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
         store: PathBuf,
@@ -2378,12 +2553,14 @@ enum CardTrustCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出信任锚")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "校验信任链")]
     Verify {
         #[arg(long, default_value_os_t = home_or_legacy("card-trust.json", ".1a/card-trust.json"))]
         store: PathBuf,
@@ -2396,6 +2573,7 @@ enum CardTrustCommand {
 
 #[derive(Subcommand)]
 enum OrgAuditCommand {
+    #[command(about = "追加组织审计事件")]
     Append {
         #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
         store: PathBuf,
@@ -2413,6 +2591,7 @@ enum OrgAuditCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "校验组织审计链")]
     Verify {
         #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
         store: PathBuf,
@@ -2424,6 +2603,7 @@ enum OrgAuditCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出组织审计事件")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
         store: PathBuf,
@@ -2432,6 +2612,7 @@ enum OrgAuditCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "封存审计链")]
     Seal {
         #[arg(long, default_value_os_t = home_or_legacy("org-audit.jsonl", ".1a/org-audit.jsonl"))]
         store: PathBuf,
@@ -2443,6 +2624,7 @@ enum OrgAuditCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成审计签名密钥")]
     GenerateKey {
         #[arg(long)]
         private_out: PathBuf,
@@ -2455,6 +2637,7 @@ enum OrgAuditCommand {
 
 #[derive(Subcommand)]
 enum SkillCommand {
+    #[command(about = "列出技能")]
     List {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2462,6 +2645,7 @@ enum SkillCommand {
         json: bool,
     },
     /// Write a lockfile pinning every active skill name/version/content hash.
+    #[command(about = "生成技能锁文件")]
     Lock {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2471,6 +2655,7 @@ enum SkillCommand {
         json: bool,
     },
     /// Verify that the store's active set exactly matches a lockfile.
+    #[command(about = "校验技能锁")]
     VerifyLock {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2479,6 +2664,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "校验技能包")]
     Validate {
         #[arg(long)]
         path: PathBuf,
@@ -2486,6 +2672,7 @@ enum SkillCommand {
         json: bool,
     },
     /// Run a bundled skill script under bwrap (no network, no host home).
+    #[command(about = "在沙箱中运行技能脚本")]
     RunScript {
         #[arg(long)]
         path: PathBuf,
@@ -2501,12 +2688,14 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "扫描技能风险")]
     Scan {
         #[arg(long)]
         path: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "捕获技能示范")]
     Capture {
         /// Completed run journal to capture.
         #[arg(long)]
@@ -2526,6 +2715,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "注册技能")]
     Register {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2534,6 +2724,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "评测技能")]
     Eval {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2549,6 +2740,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "运行时评测技能")]
     EvalRuntime {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2568,6 +2760,7 @@ enum SkillCommand {
         json: bool,
     },
     /// Blind A/B comparison over a JSON suite of baseline/candidate outputs.
+    #[command(about = "盲测比较技能")]
     Compare {
         #[arg(long)]
         suite: PathBuf,
@@ -2579,6 +2772,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "通过评测后启用")]
     ActivateIfPassed {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2591,6 +2785,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "灰度技能")]
     Canary {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2616,6 +2811,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "验证技能")]
     Verify {
         #[arg(long)]
         bundle: PathBuf,
@@ -2626,6 +2822,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "导出技能")]
     Export {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2639,6 +2836,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "导入技能")]
     Import {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2652,6 +2850,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "启用技能版本")]
     Activate {
         #[arg(long, default_value_os_t = default_skill_store())]
         store: PathBuf,
@@ -2668,6 +2867,7 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成技能签名密钥")]
     Keygen {
         #[arg(long)]
         private_key: PathBuf,
@@ -2681,11 +2881,13 @@ enum SkillCommand {
 #[derive(Subcommand)]
 enum OntologyCommand {
     /// Print the built-in type registry.
+    #[command(about = "列出本体类型")]
     Types {
         #[arg(long)]
         out: Option<PathBuf>,
     },
     /// Print the built-in data bindings or their coverage report.
+    #[command(about = "查看本体绑定")]
     Bindings {
         #[arg(long, conflicts_with = "coverage")]
         out: Option<PathBuf>,
@@ -2695,6 +2897,7 @@ enum OntologyCommand {
         json: bool,
     },
     /// Export a session, one journal, or the goal log as deterministic JSON-LD.
+    #[command(about = "导出 1AO 语义")]
     Export {
         #[arg(long, conflicts_with_all = ["journal", "goal_journal"])]
         session: Option<String>,
@@ -2712,6 +2915,7 @@ enum OntologyCommand {
         json: bool,
     },
     /// Validate an exported document or export one source and validate it.
+    #[command(about = "校验 1AO 语义")]
     Validate {
         #[arg(long, conflicts_with_all = ["journal", "goal_journal", "input"])]
         session: Option<String>,
@@ -2731,6 +2935,7 @@ enum OntologyCommand {
 #[derive(Subcommand)]
 enum ActionCommand {
     /// Show the latest action record per action id.
+    #[command(about = "显示动作记录")]
     Show {
         #[arg(long)]
         log: PathBuf,
@@ -2740,6 +2945,7 @@ enum ActionCommand {
         json: bool,
     },
     /// Reconcile one run journal with the action log.
+    #[command(about = "验证动作记录")]
     Verify {
         #[arg(long)]
         journal: PathBuf,
@@ -2749,11 +2955,13 @@ enum ActionCommand {
         json: bool,
     },
     /// List pending/decided tool approval cards.
+    #[command(about = "列出动作记录")]
     List {
         #[arg(long)]
         json: bool,
     },
     /// Approve a pending tool approval card.
+    #[command(about = "批准动作")]
     Approve {
         card_id: String,
         #[arg(long)]
@@ -2762,6 +2970,7 @@ enum ActionCommand {
         json: bool,
     },
     /// Deny a pending tool approval card.
+    #[command(about = "拒绝动作")]
     Deny {
         card_id: String,
         #[arg(long)]
@@ -2772,6 +2981,7 @@ enum ActionCommand {
 #[derive(Subcommand)]
 enum GoalCommand {
     /// Show goals, commitments and bindings.
+    #[command(about = "查看目标状态")]
     Status {
         #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
         journal: PathBuf,
@@ -2781,6 +2991,7 @@ enum GoalCommand {
         json: bool,
     },
     /// Bind a session or attribute a run to a goal.
+    #[command(about = "关联目标与任务")]
     Link {
         #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
         journal: PathBuf,
@@ -2794,6 +3005,7 @@ enum GoalCommand {
         json: bool,
     },
     /// Close a goal with evidence.
+    #[command(about = "关闭目标")]
     Close {
         #[arg(long, default_value_os_t = home_or_legacy("goals.jsonl", ".1a/goals.jsonl"))]
         journal: PathBuf,
@@ -2816,6 +3028,7 @@ enum GoalCommand {
 
 #[derive(Subcommand)]
 enum ScheduleCommand {
+    #[command(about = "添加定时任务")]
     Add {
         #[arg(long)]
         name: String,
@@ -2841,12 +3054,14 @@ enum ScheduleCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出定时任务")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "删除定时任务")]
     Remove {
         id: String,
         #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
@@ -2854,6 +3069,7 @@ enum ScheduleCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "检查调度健康")]
     Health {
         #[arg(long, default_value_os_t = home_or_legacy("schedules.json", ".1a/schedules.json"))]
         store: PathBuf,
@@ -2866,6 +3082,7 @@ enum ScheduleCommand {
 
 #[derive(Subcommand)]
 enum KeyCommand {
+    #[command(about = "托管加密密钥")]
     Escrow {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -2876,6 +3093,7 @@ enum KeyCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "恢复加密密钥")]
     Restore {
         #[arg(long)]
         root: Option<PathBuf>,
@@ -2891,11 +3109,14 @@ enum KeyCommand {
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum SurfaceCommand {
+    #[command(about = "输出 OpenAPI 描述")]
     Openapi,
+    #[command(about = "校验请求")]
     Validate {
         #[arg(long)]
         request: PathBuf,
     },
+    #[command(about = "启动本地 Surface 服务")]
     Serve {
         #[arg(long, default_value = "127.0.0.1:8788")]
         addr: String,
@@ -2934,6 +3155,7 @@ enum SurfaceCommand {
 
 #[derive(Subcommand)]
 enum ExperienceCommand {
+    #[command(about = "提出经验")]
     Propose {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -2942,6 +3164,7 @@ enum ExperienceCommand {
         #[arg(long)]
         input: PathBuf,
     },
+    #[command(about = "审阅经验")]
     Review {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -2952,6 +3175,7 @@ enum ExperienceCommand {
         #[arg(long)]
         journal: Option<PathBuf>,
     },
+    #[command(about = "验证经验")]
     Verify {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -2960,6 +3184,7 @@ enum ExperienceCommand {
         #[arg(long)]
         input: PathBuf,
     },
+    #[command(about = "评测经验")]
     Evaluate {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -2974,6 +3199,7 @@ enum ExperienceCommand {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    #[command(about = "批准经验")]
     Approve {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -2984,6 +3210,7 @@ enum ExperienceCommand {
         #[arg(long)]
         journal: Option<PathBuf>,
     },
+    #[command(about = "拒绝经验")]
     Reject {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -2994,6 +3221,7 @@ enum ExperienceCommand {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "启用经验")]
     Activate {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -3002,6 +3230,7 @@ enum ExperienceCommand {
         #[arg(long)]
         journal: Option<PathBuf>,
     },
+    #[command(about = "降级经验")]
     Degrade {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -3010,6 +3239,7 @@ enum ExperienceCommand {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "回滚经验")]
     Rollback {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -3018,10 +3248,12 @@ enum ExperienceCommand {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "列出经验")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
     },
+    #[command(about = "审计经验")]
     Audit {
         #[arg(long, default_value_os_t = home_or_legacy("experience", ".experience"))]
         store: PathBuf,
@@ -3032,6 +3264,7 @@ enum ExperienceCommand {
 
 #[derive(Subcommand)]
 enum AnnotateCommand {
+    #[command(about = "添加标注")]
     Add {
         #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
@@ -3046,16 +3279,19 @@ enum AnnotateCommand {
         #[arg(long, default_value = "")]
         note: String,
     },
+    #[command(about = "计算标注一致性")]
     Agreement {
         #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "列出标注")]
     List {
         #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
     },
+    #[command(about = "校准标注")]
     Calibrate {
         #[arg(long, default_value_os_t = home_or_legacy("annotations", ".annotations"))]
         store: PathBuf,
@@ -3086,6 +3322,7 @@ enum AnnotateCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "创建黄金题集")]
     CreateGoldset {
         #[arg(long)]
         suite: PathBuf,
@@ -3102,6 +3339,7 @@ enum AnnotateCommand {
         #[arg(long, default_value_t = 25)]
         batch_size: usize,
     },
+    #[command(about = "校验黄金题集")]
     VerifyGoldset {
         #[arg(long)]
         manifest: PathBuf,
@@ -3112,6 +3350,7 @@ enum AnnotateCommand {
 
 #[derive(Subcommand)]
 enum ApprovalCommand {
+    #[command(about = "签名发布审批")]
     Sign {
         #[arg(long)]
         artifact: PathBuf,
@@ -3130,12 +3369,14 @@ enum ApprovalCommand {
         #[arg(long)]
         output: PathBuf,
     },
+    #[command(about = "添加审批密钥")]
     KeyAdd {
         #[arg(long)]
         registry: PathBuf,
         #[arg(long)]
         key_id: String,
     },
+    #[command(about = "停用审批密钥")]
     KeyRetire {
         #[arg(long)]
         registry: PathBuf,
@@ -3144,6 +3385,7 @@ enum ApprovalCommand {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "撤销审批密钥")]
     KeyRevoke {
         #[arg(long)]
         registry: PathBuf,
@@ -3152,6 +3394,7 @@ enum ApprovalCommand {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "生成审批快照")]
     Snapshot {
         #[arg(long)]
         registry: PathBuf,
@@ -3166,6 +3409,7 @@ enum ApprovalCommand {
         #[arg(long)]
         previous: Option<PathBuf>,
     },
+    #[command(about = "校验审批快照")]
     VerifySnapshot {
         #[arg(long)]
         registry: PathBuf,
@@ -3176,6 +3420,7 @@ enum ApprovalCommand {
         #[arg(long, default_value_t = 1)]
         min_version: u64,
     },
+    #[command(about = "校验审批链")]
     VerifyChain {
         #[arg(long)]
         registry: PathBuf,
@@ -3188,6 +3433,7 @@ enum ApprovalCommand {
         #[arg(long)]
         anchor: Option<PathBuf>,
     },
+    #[command(about = "设置信任锚")]
     Anchor {
         #[arg(long)]
         snapshot: PathBuf,
@@ -3198,6 +3444,7 @@ enum ApprovalCommand {
         #[arg(long)]
         key_id: Vec<String>,
     },
+    #[command(about = "校验审批")]
     Verify {
         #[arg(long)]
         artifact: PathBuf,
@@ -3212,6 +3459,7 @@ enum ApprovalCommand {
 
 #[derive(Subcommand)]
 enum ProvenanceCommand {
+    #[command(about = "创建来源证明")]
     Create {
         #[arg(long)]
         artifact: PathBuf,
@@ -3226,12 +3474,14 @@ enum ProvenanceCommand {
         #[arg(long)]
         approval_output: Option<PathBuf>,
     },
+    #[command(about = "校验来源证明")]
     Verify {
         #[arg(long)]
         provenance: PathBuf,
         #[arg(long)]
         artifact: PathBuf,
     },
+    #[command(about = "重建来源证明")]
     Rebuild {
         #[arg(long)]
         artifact: PathBuf,
@@ -3244,6 +3494,7 @@ enum ProvenanceCommand {
 
 #[derive(Subcommand)]
 enum ReleaseCommand {
+    #[command(about = "生成发布清单")]
     Manifest {
         #[arg(long)]
         package_root: PathBuf,
@@ -3256,6 +3507,7 @@ enum ReleaseCommand {
         #[arg(long)]
         allow_dirty: bool,
     },
+    #[command(about = "校验发布清单")]
     Verify {
         #[arg(long)]
         manifest: PathBuf,
@@ -4677,33 +4929,24 @@ async fn run_watchdog_watch(
 }
 
 const PUBLIC_COMMANDS: &[(&str, &str)] = &[
-    (
-        "setup",
-        "guided first run: provider, credential, model, permissions",
-    ),
-    (
-        "status",
-        "version, provider, permissions, data dir and last run",
-    ),
-    ("tui", "interactive terminal UI"),
-    ("run", "run one headless task"),
-    ("doctor", "local diagnostics"),
-    ("model", "list, show, select or test the provider"),
-    ("permissions", "show, explain or set the permission preset"),
-    ("audit", "audit a run journal"),
-    ("replay", "structurally replay a run journal"),
-    (
-        "skills",
-        "skill lifecycle: list, eval, activate, canary, rollback",
-    ),
-    ("schedule", "local schedules and health"),
-    ("serve", "local HTTP surface"),
-    ("uninstall", "remove the runtime home"),
+    ("setup", "引导式首次设置：模型服务、凭据、模型与权限"),
+    ("status", "查看版本、模型服务、权限、数据目录和最近运行"),
+    ("tui", "打开交互式终端界面"),
+    ("run", "运行一次无界面任务"),
+    ("doctor", "本地环境诊断"),
+    ("model", "查看、选择和测试模型服务"),
+    ("permissions", "查看、解释或设置权限预设"),
+    ("audit", "审计运行日志"),
+    ("replay", "结构重放运行日志"),
+    ("skill", "技能生命周期：列表、评测、启用、灰度和回滚"),
+    ("schedule", "本地定时任务与健康检查"),
+    ("serve", "启动本地 HTTP 接口服务"),
+    ("uninstall", "卸载运行时数据"),
 ];
 
 const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
     (
-        "provider",
+        "模型与路由",
         &[
             "providers",
             "route-plan",
@@ -4714,7 +4957,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "memory",
+        "记忆与协作",
         &[
             "memory",
             "user-model",
@@ -4726,7 +4969,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "trust",
+        "信任与审计",
         &[
             "approval",
             "verification",
@@ -4742,7 +4985,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "ops",
+        "运行与运维",
         &[
             "daemon",
             "watchdog",
@@ -4756,7 +4999,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "master",
+        "多 Agent 与自治",
         &[
             "master",
             "team-check",
@@ -4766,7 +5009,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "evolution",
+        "技能与进化",
         &[
             "skill",
             "experience",
@@ -4779,7 +5022,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "protocol",
+        "协议与平台",
         &[
             "mcp-token-check",
             "mcp-token-exchange",
@@ -4789,7 +5032,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "eval",
+        "评测与收据",
         &[
             "annotate",
             "reframe",
@@ -4827,8 +5070,8 @@ fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
                 subcommand.print_help()?;
                 println!();
             } else {
-                eprintln!("error: unknown help topic '{name}'");
-                eprintln!("next: 1agent help advanced");
+                eprintln!("错误：未知帮助主题“{name}”");
+                eprintln!("下一步：1agent help advanced");
                 std::process::exit(2);
             }
         }
@@ -4837,48 +5080,68 @@ fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
 }
 
 fn print_public_help() {
-    println!("1Agent — evidence-accountable agent runtime");
+    println!("1Agent — 有证据、可审计的决策代理");
     println!();
-    println!("Usage: 1agent <command> [options]");
+    println!("用法：1agent <命令> [选项]");
     println!();
-    println!("Commands:");
+    println!("常用命令：");
     for (name, description) in PUBLIC_COMMANDS {
         println!("  {name:<12} {description}");
     }
     println!();
-    println!("Advanced commands: 1agent help advanced");
-    println!("All commands:      1agent help --all");
-    println!("Run `1agent <command> --help` for command options.");
+    println!("更多命令：1agent help advanced");
+    println!("全部命令：1agent help --all");
+    println!("版本：    1agent -v");
+    println!("查看某条命令的选项：1agent <命令> --help");
 }
 
 fn print_advanced_groups(all: bool) {
-    println!("Advanced commands (grouped; `1agent <command> --help` for options)");
+    println!("高级命令（按组查看；`1agent <命令> --help` 查看选项）");
+    let command = Cli::command();
+    let abouts = command
+        .get_subcommands()
+        .map(|subcommand| {
+            (
+                subcommand.get_name().to_string(),
+                subcommand
+                    .get_about()
+                    .map(|about| about.to_string())
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     let mut listed = std::collections::BTreeSet::new();
     for (group, commands) in ADVANCED_GROUPS {
         println!();
-        println!("{group}:");
+        println!("{group}：");
         for command in *commands {
             listed.insert(*command);
-            println!("  {command}");
+            let about = abouts.get(*command).map(String::as_str).unwrap_or("");
+            println!("  {command:<20} {about}");
         }
     }
     if all {
-        let mut command = Cli::command();
         let mut other = Vec::new();
-        for subcommand in command.get_subcommands_mut() {
+        for subcommand in command.get_subcommands() {
             let name = subcommand.get_name().to_string();
             if name == "help" || PUBLIC_COMMANDS.iter().any(|(public, _)| *public == name) {
                 continue;
             }
             if !listed.contains(name.as_str()) {
-                other.push(name);
+                other.push((
+                    name,
+                    subcommand
+                        .get_about()
+                        .map(|about| about.to_string())
+                        .unwrap_or_default(),
+                ));
             }
         }
         if !other.is_empty() {
             println!();
-            println!("other:");
-            for name in other {
-                println!("  {name}");
+            println!("其他：");
+            for (name, about) in other {
+                println!("  {name:<20} {about}");
             }
         }
     }
@@ -5769,70 +6032,72 @@ fn render_completions(shell: &str) -> Option<String> {
     String::from_utf8(buffer).ok()
 }
 
-const MAN_PAGE: &str = ".TH 1AGENT 1 \"2026-11-15\" \"1Agent 0.98\" \"User Commands\"
+const MAN_PAGE: &str = ".TH 1AGENT 1 \"2026-11-17\" \"1Agent 0.98\" \"用户命令\"
 .SH NAME
-1agent \\- evidence-accountable agent runtime
+1agent \\- 有证据、可审计的决策代理
 .SH SYNOPSIS
 .B 1agent
 [setup|status|tui|run|doctor|model|permissions|browser|skill|schedule|daemon|audit|replay|serve|completions|man|uninstall]
 .SH DESCRIPTION
-1Agent runs tasks with a provider, tools, a policy gate and an auditable journal.
-Run \\fB1agent setup\\fR for the guided first run.
+1Agent 用模型服务、工具、策略门和可审计 journal 运行任务。
+首次使用运行 \\fB1agent setup\\fR。
+.SH VERSION
+用 \\fB1agent -v\\fR 或 \\fB1agent --version\\fR 查看当前版本。
 .SH COMMANDS
 .TP
 .B setup
-Guided first run: provider, credential, model, permissions, workspace and smoke task.
+引导式首次设置：模型服务、凭据、模型、权限、工作区和 smoke 任务。
 .TP
 .B status
-Show version, platform, provider, permissions, data directory and last run.
+查看版本、平台、模型服务、权限、数据目录和最近运行。
 .TP
 .B tui
-Interactive terminal UI.
+打开交互式终端界面。
 .TP
 .B run
-Run one headless task.
+运行一次无界面任务。
 .TP
 .B doctor
-Local diagnostics for the runtime home and journals.
+诊断运行时目录和 journal。
 .TP
 .B model
-List, show, select or test the configured provider.
+列出、显示、选择或测试模型服务。
 .TP
 .B permissions
-Show, explain or set the read-only/safe/full-local preset.
+显示、解释或设置只读 / 安全 / 完全本地权限预设。
 .TP
 .B audit
-Audit a run journal.
+审计运行日志。
 .TP
 .B replay
-Structurally replay a run journal.
+结构重放运行日志。
 .TP
 .B browser
-Probe, record or open a sandboxed browser; list/approve/deny action cards.
+探测、录制或打开沙箱浏览器；列出、批准或拒绝动作卡。
 .TP
 .B skill
-Skill lifecycle: validate, capture, eval, compare, lock, run-script, canary, rollback.
+技能生命周期：校验、捕获、评测、比较、锁定、脚本、灰度、回滚。
 .TP
 .B schedule
-Local schedules and health.
+本地定时任务与健康检查。
 .TP
 .B daemon
-Run due schedules with a durable run ledger; print/write a systemd user unit.
+用持久运行账本执行到期任务；打印或写入 systemd 用户单元。
 .TP
 .B serve
-Local HTTP surface.
+启动本地 HTTP 服务。
 .TP
 .B completions
-Print shell completions (bash, zsh, fish, powershell, elvish).
+输出 Shell 补全脚本（bash、zsh、fish、powershell、elvish）。
 .TP
 .B man
-Print this man page.
+输出本手册页。
 .TP
 .B help
-Public command overview; \\fBhelp advanced\\fR lists advanced groups.
+查看中文命令分组；\\fBhelp advanced\\fR 列出高级命令。
 .TP
 .B uninstall
-Remove the runtime home; data is kept unless --purge --yes.
+卸载运行时数据；除非 --purge --yes，否则保留数据。
 .SH SEE ALSO
 1agent help advanced
 ";
@@ -5883,7 +6148,15 @@ fn with_default_command(mut args: Vec<OsString>) -> Vec<OsString> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match parse_cli().command {
+    let cli = parse_cli();
+    if cli.version || cli.version_upper {
+        println!("1agent {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    let command = cli
+        .command
+        .expect("default tui command is injected when no arguments are given");
+    match command {
         Command::Run {
             task,
             input,
@@ -26624,6 +26897,46 @@ mod cli_default_tests {
             with_default_command(vec![OsString::from("1agent"), OsString::from("help")]),
             vec![OsString::from("1agent"), OsString::from("help")]
         );
+    }
+}
+
+#[cfg(test)]
+mod cli_help_tests {
+    use super::*;
+
+    fn has_chinese(text: &str) -> bool {
+        text.chars()
+            .any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character))
+    }
+
+    fn assert_chinese_about(command: &clap::Command) {
+        let about = command
+            .get_about()
+            .map(|about| about.to_string())
+            .unwrap_or_default();
+        assert!(
+            has_chinese(&about),
+            "command `{}` has no Chinese description",
+            command.get_name()
+        );
+        for nested in command.get_subcommands() {
+            assert_chinese_about(nested);
+        }
+    }
+
+    #[test]
+    fn every_command_has_a_chinese_description() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let command = Cli::command();
+                for subcommand in command.get_subcommands() {
+                    assert_chinese_about(subcommand);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
 

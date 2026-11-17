@@ -16,6 +16,24 @@ use first_principles_agent::{
 use sha2::{Digest, Sha256};
 
 #[test]
+fn short_and_upper_v_print_the_version() {
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    for flag in ["-v", "-V", "--version"] {
+        let output = Command::new(binary).arg(flag).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{flag} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(env!("CARGO_PKG_VERSION")),
+            "{flag} did not print the version: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn cli_run_audit_and_replay_form_a_complete_flywheel() {
     let workspace = tempfile::tempdir().unwrap();
     let evidence_dir = workspace.path().join("evidence dir");

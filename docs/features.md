@@ -31,6 +31,7 @@
 
 ### 2.1 交互式 TUI（可用，RC）
 
+- 命令行：`1agent -v` 查看版本；`1agent help` / `help advanced` / `help --all` 查看中文命令说明；顶层和全部子命令都有中文描述；
 - 单轮对话、任务运行、运行状态、活动提示；
 - 裸启动创建新 session；退出需要明确确认，banner 给出 `--session` 继续命令；
 - 运行中显示 `Working...`、执行时间、输入/输出 token 和缓存命中率；
