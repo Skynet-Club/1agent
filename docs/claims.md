@@ -230,13 +230,13 @@ file: <路径>              → 文件必须存在
 | 选中提示词插入正文并保留变量，不自动执行 | test: prompt_supplement_completion_fills_the_composer | ✅ | 输入框填入模板，`{{变量}}` 留给用户；真实 PTY 确认 |
 | 已写任务后输入 `//` 打开原文库并追加到任务 | test: prompt_drawer_opens_after_a_task_and_merges_the_source_text | ✅ | 原文追加到原任务，保留完整正文；不执行 |
 | 任务内 `//关键词` 搜索，Esc 恢复原任务 | test: prompt_drawer_searches_inside_a_task_and_escape_restores_it | ✅ | 抽屉只显示提示词；Esc 去掉 `//` 查询 |
-| 空输入框输入 `//` / `；；` / `;;` 打开两栏提示词补齐窗 | test: double_slash_opens_the_prompt_picker_and_source_category | ✅ | 左侧类目、右侧提示词；默认全部 48 条；原文库是左侧一个类目；`→` 进入列表、`Enter` 插入、`Esc` 关闭 |
+| 空输入框输入 `//` / `；；` / `;;` 打开三栏提示词补齐窗 | test: double_slash_opens_the_prompt_picker_and_source_category | ✅ | 左侧类目（无“全部”）、中间提示词、右侧详情；默认加目标 5 条；原文库是左侧一个类目；`→` 进入列表、`Enter` 插入、`Esc` 关闭 |
 | `//` / `；；` 紧贴正文也能触发，URL 的 `://` 不误触；`→` 进列表、`Enter` 应用 | test: prompt_marker_accepts_adjacent_and_semicolon_triggers | ✅ | `做个网页//`、`做个网页；；`、`做个网页;;` 均打开；`https://` 与 `file:///` 不打开；焦点/插入由 `prompt_picker_right_enters_list_and_enter_inserts` 覆盖 |
 | 原文库插入完整原文，不截断、不改写 | test: double_slash_opens_the_prompt_picker_and_source_category | ✅ | 中文插入完整中文直译；English 插入完整英文原文；只插入正文，作者/主题/分类/来源链接只留在抽屉行；测试断言输入包含整段 `translation`/`original` 且不含标题与参考行 |
 | 同一段原文重复插入不会重复堆叠 | test: inserting_the_same_source_twice_does_not_duplicate_it | ✅ | 输入框已包含正文时跳过并提示，保留原任务意图 |
 | 原文库按作者+主题归组并保留源表记录 ID | test: prompt_drawer_without_a_task_lists_the_whole_source_library_by_category | ✅ | 32 组；Think Before Coding 含 6 条片段；生成脚本保留 `record_ids` 与来源链接 |
 | 原文库每组与飞书表逐行原文完全一致 | test: source_groups_keep_every_table_row_complete | ✅ | 重新解析快照 ndjson，逐组比对 `original`/`translation` 拼接结果与行数，防止导入截断或改写 |
-| 提示词补齐窗渲染左侧类目和右侧列表 | test: prompt_picker_renders_categories_and_list | ✅ | 120x40 TestBackend：`提示词补齐`、`全部 (48)`、`加目标 (5)`、`原文库 (32)`、提示词名与 `←→ 类目/列表` 均可见 |
+| 提示词补齐窗渲染左侧类目、中间列表和右侧详情 | test: prompt_picker_renders_categories_and_list | ✅ | 120x40 TestBackend：`提示词补齐`、`加目标 (5)`、`原文库 (32)`、提示词名、详情正文与 `←→ 类目/列表/详情` 均可见；无“全部”类目 |
 | 提示词语言可切中文/English；原文库按语言插入完整中文直译或英文原文 | test: english_source_mode_inserts_the_complete_english_original | ✅ | `/config set language zh\|en`；`//` 原文库 32 组两种语言都可用；`/` 英文精选仍只列有逐字原文的 14 条；不用中文回退 |
 | 技能包导出/导入受 SHA-256 门禁，篡改或哈希不符即拒绝 | test: import_rejects_a_tampered_bundle | ✅ | 导入先预检全部 manifest，坏单元不会半导入；CLI e2e 覆盖 |
 | 技能包可用 Ed25519 签名，导入需可信公钥并拒绝篡改 | test: signed_bundles_require_the_trusted_public_key_and_reject_tampering | ✅ | CLI e2e `signed_skill_bundles_verify_against_a_trusted_public_key`；无私钥打印、私钥文件强制 0600；无远程市场/撤销列表 |
