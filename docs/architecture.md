@@ -221,7 +221,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `TaskRequest`: objective, deliverable, known facts, constraints, unknowns, decision and
   success criteria, permissions and budgets.
 - `AgentAnswer`: result status, conclusion, evidence, assumptions, constraints, unknowns,
-  flip conditions and action receipts.
+  flip conditions and action receipts. A resolved `ConflictRecord` may name one of its
+  own conflicting claims in `resolution_claim_ids` as the winner; duplicate or unknown
+  claim ids still fail validation, and every resolution source must be declared by a
+  claim in the conflict or resolution set.
 - `JournalEvent`: protocol version, run id, contiguous sequence, timestamp and typed event.
 - `ModelRequest` and `ModelResponse`: canonical provider-neutral messages and tool calls.
 - `ModelProvider::complete_streaming`: reports content fragments as they arrive and still

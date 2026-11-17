@@ -712,25 +712,30 @@ impl AgentAnswer {
                             conflict.id.clone(),
                         ));
                     }
-                    let mut resolution_claim_ids = conflict
-                        .claim_ids
-                        .iter()
-                        .map(String::as_str)
-                        .collect::<std::collections::BTreeSet<_>>();
+                    // A resolution may name one of the conflicting claims as
+                    // the winner (for example "the older refusal was wrong;
+                    // claim c1 is the record"). Unknown ids and repeats are
+                    // still rejected.
+                    let mut resolution_claim_ids = std::collections::BTreeSet::new();
                     for claim_id in &conflict.resolution_claim_ids {
                         if !claim_ids.contains(claim_id.as_str())
-                            || resolution_claim_ids.contains(claim_id.as_str())
+                            || !resolution_claim_ids.insert(claim_id.as_str())
                         {
                             return Err(AnswerValidationError::InvalidConflictClaimReference(
                                 conflict.id.clone(),
                             ));
                         }
-                        resolution_claim_ids.insert(claim_id);
                     }
+                    let mut declared_claim_ids = conflict
+                        .claim_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<std::collections::BTreeSet<_>>();
+                    declared_claim_ids.extend(resolution_claim_ids.iter().copied());
                     let declared_sources = self
                         .claims
                         .iter()
-                        .filter(|claim| resolution_claim_ids.contains(claim.id.as_str()))
+                        .filter(|claim| declared_claim_ids.contains(claim.id.as_str()))
                         .flat_map(|claim| claim.sources.iter())
                         .collect::<std::collections::BTreeSet<_>>();
                     if conflict
@@ -2376,6 +2381,60 @@ mod tests {
         assert!(matches!(
             answer.validate(&request),
             Err(AnswerValidationError::ResolvedConflictStillMarked(_))
+        ));
+    }
+
+    #[test]
+    fn resolution_may_name_a_conflicting_claim_as_the_winner() {
+        let request = TaskRequest::from_objective("answer", PathBuf::from("."));
+        let claims = vec![
+            Claim {
+                id: "claim-a".into(),
+                text: "claim A".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["source-a".into()],
+                scope: None,
+            },
+            Claim {
+                id: "claim-b".into(),
+                text: "claim B".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["source-b".into()],
+                scope: None,
+            },
+        ];
+        let mut answer = AgentAnswer {
+            task_need: None,
+            schema_version: ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Completed,
+            conclusion: "conflict".into(),
+            claims,
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: vec![ConflictRecord {
+                id: "conflict-1".into(),
+                claim_ids: ["claim-a".into(), "claim-b".into()],
+                status: ConflictStatus::Resolved,
+                resolution: Some("claim-a is the current record".into()),
+                resolution_sources: vec!["source-a".into()],
+                resolution_claim_ids: vec!["claim-a".into()],
+            }],
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        answer.validate(&request).unwrap();
+
+        answer.conflicts[0].resolution_claim_ids = vec!["claim-a".into(), "claim-a".into()];
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::InvalidConflictClaimReference(_))
+        ));
+        answer.conflicts[0].resolution_claim_ids = vec!["claim-c".into()];
+        assert!(matches!(
+            answer.validate(&request),
+            Err(AnswerValidationError::InvalidConflictClaimReference(_))
         ));
     }
 
