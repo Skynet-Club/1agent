@@ -20,7 +20,7 @@ export PATH="$HOME/.local/bin:$PATH"
 1agent --version   # 兼容旧写法
 ```
 
-命令列表和说明均为中文：`1agent help`（常用 + 分类导航）、`1agent help advanced`（分组详情）、`1agent help --all`（全部）。终端下使用军旅绿色和分隔线；`1agent --help` 同样进入分类导航。
+命令列表为中英双语（`中文说明 · English description`）：`1agent help`（常用 + 分类导航，每类全部展开）、`1agent help advanced`（分组详情）、`1agent help --all`（全部）。终端下使用军旅绿色和分隔线；`1agent --help` 同样进入分类导航。
 
 安装脚本只复制二进制，不会自动初始化或删除数据。  
 不要把 `1agent` 当 root 运行；默认使用当前用户的 runtime home。
