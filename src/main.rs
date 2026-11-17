@@ -5057,6 +5057,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
         &[
             "onboard",
             "init",
+            "tools",
             "completions",
             "man",
             "export",
@@ -5069,8 +5070,6 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
 fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
     if all {
         print_public_help();
-        println!();
-        print_advanced_groups(true);
         return Ok(());
     }
     match topic.map(str::trim).filter(|topic| !topic.is_empty()) {
@@ -5132,22 +5131,31 @@ fn print_public_help() {
     }
     println!();
     println!("{}", green("  分类", MIL_GREEN_BRIGHT));
+    let command = Cli::command();
+    let abouts = command
+        .get_subcommands()
+        .map(|subcommand| {
+            (
+                subcommand.get_name().to_string(),
+                subcommand
+                    .get_about()
+                    .map(|about| about.to_string())
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     for (group, commands) in ADVANCED_GROUPS {
-        let preview = commands
-            .iter()
-            .take(4)
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" · ");
-        let more = if commands.len() > 4 { " …" } else { "" };
-        println!(
-            "    {} {}  {} 个命令  {}{}",
-            green("•", MIL_GREEN),
-            green(format!("{group:<10}"), MIL_GREEN),
-            commands.len(),
-            green(preview, MIL_GREEN_DIM),
-            green(more, MIL_GREEN_DIM)
-        );
+        println!();
+        println!("  {}", green(format!("• {group}"), MIL_GREEN_BRIGHT));
+        for command in *commands {
+            let about = abouts.get(*command).map(String::as_str).unwrap_or("");
+            println!(
+                "    {} {}  {}",
+                green("•", MIL_GREEN),
+                green(format!("{command:<20}"), MIL_GREEN),
+                green(about, MIL_GREEN_DIM)
+            );
+        }
     }
     println!();
     println!("{}", green("  提示", MIL_GREEN_BRIGHT));
