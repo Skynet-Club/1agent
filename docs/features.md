@@ -31,7 +31,7 @@
 
 ### 2.1 交互式 TUI（可用，RC）
 
-- 命令行：`1agent -v` 查看版本；`1agent help` / `help advanced` / `help --all` 查看中文命令说明；顶层和全部子命令都有中文 + 英文描述（`中文说明 · English description`）；`help` 采用“常用 + 分类导航”，每类全部展开；`help <分类>` 显示该分类每个命令的用法和主要选项，`help <命令>` 显示完整选项，`help --all` 显示全部命令详情，`help advanced` 显示高级命令详情（用法 + 主要选项）；终端下用军旅绿色和分隔线，`--help` 同样进入分类导航；
+- 命令行：`1agent -v` 查看版本；`1agent help` / `help advanced` / `help --all` 查看中文命令说明；顶层和全部子命令都有中文 + 英文描述（`中文说明 · English description`）；`help` 采用“常用 + 分类导航”，每类全部展开；`help <分类>` 显示该分类每个命令的用法和主要选项，`help <命令>` 显示完整选项，`help --all` 显示全部命令详情；`help advanced` 仅保留兼容提示并指向 `--all`，不再维护第二份列表；终端下用军旅绿色和分隔线，`--help` 同样进入分类导航；
 - 单轮对话、任务运行、运行状态、活动提示；
 - 裸启动创建新 session；退出需要明确确认，banner 给出 `--session` 继续命令；
 - 运行中显示 `Working...`、执行时间、输入/输出 token 和缓存命中率；

@@ -5204,7 +5204,7 @@ fn print_help(topic: Option<&str>, all: bool) -> Result<()> {
     }
     match topic.map(str::trim).filter(|topic| !topic.is_empty()) {
         None => print_public_help(),
-        Some("advanced") => print_advanced_details(),
+        Some("advanced") => print_advanced_redirect(),
         Some(name) => {
             if let Some((group, _)) = find_group(name) {
                 print_group_detail(group);
@@ -5476,11 +5476,6 @@ fn print_public_help() {
         green("1agent help --all", MIL_GREEN_DIM)
     );
     println!(
-        "    {} 高级详情 · Advanced details：{}",
-        green("•", MIL_GREEN),
-        green("1agent help advanced", MIL_GREEN_DIM)
-    );
-    println!(
         "    {} 当前版本 · Version：{}",
         green("•", MIL_GREEN),
         green("1agent -v", MIL_GREEN_DIM)
@@ -5488,40 +5483,42 @@ fn print_public_help() {
     println!();
 }
 
-fn print_advanced_details() {
-    let mut command = Cli::command();
+fn print_advanced_redirect() {
     println!();
     println!(
         "{}",
         green(
-            "  1AGENT  ·  高级命令详情 · Advanced command details",
+            "  1AGENT  ·  高级命令详情已合并 · Advanced details moved",
             MIL_GREEN_BRIGHT
         )
     );
     println!("  {}", green_rule(58));
-    for (group, commands) in ADVANCED_GROUPS {
-        println!();
-        println!(
-            "  {}",
-            green(
-                format!("• {group} · {}", english_group(group)),
-                MIL_GREEN_BRIGHT
-            )
-        );
-        for name in *commands {
-            if PUBLIC_COMMANDS.iter().any(|(public, _)| *public == *name) {
-                continue;
-            }
-            if let Some(subcommand) = command.find_subcommand_mut(name) {
-                print_command_detail(subcommand, name);
-            }
-        }
-    }
     println!();
     println!(
-        "    {} 查看完整选项 · Full options：{}",
+        "    {} 全部命令详情 · All details：{}",
         green("•", MIL_GREEN),
-        green("1agent help <命令> 或 1agent <命令> --help", MIL_GREEN_DIM)
+        green("1agent help --all", MIL_GREEN_DIM)
+    );
+    println!(
+        "    {} 分类详情 · Category details：{}",
+        green("•", MIL_GREEN),
+        green(
+            "1agent help <分类>   例：1agent help 协议与平台",
+            MIL_GREEN_DIM
+        )
+    );
+    println!(
+        "    {} 命令详情 · Command details：{}",
+        green("•", MIL_GREEN),
+        green("1agent help <命令>   例：1agent help run", MIL_GREEN_DIM)
+    );
+    println!();
+    println!(
+        "    {}",
+        green(
+            "`advanced` 仅保留兼容；它与 `--all` 原来只差常用命令，不再维护两份列表。",
+            MIL_GREEN_FAINT
+        )
     );
     println!();
 }
