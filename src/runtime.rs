@@ -1699,10 +1699,12 @@ impl AgentRuntime {
     ) -> Result<RunResult, RuntimeError> {
         let refers_to_context = !request.known_facts.is_empty()
             && crate::domain::has_context_reference(&request.objective);
+        let asks_about_memory = crate::domain::asks_about_past_conversation(&request.objective);
         let fast_chat = mode == CognitiveMode::DirectAnswer
             && self.attachments.is_empty()
             && self.tool_query.is_none()
             && !refers_to_context
+            && !asks_about_memory
             && !crate::domain::asks_about_capabilities(&request.objective)
             && crate::domain::looks_like_chat(&request.objective);
         if !fast_chat {
@@ -6609,6 +6611,38 @@ mod tests {
                 .all(|message| !message.content.contains("1-AGENT CAPABILITY CATALOG"))
         );
         assert!(requests[1].tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn memory_questions_skip_fast_chat_and_keep_tools() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let runtime = chat_capture_runtime(workspace.path(), requests.clone());
+        runtime
+            .run_with_mode(
+                TaskRequest::from_objective(
+                    "昨天我们聊的 F开头和G开头你还有印象吗？",
+                    workspace.path().to_path_buf(),
+                ),
+                CognitiveMode::DirectAnswer,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].tools.is_empty());
+        assert!(
+            requests[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "session_search")
+        );
+        assert!(
+            !requests[0].messages[0]
+                .content
+                .starts_with(chat_system_prompt())
+        );
     }
 
     #[tokio::test]

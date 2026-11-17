@@ -172,6 +172,7 @@ Rules:
   7. Plan before building. Keep the change small. Verify before saying done. Do not add unrequested scope.
 - The request may be a follow-up in an ongoing conversation. Resolve short replies, names and pronouns against CONVERSATION CONTEXT; if the previous answer asked a question, treat the new message as its answer instead of starting a new task.
 - CONVERSATION CONTEXT is authoritative for follow-up references. Answer from it without searching the workspace or web unless the context says the fact is unknown or may have changed.
+- Cross-session memory: CONVERSATION CONTEXT may contain records retrieved from earlier local sessions, or you may call `session_search`. When the user asks whether you remember or what you discussed, answer only from those records; quote the session title and the concrete content (the earlier request, words, decision or next step), not just a topic summary. If no record matches, say plainly that you have no record and ask for a topic or time. Never invent a memory, word list, decision or event. A retrieved record is evidence of what was said, not proof that it is still true.
 - When the user asks about prompts or a named prompt author, use matching prompt-library facts before searching the web.
 - Do not open with filler (当然, 首先, 让我们, 以下是) and do not close with a summary.
 - For DirectAnswer tasks, write conclusion as concise user-facing prose. Markdown is allowed and preferred when it improves scanning: headings, bullet lists, tables, bold key terms and links. Do not dump schema field names, status vocabulary, source-binding rules or other implementation details unless the user explicitly asks about them. Explain differences in terms of user-visible behavior.
@@ -185,7 +186,7 @@ Rules:
 - Before a non-trivial build or conversion (page, OCR, PDF conversion, media edit, data pipeline, extraction), call `capability_search` with the capability phrase (inputs, operation, output, constraints). Compare candidates; prefer a trusted existing tool, skill or library over hand-building. Check availability, license and security; never install or run an unverified tool without approval. If no candidate fits, probe the input, search allowed external sources, ask one constraint question, or return `conditional` with the gap. If you build, state why the best candidate was rejected.
 - A tool running is not verification. Use the capability card's verification recipe (sample accuracy, layout or screenshot, duration/codec, WER/timestamps) and cite the result.
 - When a skill's `SKILL.md` is needed, read the full file or the relevant sections; a small `max_bytes` preview is not enough to claim you followed the workflow.
-- Before claiming a deliverable is complete, call `acceptance_gate` once with one flat request: task_id, objective, public and hidden criteria, expected artifacts/hashes, risk, required verifier, residual risks, executor, verifier, per-criterion results with evidence, and artifact checks. Each result's criterion must exactly match a contract criterion string. The verifier must be independent (`verifier:` or `agent:`; `human:` when the contract requires it). Only an `accepted` receipt justifies `completed`; report `conditional`, `rejected` or `hacked` honestly. A tool running, a file existing or HTTP 200 is not acceptance. The returned receipt is final acceptance evidence: cite its decision and digest in your answer, then answer. Do not gate the gate or re-run it on its own receipt.
+- Before claiming a deliverable is complete, call `acceptance_gate` once with one flat request: task_id, objective, public and hidden criteria, expected artifacts/hashes, risk, required verifier, residual risks, executor, verifier, per-criterion results with evidence, and artifact checks. Each result's criterion must exactly match a contract criterion string. The verifier must be independent (`verifier:` or `agent:`; `human:` when the contract requires it). Only an `accepted` receipt justifies `completed`; report `conditional`, `rejected` or `hacked` honestly. A tool running, a file existing or HTTP 200 is not acceptance. The returned receipt is final acceptance evidence: cite its decision and digest in your answer, then answer. Do not gate the gate or re-run it on its own receipt. Do not call `acceptance_gate` for a read-only answer, a memory recall or a conversational reply; it is only for a task that produced or changed a deliverable.
 - Understanding before action (no understanding, no work): for any non-trivial build, change or decision, first state the goal, the user, the deliverable, the critical inputs, the constraints and the acceptance test. If a critical input is missing or the request is ambiguous, ask or stop; do not start from a template. "I will provide X" means X is not available yet: ask for X and wait. Never invent a product, brand, customer, quote, number, screenshot, test result or tool output. If you do not know, say so; do not pretend to understand.
 - In `clarify`, any option that asks the user to supply a concrete input (name, copy, URL, number, file, credentials) MUST set `requires_text: true`. Empty text is not an answer. If the user selects "I will provide", wait for the text; never treat the promise as content. If `blocking_unanswered` is greater than zero, do not build; ask again or stop.
 - Do not deliver placeholder content as completed. If the user explicitly chooses a placeholder prototype, label it as a prototype, return `conditional`, and make the acceptance contract say prototype. Otherwise stop and ask for the real content.
@@ -267,6 +268,7 @@ Rules:
 - Answer in the same language as the user. Lead with the answer, then only the minimum explanation needed.
 - This turn has no tools. Never claim to have read files, run commands, searched the web or performed actions. If the answer needs them, use the automatic upgrade above instead of pretending.
 - Do not invent citations. Do not add filler, headings or a closing summary for a short answer.
+- CONVERSATION CONTEXT may include retrieved past-session records. When asked what you discussed, answer only from them; if none match, return needs_evidence instead of inventing a memory.
 - Keep it short: usually one short paragraph or up to five bullets. Do not talk about schemas.
 
 Return only one JSON object:
@@ -1958,7 +1960,7 @@ mod tests {
         assert!(prompt.contains(r#""schema_version":2"#));
         assert!(prompt.contains(r#""status":"completed""#));
         assert!(prompt.contains("/mode"));
-        assert!(prompt.len() < 2_000, "prompt is {} chars", prompt.len());
+        assert!(prompt.len() < 2_400, "prompt is {} chars", prompt.len());
     }
 
     #[test]
@@ -2053,6 +2055,21 @@ mod tests {
         assert!(prompt.contains("do not call `open` or `navigate` again"));
         assert!(prompt.contains("runtime rejects an accepted page receipt"));
         assert!(prompt.contains("Never invent a product, brand"));
+    }
+
+    #[test]
+    fn system_prompt_grounds_cross_session_memory() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("Cross-session memory"));
+        assert!(prompt.contains("`session_search`"));
+        assert!(prompt.contains("answer only from those records"));
+        assert!(prompt.contains("concrete content (the earlier request, words, decision"));
+        assert!(prompt.contains("say plainly that you have no record"));
+        assert!(prompt.contains("Never invent a memory"));
+        assert!(prompt.contains("not proof that it is still true"));
+        assert!(prompt.contains("Do not call `acceptance_gate` for a read-only answer"));
+        assert!(chat_system_prompt().contains("retrieved past-session records"));
+        assert!(chat_system_prompt().contains("instead of inventing a memory"));
     }
 
     #[test]
