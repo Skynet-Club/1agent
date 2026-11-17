@@ -795,12 +795,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   submits, cross-origin/download links, password entry and Enter create a
   persistent 0600 card bound to the DOM descriptor/session/origin; a human
   approves with `browser approve`, and the card is re-checked and consumed
-  once before the CDP action. Cards also carry the runtime `action_id` and an
-  optional `expected_artifact_sha256`; both are part of the matching key, so a
-  different action id or artifact digest after approval is rejected as a
-  mismatch and needs a fresh card. Legacy cards without these fields still
-  load (empty/none). Generic gated-tool approval cards are not created yet;
-  the binding is enforced at the card/store layer. `browser` can open a
+  once before the CDP action. Cards also carry the runtime `action_id` for
+  audit and an optional `expected_artifact_sha256`; the artifact digest is part
+  of the matching key, so a different digest after approval is rejected as a
+  mismatch. `action_id` is deliberately not a match key: a human approves in a
+  later turn, so the retry has a new run/call id. The exact action, target,
+  session, origin, one-shot consumption and TTL still bind the card. Legacy
+  cards without these fields still load (empty/none). Generic gated-tool
+  approval cards are not created yet; the binding is enforced at the card/store
+  layer. `browser` can open a
   `preview_file` loopback URL without `--allow-network` when
   `allow_loopback=true`; `action=audit` then captures real 390/768/1440
   scrollWidth/clientWidth, placeholder hits, tap-target sizes, h1 count and

@@ -15,7 +15,10 @@ use uuid::Uuid;
 use crate::cua::{ArgumentSource, CuaAction, CuaDecision, CuaPlan};
 use crate::domain::RiskLevel;
 
-pub const ACTION_CARD_TTL_MS: u128 = 120_000;
+/// A human often approves in a later turn; the card is still bound to one
+/// exact action and is consumed once. Ten minutes avoids making the user race
+/// the approval dialog without weakening the target binding.
+pub const ACTION_CARD_TTL_MS: u128 = 600_000;
 const MAX_CARDS: usize = 256;
 const MAX_CARD_FILE_BYTES: u64 = 1024 * 1024;
 
@@ -117,12 +120,15 @@ impl ActionCard {
     /// Execution-time binding check. The card must describe exactly the
     /// pending action in the same browser session; expiry and nonce are
     /// checked here so an approval cannot be replayed later or elsewhere.
+    ///
+    /// `action_id` is deliberately not part of this check: a human approves in
+    /// a later turn, so the retry necessarily has a new run/call id. The exact
+    /// action, target, session, origin and artifact digest still bind the card.
     pub fn matches_request(&self, request: &ActionRequest, now_ms: u128) -> bool {
         self.action == request.action
             && self.target == request.target
             && self.session_id == request.session_id
             && self.origin == request.origin
-            && self.action_id == request.action_id
             && self.expected_artifact_sha256 == request.expected_artifact_sha256
             && now_ms <= self.expires_at_ms
     }
@@ -387,7 +393,6 @@ impl ActionCardStore {
                 && stored.card.session_id == card.session_id
                 && stored.card.action == card.action
                 && stored.card.target == card.target
-                && stored.card.action_id == card.action_id
                 && stored.card.expected_artifact_sha256 == card.expected_artifact_sha256
                 && card.created_at_ms <= stored.card.expires_at_ms
         }) {
@@ -519,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn approval_card_binds_action_and_expected_artifact_sha() {
+    fn approval_card_binds_action_and_artifact_but_not_call_id() {
         let dir = tempfile::tempdir().unwrap();
         let store = ActionCardStore::at(dir.path().join("cards.json"));
         let mut request = request("submit-payment", RiskLevel::Low, false);
@@ -538,15 +543,12 @@ mod tests {
             Err(ActionCardError::Mismatch(id)) if id == pending.card_id
         ));
 
-        let mut drifted_action = request.clone();
-        drifted_action.action_id = "run-1:call-2".into();
-        assert!(matches!(
-            store.take_approved(&pending.card_id, &drifted_action, 3_000),
-            Err(ActionCardError::Mismatch(id)) if id == pending.card_id
-        ));
-
+        // A human approves in a later run; the retry has a new call id but the
+        // same action/target/session/origin and artifact digest.
+        let mut retry_action = request.clone();
+        retry_action.action_id = "run-2:call-9".into();
         let consumed = store
-            .take_approved(&pending.card_id, &request, 3_000)
+            .take_approved(&pending.card_id, &retry_action, 3_000)
             .unwrap();
         assert_eq!(consumed.action_id, "run-1:call-1");
         assert_eq!(consumed.expected_artifact_sha256, Some("a".repeat(64)));
@@ -569,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_card_reuse_requires_the_same_action_and_expected_sha() {
+    fn pending_card_reuse_requires_the_same_target_and_expected_sha() {
         let dir = tempfile::tempdir().unwrap();
         let store = ActionCardStore::at(dir.path().join("cards.json"));
         let mut first = request("submit-payment", RiskLevel::Low, false);
@@ -583,10 +585,11 @@ mod tests {
         let second_card = store.request(card_for(&changed, 1_100)).unwrap();
         assert_ne!(first_card.card_id, second_card.card_id);
 
+        // A retry in a later run keeps the same pending card.
         let mut same = first.clone();
-        same.action_id = "run-1:call-9".into();
+        same.action_id = "run-2:call-9".into();
         let third_card = store.request(card_for(&same, 1_200)).unwrap();
-        assert_ne!(first_card.card_id, third_card.card_id);
+        assert_eq!(first_card.card_id, third_card.card_id);
     }
 
     #[test]
