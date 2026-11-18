@@ -5,14 +5,10 @@
 //! Workshop adapter is a later integration step.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::ffi::OsStr;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use uuid::Uuid;
 
 const ROUTER_SNAPSHOT_SCHEMA: u32 = 1;
 
@@ -387,39 +383,7 @@ impl RouterRuntime {
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorkerStoreError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        crate::jsonl::ensure_parent_private(path)?;
-    }
-    let name = path
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("router.json");
-    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
-    let result = (|| -> Result<(), WorkerStoreError> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-            options.custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_data()?;
-        drop(file);
-        std::fs::rename(&temp, path)?;
-        if let Some(parent) = path.parent() {
-            File::open(parent)?.sync_all()?;
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result
+    crate::jsonl::write_private_atomic(path, bytes, "router.json").map_err(WorkerStoreError::Io)
 }
 
 fn safe_id(value: &str) -> bool {

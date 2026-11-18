@@ -4,6 +4,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use uuid::Uuid;
+
 /// Cross-process advisory lock for an append-only store. The lock file is a
 /// sibling named `<store>.lock`; callers must hold the guard for the whole
 /// read-check-write section.
@@ -189,6 +191,41 @@ pub fn ensure_parent_private(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Write `bytes` through a private temporary file and rename it into place.
+/// The temporary file is created with `O_NOFOLLOW` and mode `0600` on Unix,
+/// fsynced before the rename, and the parent directory is fsynced after it.
+pub fn write_private_atomic(path: &Path, bytes: &[u8], fallback_name: &str) -> std::io::Result<()> {
+    ensure_parent_private(path)?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(fallback_name);
+    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_data()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        if let Some(parent) = path.parent() {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +260,28 @@ mod tests {
         repair_torn_tail(&dir.path().join("missing.jsonl")).unwrap();
         let error = repair_torn_tail(dir.path()).unwrap_err();
         assert!(error.to_string().contains("regular file"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_atomic_write_replaces_content_and_leaves_no_temp_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.json");
+        write_private_atomic(&path, b"one", "store.json").unwrap();
+        write_private_atomic(&path, b"two", "store.json").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"two");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let leftovers = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
     }
 
     #[cfg(unix)]

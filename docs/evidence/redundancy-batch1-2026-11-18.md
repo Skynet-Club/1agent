@@ -77,10 +77,33 @@ module tests); claims 264 (240/16/8); HTTP surface e2e 1/1; TUI interaction
 **pass** after rebuilding the release binary. Removed code remains recoverable
 from git history before commit `e85d49a` (Batch 1) or the deletion commit.
 
+## Batch 3 — shared atomic write (2026-11-18)
+
+- Added `jsonl::write_private_atomic`: private temporary file, `O_NOFOLLOW`,
+  mode `0600`, `sync_data`, rename, parent-directory `sync_all`, and temp
+  cleanup on failure.
+- Replaced the three identical copies in `evolution.rs`, `delegation.rs` and
+  `worker_runtime.rs`; net -69 lines after the shared helper.
+- Added `private_atomic_write_replaces_content_and_leaves_no_temp_file`
+  (content replacement, mode 0600, no `.tmp` leftovers).
+
+Inspection changed the original Batch 3 scope:
+
+- `tool_approval`/`browser::policy` `save` and `lock` are **not** exact
+  duplicates. They use `<name>.tmp-<pid>` vs random UUID, different lock-file
+  names and different fsync points. Merging them would change live behavior,
+  so they were left unchanged.
+- `memory_journal`/`skill_journal` `open_with` differ only by event type and
+  store verifier; extracting a generic would add coupling for ~30 lines. Left
+  unchanged.
+
+Verification: `verify.sh` **1652 total / 0 failed / 13 ignored**; claims 264
+(240/16/8); lib tests 1206.
+
 ## Not in this round
 
 - `skill_candidate` remains test-only; whether to wire it or remove it is a
   product decision.
-- Duplicate persistence helpers (`write_private_atomic`, `open_with`,
-  `save`/`lock`) remain pending Batch 3.
+- Tiny utility clones (`safe_id`, `now_ms`, `bounded`) were left in place;
+  the shared helper would add a module for little benefit.
 - Legacy path/schema compatibility and `main.rs` structure were not touched.
