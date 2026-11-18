@@ -1,4 +1,4 @@
-# Redundancy cleanup — Batch 1 (2026-11-18)
+# Redundancy cleanup — Batches 1–2 (2026-11-18)
 
 Scope: zero-behavior cleanup only. No product path, CLI, TUI, tool registry,
 journal event or persisted format is changed.
@@ -56,11 +56,31 @@ Test-only functions gated with `#[cfg(test)]`: `digest_provider_probes`,
 
 Raw: `verify-batch1-cleanup.log`.
 
-## Not in this batch
+## Batch 2 — unwired modules (2026-11-18)
 
-- 6 unwired modules (`source_adapter`, `supervision`, `provider_comparison`,
-  `shadow_provider`, `ops_guard`, `workshop_worker`) and `skill_candidate`
-  remain pending a roadmap decision.
+After an explicit product decision, deleted six modules that had no reference
+from the binary, runtime, integration tests or docs:
+
+- `src/source_adapter.rs` (477 lines with tests)
+- `src/supervision.rs` (467)
+- `src/provider_comparison.rs` (386)
+- `src/shadow_provider.rs` (301)
+- `src/workshop_worker.rs` (276)
+- `src/ops_guard.rs` (166)
+
+Total: 2,073 lines including 908 test lines and 17 unit tests. Their `pub mod`
+and glob re-export entries were removed from `lib.rs`. `skill_candidate` was
+kept because `skill_lifecycle_e2e` and `a_gate_heldout` exercise it.
+
+Verification: `verify.sh` **1651 total / 0 failed / 13 ignored** (17 fewer
+module tests); claims 264 (240/16/8); HTTP surface e2e 1/1; TUI interaction
+**pass** after rebuilding the release binary. Removed code remains recoverable
+from git history before commit `e85d49a` (Batch 1) or the deletion commit.
+
+## Not in this round
+
+- `skill_candidate` remains test-only; whether to wire it or remove it is a
+  product decision.
 - Duplicate persistence helpers (`write_private_atomic`, `open_with`,
-  `save/license`) remain pending Batch 3.
+  `save`/`lock`) remain pending Batch 3.
 - Legacy path/schema compatibility and `main.rs` structure were not touched.
