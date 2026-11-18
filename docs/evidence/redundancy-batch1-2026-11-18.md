@@ -83,7 +83,7 @@ from git history before commit `e85d49a` (Batch 1) or the deletion commit.
   mode `0600`, `sync_data`, rename, parent-directory `sync_all`, and temp
   cleanup on failure.
 - Replaced the three identical copies in `evolution.rs`, `delegation.rs` and
-  `worker_runtime.rs`; net -69 lines after the shared helper.
+  `worker_runtime.rs`; net -47 lines after the shared helper.
 - Added `private_atomic_write_replaces_content_and_leaves_no_temp_file`
   (content replacement, mode 0600, no `.tmp` leftovers).
 
