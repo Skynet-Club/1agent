@@ -44,4 +44,15 @@ cannot be repaired
 
 ## 4. Local assets
 
-To be filled after packaging from the clean rc.12 tag.
+Built from tag `v1.0.0-rc.12` → `41c24ec` with `./scripts/package.sh
+--linux-only`; tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.12-linux-x86_64.tar.gz` | SHA-256 `649e66aa68b993aa29b0e96bdeae49e6f4eccde7aa604da6b5dd6f14d4cbb293` |
+| Packaged binary | SHA-256 `26fc0988820276e7e55ff9bacfe72f4084227a54d881e75a41de8a054c9819b1` (26,713,904 bytes) |
+| Provenance | `linux-x86_64.json`, commit `41c24ec`, `git_dirty: false` |
+| Smoke | SHA256SUMS OK; `--version` 1.0.0-rc.12; install to `~/.local`; `doctor` Ok |
+
+Evidence: `docs/evidence/release-1.0.0-rc.12-2026-11-18.md`. No GitHub release
+and no push were performed.
