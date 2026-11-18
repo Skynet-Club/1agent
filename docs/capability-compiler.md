@@ -109,11 +109,17 @@ struct CapabilityRequirement {
   non-text deliverable hints. If a required capability has no installed
   candidate, it returns `needs_authorization` and **does not call the model**.
 - If a capability resolves, the selected path is added to the run's
-  `known_facts`, so the model sees a journaled preflight fact.
+  `known_facts`, and the full resolution is journaled as
+  `capability_preflight_resolved`, so the model-visible preflight is
+  replayable.
 - Artifact verifier: `verify_artifact` checks existence, size, MIME, a
   lightweight schema, SHA-256 and an optional loopback preview HTTP 200.
   `CompletionGate` records verified artifacts and can finalize when the step
   budget ends after verification.
+- If both final-answer repairs fail after a verified artifact or accepted
+  receipt, the plain-text answer is normalized into a structured answer and
+  still passes `CompletionGate`; the verified delivery is not discarded as
+  `needs_evidence`.
 - Install proposal: `propose_capability_install` returns a structured proposal
   with the exact command, license, source and `approval_required: true`. The
   CLI separates proposal from approval:
@@ -133,6 +139,9 @@ install command automatically. A human runs the exact command.
   artifact_verified`, not task-type labels.
 - Successful paths add a small explainable boost and can reselect among
   installed candidates; alternatives remain visible.
+- The recorded path comes from the runtime preflight
+  (`capability_preflight_resolved`); the model's later `resolve_capability`
+  call is only a fallback, because it can describe a narrower ad-hoc contract.
 - `run`/TUI initialize this store at the runtime home; eval does not write it.
 
 ## 8. Still open

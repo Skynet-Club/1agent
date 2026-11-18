@@ -57,3 +57,22 @@ final answer instead of the canned budget answer:
   preview_file → browser ×2 → acceptance_gate`.
 
 Raw: `rc10-finalization/answer.json`, `summary.json`, `tool-sequence.json`.
+
+## rc.12 final-answer and path-memory smoke
+
+Two 12-step runs with the real provider config:
+
+1. `rc12-finalization/`: final answer `completed`; `write_file` +
+   `verify_artifact` + `acceptance_gate` accepted; no repair failure. This run
+   was built before the preflight journal event, so it recorded no capability
+   path.
+2. `rc12-preflight-memory/`: final answer `completed`; verified SVG and
+   accepted receipt; `~/.1a/capability-paths.jsonl` now contains:
+
+```json
+{"schema_version":1,"requirement":{"verb":"render","inputs":["structured_spec"],"outputs":["image/svg+xml"],"constraints":["local"],"required":true},"manifest":"manual-svg","status":"completed","artifact_verified":true}
+```
+
+The deterministic test `accepted_receipt_survives_unrepairable_plain_text_final`
+covers the repair-failure fallback; the live model returned valid JSON this
+time, so that fallback was not exercised live.

@@ -123,6 +123,11 @@ pub enum JournalEventKind {
     ToolCapabilitiesAdvertised {
         snapshot: ToolCapabilitySnapshot,
     },
+    /// The runtime's preflight resolution, recorded so the selected
+    /// capability path is replayable and can feed path memory.
+    CapabilityPreflightResolved {
+        resolution: crate::capability_compiler::CapabilityResolution,
+    },
     ModelRequested {
         request: ModelRequest,
     },
@@ -1438,6 +1443,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::AnswerProduced { answer } => state.answer = Some(answer.clone()),
             JournalEventKind::RunStopped { reason } => state.stop_reason = Some(*reason),
             JournalEventKind::ContextCompacted { .. }
+            | JournalEventKind::CapabilityPreflightResolved { .. }
             | JournalEventKind::ExperienceInjected { .. }
             | JournalEventKind::ModelRequested { .. }
             | JournalEventKind::ModelRequestDelta { .. }

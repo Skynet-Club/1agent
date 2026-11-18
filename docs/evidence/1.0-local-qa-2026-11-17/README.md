@@ -266,7 +266,30 @@ Raw log: `verify-1.0.0-rc.10.log`.
 
 Raw log: `verify-1.0.0-rc.11.log`.
 
-## 23. Not covered
+## 23. rc.12 final-answer preservation and preflight path (2026-11-18)
+
+- If both answer repairs fail after an accepted `acceptance_gate` receipt or a
+  `verify_artifact` result, the plain-text final answer is normalized into a
+  structured answer; `CompletionGate` still downgrades when acceptance or
+  design evidence is missing.
+- The runtime preflight resolution is journaled as
+  `capability_preflight_resolved`; capability-path memory prefers it over the
+  model's later `resolve_capability` call.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1668 total, 0 failed, 13 ignored |
+| final-answer test | `accepted_receipt_survives_unrepairable_plain_text_final` |
+| preflight-memory test | `preflight_path_is_recorded_for_a_completed_artifact_run` |
+| live smoke | `completed`; SVG verified; accepted receipt; `manual-svg` recorded with `artifact_verified:true` |
+| claims | 264 checked (240 verified / 16 partial / 8 no evidence) |
+
+The live run used 12 steps / 12 tool calls / 12 provider attempts with the
+developer config. Raw: `capability-compiler-2026-11-18/rc12-finalization/`,
+`capability-compiler-2026-11-18/rc12-preflight-memory/`,
+`verify-1.0.0-rc.12-final.log`.
+
+## 24. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

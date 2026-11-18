@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0-rc.12 — 2026-11-18
+
+- Preserve verified delivery when the final answer cannot be repaired: if an
+  accepted `acceptance_gate` receipt or a `verify_artifact` result exists, the
+  plain-text final answer becomes a structured answer instead of being
+  discarded as `needs_evidence`; `CompletionGate` still downgrades it when
+  acceptance or design evidence is missing.
+
 ## 1.0.0-rc.11 — 2026-11-18
 
 - Capability compiler P1: runtime preflight blocks an unresolvable required

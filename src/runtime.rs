@@ -1327,9 +1327,13 @@ impl AgentRuntime {
         let Ok(events) = read_events(&result.journal_path) else {
             return;
         };
-        let mut resolution = None;
+        let mut preflight_resolution = None;
+        let mut tool_resolution = None;
         let mut artifact_verified = false;
         for event in &events {
+            if let JournalEventKind::CapabilityPreflightResolved { resolution } = &event.event {
+                preflight_resolution = Some(resolution.clone());
+            }
             let JournalEventKind::ToolObserved { observation } = &event.event else {
                 continue;
             };
@@ -1338,7 +1342,7 @@ impl AgentRuntime {
                     crate::capability_compiler::CapabilityResolution,
                 >(&observation.content)
             {
-                resolution = Some(parsed);
+                tool_resolution = Some(parsed);
             }
             if observation.tool == "verify_artifact"
                 && observation.metadata.get("decision").map(String::as_str) == Some("verified")
@@ -1346,7 +1350,10 @@ impl AgentRuntime {
                 artifact_verified = true;
             }
         }
-        let Some(resolution) = resolution else {
+        // The runtime preflight is the authoritative path the run actually
+        // started from; the model's resolver call is a secondary lookup and
+        // can describe a narrower contract.
+        let Some(resolution) = preflight_resolution.or(tool_resolution) else {
             return;
         };
         let status = match result.answer.status {
@@ -1951,6 +1958,7 @@ impl AgentRuntime {
             .or(requested_mode)
             .unwrap_or_else(|| crate::domain::infer_mode(&request));
         let fast_chat = fast_chat && resume.is_none();
+        let mut capability_resolution = None;
         if resume.is_none()
             && !fast_chat
             && let Some(resolution) = self.capability_preflight(&request)
@@ -1974,6 +1982,7 @@ impl AgentRuntime {
                         selected.join(", ")
                     ));
                 }
+                capability_resolution = Some(resolution);
             } else {
                 let answer = capability_gap_answer(&resolution);
                 let stop_reason = stop_reason_for_answer(answer.status);
@@ -2040,6 +2049,14 @@ impl AgentRuntime {
                         source,
                     })?;
             }
+        }
+        if let Some(resolution) = capability_resolution {
+            journal
+                .append(JournalEventKind::CapabilityPreflightResolved { resolution })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
         }
         if let Some(link) = &self.parent_run_link {
             journal
@@ -3020,7 +3037,7 @@ impl AgentRuntime {
                                     model_request: &model_request,
                                     provider_id: response_provider_id,
                                     model: response_model,
-                                    invalid_content: repair_content,
+                                    invalid_content: repair_content.clone(),
                                     failure: format!(
                                         "{message}. Correct that validation error and return \
                                          exactly one valid AgentAnswer JSON object, preserving \
@@ -3039,6 +3056,23 @@ impl AgentRuntime {
                     let repaired = match repaired {
                         Ok(repaired) => repaired,
                         Err(RuntimeError::InvalidOutput { .. }) => {
+                            if let Some(answer) =
+                                plain_text_evidence_answer(&repair_content, &completion_gate)
+                            {
+                                let answer = enforce_completion_gate(
+                                    &mut journal,
+                                    &completion_gate,
+                                    answer,
+                                )?;
+                                let stop_reason = stop_reason_for_answer(answer.status);
+                                return finish_with_answer(
+                                    &mut journal,
+                                    run_id,
+                                    journal_path,
+                                    answer,
+                                    stop_reason,
+                                );
+                            }
                             return finish_with_answer(
                                 &mut journal,
                                 run_id,
@@ -3724,6 +3758,55 @@ fn unrepairable_answer() -> crate::domain::AgentAnswer {
         action_receipts: Vec::new(),
         task_need: None,
     }
+}
+
+/// A verified artifact or accepted receipt is stronger evidence than the
+/// formatting of the final answer. When both repair attempts fail after such
+/// evidence exists, keep the plain-text answer and let `CompletionGate` decide
+/// the status instead of discarding the delivery as `needs_evidence`.
+fn plain_text_evidence_answer(
+    content: &str,
+    gate: &CompletionGate,
+) -> Option<crate::domain::AgentAnswer> {
+    let mut conclusion = content.trim().to_string();
+    if conclusion.is_empty()
+        || conclusion.starts_with('{')
+        || conclusion.starts_with('[')
+        || conclusion.starts_with("```")
+        || (gate.accepted_receipt.is_none() && gate.verified_artifacts.is_empty())
+    {
+        return None;
+    }
+    let evidence = gate
+        .verified_artifacts
+        .iter()
+        .map(|(path, sha256)| {
+            if !conclusion.contains(path.as_str()) {
+                conclusion.push_str(&format!("\n\n已验证交付物：{path}（sha256: {sha256}）"));
+            }
+            crate::domain::Evidence {
+                source: path.clone(),
+                statement: format!("verify_artifact verified sha256 {sha256}"),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids: Vec::new(),
+            }
+        })
+        .collect();
+    Some(crate::domain::AgentAnswer {
+        task_need: None,
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::Completed,
+        conclusion,
+        claims: Vec::new(),
+        evidence,
+        assumptions: Vec::new(),
+        constraints: vec!["最终答案由纯文本规范化；交付物验收证据未丢失".into()],
+        unknowns: Vec::new(),
+        conflicts: Vec::new(),
+        flip_conditions: Vec::new(),
+        action_receipts: Vec::new(),
+    })
 }
 
 fn remaining_budget(
@@ -6337,6 +6420,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn preflight_path_is_recorded_for_a_completed_artifact_run() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("diagram.svg");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call(
+                        "write-1",
+                        &target,
+                        "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+                    )],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "verify-1".into(),
+                        name: "verify_artifact".into(),
+                        arguments: serde_json::json!({"path": target}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("created the diagram"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let memory_path = workspace.path().join("capability-paths.jsonl");
+        let memory = crate::capability_memory::CapabilityMemory::open(&memory_path).unwrap();
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_capability_memory(memory);
+        let mut request =
+            TaskRequest::from_objective("画一张架构图", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        let records = std::fs::read_to_string(&memory_path).unwrap();
+        assert!(records.contains("manual-svg"), "{records}");
+        assert!(records.contains("\"artifact_verified\":true"), "{records}");
+    }
+
+    #[tokio::test]
     async fn execution_gate_denies_tools_that_require_approval() {
         let workspace = tempfile::tempdir().unwrap();
         let mut tools = ToolRegistry::default();
@@ -8207,6 +8334,51 @@ mod tests {
             &event.event,
             JournalEventKind::CompletionAcceptanceMissing { .. }
         )));
+    }
+
+    #[tokio::test]
+    async fn accepted_receipt_survives_unrepairable_plain_text_final() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::InvalidFinal {
+                    content: "wrote out.txt".into(),
+                    error: "expected value".into(),
+                },
+                ModelTurn::InvalidFinal {
+                    content: "wrote out.txt".into(),
+                    error: "expected value".into(),
+                },
+                ModelTurn::InvalidFinal {
+                    content: "wrote out.txt".into(),
+                    error: "expected value".into(),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("写 out.txt 并验收", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert_eq!(result.answer.conclusion, "wrote out.txt");
     }
 
     #[test]
