@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0-rc.6 — 2026-11-18
+
+- `/setting` is now a two-level panel: budgets, permissions, appearance, model
+  and reset at level one; themes at level two. Numeric values are edited inside
+  the panel (Enter saves, Esc cancels) instead of injecting a command into the
+  composer; network/write toggles and read-root add/remove happen in-panel.
+  Global reset uses a warning/confirmation page, and the menu uses the
+  available height instead of an eight-row cap.
+- Verification: `verify.sh` 1649 total / 0 failed / 13 ignored; settings panel
+  PTY and TUI interaction pass. Includes rc.5 `/setting` and eight TUI themes.
+
 ## 1.0.0-rc.5 — 2026-11-18
 
 - `/setting` unified settings menu (`/settings` alias; `/config` compatibility):

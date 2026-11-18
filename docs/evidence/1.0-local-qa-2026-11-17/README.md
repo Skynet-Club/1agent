@@ -153,7 +153,26 @@ and wasteland. The theme is stored in `config.json` `appearance.theme`
 
 Raw logs: `verify-1.0.0-rc.5.log`, `tui-interaction-rc.5.log`.
 
-## 12. Not covered
+## 12. rc.6 settings panel UX (2026-11-18)
+
+`/setting` is a two-level command panel: categories (current settings, budget,
+permissions, appearance, model, reset) at level one; the eight themes at level
+two. Numeric values are edited inside the panel with Enter/Esc; no command is
+injected into the composer. Network/write toggles and read-root add/remove are
+in-panel. Global reset uses a warning/confirmation page. The command panel menu
+now uses the available height instead of an eight-row cap.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1649 total, 0 failed, 13 ignored |
+| TUI interaction | **pass** |
+| Settings panel PTY | `/setting` → budget → inline edit → `已更新设置：steps` |
+| Settings e2e | `/setting show`, `/settings theme matrix`, theme list pass |
+| Reset tests | session restores startup; global backups + restores military/full-local |
+
+Raw logs: `verify-1.0.0-rc.6.log`, `tui-interaction-rc.6.log`.
+
+## 13. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

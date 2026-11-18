@@ -248,6 +248,13 @@ struct SecretInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct SettingInput {
+    key: String,
+    label: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TranscriptVisualLine {
     kind: TranscriptKind,
     tone: TuiTone,
@@ -900,6 +907,7 @@ pub struct TuiState {
     clarify_collapsed: bool,
     last_clarify: Option<TuiClarifyResult>,
     secret_input: Option<SecretInput>,
+    setting_input: Option<SettingInput>,
     provider_models: Vec<String>,
 }
 
@@ -978,6 +986,7 @@ impl TuiState {
             clarify_collapsed: false,
             last_clarify: None,
             secret_input: None,
+            setting_input: None,
             provider_models: Vec::new(),
         }
     }
@@ -1574,6 +1583,12 @@ impl TuiState {
         }
     }
 
+    pub fn set_command_panel_body(&mut self, body: impl Into<String>) {
+        if let Some(panel) = self.command_panel.as_mut() {
+            panel.body = body.into();
+        }
+    }
+
     pub fn command_panel_menu_open(&self) -> bool {
         self.command_panel
             .as_ref()
@@ -1763,6 +1778,54 @@ impl TuiState {
         self.input_scroll = 0;
         self.clear_notice();
         Some((secret.provider_id, secret.provider_model, key))
+    }
+
+    pub fn begin_setting_input(
+        &mut self,
+        key: impl Into<String>,
+        label: impl Into<String>,
+        value: impl Into<String>,
+    ) {
+        self.setting_input = Some(SettingInput {
+            key: key.into(),
+            label: sanitize_inline(&label.into()),
+            value: value.into(),
+        });
+        self.clear_notice();
+    }
+
+    pub fn setting_input_active(&self) -> bool {
+        self.setting_input.is_some()
+    }
+
+    pub fn setting_input_label(&self) -> Option<&str> {
+        self.setting_input
+            .as_ref()
+            .map(|input| input.label.as_str())
+    }
+
+    pub fn push_setting_input_char(&mut self, character: char) {
+        let Some(input) = self.setting_input.as_mut() else {
+            return;
+        };
+        if !character.is_control() && input.value.chars().count() < 512 {
+            input.value.push(character);
+        }
+    }
+
+    pub fn pop_setting_input_char(&mut self) {
+        if let Some(input) = self.setting_input.as_mut() {
+            input.value.pop();
+        }
+    }
+
+    pub fn take_setting_input(&mut self) -> Option<(String, String, String)> {
+        let input = self.setting_input.take()?;
+        Some((input.key, input.label, input.value))
+    }
+
+    pub fn cancel_setting_input(&mut self) {
+        self.setting_input = None;
     }
 
     pub fn set_provider_models(&mut self, models: Vec<String>) {
@@ -4492,7 +4555,10 @@ impl TuiState {
         let selected = panel
             .selected_menu_item
             .min(panel.menu.len().saturating_sub(1));
-        let hint = if panel.menu.is_empty() {
+        let editing = self.setting_input.is_some();
+        let hint = if editing {
+            "Enter 保存 · Esc 取消".to_string()
+        } else if panel.menu.is_empty() {
             String::new()
         } else {
             format!(
@@ -4507,14 +4573,21 @@ impl TuiState {
         if inner.is_empty() {
             return;
         }
-        let menu_height = panel
-            .menu
-            .len()
-            .min(8)
-            .min(usize::from(inner.height.saturating_sub(2)));
+        let menu_height = if editing {
+            0
+        } else {
+            panel
+                .menu
+                .len()
+                .min(usize::from(inner.height.saturating_sub(2)))
+        };
         let content_width = usize::from(inner.width.saturating_sub(2).max(1));
-        let wrapped_rows = panel
-            .body
+        let body_text = if let Some(input) = self.setting_input.as_ref() {
+            format!("{}\n\n> {}\u{2588}", input.label, input.value)
+        } else {
+            panel.body.clone()
+        };
+        let wrapped_rows = body_text
             .lines()
             .map(|line| wrap_display(line, content_width).len())
             .sum::<usize>();
@@ -4536,7 +4609,7 @@ impl TuiState {
         let top = self.command_panel_scroll;
         if !body_area.is_empty() {
             frame.render_widget(
-                Paragraph::new(panel.body)
+                Paragraph::new(body_text)
                     .style(Style::default().fg(Color::Reset))
                     .wrap(Wrap { trim: false })
                     .scroll((u16::try_from(top).unwrap_or(u16::MAX), 0)),

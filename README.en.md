@@ -16,11 +16,11 @@
 Most agents hand you a polished drill recommendation.  
 1Agent first asks: are you drilling to run a cable, or to hang a picture?
 
-> **This project is under active development.** Current code line: **1.0.0-rc.5** (2026-11-18, code-level release candidate, **not GA**). 0.99 code-level acceptance passed; Track Q is 99/100. Testing, feedback and contributions are welcome.  
+> **This project is under active development.** Current code line: **1.0.0-rc.6** (2026-11-18, code-level release candidate, **not GA**). 0.99 code-level acceptance passed; Track Q is 99/100. Testing, feedback and contributions are welcome.  
 > 1.0 status and blocked gates: [status-v1.0](docs/status-v1.0.md) · [code-complete plan](docs/1.0-code-complete-plan.md). External audit, real Windows/macOS GA, marketplace and R1–R9 metrics remain **blocked**; no GA claim.  
 > This line includes the 0.98 real-world/presence work and the 0.99 Goal/Action/Delegation kernels, plus QG1 goal-closure evidence and the Track Q safety/quality fixes.  
 > Join [Skynet-Club](https://skynet.club) to help build 1Agent and its open ecosystem.  
-> 1.0.0-rc.5 local candidate notes: [release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.5-draft.md)  
+> 1.0.0-rc.6 local candidate notes: [release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.6-draft.md)  
 > 0.97 features and entry points: [RELEASE_0.97.en.md](docs/release/RELEASE_0.97.en.md) · [feature matrix](docs/release/FEATURES-0.97.md)
 
 ---

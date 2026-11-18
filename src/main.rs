@@ -17243,102 +17243,472 @@ fn provider_menu_action(label: &str, description: &str, id: &str) -> CommandMenu
     }
 }
 
+fn setting_menu_item(label: &str, description: &str, id: &str) -> CommandMenuItem {
+    CommandMenuItem {
+        id: format!("setting.{id}"),
+        label: label.into(),
+        description: description.into(),
+    }
+}
+
 fn setting_menu_actions() -> Vec<CommandMenuItem> {
-    let mut items = vec![
-        command_menu_action(
-            "当前设置",
-            "查看模型、预算、权限、外观与来源",
-            "/setting show",
-            false,
+    vec![
+        setting_menu_item("当前设置", "查看当前值，留在设置面板", "show"),
+        setting_menu_item(
+            "运行预算",
+            "步数、工具调用、尝试、超时、上下文",
+            "page.budget",
         ),
-        command_menu_action(
+        setting_menu_item("权限", "网络、写入、读取目录", "page.permissions"),
+        setting_menu_item("外观 / 模板风格", "进入后选择八套配色", "page.appearance"),
+        setting_menu_item("模型与推理", "当前模型、选择模型、思考深度", "page.model"),
+        setting_menu_item("恢复初始化", "当前会话或全局配置", "page.reset"),
+        setting_menu_item("关闭设置", "返回会话", "close"),
+    ]
+}
+
+fn setting_budget_menu(settings: &TuiRunSettings) -> Vec<CommandMenuItem> {
+    vec![
+        setting_menu_item(
             "推理步骤…",
-            "最大推理步数（0=不限）",
-            "/setting set steps ",
-            true,
+            &format!(
+                "当前 {}（0=不限）",
+                bounded_count_label(settings.max_steps, "步")
+            ),
+            "edit.steps",
         ),
-        command_menu_action(
+        setting_menu_item(
             "工具调用…",
-            "最大工具调用次数（0=不限）",
-            "/setting set tools ",
-            true,
+            &format!(
+                "当前 {}（0=不限）",
+                bounded_count_label(settings.max_tool_calls, "次")
+            ),
+            "edit.tools",
         ),
-        command_menu_action(
+        setting_menu_item(
             "模型尝试…",
-            "最大模型尝试次数（0=不限）",
-            "/setting set attempts ",
-            true,
+            &format!(
+                "当前 {}（0=不限）",
+                bounded_count_label(settings.max_provider_attempts, "次")
+            ),
+            "edit.attempts",
         ),
-        command_menu_action(
+        setting_menu_item(
             "单次超时…",
-            "输入单次超时秒数",
-            "/setting set timeout ",
-            true,
+            &format!("当前 {}", timeout_label(settings.timeout_seconds)),
+            "edit.timeout",
         ),
-        command_menu_action(
-            "上下文…",
-            "输入上下文字符上限",
-            "/setting set context ",
-            true,
+        setting_menu_item(
+            "上下文上限…",
+            &format!("当前 {} tokens", settings.max_context_tokens),
+            "edit.context",
         ),
-        command_menu_action(
-            "压缩阈值…",
-            "输入 50 到 95 的阈值",
-            "/setting set compact ",
-            true,
+        setting_menu_item(
+            "自动压缩阈值…",
+            &format!("当前 {} tokens", settings.auto_compact_tokens),
+            "edit.compact",
         ),
-        command_menu_action(
+        setting_menu_item(
             "提示词语言…",
-            "中文 zh / English en",
-            "/setting set language ",
-            true,
+            &format!("当前 {}", settings.prompt_language.label()),
+            "edit.language",
         ),
-        command_menu_action(
-            "关闭网络",
-            "下一次运行禁止网络",
-            "/setting set network off",
-            false,
+        setting_menu_item("返回", "回到设置主菜单", "back"),
+    ]
+}
+
+fn setting_permissions_menu(settings: &TuiRunSettings) -> Vec<CommandMenuItem> {
+    let mut items = vec![
+        setting_menu_item(
+            "网络访问",
+            &format!(
+                "当前 {}；选择切换下一次运行",
+                if settings.allow_network {
+                    "允许"
+                } else {
+                    "禁止"
+                }
+            ),
+            "toggle.network",
         ),
-        command_menu_action(
-            "开启网络",
-            "下一次运行允许网络",
-            "/setting set network on",
-            false,
+        setting_menu_item(
+            "写入与执行",
+            &format!(
+                "当前 {}；选择切换下一次运行",
+                if settings.allow_write {
+                    "允许"
+                } else {
+                    "禁止"
+                }
+            ),
+            "toggle.write",
         ),
-        command_menu_action(
-            "关闭写入",
-            "下一次运行禁止写入与执行",
-            "/setting set write off",
-            false,
-        ),
-        command_menu_action(
-            "开启写入",
-            "下一次运行允许写入与执行",
-            "/setting set write on",
-            false,
-        ),
-        command_menu_action(
-            "恢复当前会话",
-            "回到启动参数，不写 config.json",
-            "/setting reset session",
-            false,
-        ),
-        command_menu_action(
-            "恢复全局配置…",
-            "先警告，再输入 confirm；会备份 config.json",
-            "/setting reset global",
-            false,
-        ),
+        setting_menu_item("添加读取目录…", "输入一个存在的目录", "root.add"),
     ];
-    for theme in first_principles_agent::tui_theme::Theme::all() {
-        items.push(command_menu_action(
-            theme.name_zh,
-            theme.name_en,
-            &format!("/setting theme {}", theme.id),
-            false,
+    for (index, root) in settings.roots.iter().enumerate() {
+        items.push(setting_menu_item(
+            &format!("移除读取目录 {}", index + 1),
+            &root.display().to_string(),
+            &format!("root.remove.{index}"),
         ));
     }
+    items.push(setting_menu_item("返回", "回到设置主菜单", "back"));
     items
+}
+
+fn setting_appearance_menu(state: &TuiState) -> Vec<CommandMenuItem> {
+    let current = state.theme().id;
+    let mut items = Theme::all()
+        .iter()
+        .map(|theme| {
+            setting_menu_item(
+                &format!(
+                    "{}{}",
+                    if theme.id == current { "✓ " } else { "  " },
+                    theme.name_zh
+                ),
+                theme.name_en,
+                &format!("theme.{}", theme.id),
+            )
+        })
+        .collect::<Vec<_>>();
+    items.push(setting_menu_item("返回", "回到设置主菜单", "back"));
+    items
+}
+
+fn setting_reset_menu() -> Vec<CommandMenuItem> {
+    vec![
+        setting_menu_item(
+            "恢复当前会话",
+            "回到启动参数；不写 config.json",
+            "reset.session",
+        ),
+        setting_menu_item(
+            "恢复全局配置…",
+            "先显示警告，再要求确认；会备份 config.json",
+            "reset.global",
+        ),
+        setting_menu_item("返回", "回到设置主菜单", "back"),
+    ]
+}
+
+fn setting_reset_confirm_menu() -> Vec<CommandMenuItem> {
+    vec![
+        setting_menu_item(
+            "确认恢复全局配置",
+            "备份 config.json，恢复 full-local、网络/写入开启、军旅绿",
+            "reset.global.confirm",
+        ),
+        setting_menu_item("取消", "回到恢复菜单", "back"),
+    ]
+}
+
+fn set_setting_panel(state: &mut TuiState, title: &str, body: String, menu: Vec<CommandMenuItem>) {
+    if state.command_panel_open() {
+        state.set_command_panel_body(body);
+        state.set_command_panel_menu(menu);
+    } else {
+        state.begin_command_panel(title);
+        state.set_command_panel_body(body);
+        state.set_command_panel_menu(menu);
+    }
+}
+
+fn open_setting_subpanel(
+    state: &mut TuiState,
+    title: &str,
+    body: String,
+    menu: Vec<CommandMenuItem>,
+) {
+    state.begin_command_subpanel(title);
+    state.set_command_panel_body(body);
+    state.set_command_panel_menu(menu);
+}
+
+fn show_setting_main_page(state: &mut TuiState, settings: &TuiRunSettings, session: &TuiSession) {
+    set_setting_panel(
+        state,
+        "设置 · 主菜单",
+        setting_summary(state, settings, session),
+        setting_menu_actions(),
+    );
+}
+
+fn show_setting_budget_page(state: &mut TuiState, settings: &TuiRunSettings) {
+    set_setting_panel(
+        state,
+        "设置 · 运行预算",
+        "选择一项后直接在这里输入新值；Enter 保存，Esc 取消。".into(),
+        setting_budget_menu(settings),
+    );
+}
+
+fn show_setting_permissions_page(state: &mut TuiState, settings: &TuiRunSettings) {
+    set_setting_panel(
+        state,
+        "设置 · 权限",
+        "权限只影响下一次运行；模型不能修改这些值。".into(),
+        setting_permissions_menu(settings),
+    );
+}
+
+fn show_setting_appearance_page(state: &mut TuiState) {
+    let current = state.theme();
+    set_setting_panel(
+        state,
+        "设置 · 外观 / 模板风格",
+        format!(
+            "当前：{} / {}\n选择后立即应用；主题只影响 TUI，不改变 CLI help。",
+            current.name_zh, current.name_en
+        ),
+        setting_appearance_menu(state),
+    );
+}
+
+fn show_setting_reset_confirm_page(state: &mut TuiState) {
+    set_setting_panel(
+        state,
+        "设置 · 确认恢复全局配置",
+        "警告：这会写入 config.json，并先备份为 config.json.bak.<时间戳>。\n\
+         将恢复：权限 full-local、网络开启、写入开启、军旅绿主题。\n\
+         将保留：provider、密钥、工作区、读取目录。\n\
+         选择“确认恢复全局配置”才会执行。"
+            .into(),
+        setting_reset_confirm_menu(),
+    );
+}
+
+fn show_setting_model_page(state: &mut TuiState, settings: &TuiRunSettings) {
+    state.begin_command_subpanel("设置 · 模型与推理");
+    let current = settings
+        .provider_sources
+        .first()
+        .map(|source| format!("{}/{}", source.id, source.model))
+        .unwrap_or_else(|| "当前 provider".into());
+    state.set_command_panel_body(format!(
+        "当前模型：{current}\n选择模型或思考深度后仍留在设置面板；Esc 返回主菜单。"
+    ));
+    let mut menu = command_menu_actions(TuiCommandId::Model);
+    menu.push(setting_menu_item("返回", "回到设置主菜单", "back"));
+    state.set_command_panel_menu(menu);
+}
+
+fn show_setting_page_after_edit(state: &mut TuiState, settings: &TuiRunSettings, key: &str) {
+    match key {
+        "root-add" => show_setting_permissions_page(state, settings),
+        _ => show_setting_budget_page(state, settings),
+    }
+}
+
+fn apply_setting_input(
+    state: &mut TuiState,
+    settings: &mut TuiRunSettings,
+    session: &mut TuiSession,
+    key: &str,
+    value: &str,
+) -> String {
+    let value = value.trim();
+    if key == "root-add" {
+        let path = PathBuf::from(value);
+        return match std::fs::canonicalize(&path) {
+            Ok(path) if path.is_dir() => {
+                if !settings.roots.contains(&path) {
+                    settings.roots.push(path.clone());
+                }
+                format!("已添加读取目录：{}", path.display())
+            }
+            Ok(_) => "读取目录必须是已存在的目录。".into(),
+            Err(error) => format!("无法添加读取目录：{error}"),
+        };
+    }
+    let mut preferences = session
+        .preferences()
+        .cloned()
+        .unwrap_or_else(|| settings.default_preferences.clone());
+    if key == "language" {
+        let Some(language) = PromptLanguage::parse(value) else {
+            return "提示词语言必须是 zh 或 en。".into();
+        };
+        preferences.prompt_language = language;
+    } else {
+        let Ok(number) = value.parse::<u64>() else {
+            return "设置值必须是正整数。".into();
+        };
+        let Ok(number_usize) = usize::try_from(number) else {
+            return "设置值超出平台范围。".into();
+        };
+        match key {
+            "steps" => preferences.max_steps = number_usize,
+            "tools" => preferences.max_tool_calls = number_usize,
+            "attempts" => preferences.max_provider_attempts = number_usize,
+            "context" => {
+                preferences.max_context_tokens = number_usize;
+                preferences.auto_compact_tokens = preferences.auto_compact_tokens.min(number_usize);
+            }
+            "compact" => preferences.auto_compact_tokens = number_usize,
+            "timeout" => preferences.timeout_seconds = number,
+            _ => return "未知设置项。".into(),
+        }
+    }
+    if let Err(error) = session.set_preferences(Some(preferences)) {
+        return format!("设置未保存：{error}");
+    }
+    apply_session_preferences(state, settings, session);
+    format!("已更新设置：{key}")
+}
+
+fn activate_setting_menu_item(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &mut TuiRunSettings,
+    id: &str,
+) -> bool {
+    let Some(action) = id.strip_prefix("setting.") else {
+        return false;
+    };
+    match action {
+        "show" => show_setting_main_page(state, settings, session),
+        "page.budget" => {
+            open_setting_subpanel(
+                state,
+                "设置 · 运行预算",
+                "选择一项后直接在这里输入新值；Enter 保存，Esc 取消。".into(),
+                setting_budget_menu(settings),
+            );
+        }
+        "page.permissions" => {
+            open_setting_subpanel(
+                state,
+                "设置 · 权限",
+                "权限只影响下一次运行；模型不能修改这些值。".into(),
+                setting_permissions_menu(settings),
+            );
+        }
+        "page.appearance" => {
+            open_setting_subpanel(
+                state,
+                "设置 · 外观 / 模板风格",
+                format!(
+                    "当前：{} / {}\n选择后立即应用；主题只影响 TUI，不改变 CLI help。",
+                    state.theme().name_zh,
+                    state.theme().name_en
+                ),
+                setting_appearance_menu(state),
+            );
+        }
+        "page.model" => show_setting_model_page(state, settings),
+        "page.reset" => {
+            open_setting_subpanel(
+                state,
+                "设置 · 恢复初始化",
+                "选择恢复范围。全局恢复会先要求确认并备份 config.json。".into(),
+                setting_reset_menu(),
+            );
+        }
+        "close" => state.close_command_panel(),
+        "back" => {
+            if !state.back_command_panel() {
+                state.close_command_panel();
+            }
+        }
+        "toggle.network" => {
+            settings.allow_network = !settings.allow_network;
+            show_setting_permissions_page(state, settings);
+        }
+        "toggle.write" => {
+            settings.allow_write = !settings.allow_write;
+            show_setting_permissions_page(state, settings);
+        }
+        action if action.starts_with("theme.") => {
+            let id = &action["theme.".len()..];
+            let Some(theme) = Theme::from_id(id) else {
+                state.info("未知配色方案。");
+                return true;
+            };
+            state.set_theme(theme);
+            let saved = persist_theme(settings, theme);
+            show_setting_appearance_page(state);
+            state.set_notice(format!("配色已切换{}", saved));
+        }
+        "root.add" => {
+            state.begin_setting_input("root-add", "读取目录", "");
+        }
+        action if action.starts_with("root.remove.") => {
+            let Some(index) = action
+                .strip_prefix("root.remove.")
+                .and_then(|index| index.parse::<usize>().ok())
+            else {
+                return true;
+            };
+            if settings.roots.get(index).is_some() && settings.roots.len() > 1 {
+                settings.roots.remove(index);
+            }
+            show_setting_permissions_page(state, settings);
+        }
+        "edit.steps" => state.begin_setting_input(
+            "steps",
+            "推理步骤（0=不限）",
+            settings.max_steps.to_string(),
+        ),
+        "edit.tools" => state.begin_setting_input(
+            "tools",
+            "工具调用（0=不限）",
+            settings.max_tool_calls.to_string(),
+        ),
+        "edit.attempts" => state.begin_setting_input(
+            "attempts",
+            "模型尝试（0=不限）",
+            settings.max_provider_attempts.to_string(),
+        ),
+        "edit.timeout" => state.begin_setting_input(
+            "timeout",
+            "单次超时（秒，0=不限）",
+            settings.timeout_seconds.to_string(),
+        ),
+        "edit.context" => state.begin_setting_input(
+            "context",
+            "上下文上限（tokens）",
+            settings.max_context_tokens.to_string(),
+        ),
+        "edit.compact" => state.begin_setting_input(
+            "compact",
+            "自动压缩阈值（tokens）",
+            settings.auto_compact_tokens.to_string(),
+        ),
+        "edit.language" => state.begin_setting_input(
+            "language",
+            "提示词语言（zh / en）",
+            if settings.prompt_language == PromptLanguage::Zh {
+                "zh"
+            } else {
+                "en"
+            },
+        ),
+        "reset.session" => {
+            if let Err(error) = session.set_preferences(None) {
+                state.set_command_panel_body(format!("无法恢复当前会话：{error}"));
+                return true;
+            }
+            apply_session_preferences(state, settings, session);
+            settings.allow_network = settings.startup_allow_network;
+            settings.allow_write = settings.startup_allow_write;
+            settings.roots = settings.startup_roots.clone();
+            state.set_command_panel_body(
+                "已恢复当前会话的启动参数；没有写 config.json。\n全局主题保持不变。",
+            );
+            state.set_command_panel_menu(setting_reset_menu());
+        }
+        "reset.global" => show_setting_reset_confirm_page(state),
+        "reset.global.confirm" => {
+            reset_global_settings(state, settings, session);
+            state.set_command_panel_body(
+                "全局配置已恢复，config.json 已备份。\nprovider、密钥、工作区和读取目录保留。",
+            );
+            state.set_command_panel_menu(setting_menu_actions());
+        }
+        _ => return false,
+    }
+    true
 }
 
 fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
@@ -21260,7 +21630,7 @@ fn handle_setting_command(
 ) {
     let trimmed = args.trim();
     if trimmed.is_empty() || trimmed == "show" {
-        state.info(setting_summary(state, settings, session));
+        show_setting_main_page(state, settings, session);
         return;
     }
     if trimmed == "themes" || trimmed == "theme list" {
@@ -22770,6 +23140,38 @@ async fn run_tui_interactive(
             draw_tui_frame(&mut terminal, &mut state)?;
             continue;
         }
+        if state.setting_input_active() {
+            match input {
+                TuiInput::Char(character) => state.push_setting_input_char(character),
+                TuiInput::Paste(text) => {
+                    for character in text.chars() {
+                        state.push_setting_input_char(character);
+                    }
+                }
+                TuiInput::Backspace => state.pop_setting_input_char(),
+                TuiInput::Enter => {
+                    if let Some((key, _label, value)) = state.take_setting_input() {
+                        let message = apply_setting_input(
+                            &mut state,
+                            &mut settings,
+                            &mut session,
+                            &key,
+                            &value,
+                        );
+                        show_setting_page_after_edit(&mut state, &settings, &key);
+                        state.set_command_panel_body(message);
+                    }
+                }
+                TuiInput::Escape => {
+                    if let Some((key, _label, _value)) = state.take_setting_input() {
+                        show_setting_page_after_edit(&mut state, &settings, &key);
+                    }
+                }
+                _ => {}
+            }
+            draw_tui_frame(&mut terminal, &mut state)?;
+            continue;
+        }
         if state.command_panel_open() {
             if matches!(&input, TuiInput::Left) {
                 if !state.back_command_panel() {
@@ -23050,7 +23452,12 @@ async fn run_tui_interactive(
                             .await;
                         draw_tui_frame(&mut terminal, &mut state)?;
                         continue;
-                    } else if activate_workspace_menu_item(
+                    } else if activate_setting_menu_item(
+                        &mut state,
+                        &mut session,
+                        &mut settings,
+                        &item.id,
+                    ) || activate_workspace_menu_item(
                         &mut state,
                         &mut session,
                         &mut settings,
@@ -25380,6 +25787,67 @@ mod tui_rendering_tests {
     }
 
     #[test]
+    fn setting_panel_navigates_submenus_and_edits_in_place() {
+        let (_workspace, mut session, mut state, mut settings) = setting_test_fixture(None);
+        show_setting_main_page(&mut state, &settings, &session);
+        assert!(state.command_panel_open());
+        assert!(
+            state
+                .selected_command_panel_item()
+                .is_some_and(|item| item.id == "setting.show")
+        );
+
+        assert!(activate_setting_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "setting.page.budget"
+        ));
+        assert!(activate_setting_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "setting.edit.steps"
+        ));
+        assert!(state.setting_input_active());
+        let message = apply_setting_input(&mut state, &mut settings, &mut session, "steps", "20");
+        assert!(message.contains("已更新"));
+        assert_eq!(settings.max_steps, 20);
+
+        assert!(activate_setting_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "setting.page.appearance"
+        ));
+        assert!(activate_setting_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "setting.theme.matrix"
+        ));
+        assert_eq!(state.theme().id, "matrix");
+
+        assert!(activate_setting_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "setting.page.reset"
+        ));
+        assert!(activate_setting_menu_item(
+            &mut state,
+            &mut session,
+            &mut settings,
+            "setting.reset.global"
+        ));
+        assert!(
+            state
+                .selected_command_panel_item()
+                .is_some_and(|item| item.id == "setting.reset.global.confirm")
+        );
+    }
+
+    #[test]
     fn setting_theme_persists_to_config() {
         let (workspace, mut session, mut state, mut settings) = setting_test_fixture(None);
         let config_path = workspace.path().join("config.json");
@@ -25477,7 +25945,8 @@ mod tui_rendering_tests {
                         || action.id.starts_with("prompt:")
                         || action.id.starts_with("secret:")
                         || action.id.starts_with("model:")
-                        || action.id.starts_with("effort:"),
+                        || action.id.starts_with("effort:")
+                        || action.id.starts_with("setting."),
                     "{} has invalid action {}",
                     command.name,
                     action.id

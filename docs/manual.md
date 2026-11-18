@@ -347,7 +347,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 
 提示词抽屉支持 `/config set language zh|en`：中文模式显示中文卡片；English 模式只列出在飞书源表中存在逐字英文原文的 14 条卡片，并插入英文原文，没有英文来源的卡片不会用中文回退。
 
-`/setting` 是统一设置入口，`/settings` 是别名；`/config` 保留为兼容入口。`/setting show` 显示模型、网络/写入、读取目录、预算、语言、工作区、主题和来源；`/setting set steps 20`、`/setting set network off`、`/setting set write off` 修改下一次运行；`/setting theme <id>` 切换主题并写入 `config.json` 的 `appearance.theme`。主题：`military` 军旅绿（默认）、`matrix` 矩阵绿、`mono` 黑白灰、`ocean` 深蓝、`sakura` 樱花粉、`copper` 橙铜、`cyber` 赛博风、`wasteland` 末日废土。
+`/setting` 是统一设置入口，`/settings` 是别名；`/config` 保留为兼容入口。打开后是**两级面板**：一级是“运行预算 / 权限 / 外观 / 模型与推理 / 恢复初始化”，外观进入二级再选八套配色；数值项在面板内直接输入，Enter 保存、Esc 取消，不会把命令插回会话框。`/setting show` 仍可在面板内刷新当前值；`/setting set steps 20`、`/setting set network off`、`/setting set write off` 也保留给脚本和 headless；`/setting theme <id>` 切换主题并写入 `config.json` 的 `appearance.theme`。主题：`military` 军旅绿（默认）、`matrix` 矩阵绿、`mono` 黑白灰、`ocean` 深蓝、`sakura` 樱花粉、`copper` 橙铜、`cyber` 赛博风、`wasteland` 末日废土。
 
 恢复分两档：`/setting reset session` 回到启动参数、不写配置；`/setting reset global` 先显示警告，再次输入 `/setting reset global confirm` 才会备份 `config.json` 并恢复权限 full-local、网络/写入开启和军旅绿主题，provider、密钥、工作区与读取目录保留。真正的出厂重置仍需在终端运行 `1agent uninstall --purge --yes`。
 
