@@ -1,8 +1,8 @@
 # 1Agent / Super-Agent 本体方案（1AO）
 
-Status: **P0 只读投影已实现；P1/P2 设计草案，待评审**  
-Date: 2026-11-16  
-Revision: industry/academic review incorporated (Palantir, Fabric, Netflix, LinkedIn, Uber, Atlas, W3C, GraphRAG, bitemporal)  
+Status: **P0 只读投影已实现；P1 决策/动作层设计提案（2026-11 Palantir 校准）**
+Date: 2026-11-18
+Revision: industry/academic review incorporated (Palantir, Fabric, Netflix, LinkedIn, Uber, Atlas, W3C, GraphRAG, bitemporal)
 Scope: 0.98 现有会话、运行、证据、分队与治理数据 → Super-Agent 的可查询语义层
 
 ## 0. 结论先行
@@ -61,6 +61,36 @@ journal / session.json / subagent registry        （事实层，唯一审计源
 6. **Commitment/Delegation**：Super-Agent 不只是 spawn 子进程，还有任务分配、接受/拒绝、完成承诺、取消责任；这些要成为一等实体。
 7. **互操作投影**：JSON-LD/PROV 用于外部；OTel span 用于可观测；A2A AgentCard/Task/Artifact 用于跨组织；内部 SQLite/GraphQL 用于 UI/查询。模型只定义一次。
 8. **评估必须量化**：CQ 覆盖率、绑定覆盖率、实体解析 precision/recall、SHACL 通过率、导出确定性、查询延迟、人工复核一致率；LLM 自动评估不能单独作数。
+
+### 0.3 Palantir 2026 运营层校准（决策、动作、场景、权限）
+
+2026 年重新阅读 Palantir 官方 Ontology/AIP/OSDK/OMCP 文档后，1AO 的重心需要再修正一次：Palantir 的价值不在“对象图”，而在**把决策作为运营单位**。
+
+官方定义：Ontology 是组织的 operational layer，是组织的 digital twin；每个运营决策由四部分组成：
+
+| 组成 | Palantir 的含义 | 1AO 对应 |
+|---|---|---|
+| **Data** | 企业数据 + “decision data”（决策上下文、评估过的选项、下游影响） | journal、evidence、memory、context |
+| **Logic** | 确定性函数、模型、优化器；与非确定性 LLM 推理互补 | 工具、能力 manifest、确定性计算 |
+| **Action** | ActionType 是受权限约束的事务：参数、规则、submission criteria、副作用 | `ActionCard`、`ExecutionGate`、tool call |
+| **Security** | 对象/属性/单元格级策略，运行时动态计算；工具访问依赖对象访问 | `AuthorityProfile`、`PolicyDecision`、`PermissionSet` |
+
+由此产生六个必须吸收的设计点：
+
+1. **`Decision` 必须是一等实体**，不是 Answer 的附属。至少包含：问题、上下文、选项、标准、证据、选择、动作、审批、结果、修正、lineage。
+2. **`ActionType` 必须是类型注册表的一部分**，不是临时 tool call。字段：参数 JSON Schema、前置条件/submission criteria、风险、可逆性、审批策略、副作用、后置条件、幂等键、版本。
+3. **读写工具不对称**：读操作可以收敛为少量查询工具；写操作应一个 ActionType 一个工具，模型从“预定义业务动作”中选择，而不是自由组合底层写操作。
+4. **Scenario/Proposal 是必需层**：先在沙箱里 staged changes，人类看 diff/影响，再通过受权限约束的 Action 原子合并；不要“先写生产再审批”。
+5. **决策血缘**：记录“何时、基于哪版数据、通过哪个应用/agent、谁批准、结果如何”；这正是 1AO 的 `DecisionLineage`，比单纯 tool trace 更有产品价值。
+6. **本体驱动能力**：ObjectType / QueryFunction / ActionType 应生成 `CapabilityManifest`、ToolSpec、MCP tool；这样新增业务动作不需要同时改工具、权限、CLI、MCP 四处。
+
+同时要避免三个误区：
+
+- **不要把 Palantir 当 W3C 本体**：它是 platform-native，官方文档不使用 OWL/RDF/SPARQL/SHACL；有分析指出它缺少 subsumption/inference，甚至把 ontology 当作 1:1 的权限/租户空间。我们保留 JSON-LD/PROV/SHACL 的可移植性，但不做 OWL 推理机。
+- **不要只做只读导出**：没有 Action/Security/Decision 的本体只是“数字盆景”。1AO P0 的只读是安全基线，但 P1 必须进入动作与决策层。
+- **不要克隆完整平台**：先选一个垂直切片（文档评审发布或代码变更发布），做 3–5 个 ActionType，用 CQ 和验收证明价值，再扩展。
+
+**对 1AO 路线的影响**：原 P1 “补 lineage、动作与安全”升级为 **P1 决策/动作层**，优先顺序改为 `Decision/Option/Criterion/ActionType/ActionInvocation/Outcome` → typed tools → Scenario → object/action policy → Ontology MCP。详细里程碑见 `docs/1.1-standard-harness-plan.md` §11。
 
 ## 1. 本体是什么、不是什么
 
@@ -260,7 +290,7 @@ xsd:  http://www.w3.org/2001/XMLSchema#
 - **ApprovalStatus**：`requested | approved | denied | expired | consumed`
 - **PolicyOutcome**：`allow | require_approval | deny`
 
-OWL 不负责状态迁移；迁移合法性由 runtime + SHACL/audit 规则校验。  
+OWL 不负责状态迁移；迁移合法性由 runtime + SHACL/audit 规则校验。
 `needs_evidence` 等是 outcome，不是运行 phase；不要在数据里混成一个字段。
 
 ### 5.4 运营、动作、安全、身份与时间扩展
@@ -357,7 +387,7 @@ P0 **不改**：AgentAnswer schema、模型 prompt、journal 事件、SubagentRe
 但 P0 必须把 **ActionType/DataBinding/AccessPolicy 的类型定义**放进注册表；
 只导出静态对象类型是不够的。
 
-### P1：补 lineage、动作与安全（约 2 周 / 14 人日，向后兼容）
+### P1：补 lineage、决策/动作与安全（约 2 周 / 14 人日，向后兼容）
 
 | 文件 | 改动 | 兼容策略 | 验证 |
 |---|---|---|---|
@@ -375,6 +405,19 @@ P0 **不改**：AgentAnswer schema、模型 prompt、journal 事件、SubagentRe
 P1 仍不要求模型在 answer 里增加字段。导出器从现有结构派生；无法派生的标为 `Unknown`，不伪造。
 `ConfidenceAssertion` 只在存在校准记录时输出；没有校准就省略数字，绝不默认 1.0。
 Bitemporal 字段（`observedAt`/`recordedAt`/`validFrom`/`validTo`）先由导出器计算，不改运行时契约。
+
+#### P1.1 决策/动作层（新增，1.2 候选）
+
+P1.1 把 1AO 从“审计投影”推进到“可执行决策层”，但不改变 journal 的事实源地位：
+
+1. **类型**：`Decision`、`Option`、`Criterion`、`Outcome`、`ActionType`、`ActionInvocation`、`PolicyDecision`、`Approval`、`Scenario`。
+2. **ActionType 注册表**：参数 JSON Schema、前置条件/submission criteria、风险、可逆性、审批策略、副作用、后置条件、幂等键、版本。
+3. **Typed tools**：每个写 ActionType 生成一个 ToolSpec/CapabilityManifest；读操作收敛为查询/搜索工具；模型不再自由组合底层写操作。
+4. **Decision lineage**：`Decision -> Option -> ActionInvocation -> Policy/Approval -> Outcome`，并绑定 journal run、数据版本、agent/app、时间。
+5. **Scenario**：staged changes → diff/影响预览 → 人工批准 → 原子合并；拒绝不产生生产副作用。
+6. **Policy**：先做 object-type + action scope，再做 property/cell 级；工具调用前检查对象访问权。
+
+垂直切片建议：文档评审发布或代码变更发布，先做 3–5 个 ActionType。验收：未声明的 Action 无法执行；拒绝/失败无副作用；每个 Action 可回溯到 Decision、Approval、Outcome；1ASH 任务集包含对应决策/动作任务。
 
 ### P2：查询、投影与 UI（2–4 周）
 
@@ -591,6 +634,8 @@ P0/P1 完成需要同时满足：
 10. 是否在本体层表达 `Purpose/AccessPolicy`，还是只引用现有 authority 配置？
 11. 是否引入 A2A AgentCard/Task 映射，还是先保持内部本体、外部另做适配层？
 12. 置信度只在有校准记录时输出；谁负责校准与版本化？
+13. `Decision` 是一等实体，还是 P0 先从 Answer 派生、P1.1 再升级为独立实体？我建议后者。
+14. P1.1 的参考垂直切片选“文档评审发布”还是“代码变更发布”？两者都要有 oracle 和审批链。
 
 ## 13. 交付物与下一步
 
@@ -603,13 +648,14 @@ P0/P1 完成需要同时满足：
 
 建议下一步顺序：
 
-1. owner 评审本文第 12 节；
+1. owner 评审本文 0.3 与第 12 节；
 2. 只读 exporter + golden tests（P0）；
 3. P1 lineage 字段；
-4. 用 16 个 CQ 做一次真实会话导出验收；
-5. 再决定是否进入 SQLite/图查询或 OWL。
+4. P1.1 决策/动作层：先做一个垂直切片（3–5 个 ActionType），与 1ASH 任务集共用验收；
+5. 用 16 个 CQ + 新增决策/动作 CQ 做一次真实会话导出验收；
+6. 再决定是否进入 SQLite/图查询或 OWL。
 
-不要先做：全量 OWL 建模、图数据库迁移、LLM 自动抽取知识图谱。
+不要先做：全量 OWL 建模、图数据库迁移、LLM 自动抽取知识图谱、没有 Action 的“本体大屏”。
 
 ## 14. 参考来源（公开资料，2026-11 阅读）
 

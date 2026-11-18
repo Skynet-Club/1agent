@@ -152,3 +152,4 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0147 | Goal Closure Requires a Stored Verification Record | [0147-goal-closure-verification.md](0147-goal-closure-verification.md) |
 | 0148 | Budget Stop Reasons Follow the Final Answer; One Bounded Repair Retry | [0148-budget-stop-reasons-and-bounded-repair.md](0148-budget-stop-reasons-and-bounded-repair.md) |
 | 0149 | Standard Harness Profile, Not a Benchmark Platform | [0149-standard-harness-profile.md](0149-standard-harness-profile.md) |
+| 0150 | Decision and Action Ontology Layer | [0150-decision-action-ontology.md](0150-decision-action-ontology.md) |
