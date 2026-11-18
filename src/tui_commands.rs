@@ -567,6 +567,18 @@ const fn command(
     }
 }
 
+fn looks_like_local_path(name: &str) -> bool {
+    if !name.starts_with('/') || name.starts_with("//") {
+        return false;
+    }
+    if std::path::Path::new(name).exists() {
+        return true;
+    }
+    // A missing multi-segment absolute path is still much more likely to be a
+    // file task than a mistyped slash command.
+    name.matches('/').count() >= 2
+}
+
 pub fn resolve_input<'a>(
     input: &'a str,
     host: &HostBinding,
@@ -591,6 +603,12 @@ pub fn resolve_input<'a>(
         .copied()
         .find(|spec| spec.name == canonical_name)
     else {
+        // Absolute paths also start with `/`. Treat a path-looking unknown
+        // slash input as a task instead of a typo command, otherwise
+        // `/home/me/doc.md` becomes "Unknown command".
+        if looks_like_local_path(name) {
+            return TuiInputResolution::Task(trimmed);
+        }
         return TuiInputResolution::UnknownCommand(name);
     };
 
@@ -1332,6 +1350,33 @@ mod tests {
                 .iter()
                 .all(|command| command.scope == TuiCommandScope::Core)
         );
+    }
+
+    #[test]
+    fn absolute_paths_are_tasks_not_unknown_commands() {
+        let standalone = host(HostKind::Standalone);
+        assert!(matches!(
+            resolve_input(
+                "/home/skynet/文档/需求.md",
+                &standalone,
+                CommandStage::Any,
+                false
+            ),
+            TuiInputResolution::Task("/home/skynet/文档/需求.md")
+        ));
+        assert!(matches!(
+            resolve_input(
+                "/tmp/does-not-exist/file.md",
+                &standalone,
+                CommandStage::Any,
+                false
+            ),
+            TuiInputResolution::Task("/tmp/does-not-exist/file.md")
+        ));
+        assert!(matches!(
+            resolve_input("/not-a-command", &standalone, CommandStage::Any, false),
+            TuiInputResolution::UnknownCommand("/not-a-command")
+        ));
     }
 
     #[test]

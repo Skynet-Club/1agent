@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-rc.8 — 2026-11-18
+
+- TUI task input: an absolute local path is no longer parsed as an unknown
+  slash command. Existing paths and multi-segment absolute paths are submitted
+  as tasks; a single unknown slash word still reports `Unknown command`; `//`
+  remains the prompt-drawer trigger.
+- Verification: `verify.sh` 1652 total / 0 failed / 13 ignored; claims 261
+  checked. Includes rc.7 repeat/pass^k evaluation.
+
 ## 1.0.0-rc.7 — 2026-11-18
 
 - Evaluation depth: `eval --repeats N` reports attempt pass rate, `pass^k`

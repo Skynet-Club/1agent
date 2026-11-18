@@ -191,7 +191,23 @@ Evidence: `docs/evidence/eval-repeatability-2026-11-18/`,
 `verify-1.0.0-rc.7.log`. Human calibration, 8h DeepSeek quality and R1–R9
 remain blocked; failure classes are rule-derived, not semantic judgments.
 
-## 15. Not covered
+## 16. rc.8 path-vs-command fix (2026-11-18)
+
+An absolute local path entered as a TUI task used to be parsed as a slash
+command, producing `Unknown command`. The resolver now treats an unknown
+`/...` input as a task when it is an existing path or a multi-segment absolute
+path; a single unknown slash word still reports `Unknown command`; `//` remains
+the prompt-drawer trigger.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1652 total, 0 failed, 13 ignored |
+| Path resolver test | existing path → task; missing multi-segment path → task; `/not-a-command` → Unknown command |
+| claims table | 261 checked (237 verified / 16 partial / 8 no evidence) |
+
+Raw log: `verify-1.0.0-rc.8.log`.
+
+## 17. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

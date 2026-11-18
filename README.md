@@ -18,12 +18,12 @@
 大多数 Agent 会直接给你一份“电钻推荐清单”。  
 1Agent 会先问：你打孔，是为了穿线，还是为了挂东西？
 
-> **项目仍在持续开发。** 当前代码线 **1.0.0-rc.7**（2026-11-18，code-level release candidate，**不是 GA**）；0.99 code-level 验收通过，Track Q 99/100。  
+> **项目仍在持续开发。** 当前代码线 **1.0.0-rc.8**（2026-11-18，code-level release candidate，**不是 GA**）；0.99 code-level 验收通过，Track Q 99/100。  
 > 1.0 状态与阻塞项：[status-v1.0](docs/status-v1.0.md) · [code-complete plan](docs/1.0-code-complete-plan.md)。  
 > 外部审计、真实 Windows/macOS GA、marketplace 与 R1–R9 用户指标仍 **blocked**；不宣称 GA。  
 > 加入 [Skynet-Club](https://skynet.club)，一起完善 1Agent 与开放生态。  
 > 0.97 证据与入口：[RELEASE_0.97.md](docs/release/RELEASE_0.97.md) · [0.97 功能矩阵](docs/release/FEATURES-0.97.md)  
-> 1.0.0-rc.7 本地候选说明：[release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.7-draft.md)
+> 1.0.0-rc.8 本地候选说明：[release notes draft](docs/release/RELEASE_NOTES-1.0.0-rc.8-draft.md)
 
 ---
 
