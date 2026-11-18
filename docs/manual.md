@@ -401,6 +401,7 @@ Master-Agent 的阶段会保留在输入围栏的顶部标题中，显示 `任�
 |---|---|
 | `read_file` | 读取读根内的 UTF-8 文本文件；拒绝符号链接与越界路径 |
 | `capability_search` | 按能力（输入/操作/输出/约束）检索本地能力目录，返回候选工具、探测步骤、验收配方和 fallback；只读，不安装、不执行 |
+| `resolve_capability` | 把任务编译成交付物与能力需求，按声明式 manifest 解析已安装候选、替代项和命名缺口；只读，不安装、不执行 |
 | `acceptance_gate` | 用一份扁平请求（合同 + 独立验收结果 + 产物检查）生成 `CompletionReceipt`；只读，不执行任务；写入类工具运行后，没有 accepted 收据的 `completed` 会被运行时降为 `conditional` |
 | `preview_file` | 在 `127.0.0.1` 起本地静态预览并自检 HTTP 200，返回可点击 URL；进程退出即停止 |
 | `read_pdf` | 调用系统 `pdftotext` 抽取 PDF 文本；受读根、符号链接和控制字符约束 |

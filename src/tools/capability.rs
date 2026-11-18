@@ -343,9 +343,125 @@ impl AgentTool for CapabilitySearchTool {
     }
 }
 
+pub struct ResolveCapabilityTool;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveCapabilityArgs {
+    task: String,
+    #[serde(default)]
+    deliverable: Option<crate::capability_compiler::DeliverableSpec>,
+    #[serde(default)]
+    requirements: Option<Vec<crate::capability_compiler::CapabilityRequirement>>,
+}
+
+#[async_trait]
+impl AgentTool for ResolveCapabilityTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "resolve_capability".into(),
+            description: "Compile a task into a deliverable and capability requirements, then resolve them against declarative tool/skill manifests. Returns selected installed candidates, alternatives with reasons, and named gaps. Read-only; it never installs or runs anything. Use before a non-text artifact or when no offered tool obviously fits.".into(),
+            parameters: json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["task"],
+                "properties": {
+                    "task": {"type": "string"},
+                    "deliverable": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "media_type": {"type": "string"},
+                            "schema": {"type": "string"},
+                            "required": {"type": "array", "items": {"type": "string"}}
+                        }
+                    },
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["verb"],
+                            "properties": {
+                                "verb": {"type": "string"},
+                                "inputs": {"type": "array", "items": {"type": "string"}},
+                                "outputs": {"type": "array", "items": {"type": "string"}},
+                                "constraints": {"type": "array", "items": {"type": "string"}},
+                                "required": {"type": "boolean", "default": true}
+                            }
+                        }
+                    }
+                }
+            }),
+        }
+    }
+
+    fn risk(&self) -> RiskLevel {
+        RiskLevel::Low
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(5)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        _permissions: &PermissionSet,
+        _cancellation: &tokio_util::sync::CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        let args: ResolveCapabilityArgs = serde_json::from_value(arguments)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        if args.task.trim().is_empty() {
+            return Err(ToolError::InvalidArguments("task must not be empty".into()));
+        }
+        let resolution = crate::capability_compiler::resolve_task(
+            &args.task,
+            args.deliverable,
+            args.requirements,
+            &[],
+        )
+        .map_err(ToolError::Failed)?;
+        let gaps = resolution.gaps.len();
+        let selected = resolution
+            .requirements
+            .iter()
+            .filter(|requirement| requirement.selected.is_some())
+            .count();
+        let mut metadata = BTreeMap::new();
+        metadata.insert("gaps".into(), gaps.to_string());
+        metadata.insert("resolved".into(), selected.to_string());
+        Ok(ToolOutcome {
+            summary: if gaps == 0 {
+                format!("capability resolved: {selected} requirement(s)")
+            } else {
+                format!("capability gap: {gaps} unresolved requirement(s)")
+            },
+            content: serde_json::to_string_pretty(&resolution)
+                .map_err(|error| ToolError::Failed(error.to_string()))?,
+            metadata,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn resolve_tool_reports_diagram_gap_and_candidate() {
+        let outcome = ResolveCapabilityTool
+            .execute(
+                json!({"task": "画一张架构图"}),
+                &PermissionSet::default(),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .expect("resolve capability");
+        assert!(outcome.summary.contains("gap"));
+        assert!(outcome.content.contains("archify"));
+        assert!(outcome.content.contains("image/svg+xml"));
+    }
 
     #[test]
     fn catalog_is_valid_and_has_the_six_initial_cards() {

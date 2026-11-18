@@ -1218,6 +1218,7 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(Arc::new(ReadFileTool));
     registry.register(Arc::new(AcceptanceGateTool));
     registry.register(Arc::new(CapabilitySearchTool));
+    registry.register(Arc::new(ResolveCapabilityTool));
     registry.register(Arc::new(PreviewFileTool));
     registry.register(Arc::new(SessionSearchTool::from_env()));
     registry.register(Arc::new(PdfReadTool::from_env()));

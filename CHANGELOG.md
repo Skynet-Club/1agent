@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0-rc.9 — 2026-11-18
+
+- Capability compiler P0: open-world `TaskContract`/`DeliverableSpec`/
+  `CapabilityRequirement`, declarative `CapabilityManifest` data, resolver
+  scoring, named gaps, and the read-only `resolve_capability` tool. A new
+  tool/skill only needs a manifest; task types and tool names are not
+  enumerated. The prompt requires capability resolution before non-text
+  artifacts and forbids `completed` without the artifact.
+- Behavior smoke: real model called `resolve_capability`, saw the missing
+  renderer and `archify` alternative, produced an SVG, previewed/audited it,
+  and acceptance passed 5 criteria; final status was `needs_evidence` because
+  the step budget ran out before finalization.
+- Verification: `verify.sh` 1657 total / 0 failed / 13 ignored; claims 262
+  checked. P1 runtime enforcement/artifact verifier and P2 strategy memory
+  remain open.
+
 ## 1.0.0-rc.8 — 2026-11-18
 
 - TUI task input: an absolute local path is no longer parsed as an unknown

@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="660" viewBox="0 0 1280 660" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,-apple-system,'Segoe UI',sans-serif" role="img" aria-label="四阶段任务执行架构图：任务理解、能力解析、工具选择、产物验收">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrowBack" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="660" fill="#f8fafc"/>
+
+  <text x="48" y="52" font-size="26" font-weight="700" fill="#0f172a">四阶段任务执行架构</text>
+  <text x="48" y="78" font-size="13.5" fill="#64748b">从一句请求，到可被独立复核的产物：每个阶段都要么交出证据，要么停下提问</text>
+  <text x="1232" y="52" font-size="12" fill="#64748b" text-anchor="end">实线 = 主流程　　虚线 = 回退</text>
+
+  <rect x="48" y="104" width="1184" height="44" rx="22" fill="#eef2f7" stroke="#cbd5e1"/>
+  <text x="640" y="131" font-size="13.5" fill="#334155" text-anchor="middle">输入 · 用户请求 ＋ 任务目标 ＋ 约束 ＋ 可用权限（只读 / 写 / 网络）</text>
+
+  <!-- 01 任务理解 -->
+  <g>
+    <rect x="48" y="176" width="278" height="294" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="48" y="176" width="278" height="64" rx="14" fill="#1d4ed8"/>
+    <rect x="48" y="216" width="278" height="24" fill="#1d4ed8"/>
+    <text x="70" y="204" font-size="19" font-weight="700" fill="#ffffff">01　任务理解</text>
+    <text x="70" y="226" font-size="11" fill="#c7d8fb">Task understanding</text>
+    <text x="70" y="272" font-size="13.5" fill="#0f172a">·　抽取目标与交付物</text>
+    <text x="70" y="299" font-size="13.5" fill="#0f172a">·　识别受众与约束</text>
+    <text x="70" y="326" font-size="13.5" fill="#0f172a">·　标记关键未知项</text>
+    <text x="70" y="353" font-size="13.5" fill="#0f172a">·　起草验收标准</text>
+    <text x="70" y="380" font-size="13.5" fill="#0f172a">·　确认权限与预算</text>
+    <rect x="48" y="406" width="278" height="64" rx="14" fill="#eff4fe"/>
+    <rect x="48" y="406" width="278" height="24" fill="#eff4fe"/>
+    <text x="70" y="430" font-size="10.5" font-weight="700" fill="#1d4ed8" letter-spacing="0.5">出口检查</text>
+    <text x="70" y="450" font-size="11.5" fill="#475569">目标·受众·交付物·标准齐备</text>
+  </g>
+
+  <!-- 02 能力解析 -->
+  <g>
+    <rect x="350" y="176" width="278" height="294" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="350" y="176" width="278" height="64" rx="14" fill="#0f766e"/>
+    <rect x="350" y="216" width="278" height="24" fill="#0f766e"/>
+    <text x="372" y="204" font-size="19" font-weight="700" fill="#ffffff">02　能力解析</text>
+    <text x="372" y="226" font-size="11" fill="#b7e6df">Capability resolution</text>
+    <text x="372" y="272" font-size="13.5" fill="#0f172a">·　拆成能力需求清单</text>
+    <text x="372" y="299" font-size="13.5" fill="#0f172a">·　检索工具与技能库</text>
+    <text x="372" y="326" font-size="13.5" fill="#0f172a">·　比对候选与限制</text>
+    <text x="372" y="353" font-size="13.5" fill="#0f172a">·　记录缺失能力</text>
+    <text x="372" y="380" font-size="13.5" fill="#0f172a">·　定出可执行路径</text>
+    <rect x="350" y="406" width="278" height="64" rx="14" fill="#e8f6f3"/>
+    <rect x="350" y="406" width="278" height="24" fill="#e8f6f3"/>
+    <text x="372" y="430" font-size="10.5" font-weight="700" fill="#0f766e" letter-spacing="0.5">出口检查</text>
+    <text x="372" y="450" font-size="11.5" fill="#475569">候选有主选，缺口已命名</text>
+  </g>
+
+  <!-- 03 工具选择 -->
+  <g>
+    <rect x="652" y="176" width="278" height="294" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="652" y="176" width="278" height="64" rx="14" fill="#6d28d9"/>
+    <rect x="652" y="216" width="278" height="24" fill="#6d28d9"/>
+    <text x="674" y="204" font-size="19" font-weight="700" fill="#ffffff">03　工具选择</text>
+    <text x="674" y="226" font-size="11" fill="#ddd0fb">Tool selection</text>
+    <text x="674" y="272" font-size="13.5" fill="#0f172a">·　按约束挑主选工具</text>
+    <text x="674" y="299" font-size="13.5" fill="#0f172a">·　校验许可与安全</text>
+    <text x="674" y="326" font-size="13.5" fill="#0f172a">·　设定回退方案</text>
+    <text x="674" y="353" font-size="13.5" fill="#0f172a">·　确定验证方法</text>
+    <text x="674" y="380" font-size="13.5" fill="#0f172a">·　小步执行改动</text>
+    <rect x="652" y="406" width="278" height="64" rx="14" fill="#f3ecfe"/>
+    <rect x="652" y="406" width="278" height="24" fill="#f3ecfe"/>
+    <text x="674" y="430" font-size="10.5" font-weight="700" fill="#6d28d9" letter-spacing="0.5">出口检查</text>
+    <text x="674" y="450" font-size="11.5" fill="#475569">权限、回退、验证方法就位</text>
+  </g>
+
+  <!-- 04 产物验收 -->
+  <g>
+    <rect x="954" y="176" width="278" height="294" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="954" y="176" width="278" height="64" rx="14" fill="#15803d"/>
+    <rect x="954" y="216" width="278" height="24" fill="#15803d"/>
+    <text x="976" y="204" font-size="19" font-weight="700" fill="#ffffff">04　产物验收</text>
+    <text x="976" y="226" font-size="11" fill="#bfe6c8">Artifact acceptance</text>
+    <text x="976" y="272" font-size="13.5" fill="#0f172a">·　记录产物哈希</text>
+    <text x="976" y="299" font-size="13.5" fill="#0f172a">·　逐条判定标准</text>
+    <text x="976" y="326" font-size="13.5" fill="#0f172a">·　独立方复核</text>
+    <text x="976" y="353" font-size="13.5" fill="#0f172a">·　出具完成回执</text>
+    <text x="976" y="380" font-size="13.5" fill="#0f172a">·　登记残余风险</text>
+    <rect x="954" y="406" width="278" height="64" rx="14" fill="#e9f6ec"/>
+    <rect x="954" y="406" width="278" height="24" fill="#e9f6ec"/>
+    <text x="976" y="430" font-size="10.5" font-weight="700" fill="#15803d" letter-spacing="0.5">出口检查</text>
+    <text x="976" y="450" font-size="11.5" fill="#475569">回执=已验收，风险已登记</text>
+  </g>
+
+  <!-- 主流程箭头 -->
+  <line x1="326" y1="323" x2="342" y2="323" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="628" y1="323" x2="644" y2="323" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="930" y1="323" x2="946" y2="323" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 回退边 -->
+  <polyline points="1093,470 1093,502 489,502 489,478" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrowBack)"/>
+  <text x="700" y="494" font-size="12" fill="#b45309" text-anchor="middle">验收未通过 → 回退到能力解析或工具选择</text>
+
+  <!-- 总出口门 -->
+  <rect x="48" y="536" width="1184" height="64" rx="12" fill="#fff8e6" stroke="#e8c47a"/>
+  <text x="70" y="562" font-size="13" fill="#334155"><tspan font-weight="700">阶段出口门　</tspan>信息不足先提问；权限不足返回授权；证据不足回到能力解析</text>
+  <text x="70" y="586" font-size="13" fill="#334155"><tspan font-weight="700">对外一句话　</tspan>只有完成回执为「已验收」时，才声明任务完成</text>
+</svg>

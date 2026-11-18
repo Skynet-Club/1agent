@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "deliverable_hints": [
+    {
+      "keywords": ["架构图", "流程图", "时序图", "状态图", "diagram", "architecture diagram", "flowchart", "sequence diagram"],
+      "media_type": "image/svg+xml",
+      "schema": "architecture-diagram/v1",
+      "requirements": [
+        {
+          "verb": "render",
+          "inputs": ["structured_spec"],
+          "outputs": ["image/svg+xml"],
+          "constraints": ["local"],
+          "required": true
+        }
+      ]
+    },
+    {
+      "keywords": ["网页", "页面", "网站", "landing page", "web page", "html"],
+      "media_type": "text/html",
+      "schema": "web-page/v1",
+      "requirements": [
+        {
+          "verb": "build",
+          "inputs": ["brief"],
+          "outputs": ["text/html"],
+          "constraints": [],
+          "required": true
+        },
+        {
+          "verb": "preview",
+          "inputs": ["text/html"],
+          "outputs": ["url"],
+          "constraints": ["local"],
+          "required": false
+        }
+      ]
+    },
+    {
+      "keywords": ["pdf", "扫描件", "ocr"],
+      "media_type": "text/plain",
+      "schema": "document-text/v1",
+      "requirements": [
+        {
+          "verb": "extract",
+          "inputs": ["application/pdf"],
+          "outputs": ["text"],
+          "constraints": ["local"],
+          "required": true
+        }
+      ]
+    }
+  ],
+  "manifests": [
+    {
+      "id": "tool.read_file",
+      "name": "read_file",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "read",
+          "inputs": ["path"],
+          "outputs": ["text"],
+          "constraints": ["local"]
+        }
+      ],
+      "verification": ["file exists", "UTF-8 or bounded binary summary"]
+    },
+    {
+      "id": "tool.write_file",
+      "name": "write_file",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "write",
+          "inputs": ["path", "text"],
+          "outputs": ["file"],
+          "constraints": ["local", "write"]
+        }
+      ],
+      "verification": ["file exists", "hash recorded"]
+    },
+    {
+      "id": "tool.preview_file",
+      "name": "preview_file",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "preview",
+          "inputs": ["text/html"],
+          "outputs": ["url"],
+          "constraints": ["local", "loopback"]
+        }
+      ],
+      "verification": ["HTTP 200", "loopback only"]
+    },
+    {
+      "id": "tool.acceptance_gate",
+      "name": "acceptance_gate",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "verify",
+          "inputs": ["contract", "evidence"],
+          "outputs": ["receipt"],
+          "constraints": ["local"]
+        }
+      ],
+      "verification": ["receipt fields and digest"]
+    },
+    {
+      "id": "tool.fetch_url",
+      "name": "fetch_url",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "fetch",
+          "inputs": ["url"],
+          "outputs": ["text"],
+          "constraints": ["network"]
+        }
+      ],
+      "verification": ["HTTPS", "bounded body"]
+    },
+    {
+      "id": "tool.web_search",
+      "name": "web_search",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "search",
+          "inputs": ["query"],
+          "outputs": ["search_results"],
+          "constraints": ["network"]
+        }
+      ],
+      "verification": ["bounded result list"]
+    },
+    {
+      "id": "tool.browser_read",
+      "name": "browser_read",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "render",
+          "inputs": ["url"],
+          "outputs": ["text"],
+          "constraints": ["network", "headless"]
+        }
+      ],
+      "verification": ["page title and text extracted"]
+    },
+    {
+      "id": "skill.archify",
+      "name": "archify",
+      "kind": "skill",
+      "source": "hermes optional skills",
+      "installed": false,
+      "trust": "community",
+      "license": "Apache-2.0",
+      "capabilities": [
+        {
+          "verb": "render",
+          "inputs": ["structured_spec", "mermaid"],
+          "outputs": ["text/html", "image/svg+xml", "image/png"],
+          "constraints": ["local", "node18"]
+        },
+        {
+          "verb": "verify",
+          "inputs": ["text/html", "image/svg+xml"],
+          "outputs": ["receipt"],
+          "constraints": ["local"]
+        }
+      ],
+      "verification": ["9-check validate/deliver receipt", "openable artifact"]
+    },
+    {
+      "id": "skill.mermaid",
+      "name": "mermaid",
+      "kind": "skill",
+      "source": "agent skill library",
+      "installed": false,
+      "trust": "community",
+      "license": "check LICENSE",
+      "capabilities": [
+        {
+          "verb": "render",
+          "inputs": ["structured_spec", "text/mermaid"],
+          "outputs": ["text/mermaid", "image/svg+xml"],
+          "constraints": ["local"]
+        }
+      ],
+      "verification": ["syntax check", "render check"]
+    },
+    {
+      "id": "cli.graphviz",
+      "name": "graphviz",
+      "kind": "cli",
+      "source": "system package",
+      "installed": false,
+      "trust": "community",
+      "license": "EPL-1.0",
+      "capabilities": [
+        {
+          "verb": "render",
+          "inputs": ["dot"],
+          "outputs": ["image/svg+xml", "image/png"],
+          "constraints": ["local"]
+        }
+      ],
+      "verification": ["dot exit 0", "SVG parses"]
+    }
+  ]
+}

@@ -207,7 +207,26 @@ the prompt-drawer trigger.
 
 Raw log: `verify-1.0.0-rc.8.log`.
 
-## 17. Not covered
+## 18. rc.9 capability compiler P0 (2026-11-18)
+
+Open-world capability resolution: `TaskContract` → capability requirements →
+declarative `CapabilityManifest` registry → selected/alternatives/gaps. The
+read-only `resolve_capability` tool returns the resolution; unknown
+capabilities are named gaps, not silent text fallbacks. A new tool/skill needs
+only a manifest. The prompt requires resolution before non-text artifacts.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1657 total, 0 failed, 13 ignored |
+| Resolver tests | diagram gap, unknown capability, installed override, new manifest |
+| Behavior smoke | `resolve_capability` called; SVG artifact produced and previewed; final `needs_evidence` due step budget |
+| claims table | 262 checked (238 verified / 16 partial / 8 no evidence) |
+
+Evidence: `docs/capability-compiler.md`,
+`docs/evidence/capability-compiler-2026-11-18/`, `verify-1.0.0-rc.9.log`.
+P1 runtime enforcement/artifact verifier and P2 strategy memory remain open.
+
+## 19. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

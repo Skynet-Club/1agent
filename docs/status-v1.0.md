@@ -10,21 +10,22 @@ means the evidence does not exist on this host.
 
 0.99 QG1 is fixed (goal closure requires a stored verification record); the
 rc.2 Track Q run is **99/100** with one named efficiency residual (`intro-20`).
-The 1.0 code-level candidate passes the local software gates. rc.8 makes local TUI/`run` full-power by default (network and writes on, `--no-network` /
+The 1.0 code-level candidate passes the local software gates. rc.9 makes local TUI/`run` full-power by default (network and writes on, `--no-network` /
 `--read-only` opt-outs), removes the stale-clipboard right-click paste, and
-adds `/setting` plus eight TUI themes in a two-level panel, and adds repeat/pass^k evaluation with process metrics and failure classes, plus path-vs-command parsing. It packages as Linux `1.0.0-rc.8` from tag `v1.0.0-rc.8`. External audit, real Windows/macOS GA, marketplace
+adds `/setting` plus eight TUI themes in a two-level panel, and adds repeat/pass^k evaluation with process metrics and failure classes, plus path-vs-command parsing and the P0 capability compiler. It packages as Linux `1.0.0-rc.9` from tag `v1.0.0-rc.9`. External audit, real Windows/macOS GA, marketplace
 responsibility and R1–R9 real-user metrics remain **blocked**; no GA claim.
 
 ## 1. Local evidence
 
 | Check | Current result | Evidence |
 |---|---|---|
-| `./scripts/verify.sh` | **pass**; 1652 total, 0 failed, 13 ignored, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify-1.0.0-rc.8.log` |
+| `./scripts/verify.sh` | **pass**; 1657 total, 0 failed, 13 ignored, core-v3 8/8 | `docs/evidence/1.0-local-qa-2026-11-17/verify-1.0.0-rc.9.log` |
 | Track Q `agent-loop-v1` | **99/100** (rc.2); 0 hard-gate; audit/replay 100/100; rubric 20/20; residual `intro-20` efficiency | `docs/evidence/1.0-local-qa-2026-11-17/agent-loop-v1-rc2-2026-11-18/` |
 | Default permissions | rc.3 full-power: network and writes on; `--no-network`/`--read-only` opt-outs; TUI honors configured `full-local` | `tui_network_permission_defaults_on_and_no_network_disables_it` |
 | Right-click paste | removed; `Ctrl+V`/`Shift+Insert` only; PTY test confirms no marker after right-click | rc.4 PTY test |
 | Settings and themes | `/setting` two-level panel with in-panel edit, 8 themes persisted in `appearance.theme`, session/global reset with backup+confirm | `setting_*` tests, settings-panel PTY, `tui_setting_menu_shows_values_and_switches_theme` |
 | Evaluation depth | `eval --repeats` pass^k, per-case attempts/passes, process metrics and rule-based failure classes | `docs/evaluation.md`, `docs/evidence/eval-repeatability-2026-11-18/` |
+| Capability compiler | Open manifest resolver + `resolve_capability` tool; named gaps; prompt rule for non-text artifacts | `docs/capability-compiler.md`, `docs/evidence/capability-compiler-2026-11-18/` |
 | QG1 goal closure | pass; negative cases covered | `docs/evidence/0.99-qg1-verification/README.md`, ADR-0147 |
 | QG2 action chain | pass; reconciliation is on-demand | `docs/evidence/0.99-acceptance/README.md` §3 |
 | QG3 spawn lineage | pass with named residuals | `docs/evidence/0.99-acceptance/README.md` §3 |

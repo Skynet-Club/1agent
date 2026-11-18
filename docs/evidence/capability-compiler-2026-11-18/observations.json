@@ -1,0 +1,37 @@
+[
+  {
+    "tool": "resolve_capability",
+    "status": "ok",
+    "summary": "capability gap: 2 unresolved requirement(s)"
+  },
+  {
+    "tool": "capability_search",
+    "status": "ok",
+    "summary": "capability search: 5 match(es)"
+  },
+  {
+    "tool": "write_file",
+    "status": "ok",
+    "summary": "已创建文件 /home/skynet/architecture-4-stages.svg（7686 字节，sha256 a404d3664cf710582d5cbcb2b162213af151d9bdec8b62f4d8dd7e63cc860096）"
+  },
+  {
+    "tool": "preview_file",
+    "status": "ok",
+    "summary": "preview http://127.0.0.1:40931/ (HTTP 200, 7686 bytes)"
+  },
+  {
+    "tool": "browser",
+    "status": "ok",
+    "summary": "浏览器："
+  },
+  {
+    "tool": "browser",
+    "status": "ok",
+    "summary": "page audit: 3 viewports · overflow 2 · placeholders 0 · small tap targets 0"
+  },
+  {
+    "tool": "acceptance_gate",
+    "status": "ok",
+    "summary": "acceptance: accepted · 5 criteria · verifier agent:browser-audit"
+  }
+]

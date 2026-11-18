@@ -1,0 +1,192 @@
+[
+  {
+    "seq": 6,
+    "call": "resolve_capability",
+    "arguments": {
+      "deliverable": {
+        "media_type": "image/svg+xml",
+        "required": [
+          "vector diagram with four labeled stages",
+          "arrows and feedback edge",
+          "text renders without truncation"
+        ],
+        "schema": "svg"
+      },
+      "requirements": [
+        {
+          "inputs": [
+            "stage labels",
+            "flow and feedback edges"
+          ],
+          "outputs": [
+            "svg diagram"
+          ],
+          "verb": "compose"
+        },
+        {
+          "inputs": [
+            "svg diagram"
+          ],
+          "outputs": [
+            "png screenshot at 1440/768/390 width"
+          ],
+          "verb": "render"
+        }
+      ],
+      "task": "画一张四阶段架构图（任务理解 → 能力解析 → 工具选择 → 产物验收），输出可打开查看的矢量图文件"
+    }
+  },
+  {
+    "seq": 8,
+    "call": "capability_search",
+    "arguments": {
+      "query": "draw architecture diagram with boxes arrows and labels, output svg vector image file"
+    }
+  },
+  {
+    "seq": 14,
+    "call": "write_file",
+    "arguments": {
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1280\" height=\"660\" viewBox=\"0 0 1280 660\" font-family=\"'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,-apple-system,'Segoe UI',sans-serif\" role=\"img\" aria-label=\"四阶段任务执行架构图：任务理解、能力解析、工具选择、产物验收\">\n  <defs>\n    <marker id=\"arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"6\" markerHeight=\"6\" orient=\"auto-start-reverse\">\n      <path d=\"M0,0 L10,5 L0,10 z\" fill=\"#94a3b8\"/>\n    </marker>\n    <marker id=\"arrowBack\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"6\" markerHeight=\"6\" orient=\"auto-start-reverse\">\n      <path d=\"M0,0 L10,5 L0,10 z\" fill=\"#b45309\"/>\n    </marker>\n  </defs>\n\n  <rect x=\"0\" y=\"0\" width=\"1280\" height=\"660\" fill=\"#f8fafc\"/>\n\n  <text x=\"48\" y=\"52\" font-size=\"26\" font-weight=\"700\" fill=\"#0f172a\">四阶段任务执行架构</text>\n  <text x=\"48\" y=\"78\" font-size=\"13.5\" fill=\"#64748b\">从一句请求，到可被独立复核的产物：每个阶段都要么交出证据，要么停下提问</text>\n  <text x=\"1232\" y=\"52\" font-size=\"12\" fill=\"#64748b\" text-anchor=\"end\">实线 = 主流程　　虚线 = 回退</text>\n\n  <rect x=\"48\" y=\"104\" width=\"1184\" height=\"44\" rx=\"22\" fill=\"#eef2f7\" stroke=\"#cbd5e1\"/>\n  <text x=\"640\" y=\"131\" font-size=\"13.5\" fill=\"#334155\" text-anchor=\"middle\">输入 · 用户请求 ＋ 任务目标 ＋ 约束 ＋ 可用权限（只读 / 写 / 网络）</text>\n\n  <!-- 01 任务理解 -->\n  <g>\n    <rect x=\"48\" y=\"176\" width=\"278\" height=\"294\" rx=\"14\" fill=\"#ffffff\" stroke=\"#e2e8f0\"/>\n    <rect x=\"48\" y=\"176\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#1d4ed8\"/>\n    <rect x=\"48\" y=\"216\" width=\"278\" height=\"24\" fill=\"#1d4ed8\"/>\n    <text x=\"70\" y=\"204\" font-size=\"19\" font-weight=\"700\" fill=\"#ffffff\">01　任务理解</text>\n    <text x=\"70\" y=\"226\" font-size=\"11\" fill=\"#c7d8fb\">Task understanding</text>\n    <text x=\"70\" y=\"272\" font-size=\"13.5\" fill=\"#0f172a\">·　抽取目标与交付物</text>\n    <text x=\"70\" y=\"299\" font-size=\"13.5\" fill=\"#0f172a\">·　识别受众与约束</text>\n    <text x=\"70\" y=\"326\" font-size=\"13.5\" fill=\"#0f172a\">·　标记关键未知项</text>\n    <text x=\"70\" y=\"353\" font-size=\"13.5\" fill=\"#0f172a\">·　起草验收标准</text>\n    <text x=\"70\" y=\"380\" font-size=\"13.5\" fill=\"#0f172a\">·　确认权限与预算</text>\n    <rect x=\"48\" y=\"406\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#eff4fe\"/>\n    <rect x=\"48\" y=\"406\" width=\"278\" height=\"24\" fill=\"#eff4fe\"/>\n    <text x=\"70\" y=\"430\" font-size=\"10.5\" font-weight=\"700\" fill=\"#1d4ed8\" letter-spacing=\"0.5\">出口检查</text>\n    <text x=\"70\" y=\"450\" font-size=\"11.5\" fill=\"#475569\">目标·受众·交付物·标准齐备</text>\n  </g>\n\n  <!-- 02 能力解析 -->\n  <g>\n    <rect x=\"350\" y=\"176\" width=\"278\" height=\"294\" rx=\"14\" fill=\"#ffffff\" stroke=\"#e2e8f0\"/>\n    <rect x=\"350\" y=\"176\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#0f766e\"/>\n    <rect x=\"350\" y=\"216\" width=\"278\" height=\"24\" fill=\"#0f766e\"/>\n    <text x=\"372\" y=\"204\" font-size=\"19\" font-weight=\"700\" fill=\"#ffffff\">02　能力解析</text>\n    <text x=\"372\" y=\"226\" font-size=\"11\" fill=\"#b7e6df\">Capability resolution</text>\n    <text x=\"372\" y=\"272\" font-size=\"13.5\" fill=\"#0f172a\">·　拆成能力需求清单</text>\n    <text x=\"372\" y=\"299\" font-size=\"13.5\" fill=\"#0f172a\">·　检索工具与技能库</text>\n    <text x=\"372\" y=\"326\" font-size=\"13.5\" fill=\"#0f172a\">·　比对候选与限制</text>\n    <text x=\"372\" y=\"353\" font-size=\"13.5\" fill=\"#0f172a\">·　记录缺失能力</text>\n    <text x=\"372\" y=\"380\" font-size=\"13.5\" fill=\"#0f172a\">·　定出可执行路径</text>\n    <rect x=\"350\" y=\"406\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#e8f6f3\"/>\n    <rect x=\"350\" y=\"406\" width=\"278\" height=\"24\" fill=\"#e8f6f3\"/>\n    <text x=\"372\" y=\"430\" font-size=\"10.5\" font-weight=\"700\" fill=\"#0f766e\" letter-spacing=\"0.5\">出口检查</text>\n    <text x=\"372\" y=\"450\" font-size=\"11.5\" fill=\"#475569\">候选有主选，缺口已命名</text>\n  </g>\n\n  <!-- 03 工具选择 -->\n  <g>\n    <rect x=\"652\" y=\"176\" width=\"278\" height=\"294\" rx=\"14\" fill=\"#ffffff\" stroke=\"#e2e8f0\"/>\n    <rect x=\"652\" y=\"176\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#6d28d9\"/>\n    <rect x=\"652\" y=\"216\" width=\"278\" height=\"24\" fill=\"#6d28d9\"/>\n    <text x=\"674\" y=\"204\" font-size=\"19\" font-weight=\"700\" fill=\"#ffffff\">03　工具选择</text>\n    <text x=\"674\" y=\"226\" font-size=\"11\" fill=\"#ddd0fb\">Tool selection</text>\n    <text x=\"674\" y=\"272\" font-size=\"13.5\" fill=\"#0f172a\">·　按约束挑主选工具</text>\n    <text x=\"674\" y=\"299\" font-size=\"13.5\" fill=\"#0f172a\">·　校验许可与安全</text>\n    <text x=\"674\" y=\"326\" font-size=\"13.5\" fill=\"#0f172a\">·　设定回退方案</text>\n    <text x=\"674\" y=\"353\" font-size=\"13.5\" fill=\"#0f172a\">·　确定验证方法</text>\n    <text x=\"674\" y=\"380\" font-size=\"13.5\" fill=\"#0f172a\">·　小步执行改动</text>\n    <rect x=\"652\" y=\"406\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#f3ecfe\"/>\n    <rect x=\"652\" y=\"406\" width=\"278\" height=\"24\" fill=\"#f3ecfe\"/>\n    <text x=\"674\" y=\"430\" font-size=\"10.5\" font-weight=\"700\" fill=\"#6d28d9\" letter-spacing=\"0.5\">出口检查</text>\n    <text x=\"674\" y=\"450\" font-size=\"11.5\" fill=\"#475569\">权限、回退、验证方法就位</text>\n  </g>\n\n  <!-- 04 产物验收 -->\n  <g>\n    <rect x=\"954\" y=\"176\" width=\"278\" height=\"294\" rx=\"14\" fill=\"#ffffff\" stroke=\"#e2e8f0\"/>\n    <rect x=\"954\" y=\"176\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#15803d\"/>\n    <rect x=\"954\" y=\"216\" width=\"278\" height=\"24\" fill=\"#15803d\"/>\n    <text x=\"976\" y=\"204\" font-size=\"19\" font-weight=\"700\" fill=\"#ffffff\">04　产物验收</text>\n    <text x=\"976\" y=\"226\" font-size=\"11\" fill=\"#bfe6c8\">Artifact acceptance</text>\n    <text x=\"976\" y=\"272\" font-size=\"13.5\" fill=\"#0f172a\">·　记录产物哈希</text>\n    <text x=\"976\" y=\"299\" font-size=\"13.5\" fill=\"#0f172a\">·　逐条判定标准</text>\n    <text x=\"976\" y=\"326\" font-size=\"13.5\" fill=\"#0f172a\">·　独立方复核</text>\n    <text x=\"976\" y=\"353\" font-size=\"13.5\" fill=\"#0f172a\">·　出具完成回执</text>\n    <text x=\"976\" y=\"380\" font-size=\"13.5\" fill=\"#0f172a\">·　登记残余风险</text>\n    <rect x=\"954\" y=\"406\" width=\"278\" height=\"64\" rx=\"14\" fill=\"#e9f6ec\"/>\n    <rect x=\"954\" y=\"406\" width=\"278\" height=\"24\" fill=\"#e9f6ec\"/>\n    <text x=\"976\" y=\"430\" font-size=\"10.5\" font-weight=\"700\" fill=\"#15803d\" letter-spacing=\"0.5\">出口检查</text>\n    <text x=\"976\" y=\"450\" font-size=\"11.5\" fill=\"#475569\">回执=已验收，风险已登记</text>\n  </g>\n\n  <!-- 主流程箭头 -->\n  <line x1=\"326\" y1=\"323\" x2=\"342\" y2=\"323\" stroke=\"#94a3b8\" stroke-width=\"2\" marker-end=\"url(#arrow)\"/>\n  <line x1=\"628\" y1=\"323\" x2=\"644\" y2=\"323\" stroke=\"#94a3b8\" stroke-width=\"2\" marker-end=\"url(#arrow)\"/>\n  <line x1=\"930\" y1=\"323\" x2=\"946\" y2=\"323\" stroke=\"#94a3b8\" stroke-width=\"2\" marker-end=\"url(#arrow)\"/>\n\n  <!-- 回退边 -->\n  <polyline points=\"1093,470 1093,502 489,502 489,478\" fill=\"none\" stroke=\"#b45309\" stroke-width=\"2\" stroke-dasharray=\"6 5\" marker-end=\"url(#arrowBack)\"/>\n  <text x=\"700\" y=\"494\" font-size=\"12\" fill=\"#b45309\" text-anchor=\"middle\">验收未通过 → 回退到能力解析或工具选择</text>\n\n  <!-- 总出口门 -->\n  <rect x=\"48\" y=\"536\" width=\"1184\" height=\"64\" rx=\"12\" fill=\"#fff8e6\" stroke=\"#e8c47a\"/>\n  <text x=\"70\" y=\"562\" font-size=\"13\" fill=\"#334155\"><tspan font-weight=\"700\">阶段出口门　</tspan>信息不足先提问；权限不足返回授权；证据不足回到能力解析</text>\n  <text x=\"70\" y=\"586\" font-size=\"13\" fill=\"#334155\"><tspan font-weight=\"700\">对外一句话　</tspan>只有完成回执为「已验收」时，才声明任务完成</text>\n</svg>\n",
+      "path": "/home/skynet/architecture-4-stages.svg"
+    }
+  },
+  {
+    "seq": 20,
+    "call": "preview_file",
+    "arguments": {
+      "path": "/home/skynet/architecture-4-stages.svg"
+    }
+  },
+  {
+    "seq": 26,
+    "call": "browser",
+    "arguments": {
+      "action": "open",
+      "allow_loopback": true,
+      "url": "http://127.0.0.1:40931/"
+    }
+  },
+  {
+    "seq": 32,
+    "call": "browser",
+    "arguments": {
+      "action": "audit",
+      "allow_loopback": true,
+      "widths": [
+        390,
+        768,
+        1440
+      ]
+    }
+  },
+  {
+    "seq": 38,
+    "call": "acceptance_gate",
+    "arguments": {
+      "acceptance_criteria": [
+        "图中四个阶段齐全，文字分别为任务理解、能力解析、工具选择、产物验收",
+        "主流程用箭头按 01→04 串成一条单向路径",
+        "标出一条从产物验收回退到前序阶段的虚线回退边",
+        "产物为可在浏览器独立打开的 SVG，预览返回 HTTP 200 且哈希与写入记录一致",
+        "1440 宽度下无横向滚动、无占位符文本"
+      ],
+      "artifact_checks": [
+        {
+          "observed_sha256": "a404d3664cf710582d5cbcb2b162213af151d9bdec8b62f4d8dd7e63cc860096",
+          "passed": true,
+          "path": "/home/skynet/architecture-4-stages.svg"
+        }
+      ],
+      "executor": "model:worker",
+      "expected_artifacts": [
+        {
+          "path": "/home/skynet/architecture-4-stages.svg",
+          "sha256": "a404d3664cf710582d5cbcb2b162213af151d9bdec8b62f4d8dd7e63cc860096"
+        }
+      ],
+      "hidden_criteria": [
+        "SVG 不引用任何外部资源：无 http/https 链接、无外链字体或图片",
+        "文件内四个阶段名称与要求逐字一致，没有同义改写",
+        "画布尺寸与 viewBox 一致（1280x660），图形元素落在画布范围内"
+      ],
+      "objective": "产出可独立打开的矢量架构图，按顺序展示任务理解、能力解析、工具选择、产物验收四个阶段，并标出回退路径",
+      "required_verifier": "independent",
+      "residual_risks": [
+        {
+          "description": "在 390/768 宽度直接打开原始 SVG 会出现横向滚动（audit: overflow_count=2, scroll_width=1280 > client_width 390/768），内容不截断但需左右拖动",
+          "impact": "medium"
+        },
+        {
+          "description": "中文显示依赖系统 CJK 字体，缺少中文字体的环境会回退到默认字形",
+          "impact": "low"
+        }
+      ],
+      "results": [
+        {
+          "criterion": "图中四个阶段齐全，文字分别为任务理解、能力解析、工具选择、产物验收",
+          "evidence": [
+            "/home/skynet/architecture-4-stages.svg: 四张卡片标题依次为「01　任务理解」「02　能力解析」「03　工具选择」「04　产物验收」",
+            "screenshot /home/skynet/.1a/browser/profile-c3af05f1-9892-4643-8618-11e60a602427/downloads/audit-c58cc1e9-9d3d-41cd-8244-58824d2e2b3e-1440x900.png (sha256 9275d9d467a5461bf9ae30fa6f66687c26ade566e313158f23dd5e6a93776f3c)"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "主流程用箭头按 01→04 串成一条单向路径",
+          "evidence": [
+            "/home/skynet/architecture-4-stages.svg: 三条 line 元素 y=323 带 marker-end=\"url(#arrow)\"，连接 x=326→342、628→644、930→946"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "标出一条从产物验收回退到前序阶段的虚线回退边",
+          "evidence": [
+            "/home/skynet/architecture-4-stages.svg: polyline points=\"1093,470 1093,502 489,502 489,478\" stroke-dasharray=\"6 5\" marker-end=\"url(#arrowBack)\"，文案「验收未通过 → 回退到能力解析或工具选择」",
+            "screenshot audit-c58cc1e9-9d3d-41cd-8244-58824d2e2b3e-1440x900.png"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "产物为可在浏览器独立打开的 SVG，预览返回 HTTP 200 且哈希与写入记录一致",
+          "evidence": [
+            "preview_file: http://127.0.0.1:40931/ HTTP 200, 7686 bytes, sha256 a404d3664cf710582d5cbcb2b162213af151d9bdec8b62f4d8dd7e63cc860096",
+            "browser action=open 成功加载该 URL，action=audit 返回 3 个视口截图"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "1440 宽度下无横向滚动、无占位符文本",
+          "evidence": [
+            "browser action=audit viewport 1440: horizontal_overflow=false, scroll_width=1440, client_width=1440, placeholder_hits=0",
+            "audit 汇总：placeholders 0, small_tap_targets 0"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "SVG 不引用任何外部资源：无 http/https 链接、无外链字体或图片",
+          "evidence": [
+            "/home/skynet/architecture-4-stages.svg: 仅含 xmlns 声明与内联 marker/rect/text/line/polyline，font-family 为系统字体列表，无 <image>、无 href、无 @import"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "文件内四个阶段名称与要求逐字一致，没有同义改写",
+          "evidence": [
+            "/home/skynet/architecture-4-stages.svg: 标题行包含「任务理解」「能力解析」「工具选择」「产物验收」四个原词，英文仅作副标题"
+          ],
+          "passed": true
+        },
+        {
+          "criterion": "画布尺寸与 viewBox 一致（1280x660），图形元素落在画布范围内",
+          "evidence": [
+            "/home/skynet/architecture-4-stages.svg: width=\"1280\" height=\"660\" viewBox=\"0 0 1280 660\"；最大元素 x+width = 954+278 = 1232 < 1280，最低 y = 600 < 660"
+          ],
+          "passed": true
+        }
+      ],
+      "risk": "medium",
+      "task_id": "arch-diagram-4-stages",
+      "verifier": "agent:browser-audit"
+    }
+  }
+]
