@@ -1,0 +1,34 @@
+[
+  {
+    "seq": 6,
+    "call": "resolve_capability"
+  },
+  {
+    "seq": 8,
+    "call": "capability_search"
+  },
+  {
+    "seq": 14,
+    "call": "write_file"
+  },
+  {
+    "seq": 16,
+    "call": "write_file"
+  },
+  {
+    "seq": 22,
+    "call": "preview_file"
+  },
+  {
+    "seq": 28,
+    "call": "browser"
+  },
+  {
+    "seq": 34,
+    "call": "browser"
+  },
+  {
+    "seq": 40,
+    "call": "acceptance_gate"
+  }
+]

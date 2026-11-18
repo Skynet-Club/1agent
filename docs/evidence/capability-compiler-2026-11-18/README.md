@@ -42,3 +42,18 @@ That belongs to the P1 runtime/finalization work, not the resolver.
 
 Raw: `answer.json`, `tool-sequence.json`, `observations.json`,
 `architecture-4-stages.svg`.
+
+## rc.10 finalization smoke
+
+After the step-budget finalization fix, the same 6-step run now ends with a
+final answer instead of the canned budget answer:
+
+- status: `conditional` (the answer names the unverified font fallback)
+- stop reason: `completed`
+- artifact: SVG + HTML written, `preview_file` HTTP 200, browser audit
+  390/768/1440 with 0 overflow / 0 placeholders / 0 small tap targets,
+  `acceptance_gate` accepted.
+- tool sequence: `resolve_capability → capability_search → write_file ×2 →
+  preview_file → browser ×2 → acceptance_gate`.
+
+Raw: `rc10-finalization/answer.json`, `summary.json`, `tool-sequence.json`.

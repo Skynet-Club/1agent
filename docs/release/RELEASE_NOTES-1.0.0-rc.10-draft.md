@@ -33,7 +33,7 @@ receipt; otherwise it still fails closed.
 | `./scripts/verify.sh` | pass; 1657 total, 0 failed, 13 ignored |
 | step-budget test | still `needs_evidence` without an accepted receipt |
 | tool-budget tests | unchanged |
-| capability compiler smoke | accepted SVG + receipt; finalization path exercised |
+| capability compiler smoke (rc.10) | final answer `conditional`; stop `completed`; SVG+HTML, preview HTTP 200, audit 0 overflow/0 placeholders, acceptance accepted |
 
 ## 4. Limits
 
@@ -43,3 +43,18 @@ receipt; otherwise it still fails closed.
 - P1 runtime preflight/artifact verifier and P2 strategy memory remain open.
 - Human calibration, 8h DeepSeek, external audit, real Windows/macOS, R1–R9
   remain blocked.
+
+## 5. Local assets
+
+Built from tag `v1.0.0-rc.10` → `a7bbfa6` with `./scripts/package.sh --linux-only`;
+tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.10-linux-x86_64.tar.gz` | SHA-256 `3eb3692ce7f4f48e7d1febf9f76870c53930886076b5128607ab2f081b926bc4` |
+| Packaged binary | SHA-256 `df95495a62b2e3331c7d28c3f79ca7b0a502c444f819068ad81465d38eb3ec2c` |
+| Provenance | `linux-x86_64.json`, commit `a7bbfa6`, `git_dirty: false` |
+| Smoke | SHA256SUMS OK; `--version` 1.0.0-rc.10; install to `~/.local` OK |
+
+Evidence: `docs/evidence/release-1.0.0-rc.10-2026-11-18.md`. No GitHub release
+and no push were performed.
