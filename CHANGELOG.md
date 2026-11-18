@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0-rc.10 — 2026-11-18
+
+- Step-budget finalization: when the step budget is exhausted after an
+  accepted `acceptance_gate` receipt, the runtime gets one final tool-free
+  answer turn (same as the tool-call budget path). Without an accepted receipt
+  it still returns the honest `needs_evidence` budget answer. This prevents a
+  verified artifact from being discarded just because the final answer needed
+  one more step.
+- Verification: `verify.sh` 1657 total / 0 failed / 13 ignored; step/tool
+  budget tests pass.
+
 ## 1.0.0-rc.9 — 2026-11-18
 
 - Capability compiler P0: open-world `TaskContract`/`DeliverableSpec`/

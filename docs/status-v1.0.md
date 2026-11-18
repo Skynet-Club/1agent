@@ -10,9 +10,9 @@ means the evidence does not exist on this host.
 
 0.99 QG1 is fixed (goal closure requires a stored verification record); the
 rc.2 Track Q run is **99/100** with one named efficiency residual (`intro-20`).
-The 1.0 code-level candidate passes the local software gates. rc.9 makes local TUI/`run` full-power by default (network and writes on, `--no-network` /
+The 1.0 code-level candidate passes the local software gates. rc.10 makes local TUI/`run` full-power by default (network and writes on, `--no-network` /
 `--read-only` opt-outs), removes the stale-clipboard right-click paste, and
-adds `/setting` plus eight TUI themes in a two-level panel, and adds repeat/pass^k evaluation with process metrics and failure classes, plus path-vs-command parsing and the P0 capability compiler. It packages as Linux `1.0.0-rc.9` from tag `v1.0.0-rc.9`. External audit, real Windows/macOS GA, marketplace
+adds `/setting` plus eight TUI themes in a two-level panel, and adds repeat/pass^k evaluation with process metrics and failure classes, plus path-vs-command parsing, the P0 capability compiler and step-budget finalization. It packages as Linux `1.0.0-rc.10` from tag `v1.0.0-rc.10`. External audit, real Windows/macOS GA, marketplace
 responsibility and R1–R9 real-user metrics remain **blocked**; no GA claim.
 
 ## 1. Local evidence

@@ -1561,7 +1561,7 @@ impl AgentRuntime {
         *provider_attempts_used += 1;
         let mut messages = model_request.messages.clone();
         messages.push(ModelMessage::user(
-            "You have reached the tool-call budget. Do not request tools and do not claim \
+            "You have reached a run budget. Do not request tools and do not claim \
              any action that was not executed. Using only the conversation and evidence \
              above, return exactly one valid AgentAnswer JSON object now, with no prose or \
              outer Markdown fence. If the evidence is insufficient, set status to \
@@ -2241,6 +2241,7 @@ impl AgentRuntime {
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
         let mut evidence_replans = 0usize;
+        let mut last_turn: Option<(ModelRequest, String, String)> = None;
         let mut completion_gate = CompletionGate::new(looks_like_page_task(
             &request.objective,
             request.deliverable.as_deref(),
@@ -2679,6 +2680,11 @@ impl AgentRuntime {
             }
             let response_provider_id = response.provider_id.clone();
             let response_model = response.model.clone();
+            last_turn = Some((
+                model_request.clone(),
+                response_provider_id.clone(),
+                response_model.clone(),
+            ));
 
             match response.turn {
                 ModelTurn::Final { answer } => {
@@ -3175,7 +3181,31 @@ impl AgentRuntime {
             }
         }
 
-        let answer = budget_answer("step budget exhausted");
+        let answer = if completion_gate.accepted_receipt.is_some() {
+            if let Some((last_request, provider_id, model)) = last_turn {
+                let answer = self
+                    .answer_at_budget(
+                        &mut journal,
+                        &mut model_request_log,
+                        &journal_path,
+                        &request,
+                        &last_request,
+                        &provider_id,
+                        &model,
+                        &mut provider_attempts_used,
+                        started_at,
+                        initial_elapsed,
+                        &cancellation,
+                        "step budget exhausted",
+                    )
+                    .await;
+                enforce_completion_gate(&mut journal, &completion_gate, answer)?
+            } else {
+                budget_answer("step budget exhausted")
+            }
+        } else {
+            budget_answer("step budget exhausted")
+        };
         let stop_reason = stop_reason_for_answer(answer.status);
         journal
             .append(JournalEventKind::AnswerProduced {

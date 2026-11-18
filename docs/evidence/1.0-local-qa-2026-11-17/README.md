@@ -226,7 +226,24 @@ Evidence: `docs/capability-compiler.md`,
 `docs/evidence/capability-compiler-2026-11-18/`, `verify-1.0.0-rc.9.log`.
 P1 runtime enforcement/artifact verifier and P2 strategy memory remain open.
 
-## 19. Not covered
+## 20. rc.10 step-budget finalization (2026-11-18)
+
+When the step budget is exhausted after an accepted `acceptance_gate` receipt,
+the runtime now gets one final tool-free answer turn, mirroring the tool-call
+budget path. Without an accepted receipt, the `needs_evidence` budget answer
+remains. This prevents a verified artifact from being discarded solely because
+the final answer needed one more step.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1657 total, 0 failed, 13 ignored |
+| step-budget test | no receipt → still `needs_evidence` |
+| tool-budget tests | unchanged |
+| capability smoke | accepted SVG + receipt; finalization path available |
+
+Raw log: `verify-1.0.0-rc.10.log`.
+
+## 21. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).
