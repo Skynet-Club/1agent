@@ -13,7 +13,7 @@ fn tools_command_uses_runtime_registry_and_redacts_paths() {
     );
     let capabilities: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let capabilities = capabilities.as_array().unwrap();
-    assert_eq!(capabilities.len(), 28);
+    assert_eq!(capabilities.len(), 30);
     let find = |name: &str| {
         capabilities
             .iter()
@@ -26,6 +26,8 @@ fn tools_command_uses_runtime_registry_and_redacts_paths() {
         "session_search",
         "capability_search",
         "resolve_capability",
+        "verify_artifact",
+        "propose_capability_install",
         "acceptance_gate",
         "read_pdf",
         "search_files",

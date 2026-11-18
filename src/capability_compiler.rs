@@ -44,6 +44,17 @@ pub struct CapabilityManifest {
     pub capabilities: Vec<CapabilityDescriptor>,
     #[serde(default)]
     pub verification: Vec<String>,
+    #[serde(default)]
+    pub install: Option<InstallSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InstallSpec {
+    pub command: String,
+    pub approval: String,
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +188,14 @@ pub fn validate_manifests(file: &ManifestFile) -> Result<(), String> {
             if capability.verb.trim().is_empty() {
                 return Err(format!("manifest {} has an empty verb", manifest.id));
             }
+        }
+        if let Some(install) = &manifest.install
+            && (install.command.trim().is_empty() || install.approval != "human")
+        {
+            return Err(format!(
+                "manifest {} install must have a command and human approval",
+                manifest.id
+            ));
         }
     }
     Ok(())
@@ -432,11 +451,12 @@ mod tests {
                 constraints: Vec::new(),
             }],
             verification: vec!["test receipt".into()],
+            install: None,
         }
     }
 
     #[test]
-    fn diagram_task_reports_gap_until_renderer_is_installed() {
+    fn diagram_task_selects_manual_build_and_lists_archify() {
         let contract = compile_contract("画一张架构图", None, None).unwrap();
         assert_eq!(
             contract
@@ -446,8 +466,14 @@ mod tests {
             Some("image/svg+xml")
         );
         let resolution = resolve_contract(contract, &[]).unwrap();
-        assert!(!resolution.gaps.is_empty());
-        assert!(resolution.requirements[0].selected.is_none());
+        assert!(resolution.gaps.is_empty());
+        assert_eq!(
+            resolution.requirements[0]
+                .selected
+                .as_ref()
+                .map(|candidate| candidate.name.as_str()),
+            Some("manual-svg")
+        );
         assert!(
             resolution.requirements[0]
                 .alternatives

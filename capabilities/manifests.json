@@ -2,50 +2,117 @@
   "version": 1,
   "deliverable_hints": [
     {
-      "keywords": ["架构图", "流程图", "时序图", "状态图", "diagram", "architecture diagram", "flowchart", "sequence diagram"],
+      "keywords": [
+        "架构图",
+        "流程图",
+        "时序图",
+        "状态图",
+        "diagram",
+        "architecture diagram",
+        "flowchart",
+        "sequence diagram"
+      ],
       "media_type": "image/svg+xml",
       "schema": "architecture-diagram/v1",
       "requirements": [
         {
           "verb": "render",
-          "inputs": ["structured_spec"],
-          "outputs": ["image/svg+xml"],
-          "constraints": ["local"],
+          "inputs": [
+            "structured_spec"
+          ],
+          "outputs": [
+            "image/svg+xml"
+          ],
+          "constraints": [
+            "local"
+          ],
           "required": true
         }
       ]
     },
     {
-      "keywords": ["网页", "页面", "网站", "landing page", "web page", "html"],
+      "keywords": [
+        "网页",
+        "页面",
+        "网站",
+        "landing page",
+        "web page",
+        "html"
+      ],
       "media_type": "text/html",
       "schema": "web-page/v1",
       "requirements": [
         {
           "verb": "build",
-          "inputs": ["brief"],
-          "outputs": ["text/html"],
+          "inputs": [
+            "brief"
+          ],
+          "outputs": [
+            "text/html"
+          ],
           "constraints": [],
           "required": true
         },
         {
           "verb": "preview",
-          "inputs": ["text/html"],
-          "outputs": ["url"],
-          "constraints": ["local"],
+          "inputs": [
+            "text/html"
+          ],
+          "outputs": [
+            "url"
+          ],
+          "constraints": [
+            "local"
+          ],
           "required": false
         }
       ]
     },
     {
-      "keywords": ["pdf", "扫描件", "ocr"],
+      "keywords": [
+        "pdf",
+        "扫描件",
+        "ocr"
+      ],
       "media_type": "text/plain",
       "schema": "document-text/v1",
       "requirements": [
         {
           "verb": "extract",
-          "inputs": ["application/pdf"],
-          "outputs": ["text"],
-          "constraints": ["local"],
+          "inputs": [
+            "application/pdf"
+          ],
+          "outputs": [
+            "text"
+          ],
+          "constraints": [
+            "local"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "keywords": [
+        "3d 模型",
+        "3d model",
+        "gltf",
+        "glb"
+      ],
+      "media_type": "model/gltf+json",
+      "schema": "3d-model/v1",
+      "requirements": [
+        {
+          "verb": "render",
+          "inputs": [
+            "structured_spec"
+          ],
+          "outputs": [
+            "model/gltf+json"
+          ],
+          "constraints": [
+            "local"
+          ],
           "required": true
         }
       ]
@@ -63,12 +130,21 @@
       "capabilities": [
         {
           "verb": "read",
-          "inputs": ["path"],
-          "outputs": ["text"],
-          "constraints": ["local"]
+          "inputs": [
+            "path"
+          ],
+          "outputs": [
+            "text"
+          ],
+          "constraints": [
+            "local"
+          ]
         }
       ],
-      "verification": ["file exists", "UTF-8 or bounded binary summary"]
+      "verification": [
+        "file exists",
+        "UTF-8 or bounded binary summary"
+      ]
     },
     {
       "id": "tool.write_file",
@@ -81,12 +157,23 @@
       "capabilities": [
         {
           "verb": "write",
-          "inputs": ["path", "text"],
-          "outputs": ["file"],
-          "constraints": ["local", "write"]
+          "inputs": [
+            "path",
+            "text"
+          ],
+          "outputs": [
+            "file"
+          ],
+          "constraints": [
+            "local",
+            "write"
+          ]
         }
       ],
-      "verification": ["file exists", "hash recorded"]
+      "verification": [
+        "file exists",
+        "hash recorded"
+      ]
     },
     {
       "id": "tool.preview_file",
@@ -99,12 +186,22 @@
       "capabilities": [
         {
           "verb": "preview",
-          "inputs": ["text/html"],
-          "outputs": ["url"],
-          "constraints": ["local", "loopback"]
+          "inputs": [
+            "text/html"
+          ],
+          "outputs": [
+            "url"
+          ],
+          "constraints": [
+            "local",
+            "loopback"
+          ]
         }
       ],
-      "verification": ["HTTP 200", "loopback only"]
+      "verification": [
+        "HTTP 200",
+        "loopback only"
+      ]
     },
     {
       "id": "tool.acceptance_gate",
@@ -117,12 +214,21 @@
       "capabilities": [
         {
           "verb": "verify",
-          "inputs": ["contract", "evidence"],
-          "outputs": ["receipt"],
-          "constraints": ["local"]
+          "inputs": [
+            "contract",
+            "evidence"
+          ],
+          "outputs": [
+            "receipt"
+          ],
+          "constraints": [
+            "local"
+          ]
         }
       ],
-      "verification": ["receipt fields and digest"]
+      "verification": [
+        "receipt fields and digest"
+      ]
     },
     {
       "id": "tool.fetch_url",
@@ -135,12 +241,21 @@
       "capabilities": [
         {
           "verb": "fetch",
-          "inputs": ["url"],
-          "outputs": ["text"],
-          "constraints": ["network"]
+          "inputs": [
+            "url"
+          ],
+          "outputs": [
+            "text"
+          ],
+          "constraints": [
+            "network"
+          ]
         }
       ],
-      "verification": ["HTTPS", "bounded body"]
+      "verification": [
+        "HTTPS",
+        "bounded body"
+      ]
     },
     {
       "id": "tool.web_search",
@@ -153,12 +268,20 @@
       "capabilities": [
         {
           "verb": "search",
-          "inputs": ["query"],
-          "outputs": ["search_results"],
-          "constraints": ["network"]
+          "inputs": [
+            "query"
+          ],
+          "outputs": [
+            "search_results"
+          ],
+          "constraints": [
+            "network"
+          ]
         }
       ],
-      "verification": ["bounded result list"]
+      "verification": [
+        "bounded result list"
+      ]
     },
     {
       "id": "tool.browser_read",
@@ -171,12 +294,21 @@
       "capabilities": [
         {
           "verb": "render",
-          "inputs": ["url"],
-          "outputs": ["text"],
-          "constraints": ["network", "headless"]
+          "inputs": [
+            "url"
+          ],
+          "outputs": [
+            "text"
+          ],
+          "constraints": [
+            "network",
+            "headless"
+          ]
         }
       ],
-      "verification": ["page title and text extracted"]
+      "verification": [
+        "page title and text extracted"
+      ]
     },
     {
       "id": "skill.archify",
@@ -189,18 +321,43 @@
       "capabilities": [
         {
           "verb": "render",
-          "inputs": ["structured_spec", "mermaid"],
-          "outputs": ["text/html", "image/svg+xml", "image/png"],
-          "constraints": ["local", "node18"]
+          "inputs": [
+            "structured_spec",
+            "mermaid"
+          ],
+          "outputs": [
+            "text/html",
+            "image/svg+xml",
+            "image/png"
+          ],
+          "constraints": [
+            "local",
+            "node18"
+          ]
         },
         {
           "verb": "verify",
-          "inputs": ["text/html", "image/svg+xml"],
-          "outputs": ["receipt"],
-          "constraints": ["local"]
+          "inputs": [
+            "text/html",
+            "image/svg+xml"
+          ],
+          "outputs": [
+            "receipt"
+          ],
+          "constraints": [
+            "local"
+          ]
         }
       ],
-      "verification": ["9-check validate/deliver receipt", "openable artifact"]
+      "verification": [
+        "9-check validate/deliver receipt",
+        "openable artifact"
+      ],
+      "install": {
+        "command": "hermes skills install official/creative/archify",
+        "approval": "human",
+        "notes": "pinned tree; quarantined and scanned by Hermes"
+      }
     },
     {
       "id": "skill.mermaid",
@@ -213,12 +370,27 @@
       "capabilities": [
         {
           "verb": "render",
-          "inputs": ["structured_spec", "text/mermaid"],
-          "outputs": ["text/mermaid", "image/svg+xml"],
-          "constraints": ["local"]
+          "inputs": [
+            "structured_spec",
+            "text/mermaid"
+          ],
+          "outputs": [
+            "text/mermaid",
+            "image/svg+xml"
+          ],
+          "constraints": [
+            "local"
+          ]
         }
       ],
-      "verification": ["syntax check", "render check"]
+      "verification": [
+        "syntax check",
+        "render check"
+      ],
+      "install": {
+        "command": "npm install -g @mermaid-js/mermaid-cli",
+        "approval": "human"
+      }
     },
     {
       "id": "cli.graphviz",
@@ -231,12 +403,138 @@
       "capabilities": [
         {
           "verb": "render",
-          "inputs": ["dot"],
-          "outputs": ["image/svg+xml", "image/png"],
-          "constraints": ["local"]
+          "inputs": [
+            "dot"
+          ],
+          "outputs": [
+            "image/svg+xml",
+            "image/png"
+          ],
+          "constraints": [
+            "local"
+          ]
         }
       ],
-      "verification": ["dot exit 0", "SVG parses"]
+      "verification": [
+        "dot exit 0",
+        "SVG parses"
+      ],
+      "install": {
+        "command": "apt install graphviz",
+        "approval": "human"
+      }
+    },
+    {
+      "id": "build.manual_svg",
+      "name": "manual-svg",
+      "kind": "build",
+      "source": "1agent primitives",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "render",
+          "inputs": [
+            "structured_spec"
+          ],
+          "outputs": [
+            "image/svg+xml",
+            "text/html"
+          ],
+          "constraints": [
+            "local",
+            "write"
+          ]
+        }
+      ],
+      "verification": [
+        "verify_artifact: file exists, MIME/schema, sha256",
+        "preview_file HTTP 200"
+      ]
+    },
+    {
+      "id": "build.manual_html",
+      "name": "manual-html",
+      "kind": "build",
+      "source": "1agent primitives",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "build",
+          "inputs": [
+            "brief"
+          ],
+          "outputs": [
+            "text/html"
+          ],
+          "constraints": [
+            "local",
+            "write"
+          ]
+        }
+      ],
+      "verification": [
+        "verify_artifact: file exists, MIME/schema, sha256",
+        "preview_file HTTP 200"
+      ]
+    },
+    {
+      "id": "tool.read_pdf",
+      "name": "read_pdf",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "extract",
+          "inputs": [
+            "application/pdf"
+          ],
+          "outputs": [
+            "text"
+          ],
+          "constraints": [
+            "local"
+          ]
+        }
+      ],
+      "verification": [
+        "pdftotext exit 0"
+      ]
+    },
+    {
+      "id": "tool.verify_artifact",
+      "name": "verify_artifact",
+      "kind": "tool",
+      "source": "1agent",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "verify",
+          "inputs": [
+            "artifact"
+          ],
+          "outputs": [
+            "receipt"
+          ],
+          "constraints": [
+            "local"
+          ]
+        }
+      ],
+      "verification": [
+        "file exists",
+        "MIME/schema",
+        "sha256",
+        "optional preview"
+      ]
     }
   ]
 }

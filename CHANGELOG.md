@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0-rc.11 — 2026-11-18
+
+- Capability compiler P1: runtime preflight blocks an unresolvable required
+  capability with `needs_authorization` before any model call; `verify_artifact`
+  checks existence/size/MIME/schema/SHA-256/loopback preview; `propose_capability_install`
+  and `capability approve-install` separate proposal from human approval
+  (`executed:false`, never auto-install).
+- Capability compiler P2: `capability-paths.jsonl` records requirement →
+  manifest → status → artifact_verified and provides an explainable boost /
+  reselection among installed candidates.
+- Verification: `verify.sh` 1666 total / 0 failed / 13 ignored; claims 263
+  checked.
+
 ## 1.0.0-rc.10 — 2026-11-18
 
 - Step-budget finalization: when the step budget is exhausted after an

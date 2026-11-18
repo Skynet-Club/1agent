@@ -444,12 +444,117 @@ impl AgentTool for ResolveCapabilityTool {
     }
 }
 
+pub struct ProposeCapabilityInstallTool;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposeInstallArgs {
+    name: String,
+    #[serde(default)]
+    reason: String,
+}
+
+#[async_trait]
+impl AgentTool for ProposeCapabilityInstallTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "propose_capability_install".into(),
+            description: "Look up an uninstalled capability candidate and return a structured install proposal with the exact command, license, source and required human approval. Read-only: it never installs or executes the command. A human must approve and run it.".into(),
+            parameters: json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "reason": {"type": "string"}
+                }
+            }),
+        }
+    }
+
+    fn risk(&self) -> RiskLevel {
+        RiskLevel::Low
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(5)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        _permissions: &PermissionSet,
+        _cancellation: &tokio_util::sync::CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        let args: ProposeInstallArgs = serde_json::from_value(arguments)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        let name = args.name.trim().to_ascii_lowercase();
+        let manifests = crate::capability_compiler::manifests().map_err(ToolError::Failed)?;
+        let Some(manifest) = manifests.manifests.iter().find(|manifest| {
+            manifest.name.eq_ignore_ascii_case(&name) || manifest.id.eq_ignore_ascii_case(&name)
+        }) else {
+            return Err(ToolError::Failed(format!(
+                "no capability manifest named {name}"
+            )));
+        };
+        let Some(install) = manifest.install.as_ref() else {
+            return Err(ToolError::Failed(format!(
+                "{} has no declared install command",
+                manifest.name
+            )));
+        };
+        let content = json!({
+            "candidate": {
+                "id": manifest.id,
+                "name": manifest.name,
+                "kind": manifest.kind,
+                "source": manifest.source,
+                "installed": manifest.installed,
+                "trust": manifest.trust,
+                "license": manifest.license,
+                "verification": manifest.verification
+            },
+            "install": install,
+            "reason": args.reason,
+            "approval_required": true,
+            "next": "A human must approve this proposal and run the exact command outside the agent; 1Agent will not install it automatically."
+        })
+        .to_string();
+        let mut metadata = BTreeMap::new();
+        metadata.insert("candidate".into(), manifest.name.clone());
+        metadata.insert("approval_required".into(), "true".into());
+        Ok(ToolOutcome {
+            summary: format!(
+                "install proposal for {}: human approval required",
+                manifest.name
+            ),
+            content,
+            metadata,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn resolve_tool_reports_diagram_gap_and_candidate() {
+    async fn install_proposal_requires_human_approval_and_does_not_install() {
+        let outcome = ProposeCapabilityInstallTool
+            .execute(
+                json!({"name": "archify", "reason": "render architecture diagrams"}),
+                &PermissionSet::default(),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .expect("install proposal");
+        assert!(outcome.summary.contains("human approval"));
+        assert!(outcome.content.contains("hermes skills install"));
+        assert!(outcome.content.contains("approval_required"));
+    }
+
+    #[tokio::test]
+    async fn resolve_tool_selects_manual_build_and_lists_archify() {
         let outcome = ResolveCapabilityTool
             .execute(
                 json!({"task": "画一张架构图"}),
@@ -458,7 +563,8 @@ mod tests {
             )
             .await
             .expect("resolve capability");
-        assert!(outcome.summary.contains("gap"));
+        assert!(outcome.summary.contains("resolved"));
+        assert!(outcome.content.contains("manual-svg"));
         assert!(outcome.content.contains("archify"));
         assert!(outcome.content.contains("image/svg+xml"));
     }

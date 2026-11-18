@@ -243,7 +243,30 @@ the final answer needed one more step.
 
 Raw log: `verify-1.0.0-rc.10.log`.
 
-## 21. Not covered
+## 22. rc.11 capability compiler P1/P2 (2026-11-18)
+
+- Runtime preflight: unresolvable required capability returns
+  `needs_authorization` without a model call; resolved paths are journaled in
+  `known_facts`.
+- `verify_artifact`: existence, size, MIME, lightweight schema, SHA-256,
+  optional loopback preview; `CompletionGate` records verified artifacts.
+- Install flow: `propose_capability_install` + `capability approve-install`
+  records human approval and command hash with `executed:false`; no automatic
+  install.
+- `capability-paths.jsonl`: requirement → manifest → status →
+  artifact_verified; explainable boost/reselection.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1666 total, 0 failed, 13 ignored |
+| preflight gap | 3D task `needs_authorization`; no model response in its journal |
+| artifact verifier | SVG/MIME/schema/hash pass; wrong hash/schema fail |
+| install flow | proposal/approval separated; approval ledger `executed:false` |
+| claims | 263 checked (239 verified / 16 partial / 8 no evidence) |
+
+Raw log: `verify-1.0.0-rc.11.log`.
+
+## 23. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

@@ -58,6 +58,7 @@ const DESIGN_CONTRACT_UNKNOWN_ID: &str = "completion-design-contract";
 struct CompletionGate {
     side_effect_tools: BTreeSet<String>,
     accepted_receipt: Option<CompletionReceipt>,
+    verified_artifacts: BTreeMap<String, String>,
     written_html: BTreeMap<String, String>,
     design_task: bool,
 }
@@ -94,7 +95,16 @@ impl CompletionGate {
         if observation.status != ToolStatus::Ok {
             return;
         }
-        if call.name == "acceptance_gate" {
+        if call.name == "verify_artifact" {
+            if observation.metadata.get("decision").map(String::as_str) == Some("verified")
+                && let (Some(path), Some(sha256)) = (
+                    observation.metadata.get("path"),
+                    observation.metadata.get("sha256"),
+                )
+            {
+                self.verified_artifacts.insert(path.clone(), sha256.clone());
+            }
+        } else if call.name == "acceptance_gate" {
             // A gate in the same model turn cannot have seen a write's output.
             if !batch_has_write
                 && observation.metadata.get("decision").map(String::as_str) == Some("accepted")
@@ -108,6 +118,7 @@ impl CompletionGate {
         } else if tools.requires_write(&call.name) {
             self.side_effect_tools.insert(call.name.clone());
             self.accepted_receipt = None;
+            self.verified_artifacts.clear();
             if let (Some(path), Some(sha256)) = (
                 observation.metadata.get("path"),
                 observation.metadata.get("sha256"),
@@ -492,6 +503,7 @@ pub struct AgentRuntime {
     action_log: Option<Arc<Mutex<ActionLogJournal>>>,
     tool_approvals: Option<ToolApprovalStore>,
     experience_dir: Option<PathBuf>,
+    capability_memory: Option<Arc<Mutex<crate::capability_memory::CapabilityMemory>>>,
     shadow_experience: Vec<crate::experience::ExperienceCandidate>,
     route_objective: Option<RouteObjective>,
     route_policy_sources: RoutePolicySources,
@@ -547,6 +559,7 @@ impl AgentRuntime {
             action_log: None,
             tool_approvals: None,
             experience_dir: None,
+            capability_memory: None,
             shadow_experience: Vec::new(),
             route_objective: None,
             route_policy_sources: RoutePolicySources {
@@ -1256,6 +1269,14 @@ impl AgentRuntime {
         self
     }
 
+    pub fn with_capability_memory(
+        mut self,
+        memory: crate::capability_memory::CapabilityMemory,
+    ) -> Self {
+        self.capability_memory = Some(Arc::new(Mutex::new(memory)));
+        self
+    }
+
     pub fn with_shadow_experience_candidates(
         mut self,
         candidates: Vec<crate::experience::ExperienceCandidate>,
@@ -1268,6 +1289,88 @@ impl AgentRuntime {
     /// store's review/verify/activate/rollback lifecycle decides whether it
     /// ever influences a later run. The content holds task features and the
     /// tool sequence, never the user's text or the answer.
+    fn capability_preflight(
+        &self,
+        request: &TaskRequest,
+    ) -> Option<crate::capability_compiler::CapabilityResolution> {
+        let contract =
+            crate::capability_compiler::compile_contract(&request.objective, None, None).ok()?;
+        if contract.requirements.is_empty() {
+            return None;
+        }
+        let installed = self
+            .tools
+            .capabilities()
+            .into_iter()
+            .map(|capability| capability.name)
+            .collect::<Vec<_>>();
+        let mut resolution =
+            crate::capability_compiler::resolve_contract(contract, &installed).ok()?;
+        if let Some(memory) = &self.capability_memory
+            && let Ok(memory) = memory.lock()
+        {
+            memory.apply(&mut resolution);
+        }
+        Some(resolution)
+    }
+
+    fn record_capability_paths(&self, result: &RunResult) {
+        let Some(memory) = &self.capability_memory else {
+            return;
+        };
+        if !matches!(
+            result.answer.status,
+            AnswerStatus::Completed | AnswerStatus::Conditional
+        ) {
+            return;
+        }
+        let Ok(events) = read_events(&result.journal_path) else {
+            return;
+        };
+        let mut resolution = None;
+        let mut artifact_verified = false;
+        for event in &events {
+            let JournalEventKind::ToolObserved { observation } = &event.event else {
+                continue;
+            };
+            if observation.tool == "resolve_capability"
+                && let Ok(parsed) = serde_json::from_str::<
+                    crate::capability_compiler::CapabilityResolution,
+                >(&observation.content)
+            {
+                resolution = Some(parsed);
+            }
+            if observation.tool == "verify_artifact"
+                && observation.metadata.get("decision").map(String::as_str) == Some("verified")
+            {
+                artifact_verified = true;
+            }
+        }
+        let Some(resolution) = resolution else {
+            return;
+        };
+        let status = match result.answer.status {
+            AnswerStatus::Completed => "completed",
+            AnswerStatus::Conditional => "conditional",
+            _ => return,
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let records = crate::capability_memory::record_from_resolution(
+            &resolution,
+            status,
+            artifact_verified,
+            now_ms,
+        );
+        if let Ok(mut memory) = memory.lock() {
+            for record in records {
+                let _ = memory.record(record);
+            }
+        }
+    }
+
     fn record_strategy(&self, request: &TaskRequest, result: &RunResult) {
         let Some(directory) = &self.experience_dir else {
             return;
@@ -1547,8 +1650,10 @@ impl AgentRuntime {
         initial_elapsed: Duration,
         cancellation: &CancellationToken,
         reason: &str,
+        reserve_provider_attempt: bool,
     ) -> crate::domain::AgentAnswer {
-        if request.budget.max_provider_attempts != 0
+        if !reserve_provider_attempt
+            && request.budget.max_provider_attempts != 0
             && *provider_attempts_used >= request.budget.max_provider_attempts
         {
             return budget_answer(reason);
@@ -1706,7 +1811,10 @@ impl AgentRuntime {
             && !refers_to_context
             && !asks_about_memory
             && !crate::domain::asks_about_capabilities(&request.objective)
-            && crate::domain::looks_like_chat(&request.objective);
+            && crate::domain::looks_like_chat(&request.objective)
+            && !crate::capability_compiler::compile_contract(&request.objective, None, None)
+                .map(|contract| !contract.requirements.is_empty())
+                .unwrap_or(false);
         if !fast_chat {
             return self
                 .run_internal(
@@ -1812,12 +1920,13 @@ impl AgentRuntime {
             )
             .await?;
         self.record_strategy(&strategy_request, &result);
+        self.record_capability_paths(&result);
         Ok(result)
     }
 
     async fn run_internal_inner(
         &self,
-        request: TaskRequest,
+        mut request: TaskRequest,
         resume: Option<ResumablePrefix>,
         requested_mode: Option<CognitiveMode>,
         client_request_id: Option<String>,
@@ -1842,6 +1951,65 @@ impl AgentRuntime {
             .or(requested_mode)
             .unwrap_or_else(|| crate::domain::infer_mode(&request));
         let fast_chat = fast_chat && resume.is_none();
+        if resume.is_none()
+            && !fast_chat
+            && let Some(resolution) = self.capability_preflight(&request)
+        {
+            if resolution.gaps.is_empty() {
+                let selected = resolution
+                    .requirements
+                    .iter()
+                    .filter_map(|requirement| {
+                        requirement.selected.as_ref().map(|candidate| {
+                            format!(
+                                "{} -> {} ({})",
+                                requirement.requirement.verb, candidate.name, candidate.kind
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if !selected.is_empty() {
+                    request.known_facts.push(format!(
+                        "Capability preflight: {}. Alternatives and gaps are journaled by the resolver tool; use the selected installed capability or report the gap.",
+                        selected.join(", ")
+                    ));
+                }
+            } else {
+                let answer = capability_gap_answer(&resolution);
+                let stop_reason = stop_reason_for_answer(answer.status);
+                journal
+                    .append(JournalEventKind::RunStarted {
+                        request: request.clone(),
+                        mode,
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                journal
+                    .append(JournalEventKind::AnswerProduced {
+                        answer: answer.clone(),
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                journal
+                    .append(JournalEventKind::RunStopped {
+                        reason: stop_reason,
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                return Ok(RunResult {
+                    run_id,
+                    journal_path,
+                    answer,
+                    stop_reason,
+                });
+            }
+        }
         if let Some(prefix) = &resume {
             journal
                 .append(JournalEventKind::ResumeStarted {
@@ -2965,6 +3133,7 @@ impl AgentRuntime {
                                 initial_elapsed,
                                 &cancellation,
                                 "tool-call budget exhausted",
+                                true,
                             )
                             .await;
                         let answer =
@@ -3181,7 +3350,9 @@ impl AgentRuntime {
             }
         }
 
-        let answer = if completion_gate.accepted_receipt.is_some() {
+        let answer = if completion_gate.accepted_receipt.is_some()
+            || !completion_gate.verified_artifacts.is_empty()
+        {
             if let Some((last_request, provider_id, model)) = last_turn {
                 let answer = self
                     .answer_at_budget(
@@ -3197,6 +3368,7 @@ impl AgentRuntime {
                         initial_elapsed,
                         &cancellation,
                         "step budget exhausted",
+                        true,
                     )
                     .await;
                 enforce_completion_gate(&mut journal, &completion_gate, answer)?
@@ -3426,6 +3598,41 @@ fn authorization_answer() -> crate::domain::AgentAnswer {
         }],
         action_receipts: Vec::new(),
     }
+}
+
+fn capability_gap_answer(
+    resolution: &crate::capability_compiler::CapabilityResolution,
+) -> crate::domain::AgentAnswer {
+    let alternatives = resolution
+        .requirements
+        .iter()
+        .flat_map(|requirement| requirement.alternatives.iter())
+        .map(|candidate| {
+            if candidate.installed {
+                candidate.name.clone()
+            } else {
+                format!("{}（未安装）", candidate.name)
+            }
+        })
+        .collect::<Vec<_>>();
+    let details = resolution
+        .gaps
+        .iter()
+        .map(|gap| format!("- {gap}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut answer = budget_answer("capability preflight found required capability gaps");
+    answer.status = AnswerStatus::NeedsAuthorization;
+    answer.conclusion = format!(
+        "缺少可执行的能力，未启动模型调用。\n{details}\n可选：安装候选（需人工批准），或改用已安装的降级能力。\n候选：{}",
+        if alternatives.is_empty() {
+            "无".into()
+        } else {
+            alternatives.join("、")
+        }
+    );
+    answer.constraints = resolution.gaps.clone();
+    answer
 }
 
 fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
@@ -6069,6 +6276,64 @@ mod tests {
         assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
         assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
         assert!(result.answer.conclusion.contains("step budget"));
+    }
+
+    #[test]
+    fn completion_gate_records_verified_artifacts() {
+        let mut gate = CompletionGate::default();
+        let mut metadata = std::collections::BTreeMap::new();
+        metadata.insert("decision".into(), "verified".into());
+        metadata.insert("path".into(), "/tmp/diagram.svg".into());
+        metadata.insert("sha256".into(), "abc".into());
+        let observation = ToolObservation {
+            call_id: "call-1".into(),
+            tool: "verify_artifact".into(),
+            status: ToolStatus::Ok,
+            summary: "artifact verified".into(),
+            content: "{}".into(),
+            error_code: None,
+            metadata,
+        };
+        gate.observe(
+            &ToolCall {
+                id: "call-1".into(),
+                name: "verify_artifact".into(),
+                arguments: serde_json::json!({}),
+            },
+            &observation,
+            &default_registry(),
+            false,
+        );
+        assert_eq!(
+            gate.verified_artifacts.get("/tmp/diagram.svg"),
+            Some(&"abc".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn capability_preflight_blocks_unknown_artifact_without_provider_call() {
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate {
+                provider: Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            ToolRegistry::default(),
+            workspace.path().join(".journal"),
+        );
+        let request = TaskRequest::from_objective("生成一个 3D 模型", workspace.path().into());
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.answer.status, AnswerStatus::NeedsAuthorization);
+        assert!(result.answer.conclusion.contains("缺少可执行的能力"));
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event.event, JournalEventKind::ModelResponded { .. }))
+        );
     }
 
     #[tokio::test]

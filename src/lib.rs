@@ -20,6 +20,7 @@ pub mod benchmark;
 pub mod browser;
 pub mod budget;
 pub mod capability_compiler;
+pub mod capability_memory;
 pub mod capability_probe;
 pub mod card_trust;
 pub mod cascade;

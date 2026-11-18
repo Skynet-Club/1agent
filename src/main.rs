@@ -1494,6 +1494,13 @@ enum Command {
         #[command(subcommand)]
         command: PermissionsCommand,
     },
+    #[command(
+        about = "解析能力需求与安装提案 · Resolve capability requirements and install proposals"
+    )]
+    Capability {
+        #[command(subcommand)]
+        command: CapabilityCommand,
+    },
     /// List, show, select or test the configured provider.
     #[command(about = "查看、选择和测试模型服务")]
     Model {
@@ -1704,6 +1711,39 @@ enum PermissionsCommand {
         workspace: Option<PathBuf>,
         #[arg(long)]
         read_root: Vec<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CapabilityCommand {
+    #[command(about = "解析任务需要的能力 · Resolve capability requirements")]
+    Resolve {
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        deliverable_media: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "生成安装提案 · Propose an install for human approval")]
+    ProposeInstall {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "记录人工批准，不自动安装 · Record human approval without installing")]
+    ApproveInstall {
+        #[arg(long)]
+        proposal: PathBuf,
+        #[arg(long)]
+        yes: bool,
         #[arg(long)]
         json: bool,
     },
@@ -4977,6 +5017,10 @@ const ENGLISH_COMMANDS: &[(&str, &str)] = &[
     ("doctor", "Local environment diagnostics"),
     ("model", "Inspect, select and test model providers"),
     ("permissions", "Inspect and set permission presets"),
+    (
+        "capability",
+        "Resolve capability requirements and install proposals",
+    ),
     ("audit", "Audit a run journal"),
     ("replay", "Structurally replay a run journal"),
     ("skill", "Skill lifecycle management"),
@@ -5543,6 +5587,16 @@ fn print_advanced_redirect() {
         )
     );
     println!();
+}
+
+fn with_capability_memory(runtime: AgentRuntime) -> AgentRuntime {
+    match first_principles_agent::capability_memory::CapabilityMemory::open(home_or_legacy(
+        "capability-paths.jsonl",
+        ".1a/capability-paths.jsonl",
+    )) {
+        Ok(memory) => runtime.with_capability_memory(memory),
+        Err(_) => runtime,
+    }
 }
 
 fn default_config_path() -> Option<PathBuf> {
@@ -6234,6 +6288,151 @@ fn handle_permissions(command: PermissionsCommand) -> Result<()> {
     Ok(())
 }
 
+fn handle_capability(command: CapabilityCommand) -> Result<()> {
+    match command {
+        CapabilityCommand::Resolve {
+            task,
+            deliverable_media,
+            schema,
+            json,
+        } => {
+            let deliverable = deliverable_media.map(|media_type| {
+                first_principles_agent::capability_compiler::DeliverableSpec {
+                    media_type,
+                    schema,
+                    required: Vec::new(),
+                }
+            });
+            let resolution = first_principles_agent::capability_compiler::resolve_task(
+                &task,
+                deliverable,
+                None,
+                &[],
+            )
+            .map_err(anyhow::Error::msg)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resolution)?);
+            } else {
+                println!("task: {}", resolution.contract.objective);
+                if let Some(deliverable) = &resolution.contract.deliverable {
+                    println!("deliverable: {}", deliverable.media_type);
+                }
+                for requirement in &resolution.requirements {
+                    println!(
+                        "- {} -> {:?}: {}",
+                        requirement.requirement.verb,
+                        requirement.requirement.outputs,
+                        requirement
+                            .selected
+                            .as_ref()
+                            .map(|candidate| candidate.name.as_str())
+                            .unwrap_or("GAP")
+                    );
+                    for alternative in &requirement.alternatives {
+                        println!(
+                            "    alternative: {} (installed={}, trust={})",
+                            alternative.name, alternative.installed, alternative.trust
+                        );
+                    }
+                    if let Some(gap) = &requirement.gap {
+                        println!("    gap: {gap}");
+                    }
+                }
+            }
+        }
+        CapabilityCommand::ProposeInstall { name, out, json } => {
+            let proposal = first_principles_agent::capability_memory::proposal_for(&name)
+                .map_err(anyhow::Error::msg)?
+                .with_context(|| format!("no install proposal for {name}"))?;
+            let value = json!({
+                "schema_version": 1,
+                "proposal": proposal,
+                "approval_required": true,
+                "next": "A human must approve; 1Agent never installs automatically."
+            });
+            if let Some(path) = out.as_ref() {
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(path, serde_json::to_vec_pretty(&value)?)?;
+            }
+            if json || out.is_none() {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else if let Some(path) = out {
+                println!(
+                    "install proposal for {} written to {}",
+                    name,
+                    path.display()
+                );
+            }
+        }
+        CapabilityCommand::ApproveInstall {
+            proposal,
+            yes,
+            json,
+        } => {
+            if !yes {
+                bail!(
+                    "approve-install requires --yes; it records human approval and does not execute the command"
+                );
+            }
+            let text = std::fs::read_to_string(&proposal)
+                .with_context(|| format!("cannot read {}", proposal.display()))?;
+            let value: Value = serde_json::from_str(&text)
+                .with_context(|| format!("invalid proposal {}", proposal.display()))?;
+            let candidate: first_principles_agent::capability_memory::InstallProposal =
+                serde_json::from_value(value["proposal"].clone())
+                    .context("proposal is missing a valid proposal object")?;
+            if candidate.approval != "human" || candidate.command.trim().is_empty() {
+                bail!("proposal does not require human approval or has no command");
+            }
+            let approver = std::env::var("USER")
+                .or_else(|_| std::env::var("LOGNAME"))
+                .unwrap_or_else(|_| "human".into());
+            let approval = json!({
+                "schema_version": 1,
+                "approved_at_unix_ms": current_time_ms(),
+                "approver": approver,
+                "candidate": candidate.name,
+                "source": candidate.source,
+                "license": candidate.license,
+                "command": candidate.command,
+                "command_sha256": hex::encode(Sha256::digest(candidate.command.as_bytes())),
+                "executed": false,
+                "note": "Approval recorded. 1Agent does not execute install commands automatically; run the exact command yourself."
+            });
+            let path = home_or_legacy(
+                "capability-approvals.jsonl",
+                ".1a/capability-approvals.jsonl",
+            );
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .with_context(|| format!("cannot open {}", path.display()))?;
+            writeln!(file, "{}", serde_json::to_string(&approval)?)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&approval)?);
+            } else {
+                println!(
+                    "approved {} for {}; approval recorded in {}\nrun manually:\n  {}",
+                    candidate.name,
+                    approver,
+                    path.display(),
+                    candidate.command
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn handle_model(command: ModelCommand) -> Result<()> {
     match command {
         ModelCommand::List { root, json } => {
@@ -6744,16 +6943,18 @@ async fn main() -> Result<()> {
                 None => first_principles_agent::VoiceMode::Operator,
             };
             let attachments = first_principles_agent::load_attachments(&attach)?;
-            let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
-                .with_route_objective(objective)
-                .with_voice_mode(voice_mode)
-                .with_attachments(attachments)
-                .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
-                .with_route_policy_sources(RoutePolicySources {
-                    objective: objective_source,
-                    latency_budget: latency_budget_source,
-                    unit_cost_budget: unit_cost_budget_source,
-                });
+            let mut runtime = with_capability_memory(
+                AgentRuntime::new(candidates, tools, journal_dir)
+                    .with_route_objective(objective)
+                    .with_voice_mode(voice_mode)
+                    .with_attachments(attachments)
+                    .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
+                    .with_route_policy_sources(RoutePolicySources {
+                        objective: objective_source,
+                        latency_budget: latency_budget_source,
+                        unit_cost_budget: unit_cost_budget_source,
+                    }),
+            );
             if let Some(query) = tool_query {
                 runtime = runtime.with_tool_query(query);
             }
@@ -14352,6 +14553,7 @@ async fn main() -> Result<()> {
         Command::Browser { command } => handle_browser(command).await?,
         Command::Secret { command } => handle_secret(command)?,
         Command::Permissions { command } => handle_permissions(command)?,
+        Command::Capability { command } => handle_capability(command)?,
         Command::Model { command } => handle_model(command).await?,
         Command::Completions { shell } => match render_completions(&shell) {
             Some(script) => print!("{script}"),
@@ -16870,14 +17072,16 @@ async fn run_tui(
         .map(|candidate| candidate.provider.clone())
         .context("provider list is empty")?;
     let (objective, objective_source) = resolve_route_objective(route_objective.as_deref())?;
-    let mut runtime = AgentRuntime::new(candidates, tools, journal_dir)
-        .with_route_objective(objective)
-        .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
-        .with_route_policy_sources(RoutePolicySources {
-            objective: objective_source,
-            latency_budget: PolicyValueSource::Unset,
-            unit_cost_budget: PolicyValueSource::Unset,
-        });
+    let mut runtime = with_capability_memory(
+        AgentRuntime::new(candidates, tools, journal_dir)
+            .with_route_objective(objective)
+            .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
+            .with_route_policy_sources(RoutePolicySources {
+                objective: objective_source,
+                latency_budget: PolicyValueSource::Unset,
+                unit_cost_budget: PolicyValueSource::Unset,
+            }),
+    );
     if let Some(experience_dir) = experience_dir {
         runtime = runtime.with_experience_dir(experience_dir);
     }

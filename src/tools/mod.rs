@@ -41,6 +41,7 @@ pub(crate) fn current_action_id() -> Option<String> {
 }
 
 mod acceptance;
+mod artifact;
 mod browser;
 mod capability;
 mod delegation;
@@ -54,6 +55,7 @@ mod subagent;
 mod terminal;
 mod web;
 pub use acceptance::*;
+pub use artifact::*;
 pub use browser::*;
 pub use capability::*;
 pub use delegation::*;
@@ -1219,6 +1221,8 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(Arc::new(AcceptanceGateTool));
     registry.register(Arc::new(CapabilitySearchTool));
     registry.register(Arc::new(ResolveCapabilityTool));
+    registry.register(Arc::new(VerifyArtifactTool));
+    registry.register(Arc::new(ProposeCapabilityInstallTool));
     registry.register(Arc::new(PreviewFileTool));
     registry.register(Arc::new(SessionSearchTool::from_env()));
     registry.register(Arc::new(PdfReadTool::from_env()));

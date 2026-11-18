@@ -103,8 +103,44 @@ struct CapabilityRequirement {
 - 提示词要求：非文本交付物先解析能力；有 gap 时返回 `needs_authorization`/`conditional`，不得静默降级成文字并标 completed。
 - 当前 `capabilities/manifests.json` 是种子清单；可继续加工具/技能 manifest。
 
-## 6. 尚未完成
+## 6. P1 runtime enforcement
 
-- P1：运行时强制 preflight（不是只靠提示词），artifact verifier，安装提案与人工批准。
-- P2：按能力路径学习，而不是按任务类型学习。
-- 当前 `resolve_capability` 只读，不会安装或执行候选。
+- `AgentRuntime` runs `capability_preflight` before the model loop for
+  non-text deliverable hints. If a required capability has no installed
+  candidate, it returns `needs_authorization` and **does not call the model**.
+- If a capability resolves, the selected path is added to the run's
+  `known_facts`, so the model sees a journaled preflight fact.
+- Artifact verifier: `verify_artifact` checks existence, size, MIME, a
+  lightweight schema, SHA-256 and an optional loopback preview HTTP 200.
+  `CompletionGate` records verified artifacts and can finalize when the step
+  budget ends after verification.
+- Install proposal: `propose_capability_install` returns a structured proposal
+  with the exact command, license, source and `approval_required: true`. The
+  CLI separates proposal from approval:
+
+```bash
+1agent capability propose-install --name archify --out proposal.json
+1agent capability approve-install --proposal proposal.json --yes
+```
+
+`approve-install` records the human approver and command hash in
+`capability-approvals.jsonl`; it sets `executed: false` and never runs the
+install command automatically. A human runs the exact command.
+
+## 7. P2 capability-path memory
+
+- `capability-paths.jsonl` records `requirement → selected manifest → status →
+  artifact_verified`, not task-type labels.
+- Successful paths add a small explainable boost and can reselect among
+  installed candidates; alternatives remain visible.
+- `run`/TUI initialize this store at the runtime home; eval does not write it.
+
+## 8. Still open
+
+- Preflight hints are data-driven but only cover declared media hints; an
+  entirely unknown artifact format without a hint still needs model/CLI
+  `resolve_capability`.
+- Install approval records approval but does not execute or verify the install;
+  that remains a human operation.
+- The six-step headless default is still conservative; complexity-aware
+  budgets are future work.
