@@ -38,5 +38,15 @@ are **blocked** and must not be presented as passed.
 
 ## 4. Local assets
 
-To be filled after the rc.8 package is built. No GitHub release and no push are
-performed by the code-level candidate workflow.
+Built from tag `v1.0.0-rc.8` → `7ca907f` with
+`./scripts/package.sh --linux-only`; tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.8-linux-x86_64.tar.gz` | SHA-256 `328230ea14dd69ef0ed103833f629a5bd3c2815b61fd00317c249a264c48ac51` |
+| Packaged binary | SHA-256 `d235255d60a981716e3f32f74e8b6b6dea959dd9af5e487b58a55eadbf4a8fd0` |
+| Provenance | `linux-x86_64.json`, commit `7ca907f`, `git_dirty: false` |
+| Smoke | `sha256sum -c SHA256SUMS` OK; `--version` 1.0.0-rc.8; install to `~/.local` OK; absolute-path TUI task accepted |
+
+Evidence: `docs/evidence/release-1.0.0-rc.8-2026-11-18.md`. No GitHub release
+and no push were performed.
