@@ -64,5 +64,15 @@ step budget was exhausted before finalization. Evidence:
 
 ## 5. Local assets
 
-To be filled after the rc.9 package is built. No GitHub release and no push are
-performed by the code-level candidate workflow.
+Built from tag `v1.0.0-rc.9` → `fe0c739` with `./scripts/package.sh --linux-only`;
+tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.9-linux-x86_64.tar.gz` | SHA-256 `914ec66875cdd8118697d65b85476b04d8b4c45cfdab552bd9279cf7bb97a26a` |
+| Packaged binary | SHA-256 `ec3bef264921e8d65504dd3d464ea337a48921c0c2368d5411a29366c31a4e92` |
+| Provenance | `linux-x86_64.json`, commit `fe0c739`, `git_dirty: false` |
+| Smoke | SHA256SUMS OK; `--version` 1.0.0-rc.9; install to `~/.local` OK |
+
+Evidence: `docs/evidence/release-1.0.0-rc.9-2026-11-18.md`. No GitHub release
+and no push were performed.
