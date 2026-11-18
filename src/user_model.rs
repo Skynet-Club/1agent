@@ -290,6 +290,7 @@ impl UserModel {
     }
 
     /// Default is allow: consent rules opt out, they do not opt in.
+    #[cfg(test)]
     pub fn can_remember(&self, kind: MemoryKind) -> bool {
         self.consent_for(kind).is_none_or(|rule| rule.allow)
     }

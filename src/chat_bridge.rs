@@ -142,6 +142,7 @@ impl Drop for IngestLock {
     }
 }
 
+#[cfg(test)]
 pub fn ingest_dir(
     inbox: &Path,
     workspace: &Path,

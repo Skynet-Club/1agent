@@ -262,41 +262,6 @@ impl WorkshopCliAdapter {
         })
     }
 
-    pub fn job_status(&self, job_id: &str) -> Result<Value, WorkshopAdapterError> {
-        validate_text("job_id", job_id)?;
-        let output = self.run(&["job", "status", job_id], self.timeout)?;
-        parse_value("job", &output.stdout)
-    }
-
-    pub fn job_tasks(
-        &self,
-        job_id: &str,
-        offset: usize,
-        limit: usize,
-        status: Option<&str>,
-    ) -> Result<Value, WorkshopAdapterError> {
-        validate_text("job_id", job_id)?;
-        let offset = offset.to_string();
-        let limit = limit.clamp(1, 200).to_string();
-        let mut args = vec![
-            "job".to_string(),
-            "tasks".to_string(),
-            job_id.to_string(),
-            "--offset".into(),
-            offset,
-            "--limit".into(),
-            limit,
-        ];
-        if let Some(status) = status {
-            validate_text("status", status)?;
-            args.push("--status".into());
-            args.push(status.into());
-        }
-        let references = args.iter().map(String::as_str).collect::<Vec<_>>();
-        let output = self.run(&references, self.timeout)?;
-        parse_value("job", &output.stdout)
-    }
-
     pub fn bounded_events(
         &self,
         since_unix_ms: Option<u128>,

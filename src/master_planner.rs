@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::domain::{
-    AgentAnswer, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, PermissionSet, RiskLevel,
-};
+#[cfg(test)]
+use crate::domain::PermissionSet;
+use crate::domain::{AgentAnswer, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, RiskLevel};
 use crate::master::{AgentProfile, MasterPlanError, PlanProposal};
 use crate::production_line::{ProductionLineError, ProductionPlan};
 use crate::provider::{ModelProvider, ProviderError};
@@ -914,22 +914,6 @@ fn safe_planner_identity(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
-}
-
-pub fn plan_triage_constraints(context: &PlanningContext) -> PermissionSet {
-    if context.risk == RiskLevel::High {
-        PermissionSet {
-            read_roots: vec![context.workspace.clone()],
-            allow_network: false,
-            allow_write: true,
-        }
-    } else {
-        PermissionSet {
-            read_roots: vec![context.workspace.clone()],
-            allow_network: false,
-            allow_write: false,
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

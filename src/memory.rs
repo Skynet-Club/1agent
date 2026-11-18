@@ -611,6 +611,7 @@ impl MemoryStore {
         )
     }
 
+    #[cfg(test)]
     pub fn restore_soft(&mut self, memory_id: &str) -> Result<(), MemoryError> {
         self.restore_soft_at(memory_id, 0)
     }

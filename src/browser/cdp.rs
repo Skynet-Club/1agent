@@ -148,23 +148,4 @@ impl CdpClient {
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
         self.inner.events.subscribe()
     }
-
-    pub async fn wait_for_event(&self, method: &str, timeout: Duration) -> Result<Value, CdpError> {
-        let mut events = self.subscribe();
-        let wait = async {
-            loop {
-                match events.recv().await {
-                    Ok(value) if value.get("method").and_then(Value::as_str) == Some(method) => {
-                        return Ok(value);
-                    }
-                    Ok(_) => {}
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => return Err(CdpError::Closed),
-                }
-            }
-        };
-        tokio::time::timeout(timeout, wait)
-            .await
-            .map_err(|_| CdpError::Timeout(method.to_string()))?
-    }
 }

@@ -39,10 +39,12 @@ pub fn registry_sha256() -> String {
     super::sha256_hex(super::read_builtin_types().as_bytes())
 }
 
+#[cfg(test)]
 pub fn ensure_builtin_types_parse() -> Result<Value, OntologyError> {
     try_builtin_types()
 }
 
+#[cfg(test)]
 pub fn ensure_builtin_bindings_parse() -> Result<Value, OntologyError> {
     try_builtin_bindings()
 }

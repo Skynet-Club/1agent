@@ -485,6 +485,7 @@ pub struct Lesson {
     pub created_ms: u128,
 }
 
+#[cfg(test)]
 pub fn new_reflection(
     reflection_id: impl Into<String>,
     actor_id: impl Into<String>,
@@ -517,6 +518,7 @@ pub fn new_reflection(
     })
 }
 
+#[cfg(test)]
 pub fn new_lesson(
     lesson_id: impl Into<String>,
     kind: LessonKind,

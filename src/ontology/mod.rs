@@ -114,10 +114,6 @@ pub fn canonical_bytes(value: &Value) -> Result<Vec<u8>, OntologyError> {
     serde_json::to_vec(value).map_err(|error| OntologyError::Json(error.to_string()))
 }
 
-pub fn export_document_sha256(value: &Value) -> Result<String, OntologyError> {
-    Ok(sha256_hex(&canonical_bytes(value)?))
-}
-
 pub fn read_builtin_types() -> &'static str {
     include_str!("../../ontology/types.json")
 }

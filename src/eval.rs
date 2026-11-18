@@ -9,8 +9,11 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::{AnswerStatus, ClaimStatus, StopReason, TaskRequest, ToolStatus, Usage};
 use crate::experience::{ExperienceCandidate, ExperienceVerificationInput};
 use crate::journal::{audit_events, read_events};
+#[cfg(test)]
 use crate::provider::DeterministicProvider;
-use crate::runtime::{AgentRuntime, ProviderCandidate, local_manifest};
+#[cfg(test)]
+use crate::runtime::local_manifest;
+use crate::runtime::{AgentRuntime, ProviderCandidate};
 use crate::tools::default_registry;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -809,6 +812,7 @@ pub fn load_eval_report(path: impl AsRef<Path>) -> Result<EvalReport, EvalError>
     Ok(report)
 }
 
+#[cfg(test)]
 pub async fn run_suite(suite: EvalSuite) -> Result<EvalReport, EvalError> {
     run_suite_with_providers(
         suite,

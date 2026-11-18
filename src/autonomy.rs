@@ -241,6 +241,7 @@ pub fn decide_for_proactive(
 }
 
 /// Resolve the user's per-domain preference and apply the same policy.
+#[cfg(test)]
 pub fn decide_for(
     model: &UserModel,
     domain: &str,

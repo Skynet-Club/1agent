@@ -267,6 +267,7 @@ impl ActionLog {
 
     /// Latest record for an action id. A call may append `allowed` and then
     /// `executed`/`failed`; the final entry wins.
+    #[cfg(test)]
     pub fn action_record(&self, action_id: &str) -> Option<&ActionRecord> {
         self.entries.iter().rev().find_map(|entry| {
             entry

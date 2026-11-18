@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::skill::{SkillError, SkillManifest};
+use crate::skill::SkillManifest;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SkillEvalError {
@@ -322,6 +322,7 @@ where
 /// their id and the first `test_bps` of them form the test side. Both sides
 /// are non-empty, so tiny suites fail closed instead of producing a
 /// meaningless 100% score.
+#[cfg(test)]
 pub fn split_runtime_cases(
     cases: &[SkillRuntimeCase],
     seed: &str,
@@ -557,10 +558,6 @@ fn safe_id(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         && !value.starts_with('.')
-}
-
-pub fn unknown_skill(name: &str, version: &str) -> SkillError {
-    SkillError::UnknownVersion(name.into(), version.into())
 }
 
 #[cfg(test)]

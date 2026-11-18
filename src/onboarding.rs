@@ -22,7 +22,7 @@ use crate::journal::{JournalEventKind, read_events};
 use crate::provider::{
     ModelProvider, OpenAiCompatibleProvider, ProviderErrorCode, list_provider_models,
 };
-use crate::runtime_home::{DoctorStatus, default_home, doctor, init, is_initialized};
+use crate::runtime_home::{DoctorStatus, doctor, init, is_initialized};
 
 pub const SETUP_SCHEMA: &str = "1agent.setup/v1";
 pub const SETUP_STATE_SCHEMA: &str = "1agent.setup.state.v1";
@@ -1451,10 +1451,6 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
-}
-
-pub fn default_root() -> PathBuf {
-    default_home()
 }
 
 #[cfg(test)]

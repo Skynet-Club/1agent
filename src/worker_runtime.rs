@@ -110,6 +110,7 @@ impl RouterRuntime {
         }
     }
 
+    #[cfg(test)]
     pub fn register_worker(
         &mut self,
         worker_id: &str,
@@ -134,6 +135,7 @@ impl RouterRuntime {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn remove_worker(&mut self, worker_id: &str) -> Result<(), WorkerRuntimeError> {
         if self.workers.remove(worker_id).is_none() {
             return Err(WorkerRuntimeError::UnknownWorker(worker_id.into()));

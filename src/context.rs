@@ -12,6 +12,7 @@ pub struct ContextCompaction {
     pub compacted_tool_results: usize,
 }
 
+#[cfg(test)]
 pub fn compact_messages(
     messages: &[ModelMessage],
     max_chars: usize,

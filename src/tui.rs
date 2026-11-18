@@ -4,9 +4,11 @@ use crate::safety::is_disallowed_control;
 use crate::subagent_registry::SubagentRecord;
 use crate::tui_clarify::{TuiClarifyResult, TuiClarifyState, TuiClarifyStep, outcome_label};
 use crate::tui_commands::{
-    CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, TuiCommandSpec, command_usage,
-    drawer_rows, prompt_picker_categories, prompt_picker_rows, visible_commands,
+    CommandDrawerRow, CommandStage, DrawerEntry, TuiCommandId, command_usage, drawer_rows,
+    prompt_picker_categories, prompt_picker_rows,
 };
+#[cfg(test)]
+use crate::tui_commands::{TuiCommandSpec, visible_commands};
 use crate::tui_host::HostBinding;
 use crate::tui_prompts::{PromptLanguage, prompt_view};
 use crate::tui_terminal::TuiInput;
@@ -205,7 +207,6 @@ enum TranscriptKind {
     QueryResult,
     Evidence,
     Code,
-    Metadata,
     Work,
     WorkResult,
     ConclusionStart,
@@ -1309,6 +1310,7 @@ impl TuiState {
         );
     }
 
+    #[cfg(test)]
     pub fn assistant_query_result(&mut self, source: impl Into<String>, text: impl Into<String>) {
         let source = sanitize_inline(&source.into());
         let label = if source.is_empty() {
@@ -1320,16 +1322,6 @@ impl TuiState {
             TranscriptKind::QueryResult,
             TuiTone::Supplementary,
             Some(label),
-            TuiTone::Muted,
-            text.into(),
-        );
-    }
-
-    pub fn assistant_metadata(&mut self, text: impl Into<String>) {
-        self.push_entry(
-            TranscriptKind::Metadata,
-            TuiTone::Muted,
-            None,
             TuiTone::Muted,
             text.into(),
         );
@@ -1555,10 +1547,6 @@ impl TuiState {
         self.pointer = Some((column, row));
     }
 
-    pub fn clear_pointer(&mut self) {
-        self.pointer = None;
-    }
-
     /// The proposal shown by `/reframe`, waiting for the user's choice.
     pub fn set_pending_reframe(&mut self, proposal: crate::reframe::ReframeProposal) {
         self.pending_reframe = Some(proposal);
@@ -1754,12 +1742,6 @@ impl TuiState {
         self.secret_input.is_some()
     }
 
-    pub fn secret_input_label(&self) -> Option<&str> {
-        self.secret_input
-            .as_ref()
-            .map(|secret| secret.label.as_str())
-    }
-
     pub fn cancel_secret_input(&mut self) {
         let Some(secret) = self.secret_input.take() else {
             return;
@@ -1798,12 +1780,6 @@ impl TuiState {
         self.setting_input.is_some()
     }
 
-    pub fn setting_input_label(&self) -> Option<&str> {
-        self.setting_input
-            .as_ref()
-            .map(|input| input.label.as_str())
-    }
-
     pub fn push_setting_input_char(&mut self, character: char) {
         let Some(input) = self.setting_input.as_mut() else {
             return;
@@ -1822,10 +1798,6 @@ impl TuiState {
     pub fn take_setting_input(&mut self) -> Option<(String, String, String)> {
         let input = self.setting_input.take()?;
         Some((input.key, input.label, input.value))
-    }
-
-    pub fn cancel_setting_input(&mut self) {
-        self.setting_input = None;
     }
 
     pub fn set_provider_models(&mut self, models: Vec<String>) {
@@ -2072,35 +2044,6 @@ impl TuiState {
         }
     }
 
-    pub fn status_summary(&self) -> String {
-        let mut status = format!(
-            "1A · {} · {} · {}风险",
-            self.status.label_zh(),
-            self.mode.label_zh(),
-            self.risk.label_zh()
-        );
-        if let Some(session_id) = &self.session_id {
-            let short = if session_id.chars().count() > 16 {
-                format!(
-                    "{}…{}",
-                    session_id.chars().take(10).collect::<String>(),
-                    session_id
-                        .chars()
-                        .rev()
-                        .take(6)
-                        .collect::<String>()
-                        .chars()
-                        .rev()
-                        .collect::<String>()
-                )
-            } else {
-                session_id.clone()
-            };
-            status.push_str(&format!(" · 会话 {short}"));
-        }
-        status
-    }
-
     pub fn set_session_info(&mut self, session_id: impl Into<String>) {
         self.session_id = Some(session_id.into());
     }
@@ -2164,12 +2107,6 @@ impl TuiState {
             .as_mut()
             .map(|picker| picker.handle_input(input))
             .unwrap_or(SessionPickerAction::None)
-    }
-
-    pub fn session_picker_selected_id(&self) -> Option<String> {
-        self.session_picker
-            .as_ref()
-            .and_then(SessionPickerState::selected_id)
     }
 
     pub fn session_picker_preview_needed(&self) -> Option<String> {
@@ -2595,6 +2532,7 @@ impl TuiState {
         }
     }
 
+    #[cfg(test)]
     pub fn filtered_commands(&self) -> Vec<TuiCommandSpec> {
         visible_commands(
             &self.input,
@@ -2646,6 +2584,7 @@ impl TuiState {
             .min(self.prompt_categories().len().saturating_sub(1))
     }
 
+    #[cfg(test)]
     pub fn select_prompt_category(&mut self, index: usize) {
         let count = self.prompt_categories().len();
         if count == 0 {
@@ -2827,6 +2766,7 @@ impl TuiState {
         }
     }
 
+    #[cfg(test)]
     pub fn input_box_contains(&self, column: u16, row: u16) -> bool {
         self.input_box
             .is_some_and(|area| area.contains((column, row).into()))
@@ -3394,7 +3334,6 @@ impl TuiState {
                 TranscriptKind::QueryResult => ("  ◇ ", TuiTone::Muted),
                 TranscriptKind::Evidence => ("  ↳ ", entry.tone),
                 TranscriptKind::Code => ("  ", TuiTone::Code),
-                TranscriptKind::Metadata => ("  ", TuiTone::Muted),
                 TranscriptKind::Work => ("• ", entry.tone),
                 TranscriptKind::WorkResult => ("  ⎿ ", TuiTone::Body),
                 TranscriptKind::ConclusionStart | TranscriptKind::ConclusionEnd => {

@@ -272,15 +272,6 @@ impl ClarifyPanel {
         self.outcome
     }
 
-    /// Normalization moves the recommended option first; that option is the
-    /// default when the panel times out.
-    pub fn default_option(&self, question_id: &str) -> Option<&ClarifyOption> {
-        self.questions
-            .iter()
-            .find(|question| question.id == question_id)
-            .and_then(|question| question.options.first())
-    }
-
     fn ensure_open(&self, now_ms: u128) -> Result<(), ClarifyError> {
         if self.outcome.is_some() || now_ms >= self.deadline_ms {
             Err(ClarifyError::PanelClosed)
