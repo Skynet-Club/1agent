@@ -4,7 +4,7 @@
 [简体中文](status.md) · [English](status.en.md)
 
 > 当前公开版本：**0.97.0 R1 release candidate**  
-> 当前代码线：**1.0.0-rc.6 code-level candidate（本地，不公开、不是 GA）**；状态与阻塞项见 [status-v1.0.md](status-v1.0.md)  
+> 当前代码线：**1.0.0-rc.7 code-level candidate（本地，不公开、不是 GA）**；状态与阻塞项见 [status-v1.0.md](status-v1.0.md)  
 > 当前平台：**Linux x86_64**  
 > 结论：**可以使用和评估，但还不是生产稳定版。**  
 > 功能与使用入口：[RELEASE_0.97.md](release/RELEASE_0.97.md) · [功能矩阵](release/FEATURES-0.97.md)

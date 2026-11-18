@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0-rc.7 — 2026-11-18
+
+- Evaluation depth: `eval --repeats N` reports attempt pass rate, `pass^k`
+  (all attempts pass), at-least-once pass rate, per-case attempts/passes and
+  failure classes; `--min-pass-power-k-bps` provides an optional reliability
+  gate. `EvalCaseResult` records `tool_calls`, `failed_tool_calls`,
+  `redundant_tool_calls` and `time_to_first_tool_ms` from the run journal.
+  `FailureClass` adds deterministic attribution (planning/tool/evidence/budget/
+  safety/provider/infra/etc.) and `EvalReport` carries `failure_class_counts`.
+- Real-model repeat smoke: 4 cases × 2 attempts, 7/8 passed, `pass^2` 75%;
+  `chat-19` was flaky (2 provider calls vs limit 1). Evidence:
+  `docs/evidence/eval-repeatability-2026-11-18/`.
+- Verification: `verify.sh` 1651 total / 0 failed / 13 ignored; claims 260
+  checked. Human calibration, 8h DeepSeek quality and R1–R9 remain blocked.
+
 ## 1.0.0-rc.6 — 2026-11-18
 
 - `/setting` is now a two-level panel: budgets, permissions, appearance, model

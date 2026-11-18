@@ -1,196 +1,96 @@
-# Evaluation Standard
+# 评估体系 · Evaluation
 
-Date: 2026-11-02
+1Agent 的评估不是单一分数，而是三层 + 过程指标 + 失败归因 + 重复采样。
 
-Status: offline contract evaluation implemented; real-model evidence pending
+## 1. 三层度量
 
-## Purpose
+| 层 | 1Agent 指标 | 实现 |
+|---|---|---|
+| 结果质量 | passed/failed、rubric、evidence/claims/unknowns、decision completeness、hard gate | `src/eval.rs` `EvalCaseResult`、`EvalExpectation` |
+| 执行过程 | provider calls、tool calls、failed tool calls、redundant tool calls、time to first tool、duration、usage、stop reason | 从 run journal 派生，写入 `cases.jsonl` |
+| 稳定可靠 | 重复运行通过率、pass^k、至少一次通过、crash-free、completed replay、benchmark gate | `eval --repeats`、`benchmark-run`、`src/benchmark.rs` |
 
-Evaluation must distinguish plumbing correctness, decision completeness, task correctness,
-repeatability, safety, cost and human agreement. A single aggregate score cannot represent these
-properties.
+`pass^k` 在这里定义为**同一 case 的 k 次尝试全部通过**；`pass_at_least_once` 表示至少一次通过。两者分开报告，避免用“平均成功率”掩盖偶发失败。
 
-## Suite kinds
+## 2. 过程指标
 
-### Contract fixture
+`EvalCaseResult` 新增：
 
-Uses deterministic scripted providers and proves protocol, safety and semantic invariants. It may
-validate complete tool call/observation/answer sequences.
+- `tool_calls`：工具调用总数
+- `failed_tool_calls`：非 `Ok` 的工具观察数
+- `redundant_tool_calls`：同工具、同参数的重复调用
+- `time_to_first_tool_ms`：运行开始到第一次工具调用的时间
+- `provider_calls`：模型请求次数
+- `usage`：token 与成本
 
-It cannot be promoted as evidence that a model reasons well.
+这些指标从 journal 派生，不需要模型额外输出。
 
-### Model quality
+## 3. 失败分类
 
-Requires:
-
-- a ready execution status;
-- declared provider requirements;
-- a named reviewer;
-- calibration required;
-- held-out case identity;
-- provider/model/version recording.
-
-Contract fixtures are rejected for experience promotion and model-quality claims.
-
-## Data splits
-
-Use disjoint:
+`FailureClass` 是规则分类，不是 LLM judge：
 
 ```text
-development
-tuning
-held-out
+planning / tool_selection / tool_arguments / evidence /
+generation / budget / safety / provider / infra / unknown
 ```
 
-Rules:
+分类来自显式检查文本，例如：
 
-- held-out cases are not used for prompt tuning or routing weights;
-- case IDs and suite content are versioned;
-- subjective tasks require independent reviewer labels;
-- freshness-sensitive evidence includes observation/expiry metadata;
-- prompt-injection content is labeled as untrusted data;
-- provider failures and invalid outputs remain visible rather than being imputed.
+- `expected at most 4 tool calls` → `budget`
+- `forbidden tool` / `required tool` → `tool_selection`
+- `tool error code` / `invalid arguments` → `tool_arguments`
+- evidence / claim / unknown / conflict → `evidence`
+- audit / replay / journal / workspace → `infra`
+- permission / authorization / high-risk → `safety`
+- stop reason / answer status → `generation`
 
-## Per-case result
+报告同时给出 `failure_class_counts`，可按类别聚合优化。
 
-An evaluation case records:
+## 4. 重复运行
 
-- expected stop reason and answer status;
-- evidence, claim, unknown, flip and conflict counts;
-- hard-gate status;
-- rubric checks;
-- low/medium/high impact unknown and assumption counts;
-- stale evidence count;
-- decision-completeness rollup;
-- provider/model, duration and usage;
-- audit status and issues.
+```bash
+# 同一 suite 跑 3 次，报告 pass^3 和每例通过率
+1agent eval --suite evals/agent-loop-v1.json --config ~/.1a/config.json \
+  --repeats 3 --artifacts-dir docs/evidence/agent-loop-repeat
 
-## Decision completeness
+# 要求所有 case 的 pass^3 达到 100%
+1agent eval ... --repeats 3 --min-pass-power-k-bps 10000
+```
 
-A case is complete when:
+输出 `repeat-report.json`：
 
-- a conditional answer has a target-bound flip condition;
-- every flip condition is bound;
-- high-impact unknowns have reduction methods;
-- a completed answer does not depend on a high-impact assumption.
+```json
+{
+  "repeats": 3,
+  "total_cases": 100,
+  "total_attempts": 300,
+  "overall_pass_rate_bps": 9900,
+  "pass_power_k_bps": 9700,
+  "pass_at_least_once_bps": 10000,
+  "failure_class_counts": {"budget": 2, "evidence": 1},
+  "cases": [
+    {"id": "chat-19", "attempts": 3, "passes": 2, "pass_rate_bps": 6666,
+     "pass_power_k": false, "failure_classes": ["budget"]}
+  ]
+}
+```
 
-The suite aggregate reports:
+## 5. 人工校准
 
-- cases and complete cases;
-- completion rate in basis points;
-- conditional and bound-flip counts;
-- unbound flips;
-- high-impact unknowns without reduction;
-- completed answers with high-impact assumptions.
+规则 rubric 不能判断“内容是否真的有用”。人工黄金集应该是独立标注的：
 
-The floor defaults to `10000` bps for model-quality suites and `0` elsewhere. It can be configured
-within `0..=10000`; the report records policy version and whether the floor was defaulted or
-explicit.
+- 30–50 条，覆盖六类任务；
+- 标注可用性、事实正确性、过度追问、是否该拒绝；
+- 与规则分、模型分做一致性对比；
+- 只有校准过的指标进入 release gate。
 
-Decision completeness is necessary but not sufficient. A complete answer can still be wrong.
+**当前状态：未完成。** 0.97 的标签是 AI/批量写入，不是人工盲评；不要把两者混为一谈。
 
-## Core metrics
+## 6. 尚未关闭的评估门
 
-| Metric | Question |
-|---|---|
-| pass rate | How often did a case satisfy all gates? |
-| pass^k | How often did a task succeed across all k repetitions? |
-| hard-gate failures | Did audit, safety or decision completeness fail? |
-| unsupported certainty | Did a completed answer lack claims/evidence? |
-| evidence provenance failures | Can evidence be tied to declared claims? |
-| token cost | What usage was reported by the provider? |
-| monetary cost | What normalized cost was reported or configured? |
-| p50/p95 latency | What latency is typical and tail-heavy? |
-| retry/fallback rate | How often was the primary route replaced? |
-| reviewer agreement | Can humans apply the rubric consistently? |
-| calibration error | Are numeric confidence claims reliable? |
+- 8h DeepSeek 模型质量（需要成本/时间批准）
+- R1–R9 真实用户指标（需要真实 cohort）
+- 单 case 多种子/多次运行的统计显著性
+- 语义质量的人工校准
 
-## pass^k
-
-For `n` tasks and `k` repetitions, report both:
-
-- mean single-run success;
-- the probability that all `k` runs of a sampled task succeed.
-
-The repetition count and sampling rule must be recorded. A high mean pass rate with poor pass^k
-indicates unstable behavior.
-
-## Gates
-
-Minimum hard gates:
-
-- audit passes;
-- answer schema is supported;
-- evidence/provenance invariants pass;
-- action receipts respect permissions;
-- a model-quality report meets its completeness floor;
-- all aggregate fields reconstruct from case results.
-
-Recommended evidence stages:
-
-| Stage | Purpose | Required claim |
-|---|---|---|
-| Fixture | Protocol regression | “Contracts pass under scripted providers.” |
-| Adapter smoke | Endpoint compatibility | “A configured provider completed/failed normally.” |
-| Provider pilot | Distributional quality | “Provider/model X met recorded gates on corpus Y.” |
-| Held-out | Generalization | “The result did not use tuning examples.” |
-| Production candidate | Operational envelope | “Quality, stability, cost and latency meet approved thresholds.” |
-
-## Cost guard
-
-`benchmark-run` can stop an expensive run before it finishes:
-
-- `--max-cost-micros N`: stop when accumulated provider cost reaches N micros.
-  A preflight estimate runs before the suite; if the estimate exceeds N, the
-  command refuses to start. Provider prices must be set in the config; with zero
-  prices the command warns that the budget cannot stop the run.
-- `--estimate-only`: print the preflight estimate (cases, input/output tokens,
-  estimated cost) and exit without running the suite. JSON mode reports
-  `cases`, `input_tokens`, `output_tokens`, `cost_micros` and `priced`.
-  The estimate is first-order: 4,000 input and 800 output tokens per case plus
-  the objective length, using the highest configured provider price.
-- `--checkpoint-every N`: evaluate running gates every N runs (recommended:
-  20/40/80/160/320).
-- `--min-task-completion-bps N`: at a checkpoint, stop when the Wilson 95%
-  upper bound of running task completion is below N. The bound keeps a small
-  failing sample from stopping a run that could still recover.
-- `--max-provider-error-bps N`: at a checkpoint, stop when provider-error cases
-  exceed N bps after at least 8 cases.
-- `--min-crash-free-bps N`: at a checkpoint, stop when the remaining planned
-  runs cannot reach N bps even with zero further crashes.
-
-The report adds `stopped_early`, `stop_reason`, `cost_micros`,
-`provider_error_cases` and `provider_error_bps`. An early stop always fails the
-benchmark gate: it means the run was incomplete, not that it passed.
-
-## Report trust
-
-Reports include a canonical content digest. `eval-inspect` recomputes arithmetic and aggregates,
-checks policy/version compatibility and verifies the digest.
-
-Optional authenticated reports use an `evaluation_report` approval envelope and key registry.
-Authenticity is separate from content binding and evaluation truth.
-
-## Evaluation workflow
-
-1. Define the task family and expected outcome.
-2. Write rubric and hard gates.
-3. Review ambiguous cases.
-4. Freeze suite version and held-out split.
-5. Run with fixed provider/model/parameters.
-6. Recompute audit and aggregate invariants.
-7. Repeat for stability.
-8. Review failures against raw observations.
-9. Record cost, latency and unsupported certainty.
-10. Promote only the claims supported by the evidence stage.
-
-## Invalid claims
-
-Do not infer:
-
-- real-model quality from deterministic fixtures;
-- correctness from decision completeness;
-- provider superiority from one run or one task;
-- safety from prompt instructions alone;
-- calibrated confidence from model self-report;
-- production readiness from a successful build.
+代码级评估通过不等于产品 1.0 GA。

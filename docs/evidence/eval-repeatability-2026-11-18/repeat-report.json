@@ -1,0 +1,64 @@
+{
+  "suite": "agent-loop-repeat-smoke",
+  "suite_version": "smoke-1",
+  "repeats": 2,
+  "total_cases": 4,
+  "total_attempts": 8,
+  "passed_attempts": 7,
+  "overall_pass_rate_bps": 8750,
+  "pass_power_k_bps": 7500,
+  "pass_at_least_once_bps": 10000,
+  "failure_class_counts": {
+    "budget": 1
+  },
+  "cases": [
+    {
+      "id": "intro-03",
+      "attempts": 2,
+      "passes": 2,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "intro-20",
+      "attempts": 2,
+      "passes": 2,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "chat-19",
+      "attempts": 2,
+      "passes": 1,
+      "pass_rate_bps": 5000,
+      "pass_power_k": false,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [
+        "budget"
+      ],
+      "issue_samples": [
+        "expected at most 1 provider calls, got 2"
+      ]
+    },
+    {
+      "id": "risk-12",
+      "attempts": 2,
+      "passes": 2,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    }
+  ]
+}

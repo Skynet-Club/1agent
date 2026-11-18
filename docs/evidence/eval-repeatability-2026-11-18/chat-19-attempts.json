@@ -1,0 +1,18 @@
+[
+  {
+    "passed": false,
+    "provider_calls": 2,
+    "failure_classes": [
+      "budget"
+    ],
+    "issues": [
+      "expected at most 1 provider calls, got 2"
+    ]
+  },
+  {
+    "passed": true,
+    "provider_calls": 1,
+    "failure_classes": [],
+    "issues": []
+  }
+]

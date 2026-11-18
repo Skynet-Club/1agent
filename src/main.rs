@@ -1200,6 +1200,12 @@ enum Command {
         /// Keep per-case journals and a cases.jsonl index under this directory.
         #[arg(long)]
         artifacts_dir: Option<PathBuf>,
+        /// Run the suite N times and report pass rate and pass^k (1..=20).
+        #[arg(long, default_value_t = 1)]
+        repeats: usize,
+        /// Fail when the all-attempts-pass rate is below this many basis points.
+        #[arg(long, default_value_t = 0)]
+        min_pass_power_k_bps: u16,
         /// Validate the suite structure without running a model.
         #[arg(long)]
         validate_only: bool,
@@ -13112,6 +13118,8 @@ async fn main() -> Result<()> {
             timeout_seconds,
             disclosure_out,
             artifacts_dir,
+            repeats,
+            min_pass_power_k_bps,
             validate_only,
             json,
         } => {
@@ -13157,6 +13165,73 @@ async fn main() -> Result<()> {
                     manifest: local_manifest(),
                 }]
             };
+            if repeats == 0 {
+                bail!("--repeats must be between 1 and 20");
+            }
+            if repeats > 1 {
+                if disclosure_out.is_some() {
+                    bail!("--disclosure-out requires --repeats 1");
+                }
+                if min_pass_power_k_bps > 10_000 {
+                    bail!("--min-pass-power-k-bps must be between 0 and 10000");
+                }
+                let repeat_artifacts = artifacts_dir.clone();
+                let report = first_principles_agent::eval::run_suite_repeats(
+                    suite,
+                    providers,
+                    allow_network,
+                    repeats,
+                    repeat_artifacts.clone(),
+                )
+                .await?;
+                if let Some(root) = repeat_artifacts {
+                    std::fs::create_dir_all(&root)
+                        .with_context(|| format!("create {}", root.display()))?;
+                    let path = root.join("repeat-report.json");
+                    std::fs::write(&path, serde_json::to_vec_pretty(&report)?)
+                        .with_context(|| format!("write {}", path.display()))?;
+                }
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "评测重复：{}（{} 次，{} 例，{} 次尝试）",
+                        report.suite, report.repeats, report.total_cases, report.total_attempts
+                    );
+                    println!(
+                        "整体通过率 {}/{} = {} bps；pass^{}={} bps；至少一次通过={} bps",
+                        report.passed_attempts,
+                        report.total_attempts,
+                        report.overall_pass_rate_bps,
+                        report.repeats,
+                        report.pass_power_k_bps,
+                        report.pass_at_least_once_bps
+                    );
+                    if !report.failure_class_counts.is_empty() {
+                        println!("失败分类：{:?}", report.failure_class_counts);
+                    }
+                    for case in &report.cases {
+                        println!(
+                            "- {}: {}/{} ({}) pass^{}={}",
+                            case.id,
+                            case.passes,
+                            case.attempts,
+                            case.pass_rate_bps,
+                            report.repeats,
+                            case.pass_power_k
+                        );
+                    }
+                }
+                if min_pass_power_k_bps > 0 && report.pass_power_k_bps < min_pass_power_k_bps {
+                    bail!(
+                        "pass^{} {} bps is below the required {} bps",
+                        report.repeats,
+                        report.pass_power_k_bps,
+                        min_pass_power_k_bps
+                    );
+                }
+                return Ok(());
+            }
             let report = first_principles_agent::eval::run_suite_with_providers_artifacts(
                 suite,
                 providers,

@@ -172,7 +172,26 @@ now uses the available height instead of an eight-row cap.
 
 Raw logs: `verify-1.0.0-rc.6.log`, `tui-interaction-rc.6.log`.
 
-## 13. Not covered
+## 14. rc.7 evaluation depth (2026-11-18)
+
+`eval --repeats N` reports per-case attempts/passes, `pass^k` (all attempts
+pass), at-least-once pass rate, hard-gate failures and rule-based failure
+classes; `--min-pass-power-k-bps` is an optional reliability gate.
+`EvalCaseResult` now records `tool_calls`, `failed_tool_calls`,
+`redundant_tool_calls` and `time_to_first_tool_ms` from the journal, and
+`EvalReport` carries `failure_class_counts`.
+
+| Check | Result |
+|---|---|
+| `./scripts/verify.sh` | **pass**; 1651 total, 0 failed, 13 ignored |
+| deterministic repeat test | `core-v3` × 2, 16/16, pass^2 100% |
+| real-model repeat smoke | 4 cases × 2, 7/8, pass^2 75%, `chat-19` flaky (2 vs 1 provider calls) |
+
+Evidence: `docs/evidence/eval-repeatability-2026-11-18/`,
+`verify-1.0.0-rc.7.log`. Human calibration, 8h DeepSeek quality and R1–R9
+remain blocked; failure classes are rule-derived, not semantic judgments.
+
+## 15. Not covered
 
 - 8h DeepSeek model-quality benchmark (cost/time not approved; prior 8h local
   soak is runtime-only evidence).

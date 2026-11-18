@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,41 @@ pub enum EvalExecutionStatus {
     Template,
     Draft,
     Ready,
+}
+
+/// Coarse failure attribution for aggregation. A case can have more than one
+/// class when several independent checks fail; the classes are deliberately
+/// derived from explicit checks, not from an LLM judge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureClass {
+    Planning,
+    ToolSelection,
+    ToolArguments,
+    Evidence,
+    Generation,
+    Budget,
+    Safety,
+    Provider,
+    Infra,
+    Unknown,
+}
+
+impl FailureClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Planning => "planning",
+            Self::ToolSelection => "tool_selection",
+            Self::ToolArguments => "tool_arguments",
+            Self::Evidence => "evidence",
+            Self::Generation => "generation",
+            Self::Budget => "budget",
+            Self::Safety => "safety",
+            Self::Provider => "provider",
+            Self::Infra => "infra",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -189,7 +224,18 @@ pub struct EvalCaseResult {
     #[serde(default)]
     pub tool_names: Vec<String>,
     #[serde(default)]
+    pub tool_calls: usize,
+    #[serde(default)]
+    pub failed_tool_calls: usize,
+    #[serde(default)]
+    pub redundant_tool_calls: usize,
+    #[serde(default)]
+    pub time_to_first_tool_ms: Option<u64>,
+    #[serde(default)]
     pub provider_calls: usize,
+    /// Derived from explicit checks; empty for a passing case.
+    #[serde(default)]
+    pub failure_classes: Vec<FailureClass>,
     /// Persistent journal path when the caller asked for artifacts.
     #[serde(default)]
     pub journal_path: Option<String>,
@@ -290,6 +336,8 @@ pub struct EvalReport {
     pub hard_gate_failures: usize,
     pub rubric_checks: usize,
     pub rubric_passed: usize,
+    #[serde(default)]
+    pub failure_class_counts: std::collections::BTreeMap<String, usize>,
     pub decision_completeness: DecisionCompletenessAggregate,
     pub min_decision_completeness_bps: u16,
     pub decision_completeness_floor_passed: bool,
@@ -343,6 +391,11 @@ impl EvalReport {
                 "rubric aggregates do not match cases",
             ));
         }
+        if self.failure_class_counts != failure_class_counts(&self.cases) {
+            return Err(EvalError::InvalidReportIntegrity(
+                "failure-class aggregates do not match cases",
+            ));
+        }
         if self.decision_completeness != aggregate_decision_completeness(&self.cases) {
             return Err(EvalError::InvalidReportIntegrity(
                 "decision-completeness aggregates do not match cases",
@@ -364,6 +417,40 @@ impl EvalReport {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EvalCaseRepeat {
+    pub id: String,
+    pub attempts: usize,
+    pub passes: usize,
+    pub pass_rate_bps: u16,
+    /// Strict reliability: every attempt passed.
+    pub pass_power_k: bool,
+    /// At least one attempt passed.
+    pub pass_at_least_once: bool,
+    pub hard_gate_failures: usize,
+    pub failure_classes: Vec<FailureClass>,
+    pub issue_samples: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EvalRepeatReport {
+    pub suite: String,
+    pub suite_version: String,
+    pub repeats: usize,
+    pub total_cases: usize,
+    pub total_attempts: usize,
+    pub passed_attempts: usize,
+    pub overall_pass_rate_bps: u16,
+    /// Percentage of cases where every repeat passed.
+    pub pass_power_k_bps: u16,
+    /// Percentage of cases where at least one repeat passed.
+    pub pass_at_least_once_bps: u16,
+    pub failure_class_counts: BTreeMap<String, usize>,
+    pub cases: Vec<EvalCaseRepeat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -806,6 +893,7 @@ pub async fn run_suite_with_learning_artifacts(
         .count();
     let rubric_checks = results.iter().map(|result| result.rubric_checks).sum();
     let rubric_passed = results.iter().map(|result| result.rubric_passed).sum();
+    let failure_class_counts = failure_class_counts(&results);
     let decision_completeness = aggregate_decision_completeness(&results);
     let decision_completeness_floor_passed =
         decision_completeness.completion_rate_bps >= min_decision_completeness_bps;
@@ -819,6 +907,7 @@ pub async fn run_suite_with_learning_artifacts(
         hard_gate_failures,
         rubric_checks,
         rubric_passed,
+        failure_class_counts,
         decision_completeness,
         min_decision_completeness_bps,
         decision_completeness_floor_passed,
@@ -828,6 +917,103 @@ pub async fn run_suite_with_learning_artifacts(
     };
     report.content_sha256 = Some(report_content_sha256(&report)?);
     Ok(report)
+}
+
+/// Repeat a suite and aggregate per-case reliability. The normal
+/// `run_suite_with_learning_artifacts` result is still produced for each
+/// repeat under `artifacts_dir/repeat-N`; this report is the cross-repeat view.
+pub async fn run_suite_repeats(
+    suite: EvalSuite,
+    providers: Vec<ProviderCandidate>,
+    allow_network: bool,
+    repeats: usize,
+    artifacts_dir: Option<PathBuf>,
+) -> Result<EvalRepeatReport, EvalError> {
+    if repeats == 0 || repeats > 20 {
+        return Err(EvalError::InvalidRepeatCount);
+    }
+    let suite_name = suite.name.clone();
+    let suite_version = suite.suite_version.clone();
+    let mut case_order = Vec::new();
+    let mut by_case: BTreeMap<String, Vec<EvalCaseResult>> = BTreeMap::new();
+    for repeat in 0..repeats {
+        let repeat_dir = artifacts_dir
+            .as_ref()
+            .map(|root| root.join(format!("repeat-{}", repeat + 1)));
+        let report = run_suite_with_learning_artifacts(
+            suite.clone(),
+            providers.clone(),
+            allow_network,
+            Vec::new(),
+            repeat_dir,
+        )
+        .await?;
+        for case in report.cases {
+            if !by_case.contains_key(&case.id) {
+                case_order.push(case.id.clone());
+            }
+            by_case.entry(case.id.clone()).or_default().push(case);
+        }
+    }
+    let total_cases = case_order.len();
+    let mut cases = Vec::with_capacity(total_cases);
+    for id in &case_order {
+        let attempts = by_case.remove(id).unwrap_or_default();
+        let passes = attempts.iter().filter(|attempt| attempt.passed).count();
+        let hard_gate_failures = attempts
+            .iter()
+            .filter(|attempt| attempt.hard_gate_failed)
+            .count();
+        let mut failure_classes = BTreeSet::new();
+        let mut issue_samples = BTreeSet::new();
+        for attempt in &attempts {
+            failure_classes.extend(attempt.failure_classes.iter().copied());
+            issue_samples.extend(attempt.issues.iter().cloned());
+        }
+        cases.push(EvalCaseRepeat {
+            id: id.clone(),
+            attempts: attempts.len(),
+            passes,
+            pass_rate_bps: ratio_bps(passes, attempts.len()),
+            pass_power_k: passes == attempts.len() && !attempts.is_empty(),
+            pass_at_least_once: passes > 0,
+            hard_gate_failures,
+            failure_classes: failure_classes.into_iter().collect(),
+            issue_samples: issue_samples.into_iter().take(5).collect(),
+        });
+    }
+    let total_attempts = cases.iter().map(|case| case.attempts).sum();
+    let passed_attempts = cases.iter().map(|case| case.passes).sum();
+    let pass_power_k_cases = cases.iter().filter(|case| case.pass_power_k).count();
+    let pass_at_least_once_cases = cases.iter().filter(|case| case.pass_at_least_once).count();
+    let mut failure_class_counts = BTreeMap::new();
+    for case in &cases {
+        for class in &case.failure_classes {
+            *failure_class_counts
+                .entry(class.as_str().to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    Ok(EvalRepeatReport {
+        suite: suite_name,
+        suite_version,
+        repeats,
+        total_cases,
+        total_attempts,
+        passed_attempts,
+        overall_pass_rate_bps: ratio_bps(passed_attempts, total_attempts),
+        pass_power_k_bps: ratio_bps(pass_power_k_cases, total_cases),
+        pass_at_least_once_bps: ratio_bps(pass_at_least_once_cases, total_cases),
+        failure_class_counts,
+        cases,
+    })
+}
+
+fn ratio_bps(numerator: usize, denominator: usize) -> u16 {
+    let Some(value) = numerator.saturating_mul(10_000).checked_div(denominator) else {
+        return 0;
+    };
+    u16::try_from(value).unwrap_or(u16::MAX)
 }
 
 enum CaseWorkspace {
@@ -955,7 +1141,14 @@ async fn run_case(
     let mut observations = Vec::new();
     let mut tool_names = Vec::new();
     let mut provider_calls = 0usize;
+    let mut first_event_ms = None;
+    let mut first_tool_ms = None;
+    let mut tool_signatures = BTreeMap::new();
+    let mut redundant_tool_calls = 0usize;
     for event in &events {
+        if first_event_ms.is_none() {
+            first_event_ms = Some(event.timestamp_unix_ms);
+        }
         match &event.event {
             crate::journal::JournalEventKind::RouteSelected {
                 provider_id: selected_provider,
@@ -976,6 +1169,19 @@ async fn run_case(
             }
             crate::journal::JournalEventKind::ToolCalled { call } => {
                 tool_names.push(call.name.clone());
+                if first_tool_ms.is_none() {
+                    first_tool_ms = Some(event.timestamp_unix_ms);
+                }
+                let signature = format!(
+                    "{}:{}",
+                    call.name,
+                    serde_json::to_string(&call.arguments).unwrap_or_default()
+                );
+                let count = tool_signatures.entry(signature).or_insert(0usize);
+                *count += 1;
+                if *count > 1 {
+                    redundant_tool_calls = redundant_tool_calls.saturating_add(1);
+                }
             }
             crate::journal::JournalEventKind::ToolObserved { observation } => {
                 observations.push(observation);
@@ -983,6 +1189,13 @@ async fn run_case(
             _ => {}
         }
     }
+    let failed_tool_calls = observations
+        .iter()
+        .filter(|observation| observation.status != ToolStatus::Ok)
+        .count();
+    let time_to_first_tool_ms = first_event_ms
+        .zip(first_tool_ms)
+        .map(|(first, tool)| u64::try_from(tool.saturating_sub(first)).unwrap_or(u64::MAX));
     let stop_reason_ok = if case.expect.accepted_stop_reasons.is_empty() {
         result.stop_reason == case.expect.stop_reason
     } else {
@@ -1168,6 +1381,8 @@ async fn run_case(
     }
     let hard_gate_failed = (!audit.ok || !decision_completeness.ok) && case.expect.audit_ok;
     let journal_path = artifacts_dir.map(|_| result.journal_path.display().to_string());
+    let failure_classes = classify_failure(&issues);
+    let tool_calls = tool_names.len();
     let case_result = EvalCaseResult {
         id: case.id,
         passed: issues.is_empty(),
@@ -1228,7 +1443,12 @@ async fn run_case(
         duration_ms,
         usage,
         tool_names,
+        tool_calls,
+        failed_tool_calls,
+        redundant_tool_calls,
+        time_to_first_tool_ms,
         provider_calls,
+        failure_classes,
         journal_path,
         audit_ok: audit.ok,
         replay_ok,
@@ -1318,12 +1538,68 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         duration_ms: 0,
         usage: Usage::default(),
         tool_names: Vec::new(),
+        tool_calls: 0,
+        failed_tool_calls: 0,
+        redundant_tool_calls: 0,
+        time_to_first_tool_ms: None,
         provider_calls: 0,
+        failure_classes: vec![FailureClass::Infra],
         journal_path: None,
         audit_ok: false,
         replay_ok: false,
         issues: vec![issue],
     }
+}
+
+/// Map explicit issue text to coarse failure classes. This is deliberately
+/// rule-based and deterministic; it is not a semantic judge. A case may carry
+/// several classes when independent checks fail.
+fn classify_failure(issues: &[String]) -> Vec<FailureClass> {
+    let mut classes = BTreeSet::new();
+    for issue in issues {
+        let text = issue.to_ascii_lowercase();
+        if text.contains("max cost")
+            || text.contains("cost micros")
+            || text.contains("tool calls")
+            || text.contains("provider calls")
+            || text.contains("budget")
+            || text.contains("timeout")
+        {
+            classes.insert(FailureClass::Budget);
+        } else if text.contains("tool error code") || text.contains("invalid arguments") {
+            classes.insert(FailureClass::ToolArguments);
+        } else if text.contains("tool") || text.contains("forbidden") || text.contains("required") {
+            classes.insert(FailureClass::ToolSelection);
+        } else if text.contains("evidence")
+            || text.contains("claim")
+            || text.contains("unknown")
+            || text.contains("conflict")
+            || text.contains("flip condition")
+            || text.contains("decision completeness")
+        {
+            classes.insert(FailureClass::Evidence);
+        } else if text.contains("permission")
+            || text.contains("authorization")
+            || text.contains("high-risk")
+            || text.contains("safety")
+        {
+            classes.insert(FailureClass::Safety);
+        } else if text.contains("audit")
+            || text.contains("replay")
+            || text.contains("journal")
+            || text.contains("serialize")
+            || text.contains("workspace")
+        {
+            classes.insert(FailureClass::Infra);
+        } else if text.contains("provider") || text.contains("network") {
+            classes.insert(FailureClass::Provider);
+        } else if text.contains("stop reason") || text.contains("answer status") {
+            classes.insert(FailureClass::Generation);
+        } else {
+            classes.insert(FailureClass::Unknown);
+        }
+    }
+    classes.into_iter().collect()
 }
 
 fn summarize_decision_completeness(
@@ -1371,6 +1647,16 @@ fn summarize_decision_completeness(
         completed_with_high_impact_assumptions,
         ok,
     }
+}
+
+fn failure_class_counts(results: &[EvalCaseResult]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for result in results {
+        for class in &result.failure_classes {
+            *counts.entry(class.as_str().to_string()).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 fn aggregate_decision_completeness(results: &[EvalCaseResult]) -> DecisionCompletenessAggregate {
@@ -1556,6 +1842,8 @@ pub enum EvalError {
     ReportContentBindingRequired,
     #[error("report authenticity is required but no verified report signature was provided")]
     ReportAuthenticityRequired,
+    #[error("evaluation repeat count must be between 1 and 20")]
+    InvalidRepeatCount,
 }
 
 fn effective_decision_completeness_floor(suite: &EvalSuite) -> u16 {
@@ -1972,6 +2260,52 @@ mod tests {
         )));
     }
 
+    #[test]
+    fn failure_classes_and_ratios_are_deterministic() {
+        assert_eq!(
+            classify_failure(&["expected at most 4 tool calls, got 6".into()]),
+            vec![FailureClass::Budget]
+        );
+        assert_eq!(
+            classify_failure(&["expected at least 1 evidence records, got 0".into()]),
+            vec![FailureClass::Evidence]
+        );
+        assert_eq!(
+            classify_failure(&["forbidden tool browser was called".into()]),
+            vec![FailureClass::ToolSelection]
+        );
+        assert_eq!(
+            classify_failure(&["expected audit_ok=true, got false".into()]),
+            vec![FailureClass::Infra]
+        );
+        assert_eq!(ratio_bps(1, 2), 5_000);
+        assert_eq!(ratio_bps(0, 0), 0);
+    }
+
+    #[tokio::test]
+    async fn repeated_suite_reports_pass_power_k() {
+        let suite: EvalSuite = serde_json::from_str(include_str!("../evals/core.json")).unwrap();
+        let report = run_suite_repeats(
+            suite,
+            vec![ProviderCandidate {
+                provider: std::sync::Arc::new(DeterministicProvider::new()),
+                manifest: local_manifest(),
+            }],
+            false,
+            2,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.repeats, 2);
+        assert_eq!(report.total_cases, 8);
+        assert_eq!(report.total_attempts, 16);
+        assert_eq!(report.passed_attempts, 16);
+        assert_eq!(report.pass_power_k_bps, 10_000);
+        assert_eq!(report.pass_at_least_once_bps, 10_000);
+        assert!(report.failure_class_counts.is_empty());
+    }
+
     #[tokio::test]
     async fn deterministic_suite_reports_success_and_hard_gates() {
         let report = run_suite(EvalSuite {
@@ -2066,6 +2400,7 @@ mod tests {
             hard_gate_failures: 0,
             rubric_checks: 1,
             rubric_passed: 1,
+            failure_class_counts: BTreeMap::new(),
             decision_completeness: DecisionCompletenessAggregate {
                 cases: 1,
                 ok_cases: 1,
@@ -2109,7 +2444,12 @@ mod tests {
                 duration_ms: 0,
                 usage: Usage::default(),
                 tool_names: Vec::new(),
+                tool_calls: 0,
+                failed_tool_calls: 0,
+                redundant_tool_calls: 0,
+                time_to_first_tool_ms: None,
                 provider_calls: 0,
+                failure_classes: Vec::new(),
                 journal_path: None,
                 audit_ok: true,
                 replay_ok: true,
