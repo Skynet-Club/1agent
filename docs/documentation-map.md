@@ -36,6 +36,11 @@ boundary remains until ADR-003 is accepted.
   ActionRuntime and DelegationKernel plan after 0.98.2 acceptance.
 - [`0.99-handoff.md`](0.99-handoff.md): resume checkpoint — what is accepted,
   what remains, branches/tags, evidence paths and the first next task.
+- [`1.0-code-complete-plan.md`](1.0-code-complete-plan.md): code-level 1.0
+  candidate, local gates, release candidates and blocked external gates.
+- [`1.1-standard-harness-plan.md`](1.1-standard-harness-plan.md): 1ASH
+  standard harness — task/run/trace/report contracts, Inspect/Harbor adapters,
+  evidence scoring and the 1.1 roadmap.
 - [`master-agent.md`](master-agent.md): Master-Agent contracts, commands, safety and live evidence.
 - [`master-multi-goal-production-line.md`](master-multi-goal-production-line.md): planned
   multi-Goal, multi-Master intake, supervision, dispatch and verification program.

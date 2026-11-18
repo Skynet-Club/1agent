@@ -149,3 +149,6 @@ One line per decision. New ADRs are added as numbered Markdown files in this dir
 | 0144 | Completion Acceptance Contract and Receipt | [0144-completion-acceptance.md](0144-completion-acceptance.md) |
 | 0145 | Understanding Gate, Text-Required Clarify and Design Delivery Guard | [0145-understanding-and-design-delivery-gate.md](0145-understanding-and-design-delivery-gate.md) |
 | 0146 | Read-Only Cross-Session Recall | [0146-read-only-cross-session-recall.md](0146-read-only-cross-session-recall.md) |
+| 0147 | Goal Closure Requires a Stored Verification Record | [0147-goal-closure-verification.md](0147-goal-closure-verification.md) |
+| 0148 | Budget Stop Reasons Follow the Final Answer; One Bounded Repair Retry | [0148-budget-stop-reasons-and-bounded-repair.md](0148-budget-stop-reasons-and-bounded-repair.md) |
+| 0149 | Standard Harness Profile, Not a Benchmark Platform | [0149-standard-harness-profile.md](0149-standard-harness-profile.md) |
