@@ -67,5 +67,15 @@ This is the instability a single 99/100 run hides. Evidence:
 
 ## 5. Local assets
 
-To be filled after the rc.7 package is built. No GitHub release and no push are
-performed by the code-level candidate workflow.
+Built from tag `v1.0.0-rc.7` → `04c7c86` with `./scripts/package.sh
+--linux-only`; tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.7-linux-x86_64.tar.gz` | SHA-256 `f46a7152f7e3a46f7a2e67f4c8e4f773d374e0ee729ea758e78db163afeb1be8` |
+| Packaged binary | SHA-256 `bb07d72e32c63a573761bff28f9a813eb45f771aef7fe4deb661ffeb83c79f76` |
+| Provenance | `linux-x86_64.json`, commit `04c7c86`, `git_dirty: false` |
+| Smoke | `sha256sum -c SHA256SUMS` OK; `--version` 1.0.0-rc.7; `doctor` Ok; install to `~/.local` OK; repeat eval smoke OK |
+
+Evidence: `docs/evidence/release-1.0.0-rc.7-2026-11-18.md`. No GitHub release
+and no push were performed.
