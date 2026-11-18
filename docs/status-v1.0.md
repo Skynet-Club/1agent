@@ -36,7 +36,7 @@ responsibility and R1–R9 real-user metrics remain **blocked**; no GA claim.
 | TUI interaction | **pass** (real provider; two Ctrl+Q quit) | `docs/evidence/1.0-local-qa-2026-11-17/tui-interaction-rc.6.log` |
 | 5-cycle soak | **pass** | `docs/evidence/1.0-local-qa-2026-11-17/soak.log` |
 | `release-check.sh` | fmt/clippy/tests/http pass; `ci.sh` blocked at attribution history | `docs/evidence/1.0-local-qa-2026-11-17/release-check.log` |
-| Local package | `1.0.0-rc.10` Linux tar, `reproducible=true`, archive SHA `3eb3692c…`, binary `df95495a…`; SHA256SUMS/version/install smoke pass | `docs/evidence/release-1.0.0-rc.10-2026-11-18.md` |
+| Local package | `1.0.0-rc.11` Linux tar, `reproducible=true`, archive SHA `3f8dc770…`, binary `d469f9cf…`; SHA256SUMS/version/install smoke pass | `docs/evidence/release-1.0.0-rc.11-2026-11-18.md` |
 
 ## 2. Hard gates (local vs blocked)
 

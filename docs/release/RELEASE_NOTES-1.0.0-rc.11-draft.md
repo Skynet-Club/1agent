@@ -52,4 +52,15 @@ install approval and capability-path memory
 
 ## 4. Local assets
 
-To be filled after the rc.11 package is built. No GitHub release and no push.
+Built from tag `v1.0.0-rc.11` → `f352ba8` with `./scripts/package.sh --linux-only`;
+tree clean, `reproducible=true`.
+
+| Asset | Value |
+|---|---|
+| `1agent-1.0.0-rc.11-linux-x86_64.tar.gz` | SHA-256 `3f8dc770ece6dff085b4b58bf8e2ec4a08201b90b878fcd6aedf1b80bac3c8bd` |
+| Packaged binary | SHA-256 `d469f9cfae365beec954435739e253f0e19d83e1c80749af4c7c9d8d6a7bda56` |
+| Provenance | `linux-x86_64.json`, commit `f352ba8`, `git_dirty: false` |
+| Smoke | SHA256SUMS OK; `--version` 1.0.0-rc.11; install to `~/.local` OK |
+
+Evidence: `docs/evidence/release-1.0.0-rc.11-2026-11-18.md`. No GitHub release
+and no push were performed.
