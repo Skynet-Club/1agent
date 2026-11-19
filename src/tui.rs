@@ -2493,11 +2493,11 @@ impl TuiState {
             TranscriptKind::PanelStart,
             border,
             Some(title.into()),
-            border,
+            TuiTone::Muted,
             String::new(),
         );
         for (text, tone) in rows {
-            self.push_entry(TranscriptKind::PanelLine, tone, None, tone, text);
+            self.push_entry(TranscriptKind::PanelLine, tone, None, border, text);
         }
         self.push_entry(
             TranscriptKind::PanelEnd,
@@ -3379,7 +3379,7 @@ impl TuiState {
             };
             let label = entry.label.as_deref().unwrap_or_default();
             if entry.kind == TranscriptKind::PanelStart {
-                let top_prefix = "╭─ ";
+                let top_prefix = "╭╌ ";
                 let right = "╮";
                 let label = truncate_to_width(label, usize::from(width.saturating_sub(10)));
                 let fill = usize::from(width)
@@ -3387,7 +3387,7 @@ impl TuiState {
                 lines.push(TranscriptVisualLine {
                     kind: TranscriptKind::PanelStart,
                     tone: entry.tone,
-                    text: format!("{top_prefix}{label} {}╮", "─".repeat(fill)),
+                    text: format!("{top_prefix}{label} {}╮", "╌".repeat(fill)),
                     prompt_text: None,
                     prefix_len: top_prefix.len(),
                     prefix_tone: entry.tone,
@@ -3399,8 +3399,8 @@ impl TuiState {
                 continue;
             }
             if entry.kind == TranscriptKind::PanelLine {
-                let prefix = "│ ";
-                let suffix = " │";
+                let prefix = "┊ ";
+                let suffix = " ┊";
                 let inner = usize::from(width)
                     .saturating_sub(prefix.width() + suffix.width())
                     .max(1);
@@ -3412,9 +3412,9 @@ impl TuiState {
                             text: format!("{prefix}{}{suffix}", fit_row(&wrapped, inner)),
                             prompt_text: None,
                             prefix_len: prefix.len(),
-                            prefix_tone: entry.tone,
+                            prefix_tone: entry.label_tone,
                             label_range: None,
-                            label_tone: entry.tone,
+                            label_tone: entry.label_tone,
                             syntax_ranges: Vec::new(),
                             background: None,
                         });
@@ -3426,7 +3426,7 @@ impl TuiState {
                 lines.push(TranscriptVisualLine {
                     kind: TranscriptKind::PanelEnd,
                     tone: entry.tone,
-                    text: format!("╰{}╯", "─".repeat(usize::from(width).saturating_sub(2))),
+                    text: format!("╰{}╯", "╌".repeat(usize::from(width).saturating_sub(2))),
                     prompt_text: None,
                     prefix_len: 0,
                     prefix_tone: entry.tone,
@@ -8067,15 +8067,16 @@ mod tests {
                 ("● 偏好 editor=pnpm".into(), TuiTone::Memory),
                 ("○ 已过期 release/1.0".into(), TuiTone::Supplementary),
             ],
-            TuiTone::Memory,
+            TuiTone::Border,
         );
         let lines = state.build_transcript_lines(60);
         let start = lines
             .iter()
             .find(|line| line.kind == TranscriptKind::PanelStart)
             .expect("panel start");
-        assert!(start.text.starts_with("╭─ 记忆 · 2 命中"));
-        assert_eq!(start.tone, TuiTone::Memory);
+        assert!(start.text.starts_with("╭╌ 记忆 · 2 命中"));
+        assert_eq!(start.tone, TuiTone::Border);
+        assert!(start.text.contains('╌'));
         let active = lines
             .iter()
             .find(|line| line.text.contains("editor=pnpm"))
@@ -8111,6 +8112,8 @@ mod tests {
                 .find(|cell| cell.symbol() == needle)
         };
         assert!(symbol_at("╭").is_some(), "missing panel top border");
+        assert!(symbol_at("╌").is_some(), "missing dashed panel border");
+        assert!(symbol_at("┊").is_some(), "missing dashed vertical border");
         assert!(symbol_at("╰").is_some(), "missing panel bottom border");
         assert_eq!(
             symbol_at("●").expect("active row").fg,

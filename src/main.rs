@@ -25910,7 +25910,7 @@ fn append_work_events(
             }
             JournalEventKind::ToolObserved { observation } => {
                 if let Some((title, rows)) = memory_panel_for(observation) {
-                    state.push_panel(title, rows, TuiTone::Memory);
+                    state.push_panel(title, rows, TuiTone::Border);
                     *last_seq = Some(event.seq);
                     continue;
                 }
