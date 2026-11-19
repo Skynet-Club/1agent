@@ -1210,6 +1210,15 @@ fn bounded_excerpt(
     excerpt
 }
 
+fn builtin_action(id: &str) -> crate::ontology::ActionDefinition {
+    crate::ontology::try_builtin_action_registry()
+        .expect("built-in ActionType registry")
+        .actions
+        .into_iter()
+        .find(|action| action.id == id)
+        .unwrap_or_else(|| panic!("missing built-in action {id}"))
+}
+
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::default();
     registry.register(Arc::new(ReadFileTool));
@@ -1230,13 +1239,15 @@ pub fn default_registry() -> ToolRegistry {
         std::env::current_exe().unwrap_or_else(|_| PathBuf::from("1agent")),
     )));
     registry.register(Arc::new(WriteFileTool));
-    let propose_change = crate::ontology::try_builtin_action_registry()
-        .expect("built-in ActionType registry")
-        .actions
-        .into_iter()
-        .find(|action| action.id == "code.propose_change")
-        .expect("code.propose_change action");
-    registry.register(Arc::new(CodeProposeChangeTool::new(propose_change)));
+    registry.register(Arc::new(CodeProposeChangeTool::new(builtin_action(
+        "code.propose_change",
+    ))));
+    registry.register(Arc::new(CodeRunChecksTool::new(builtin_action(
+        "code.run_checks",
+    ))));
+    registry.register(Arc::new(CodePrepareReleaseTool::new(builtin_action(
+        "code.prepare_release",
+    ))));
     registry.register(Arc::new(EditFileTool));
     registry.register(Arc::new(TerminalCreateTool::from_env()));
     registry.register(Arc::new(TerminalWriteTool::from_env()));

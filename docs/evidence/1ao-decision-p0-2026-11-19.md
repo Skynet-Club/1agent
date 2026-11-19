@@ -52,22 +52,34 @@ runtime behavior changed.
   This is a CLI/library operation, not a model tool, so an agent cannot
   self-approve. It records the decision; it does not merge or release.
 
+## Checks and local release
+
+- `code.run_checks` validates each proposal path stays inside the workspace,
+  records SHA-256/bytes for each file, and writes a 0600 check report under
+  `.1a/checks/<proposal_id>.json`; missing/oversized paths fail the report.
+- `code.prepare_release` requires an approved receipt whose proposal SHA-256
+  matches and a passed check report for the same proposal; it writes a 0600
+  local release manifest and SHA256SUMS under `.1a/releases/<proposal_id>/`.
+- It does not build/package binaries and does not publish externally; that is
+  a separate future action.
+- `code.approve_change` remains a human CLI/library operation, not a model tool.
+
 ## Verification
 
 | Check | Result |
 |---|---|
-| `./scripts/verify.sh` | **pass**; 1664 total, 0 failed, 13 ignored |
-| ontology/unit tests | 34 ontology + 5 action tests |
+| `./scripts/verify.sh` | **pass**; 1666 total, 0 failed, 13 ignored |
+| ontology/unit tests | 34 ontology + 7 action tests |
 | ontology CLI tests | 29 passed |
 | real journal smoke | Decision + Outcome nodes exported and validated |
 | claims | 266 (242/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`, `verify-1ao-proposal-approval.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`, `verify-1ao-proposal-approval.log`, `verify-1ao-release-tools.log`.
 
 ## Not in this slice
 
 - `Scenario` merge/atomic staging (Proposal is read-only representation).
-- Runtime wiring for the other three actions (approve/checks/release).
+- Real build/package execution; `prepare_release` writes a manifest only.
 - Object/action-level policy and Ontology MCP.
 
 ## Next

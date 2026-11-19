@@ -236,6 +236,393 @@ impl AgentTool for CodeProposeChangeTool {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposalIdArgs {
+    proposal_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrepareReleaseArgs {
+    proposal_id: String,
+    #[serde(default)]
+    version: Option<String>,
+}
+
+pub struct CodeRunChecksTool {
+    action: ActionDefinition,
+}
+
+impl CodeRunChecksTool {
+    pub fn new(action: ActionDefinition) -> Self {
+        Self { action }
+    }
+}
+
+#[async_trait]
+impl AgentTool for CodeRunChecksTool {
+    fn spec(&self) -> ToolSpec {
+        self.action.tool_spec()
+    }
+
+    fn risk(&self) -> RiskLevel {
+        RiskLevel::Low
+    }
+
+    fn requires_write(&self) -> bool {
+        true
+    }
+
+    fn reversible(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        permissions: &PermissionSet,
+        _cancellation: &tokio_util::sync::CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        if !permissions.allow_write {
+            return Err(ToolError::PermissionDenied(
+                "run_checks requires write permission for its check report".into(),
+            ));
+        }
+        let args: ProposalIdArgs = serde_json::from_value(arguments)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        validate_safe_id(&args.proposal_id)?;
+        let root = workspace_root(permissions);
+        let proposal_path = root
+            .join(".1a/proposals")
+            .join(format!("{}.json", args.proposal_id));
+        let (proposal, _proposal_bytes, proposal_sha256) = read_proposal(&proposal_path)?;
+        let paths = proposal["paths"]
+            .as_array()
+            .ok_or_else(|| ToolError::Failed("proposal has no paths array".into()))?;
+        let canonical_root = std::fs::canonicalize(&root).unwrap_or(root.clone());
+        let mut files = Vec::new();
+        let mut passed = true;
+        for value in paths {
+            let raw = value
+                .as_str()
+                .ok_or_else(|| ToolError::Failed("proposal path is not a string".into()))?;
+            validate_relative_path(raw)?;
+            let full = root.join(raw);
+            let canonical = std::fs::canonicalize(&full);
+            let canonical = match canonical {
+                Ok(path) if path.starts_with(&canonical_root) && path.is_file() => path,
+                _ => {
+                    passed = false;
+                    files.push(json!({"path": raw, "exists": false, "sha256": null, "bytes": 0}));
+                    continue;
+                }
+            };
+            let metadata = std::fs::metadata(&canonical)
+                .map_err(|error| ToolError::Failed(format!("cannot stat {raw}: {error}")))?;
+            if metadata.len() > 16 * 1024 * 1024 {
+                passed = false;
+                files.push(json!({"path": raw, "exists": true, "sha256": null, "bytes": metadata.len(), "error": "file exceeds 16 MiB"}));
+                continue;
+            }
+            let bytes = std::fs::read(&canonical)
+                .map_err(|error| ToolError::Failed(format!("cannot read {raw}: {error}")))?;
+            files.push(json!({
+                "path": raw,
+                "exists": true,
+                "bytes": bytes.len(),
+                "sha256": hex::encode(Sha256::digest(&bytes))
+            }));
+        }
+        let report = json!({
+            "schema": "1ao.check-report/v1",
+            "proposal_id": args.proposal_id,
+            "proposal_sha256": proposal_sha256,
+            "status": if passed { "passed" } else { "failed" },
+            "files": files,
+            "checked_unix_ms": SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+        });
+        let bytes = serde_json::to_vec_pretty(&report)
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        let sha256 = hex::encode(Sha256::digest(&bytes));
+        let path = root
+            .join(".1a/checks")
+            .join(format!("{}.json", args.proposal_id));
+        crate::jsonl::write_private_atomic(&path, &bytes, "check-report.json")
+            .map_err(|error| ToolError::Failed(format!("cannot write check report: {error}")))?;
+        Ok(ToolOutcome {
+            summary: format!(
+                "checks {} for proposal {}",
+                if passed { "passed" } else { "failed" },
+                args.proposal_id
+            ),
+            content: serde_json::to_string(&report)
+                .map_err(|error| ToolError::Failed(error.to_string()))?,
+            metadata: std::collections::BTreeMap::from([
+                ("action_type".into(), "code.run_checks".into()),
+                ("proposal_id".into(), args.proposal_id),
+                ("path".into(), path.display().to_string()),
+                ("sha256".into(), sha256),
+                ("bytes".into(), bytes.len().to_string()),
+                (
+                    "status".into(),
+                    if passed { "passed" } else { "failed" }.into(),
+                ),
+                ("risk".into(), self.action.risk.clone()),
+                ("reversible".into(), self.action.reversible.to_string()),
+                ("proposal_sha256".into(), proposal_sha256),
+            ]),
+        })
+    }
+}
+
+pub struct CodePrepareReleaseTool {
+    action: ActionDefinition,
+}
+
+impl CodePrepareReleaseTool {
+    pub fn new(action: ActionDefinition) -> Self {
+        Self { action }
+    }
+}
+
+#[async_trait]
+impl AgentTool for CodePrepareReleaseTool {
+    fn spec(&self) -> ToolSpec {
+        self.action.tool_spec()
+    }
+
+    fn risk(&self) -> RiskLevel {
+        RiskLevel::Medium
+    }
+
+    fn requires_write(&self) -> bool {
+        true
+    }
+
+    fn reversible(&self) -> bool {
+        true
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        permissions: &PermissionSet,
+        _cancellation: &tokio_util::sync::CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        if !permissions.allow_write {
+            return Err(ToolError::PermissionDenied(
+                "prepare_release requires write permission for its manifest".into(),
+            ));
+        }
+        let args: PrepareReleaseArgs = serde_json::from_value(arguments)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        validate_safe_id(&args.proposal_id)?;
+        let version = args.version.unwrap_or_else(|| "0.0.0-local".into());
+        if version.is_empty()
+            || version.len() > 64
+            || !version
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+        {
+            return Err(ToolError::InvalidArguments("invalid version".into()));
+        }
+        let root = workspace_root(permissions);
+        let proposal_path = root
+            .join(".1a/proposals")
+            .join(format!("{}.json", args.proposal_id));
+        let (_proposal, _proposal_bytes, proposal_sha256) = read_proposal(&proposal_path)?;
+        let approval_path = root
+            .join(".1a/approvals")
+            .join(format!("{}.json", args.proposal_id));
+        let approval_bytes = read_json_file(&approval_path, "approval receipt")?;
+        let approval: ProposalReceipt = serde_json::from_slice(&approval_bytes)
+            .map_err(|error| ToolError::Failed(format!("invalid approval receipt: {error}")))?;
+        if approval.status != "approved" || approval.proposal_sha256 != proposal_sha256 {
+            return Err(ToolError::Failed(
+                "approval receipt is not approved for this proposal".into(),
+            ));
+        }
+        if approval.proposal_id != args.proposal_id {
+            return Err(ToolError::Failed(
+                "approval receipt proposal id does not match".into(),
+            ));
+        }
+        let check_path = root
+            .join(".1a/checks")
+            .join(format!("{}.json", args.proposal_id));
+        let check_bytes = read_json_file(&check_path, "check report")?;
+        let check_report: Value = serde_json::from_slice(&check_bytes)
+            .map_err(|error| ToolError::Failed(format!("invalid check report: {error}")))?;
+        if check_report["status"] != "passed" || check_report["proposal_sha256"] != proposal_sha256
+        {
+            return Err(ToolError::Failed(
+                "check report did not pass for this proposal".into(),
+            ));
+        }
+        let release_dir = root.join(".1a/releases").join(&args.proposal_id);
+        let manifest_path = release_dir.join("release.json");
+        if let Ok(existing) = std::fs::read(&manifest_path)
+            && let Ok(existing) = serde_json::from_slice::<Value>(&existing)
+            && existing["proposal_sha256"] == proposal_sha256
+            && existing["approval_sha256"] == hex::encode(Sha256::digest(&approval_bytes))
+            && existing["check_report_sha256"] == hex::encode(Sha256::digest(&check_bytes))
+        {
+            let sha256 = hex::encode(Sha256::digest(std::fs::read(&manifest_path).unwrap()));
+            return Ok(release_outcome(
+                self.action.risk.clone(),
+                self.action.reversible,
+                &args.proposal_id,
+                &version,
+                &manifest_path,
+                &sha256,
+                &proposal_sha256,
+            ));
+        }
+        let manifest = json!({
+            "schema": "1ao.release-candidate/v1",
+            "proposal_id": args.proposal_id,
+            "version": version,
+            "status": "prepared",
+            "proposal_sha256": proposal_sha256,
+            "approval_sha256": hex::encode(Sha256::digest(&approval_bytes)),
+            "check_report_sha256": hex::encode(Sha256::digest(&check_bytes)),
+            "files": check_report["files"].clone(),
+            "created_unix_ms": SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+        });
+        let bytes = serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        let sha256 = hex::encode(Sha256::digest(&bytes));
+        crate::jsonl::write_private_atomic(&manifest_path, &bytes, "release.json").map_err(
+            |error| ToolError::Failed(format!("cannot write release manifest: {error}")),
+        )?;
+        let sums = check_report["files"]
+            .as_array()
+            .map(|files| {
+                files
+                    .iter()
+                    .filter_map(|file| {
+                        Some(format!(
+                            "{}  {}",
+                            file["sha256"].as_str()?,
+                            file["path"].as_str()?
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        let sums_path = release_dir.join("SHA256SUMS");
+        crate::jsonl::write_private_atomic(
+            &sums_path,
+            format!("{sums}\n").as_bytes(),
+            "SHA256SUMS",
+        )
+        .map_err(|error| ToolError::Failed(format!("cannot write checksums: {error}")))?;
+        Ok(release_outcome(
+            self.action.risk.clone(),
+            self.action.reversible,
+            &args.proposal_id,
+            &version,
+            &manifest_path,
+            &sha256,
+            &proposal_sha256,
+        ))
+    }
+}
+
+fn release_outcome(
+    risk: String,
+    reversible: bool,
+    proposal_id: &str,
+    version: &str,
+    path: &Path,
+    sha256: &str,
+    proposal_sha256: &str,
+) -> ToolOutcome {
+    ToolOutcome {
+        summary: format!("prepared local release candidate {version} for {proposal_id}"),
+        content: json!({
+            "proposal_id": proposal_id,
+            "version": version,
+            "status": "prepared",
+            "path": path.display().to_string(),
+            "sha256": sha256,
+        })
+        .to_string(),
+        metadata: std::collections::BTreeMap::from([
+            ("action_type".into(), "code.prepare_release".into()),
+            ("proposal_id".into(), proposal_id.to_string()),
+            ("path".into(), path.display().to_string()),
+            ("sha256".into(), sha256.to_string()),
+            ("status".into(), "prepared".into()),
+            ("risk".into(), risk),
+            ("reversible".into(), reversible.to_string()),
+            ("proposal_sha256".into(), proposal_sha256.to_string()),
+            ("version".into(), version.to_string()),
+        ]),
+    }
+}
+
+fn workspace_root(permissions: &PermissionSet) -> PathBuf {
+    permissions
+        .read_roots
+        .first()
+        .cloned()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+fn validate_safe_id(value: &str) -> Result<(), ToolError> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(ToolError::InvalidArguments("invalid proposal_id".into()));
+    }
+    Ok(())
+}
+
+fn read_json_file(path: &Path, label: &str) -> Result<Vec<u8>, ToolError> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| ToolError::Failed(format!("{label} is missing: {error}")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(ToolError::Failed(format!("{label} must be a regular file")));
+    }
+    if metadata.len() > MAX_PROPOSAL_BYTES {
+        return Err(ToolError::Failed(format!("{label} is too large")));
+    }
+    std::fs::read(path).map_err(|error| ToolError::Failed(format!("cannot read {label}: {error}")))
+}
+
+fn read_proposal(path: &Path) -> Result<(Value, Vec<u8>, String), ToolError> {
+    let bytes = read_json_file(path, "proposal")?;
+    let proposal: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| ToolError::Failed(format!("invalid proposal: {error}")))?;
+    if proposal["schema"] != "1ao.change-proposal/v1" || proposal["status"] != "proposed" {
+        return Err(ToolError::Failed(
+            "proposal schema/status is not a proposed change".into(),
+        ));
+    }
+    let sha256 = hex::encode(Sha256::digest(&bytes));
+    Ok((proposal, bytes, sha256))
+}
+
 fn validate_relative_path(value: &str) -> Result<(), ToolError> {
     if value.trim().is_empty() {
         return Err(ToolError::InvalidArguments(
@@ -266,13 +653,17 @@ mod tests {
         }
     }
 
-    fn action() -> ActionDefinition {
+    fn action_by_id(id: &str) -> ActionDefinition {
         crate::ontology::try_builtin_action_registry()
             .unwrap()
             .actions
             .into_iter()
-            .find(|action| action.id == "code.propose_change")
+            .find(|action| action.id == id)
             .unwrap()
+    }
+
+    fn action() -> ActionDefinition {
+        action_by_id("code.propose_change")
     }
 
     #[tokio::test]
@@ -367,6 +758,99 @@ mod tests {
         assert_eq!(receipt.status, "rejected");
         assert!(decide_proposal(&proposal, "approve", "", None).is_err());
         assert!(decide_proposal(&proposal, "maybe", "bob", None).is_err());
+    }
+
+    #[tokio::test]
+    async fn checks_and_release_follow_the_human_approval_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "pub fn answer() -> u8 { 42 }",
+        )
+        .unwrap();
+        let permissions = permissions(dir.path());
+
+        let proposal = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({"summary": "test release", "paths": ["src/lib.rs"]}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let proposal_id = proposal.metadata["proposal_id"].clone();
+        let proposal_path = PathBuf::from(&proposal.metadata["path"]);
+
+        let checks = CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(checks.metadata["status"], "passed");
+        assert!(
+            dir.path()
+                .join(".1a/checks")
+                .join(format!("{proposal_id}.json"))
+                .exists()
+        );
+
+        let release_tool = CodePrepareReleaseTool::new(action_by_id("code.prepare_release"));
+        let missing = release_tool
+            .execute(
+                json!({"proposal_id": proposal_id, "version": "1.0.0"}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(missing.to_string().contains("approval"));
+
+        let receipt = decide_proposal(&proposal_path, "approve", "alice", Some("ship it")).unwrap();
+        assert_eq!(receipt.status, "approved");
+        let release = release_tool
+            .execute(
+                json!({"proposal_id": proposal_id, "version": "1.0.0"}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(release.metadata["status"], "prepared");
+        let manifest_path = PathBuf::from(&release.metadata["path"]);
+        assert!(manifest_path.exists());
+        assert!(manifest_path.parent().unwrap().join("SHA256SUMS").exists());
+        let manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        assert_eq!(manifest["status"], "prepared");
+        assert_eq!(manifest["version"], "1.0.0");
+        assert_eq!(manifest["proposal_sha256"], receipt.proposal_sha256);
+        assert_eq!(manifest["files"][0]["path"], "src/lib.rs");
+    }
+
+    #[tokio::test]
+    async fn checks_fail_for_a_missing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let proposal = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({"summary": "missing", "paths": ["src/missing.rs"]}),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let checks = CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": proposal.metadata["proposal_id"]}),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(checks.metadata["status"], "failed");
     }
 
     #[tokio::test]
