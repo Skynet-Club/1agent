@@ -3832,51 +3832,72 @@ impl TuiState {
             }
             if entry.kind == TranscriptKind::Item {
                 let item_prefix = format!("{indent}  • ");
-                let first_prefix = if label.is_empty() {
-                    item_prefix.clone()
-                } else {
-                    format!("{item_prefix}{label}  ")
-                };
-                let continuation_prefix = format!("{indent}    ");
-                let first_width = usize::from(width)
-                    .saturating_sub(first_prefix.width())
+                let value_prefix = format!("{indent}    ");
+                if !label.is_empty() {
+                    lines.push(TranscriptVisualLine {
+                        kind: TranscriptKind::Item,
+                        tone: entry.tone,
+                        text: format!("{item_prefix}{label}"),
+                        prompt_text: None,
+                        prefix_len: item_prefix.len(),
+                        prefix_tone: entry.tone,
+                        label_range: Some(item_prefix.len()..item_prefix.len() + label.len()),
+                        label_tone: entry.label_tone,
+                        syntax_ranges: Vec::new(),
+                        background: None,
+                    });
+                    for text_line in entry.text.lines() {
+                        for wrapped in wrap_display(
+                            text_line,
+                            usize::from(width)
+                                .saturating_sub(value_prefix.width())
+                                .max(1),
+                        ) {
+                            let syntax_ranges = link_ranges(
+                                &wrapped,
+                                value_prefix.len(),
+                                TuiTone::Link,
+                                TuiTone::LocalFile,
+                            );
+                            lines.push(TranscriptVisualLine {
+                                kind: TranscriptKind::Item,
+                                tone: entry.tone,
+                                text: format!("{value_prefix}{wrapped}"),
+                                prompt_text: None,
+                                prefix_len: value_prefix.len(),
+                                prefix_tone: entry.tone,
+                                label_range: None,
+                                label_tone: entry.tone,
+                                syntax_ranges,
+                                background: None,
+                            });
+                        }
+                    }
+                    continue;
+                }
+                let width_available = usize::from(width)
+                    .saturating_sub(value_prefix.width())
                     .max(1);
-                let continuation_width = usize::from(width)
-                    .saturating_sub(continuation_prefix.width())
-                    .max(1);
-                let mut first = true;
                 for text_line in entry.text.lines() {
-                    let wrapped = if first {
-                        wrap_first_then_rest(text_line, first_width, continuation_width)
-                    } else {
-                        wrap_display(text_line, continuation_width)
-                    };
-                    for wrapped in wrapped {
-                        let line_prefix = if first {
-                            first_prefix.as_str()
-                        } else {
-                            continuation_prefix.as_str()
-                        };
+                    for wrapped in wrap_display(text_line, width_available) {
                         let syntax_ranges = link_ranges(
                             &wrapped,
-                            line_prefix.len(),
+                            item_prefix.len(),
                             TuiTone::Link,
                             TuiTone::LocalFile,
                         );
                         lines.push(TranscriptVisualLine {
                             kind: TranscriptKind::Item,
                             tone: entry.tone,
-                            text: format!("{line_prefix}{wrapped}"),
+                            text: format!("{item_prefix}{wrapped}"),
                             prompt_text: None,
                             prefix_len: item_prefix.len(),
                             prefix_tone: entry.tone,
-                            label_range: (first && !label.is_empty())
-                                .then_some(item_prefix.len()..item_prefix.len() + label.len()),
-                            label_tone: entry.label_tone,
+                            label_range: None,
+                            label_tone: entry.tone,
                             syntax_ranges,
                             background: None,
                         });
-                        first = false;
                     }
                 }
                 continue;
@@ -8663,11 +8684,24 @@ mod tests {
                 .iter()
                 .any(|line| line.kind == TranscriptKind::Heading && line.text.contains("能力"))
         );
-        assert!(state.transcript_lines.iter().any(|line| {
-            line.kind == TranscriptKind::Item
-                && line.text.contains('•')
-                && line.text.contains("文件")
-        }));
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| { line.kind == TranscriptKind::Item && line.text.contains('•') })
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| { line.kind == TranscriptKind::Item && line.text.contains("文件") })
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| { line.kind == TranscriptKind::Item && line.text.contains("读写") })
+        );
         assert!(
             state
                 .transcript_lines
@@ -8684,13 +8718,25 @@ mod tests {
             state
                 .transcript_lines
                 .iter()
-                .any(|line| line.text.contains('☑') && line.text.contains("已完成"))
+                .any(|line| line.text.contains('☑'))
         );
         assert!(
             state
                 .transcript_lines
                 .iter()
-                .any(|line| line.text.contains('☐') && line.text.contains("未完成"))
+                .any(|line| line.text.contains("已完成"))
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains('☐'))
+        );
+        assert!(
+            state
+                .transcript_lines
+                .iter()
+                .any(|line| line.text.contains("未完成"))
         );
         assert!(
             state
@@ -8860,6 +8906,13 @@ mod tests {
             .expect("item");
         assert_eq!(item.label.as_deref(), Some("清空剪贴板"));
         assert_eq!(item.text, "wl-copy --clear 后验证 wl-paste");
+        let lines = state.build_transcript_lines(60);
+        assert!(lines.iter().any(|line| line.text == "  • 清空剪贴板"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.text.starts_with("    wl-copy --clear"))
+        );
     }
 
     #[test]
@@ -8889,11 +8942,9 @@ mod tests {
         assert_eq!(heading.fg, PANEL_TEXT_GREEN);
         let item = cell_at("该");
         assert_eq!(item.fg, PANEL_TEXT_GREEN);
-        let item_row = (0..24)
-            .find(|y| (0..80).any(|x| buffer.cell((x, *y)).unwrap().symbol() == "该"))
-            .expect("item row");
-        let bullet = (0..80)
-            .map(|x| buffer.cell((x, item_row)).unwrap())
+        let bullet = (0..24)
+            .flat_map(|y| (0..80).map(move |x| (x, y)))
+            .map(|(x, y)| buffer.cell((x, y)).unwrap())
             .find(|cell| cell.symbol() == "•")
             .map(|cell| cell.fg)
             .expect("item bullet");
