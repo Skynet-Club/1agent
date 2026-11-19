@@ -186,7 +186,7 @@ impl UserModel {
     }
 
     pub fn apply(&mut self, record: &MemoryRecord) {
-        if record.scope != self.scope
+        if !self.scope.matches(&record.scope)
             || record.soft_forgotten_ms.is_some()
             || record.hard_forgotten_ms.is_some()
             || record.superseded_by.is_some()
@@ -433,6 +433,8 @@ fn parse_memory_kind(value: &str) -> Option<MemoryKind> {
         "feedback" => Some(MemoryKind::Feedback),
         "relationship" => Some(MemoryKind::Relationship),
         "skill_hint" | "skill-hint" => Some(MemoryKind::SkillHint),
+        "entity" => Some(MemoryKind::Entity),
+        "process" => Some(MemoryKind::Process),
         _ => None,
     }
 }

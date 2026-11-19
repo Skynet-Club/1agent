@@ -2263,6 +2263,23 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(
+        about = "导入本地文档/工单/会议记录为候选记忆 · Import local documents as candidate memories"
+    )]
+    Import {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
+        candidates: PathBuf,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        #[arg(long, default_value = "fact")]
+        kind: String,
+        #[arg(long, default_value = "default")]
+        bot_id: String,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "查看候选记忆 · List candidate memories")]
     Inbox {
         #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
@@ -11620,6 +11637,63 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            MemoryCommand::Import {
+                candidates,
+                file,
+                dir,
+                kind,
+                bot_id,
+                json,
+            } => {
+                let selectors = usize::from(file.is_some()) + usize::from(dir.is_some());
+                if selectors != 1 {
+                    anyhow::bail!("provide exactly one of --file or --dir");
+                }
+                let kind = first_principles_agent::memory_context::kind_from_str(&kind)
+                    .ok_or_else(|| anyhow::anyhow!("unknown memory kind `{kind}`"))?;
+                let scope = first_principles_agent::MemoryScope::bot(bot_id);
+                let imported = if let Some(path) = file {
+                    first_principles_agent::memory_candidate::import_path(
+                        &path,
+                        kind,
+                        &scope,
+                        current_time_ms(),
+                    )?
+                } else {
+                    first_principles_agent::memory_candidate::import_dir(
+                        dir.as_deref().expect("selector validated"),
+                        kind,
+                        &scope,
+                        current_time_ms(),
+                    )?
+                };
+                let mut store =
+                    first_principles_agent::memory_candidate::CandidateStore::open(&candidates)?;
+                let mut proposed = Vec::new();
+                let mut skipped = 0usize;
+                for candidate in imported {
+                    if memory_candidate_duplicate(&store, &candidate) {
+                        skipped += 1;
+                    } else {
+                        proposed.push(store.propose(candidate)?);
+                    }
+                }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "proposed": proposed,
+                            "skipped": skipped,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "imported {} candidate(s), skipped {} duplicate(s); review with `memory inbox`",
+                        proposed.len(),
+                        skipped
+                    );
+                }
+            }
             MemoryCommand::Inbox {
                 candidates,
                 all,
@@ -13454,8 +13528,12 @@ async fn main() -> Result<()> {
                     "preference" => first_principles_agent::MemoryKind::Preference,
                     "project" => first_principles_agent::MemoryKind::Project,
                     "feedback" => first_principles_agent::MemoryKind::Feedback,
+                    "entity" => first_principles_agent::MemoryKind::Entity,
+                    "process" => first_principles_agent::MemoryKind::Process,
                     _ => {
-                        anyhow::bail!("--import-kind must be fact, preference, project or feedback")
+                        anyhow::bail!(
+                            "--import-kind must be fact, preference, project, feedback, entity or process"
+                        )
                     }
                 };
                 for line in read_import_lines(&path)? {

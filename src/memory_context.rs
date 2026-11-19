@@ -239,6 +239,8 @@ pub fn kind_from_str(value: &str) -> Option<MemoryKind> {
         "feedback" => Some(MemoryKind::Feedback),
         "relationship" => Some(MemoryKind::Relationship),
         "skill_hint" | "skill-hint" => Some(MemoryKind::SkillHint),
+        "entity" => Some(MemoryKind::Entity),
+        "process" => Some(MemoryKind::Process),
         _ => None,
     }
 }

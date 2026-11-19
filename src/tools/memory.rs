@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
+use crate::memory::MemoryQuery;
 use crate::memory_context::{
     MemoryPaths, default_scope, events_json, kind_from_str, open_read_only, record_json,
     user_model_json,
@@ -40,6 +41,10 @@ struct RecallArgs {
     kind: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    since_ms: Option<u128>,
+    #[serde(default)]
+    until_ms: Option<u128>,
 }
 
 #[async_trait]
@@ -47,7 +52,7 @@ impl AgentTool for MemoryRecallTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "memory_recall".into(),
-            description: "Search the local scoped memory store (facts, preferences, decisions, projects, feedback, relationships, skill hints). Read-only. Use when the user asks what you remember, when a task depends on earlier decisions or preferences, or before asking the user to repeat stable context. Returns memory ids, content, source, confidence, validity and taint. An empty result means there is no active record: say so plainly and do not invent one.".into(),
+            description: "Search the local scoped memory store (facts, preferences, decisions, projects, feedback, relationships, skill hints, entities, processes). Read-only. Use when the user asks what you remember, when a task depends on earlier decisions or preferences, or before asking the user to repeat stable context. Returns memory ids, content, source, confidence, validity and taint. An empty result means there is no active record: say so plainly and do not invent one.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -60,7 +65,7 @@ impl AgentTool for MemoryRecallTool {
                     },
                     "kind": {
                         "type": "string",
-                        "enum": ["fact", "preference", "decision", "project", "feedback", "relationship", "skill_hint"],
+                        "enum": ["fact", "preference", "decision", "project", "feedback", "relationship", "skill_hint", "entity", "process"],
                         "description": "Optional memory kind filter."
                     },
                     "limit": {
@@ -68,6 +73,16 @@ impl AgentTool for MemoryRecallTool {
                         "minimum": 1,
                         "maximum": 20,
                         "description": "Maximum matches, default 8."
+                    },
+                    "since_ms": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Optional inclusive lower bound on valid_from_ms."
+                    },
+                    "until_ms": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Optional inclusive upper bound on valid_from_ms."
                     }
                 }
             }),
@@ -116,10 +131,20 @@ impl AgentTool for MemoryRecallTool {
             });
         };
         let limit = args.limit.unwrap_or(8).clamp(1, 20);
-        let hits = service.recall(&args.query, &default_scope(), current_time_ms(), limit);
+        let kinds: Vec<_> = kind.into_iter().collect();
+        let hits = service.recall_query(
+            &MemoryQuery {
+                text: &args.query,
+                kinds: &kinds,
+                since_ms: args.since_ms,
+                until_ms: args.until_ms,
+            },
+            &default_scope(),
+            current_time_ms(),
+            limit,
+        );
         let matches = hits
             .iter()
-            .filter(|hit| kind.is_none_or(|kind| hit.record.kind == kind))
             .map(|hit| record_json(&hit.record, hit.score))
             .collect::<Vec<_>>();
         let note = if matches.is_empty() {

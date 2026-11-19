@@ -4,7 +4,7 @@
 //! This PR is intentionally in-memory. Journal payload encryption, persistent
 //! indexes and crypto-shredding are the next memory slice.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -32,6 +32,8 @@ pub enum MemoryKind {
     Feedback,
     Relationship,
     SkillHint,
+    Entity,
+    Process,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +86,22 @@ impl MemoryScope {
 
     pub fn scope_id(&self) -> String {
         serde_json::to_string(self).unwrap_or_else(|_| format!("bot:{}", self.bot_id))
+    }
+
+    /// A broader record (fewer set fields) is visible to a narrower query;
+    /// a narrower record is not visible to a broader query.
+    pub fn matches(&self, record: &Self) -> bool {
+        self.bot_id == record.bot_id
+            && field_matches(self.tenant_id.as_deref(), record.tenant_id.as_deref())
+            && field_matches(self.workspace_id.as_deref(), record.workspace_id.as_deref())
+            && field_matches(self.ticket_id.as_deref(), record.ticket_id.as_deref())
+    }
+}
+
+fn field_matches(query: Option<&str>, record: Option<&str>) -> bool {
+    match record {
+        None => true,
+        Some(record) => query == Some(record),
     }
 }
 
@@ -251,6 +269,25 @@ pub enum ForgetMode {
 pub struct MemoryHit {
     pub record: MemoryRecord,
     pub score: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryQuery<'a> {
+    pub text: &'a str,
+    pub kinds: &'a [MemoryKind],
+    pub since_ms: Option<u128>,
+    pub until_ms: Option<u128>,
+}
+
+impl<'a> MemoryQuery<'a> {
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            kinds: &[],
+            since_ms: None,
+            until_ms: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -564,21 +601,46 @@ impl MemoryStore {
         now_ms: u128,
         limit: usize,
     ) -> Vec<MemoryHit> {
+        self.recall_query(&MemoryQuery::new(query), scope, now_ms, limit)
+    }
+
+    pub fn recall_query(
+        &self,
+        query: &MemoryQuery<'_>,
+        scope: &MemoryScope,
+        now_ms: u128,
+        limit: usize,
+    ) -> Vec<MemoryHit> {
         if limit == 0 {
             return Vec::new();
         }
-        let terms: Vec<String> = query
-            .split_whitespace()
-            .map(|term| term.to_lowercase())
-            .filter(|term| !term.is_empty())
-            .collect();
+        let terms = query_terms(query.text);
         let mut hits = Vec::new();
         for record in self.records.values() {
-            if !is_active(record, now_ms) || !scope_matches(scope, &record.scope) {
+            if !is_active(record, now_ms) || !scope.matches(&record.scope) {
                 continue;
             }
-            let lower = record.content.to_lowercase();
-            let matches = terms.iter().filter(|term| lower.contains(*term)).count() as i32;
+            if !query.kinds.is_empty() && !query.kinds.contains(&record.kind) {
+                continue;
+            }
+            if query
+                .since_ms
+                .is_some_and(|since| record.valid_from_ms < since)
+                || query
+                    .until_ms
+                    .is_some_and(|until| record.valid_from_ms > until)
+            {
+                continue;
+            }
+            let haystack = format!(
+                "{} {:?} {}",
+                record.content, record.kind, record.source.event_id
+            )
+            .to_lowercase();
+            let matches = terms
+                .iter()
+                .filter(|term| haystack.contains(term.as_str()))
+                .count() as i32;
             if !terms.is_empty() && matches == 0 {
                 continue;
             }
@@ -790,6 +852,31 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+fn query_terms(text: &str) -> Vec<String> {
+    let mut terms = BTreeSet::new();
+    for term in text.split_whitespace() {
+        let term = term.to_lowercase();
+        if !term.is_empty() {
+            terms.insert(term);
+        }
+    }
+    let cjk: Vec<char> = text
+        .chars()
+        .filter(|character| is_cjk(*character))
+        .collect();
+    for window in cjk.windows(2) {
+        terms.insert(window.iter().collect());
+    }
+    terms.into_iter().collect()
+}
+
+fn is_cjk(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF
+    )
+}
+
 fn is_active(record: &MemoryRecord, now_ms: u128) -> bool {
     if record.soft_forgotten_ms.is_some()
         || record.hard_forgotten_ms.is_some()
@@ -799,13 +886,6 @@ fn is_active(record: &MemoryRecord, now_ms: u128) -> bool {
         return false;
     }
     record.valid_to_ms.is_none_or(|valid_to| valid_to > now_ms)
-}
-
-fn scope_matches(query: &MemoryScope, record: &MemoryScope) -> bool {
-    query.bot_id == record.bot_id
-        && query.workspace_id == record.workspace_id
-        && query.ticket_id == record.ticket_id
-        && query.tenant_id == record.tenant_id
 }
 
 #[cfg(test)]
@@ -842,6 +922,82 @@ mod tests {
         store.remember(tenant).unwrap();
         let hits = store.recall("pnpm", &MemoryScope::bot("bot-1"), 10, 5);
         assert_eq!(hits.len(), 1, "None tenant must not match Some(tenant)");
+    }
+
+    #[test]
+    fn broader_records_are_visible_to_narrow_queries_but_not_reverse() {
+        let mut store = MemoryStore::default();
+        let mut broad = record("mem-broad", "shared tenant policy");
+        broad.scope.tenant_id = Some("tenant-a".into());
+        store.remember(broad).unwrap();
+        let mut narrow = record("mem-narrow", "workspace-only note");
+        narrow.scope.tenant_id = Some("tenant-a".into());
+        narrow.scope.workspace_id = Some("ws-1".into());
+        store.remember(narrow).unwrap();
+
+        let tenant = MemoryScope {
+            bot_id: "bot-1".into(),
+            workspace_id: None,
+            ticket_id: None,
+            tenant_id: Some("tenant-a".into()),
+        };
+        let hits = store.recall("", &tenant, 10, 10);
+        assert_eq!(hits.len(), 1, "tenant query sees the tenant record only");
+        assert_eq!(hits[0].record.memory_id, "mem-broad");
+
+        let workspace = MemoryScope {
+            bot_id: "bot-1".into(),
+            workspace_id: Some("ws-1".into()),
+            ticket_id: None,
+            tenant_id: Some("tenant-a".into()),
+        };
+        assert_eq!(store.recall("", &workspace, 10, 10).len(), 2);
+        assert_eq!(
+            store.recall("", &MemoryScope::bot("bot-1"), 10, 10).len(),
+            0,
+            "a bare bot query must not see tenant or workspace records"
+        );
+    }
+
+    #[test]
+    fn recall_query_filters_kind_and_time_and_matches_cjk_metadata() {
+        let mut store = MemoryStore::default();
+        let mut preference = record("mem-pref", "编辑器=pnpm");
+        preference.valid_from_ms = 10;
+        store.remember(preference).unwrap();
+        let mut fact = record("mem-fact", "release branch is release/1.0");
+        fact.kind = MemoryKind::Fact;
+        fact.valid_from_ms = 30;
+        store.remember(fact).unwrap();
+
+        let kinds = [MemoryKind::Preference];
+        let hits = store.recall_query(
+            &MemoryQuery {
+                text: "编辑器",
+                kinds: &kinds,
+                since_ms: Some(5),
+                until_ms: Some(20),
+            },
+            &MemoryScope::bot("bot-1"),
+            40,
+            10,
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.memory_id, "mem-pref");
+
+        let hits = store.recall_query(
+            &MemoryQuery {
+                text: "preference",
+                kinds: &[],
+                since_ms: None,
+                until_ms: None,
+            },
+            &MemoryScope::bot("bot-1"),
+            40,
+            10,
+        );
+        assert_eq!(hits.len(), 1, "kind metadata is searchable");
+        assert_eq!(hits[0].record.memory_id, "mem-pref");
     }
 
     #[test]

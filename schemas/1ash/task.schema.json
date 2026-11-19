@@ -43,6 +43,15 @@
       "type": "string",
       "minLength": 1
     },
+    "seed": {
+      "type": "object",
+      "description": "Optional workspace fixture files written before the subject runs.",
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 65536
+      },
+      "maxProperties": 16
+    },
     "environment": {
       "type": "object",
       "additionalProperties": false,

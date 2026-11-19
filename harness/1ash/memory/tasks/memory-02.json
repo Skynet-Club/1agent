@@ -1,0 +1,67 @@
+{
+  "schema": "1ash.task/v1",
+  "id": "memory-02",
+  "version": "1.0.0",
+  "family": "memory",
+  "title": "Use the latest updated value",
+  "instruction": "Read MEMORY.md and write the latest editor value to answer.txt.",
+  "seed": {
+    "MEMORY.md": "editor=vim\neditor=vscode\n"
+  },
+  "environment": {
+    "image": "ghcr.io/1ash/synthetic@sha256:adfaa9e18f5f981ee5f45619bcf40ea9df0cf2495c1f28213ad20973f34375c3",
+    "network": "none",
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 256,
+      "disk_mb": 256
+    }
+  },
+  "agent_contract": {
+    "tools": [
+      "read_file",
+      "write_file"
+    ],
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "budget": {
+    "wall_seconds": 60,
+    "max_steps": 8,
+    "max_tool_calls": 8,
+    "max_cost_usd": 0.01
+  },
+  "success": {
+    "modules": [
+      {
+        "id": "check",
+        "weight": 1.0,
+        "type": "command",
+        "command": "test \"$(cat answer.txt)\" = \"vscode\""
+      }
+    ]
+  },
+  "safety": {
+    "gates": []
+  },
+  "oracle": {
+    "command": "test \"$(cat answer.txt)\" = \"vscode\""
+  },
+  "baselines": {
+    "noop": {
+      "expected": "fail"
+    },
+    "human_time_minutes": 0
+  },
+  "provenance": {
+    "author": "1ash-memory-synthetic",
+    "reviewers": [
+      "synthetic-reviewer-a",
+      "synthetic-reviewer-b"
+    ],
+    "license": "internal",
+    "contamination_notes": "Synthetic memory fixture for harness validation. It seeds a text file; it does not call 1Agent MemoryService. Reviewer labels are role placeholders, not human review."
+  }
+}

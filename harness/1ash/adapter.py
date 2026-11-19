@@ -301,6 +301,10 @@ def one_agent_solver(
         workspace = Path(tempfile.mkdtemp(prefix=f"1ash-{task['id']}-"))
         journal_dir = workspace / ".journals"
         journal_dir.mkdir()
+        for name, content in (task.get("seed") or {}).items():
+            path = _workspace_path(workspace, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(content)[:65_536], encoding="utf-8")
         if docker_image:
             command = [
                 "docker",

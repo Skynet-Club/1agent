@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::memory::{
-    ForgetMode, MemoryError, MemoryEvent, MemoryHit, MemoryRecord, MemoryScope, MemoryStore,
+    ForgetMode, MemoryError, MemoryEvent, MemoryHit, MemoryQuery, MemoryRecord, MemoryScope,
+    MemoryStore,
 };
 use crate::memory_journal::{MemoryJournalError, MemoryJournalStore};
 use crate::memory_payload::{
@@ -142,7 +143,9 @@ impl MemoryService {
     ) -> crate::user_model::UserModel {
         let mut model = crate::user_model::UserModel::new(user_id, scope.clone());
         for record in self.store.records() {
-            model.apply(record);
+            if scope.matches(&record.scope) {
+                model.apply(record);
+            }
         }
         model
     }
@@ -157,10 +160,20 @@ impl MemoryService {
         self.store.recall(query, scope, now_ms, limit)
     }
 
+    pub fn recall_query(
+        &self,
+        query: &MemoryQuery<'_>,
+        scope: &MemoryScope,
+        now_ms: u128,
+        limit: usize,
+    ) -> Vec<MemoryHit> {
+        self.store.recall_query(query, scope, now_ms, limit)
+    }
+
     pub fn get(&self, memory_id: &str, scope: &MemoryScope) -> Option<&MemoryRecord> {
         self.store
             .get(memory_id)
-            .filter(|record| record.scope == *scope)
+            .filter(|record| scope.matches(&record.scope))
     }
 
     pub fn forget(
@@ -426,6 +439,41 @@ mod tests {
                 .unwrap_err(),
             MemoryServiceError::ScopeMismatch(_)
         ));
+    }
+
+    #[test]
+    fn scope_hierarchy_shares_broad_records_without_leaking_narrow_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut memory = service(dir.path());
+        let mut shared = record("editor=pnpm");
+        shared.scope = MemoryScope {
+            bot_id: "bot-1".into(),
+            workspace_id: None,
+            ticket_id: None,
+            tenant_id: Some("tenant-a".into()),
+        };
+        memory.remember_at(shared, 10).unwrap();
+        let tenant = MemoryScope {
+            bot_id: "bot-1".into(),
+            workspace_id: Some("ws-1".into()),
+            ticket_id: Some("ticket-1".into()),
+            tenant_id: Some("tenant-a".into()),
+        };
+        assert!(memory.get("mem-1", &tenant).is_some());
+        assert!(memory.get("mem-1", &MemoryScope::bot("bot-1")).is_none());
+        assert_eq!(
+            memory
+                .build_user_model("local-user", &tenant)
+                .preferences
+                .len(),
+            1
+        );
+        assert!(
+            memory
+                .build_user_model("local-user", &MemoryScope::bot("bot-1"))
+                .preferences
+                .is_empty()
+        );
     }
 
     #[test]

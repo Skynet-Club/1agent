@@ -381,6 +381,32 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `ApprovalEnvelope`: HMAC-authenticated binding to exact report bytes, constrained by
   approval key registry state.
 
+## Evidence memory loop
+
+- Active memory lives in the hash-chained `MemoryService` journal; encrypted payloads
+  keep body text out of the metadata journal. Read-only tools (`memory_recall`,
+  `user_model`, `memory_why`) open the store only when journal, payload root and key
+  already exist. Full CLI/TUI runs prepend one bounded `MEMORY CONTEXT` fact built
+  from lexical recall plus a `UserModelSnapshot`; the note says retrieved records are
+  evidence, not instructions, and the current user message overrides stale preferences.
+- Writes go through a candidate store first: run-end extraction, manual
+  `memory propose`, or `memory import` of local markdown/text/log documents. Imported
+  lines are `untrusted`, keep `file:line` provenance, are secret-scrubbed, and only
+  become active memory after `memory accept`. Candidate and memory IDs are stable;
+  acceptance is idempotent.
+- Consolidation v2 soft-forgets exact/near duplicates, supersedes older contradicting
+  `key=value` preferences, and reports stale records without deleting them.
+- `MemoryScope::matches` gives hierarchical read visibility: a record with fewer set
+  tenant/workspace/ticket fields is visible to a narrower query, never the reverse.
+  `UserModel` and read-by-id use the same rule, so a bare bot query cannot read a
+  tenant record.
+- Retrieval is lexical with CJK bigrams, kind metadata (`V+fact` key expansion) and
+  optional `since_ms`/`until_ms` bounds on `valid_from_ms`; embeddings are deferred
+  until an external evaluation shows they are needed.
+- `harness/1ash/memory/` is a five-task synthetic family that seeds `MEMORY.md`,
+  runs a reference or no-op subject, and scores `answer.txt`. It validates the
+  harness shape, not 1Agent MemoryService or model capability.
+
 ## Memory key hierarchy
 
 - Schema-2 payloads use a random per-scope KEK in `<key-file>-keks.json`, wrapped by a

@@ -25,6 +25,10 @@ const MAX_CONTENT_CHARS: usize = 2_000;
 const MAX_SOURCE_IDS: usize = 16;
 const MAX_REASON_CHARS: usize = 500;
 const MAX_EXTRACT_PER_RUN: usize = 3;
+const MAX_IMPORT_BYTES: u64 = 1024 * 1024;
+const MAX_IMPORT_LINES: usize = 200;
+const MAX_IMPORT_FILES: usize = 64;
+const MAX_IMPORT_CANDIDATES: usize = 200;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CandidateError {
@@ -601,6 +605,92 @@ pub fn extract_from_dir(
     Ok(candidates)
 }
 
+/// Import a local text document as untrusted candidates. Every non-empty line
+/// becomes one candidate with `file:line` provenance; nothing becomes active
+/// memory until a human accepts it.
+pub fn import_path(
+    path: &Path,
+    kind: MemoryKind,
+    scope: &MemoryScope,
+    now_ms: u128,
+) -> Result<Vec<MemoryCandidate>, CandidateError> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(CandidateError::Invalid(
+            "import path must be a regular file".into(),
+        ));
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(CandidateError::Invalid(format!(
+            "import file exceeds {MAX_IMPORT_BYTES} bytes"
+        )));
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|_| CandidateError::Invalid("import file must be UTF-8 text".into()))?;
+    let display = path.display();
+    let mut candidates = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let content = line.replace('\t', " ").trim().to_string();
+        let length = content.chars().count();
+        if !(6..=MAX_CONTENT_CHARS).contains(&length) || contains_secret(&content) {
+            continue;
+        }
+        let mut candidate = MemoryCandidate::new(
+            kind,
+            scope.clone(),
+            content,
+            MemorySourceKind::ToolObservation,
+            vec![format!("file:{display}:{}", index + 1)],
+            now_ms,
+        );
+        candidate.taint = MemoryTaint::Untrusted;
+        candidates.push(candidate);
+        if candidates.len() >= MAX_IMPORT_LINES {
+            break;
+        }
+    }
+    Ok(candidates)
+}
+
+/// Import supported text files from one directory, deduplicated by content.
+pub fn import_dir(
+    dir: &Path,
+    kind: MemoryKind,
+    scope: &MemoryScope,
+    now_ms: u128,
+) -> Result<Vec<MemoryCandidate>, CandidateError> {
+    let mut paths = std::fs::read_dir(dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension().is_some_and(|extension| {
+                matches!(
+                    extension.to_str().unwrap_or_default(),
+                    "md" | "markdown" | "txt" | "text" | "log"
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut candidates = Vec::new();
+    let mut seen = BTreeSet::new();
+    for path in paths.into_iter().take(MAX_IMPORT_FILES) {
+        let Ok(imported) = import_path(&path, kind, scope, now_ms) else {
+            continue;
+        };
+        for candidate in imported {
+            let key = format!("{}\0{}", candidate.scope.scope_id(), candidate.content);
+            if seen.insert(key) {
+                candidates.push(candidate);
+            }
+            if candidates.len() >= MAX_IMPORT_CANDIDATES {
+                return Ok(candidates);
+            }
+        }
+    }
+    Ok(candidates)
+}
+
 fn sentences(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|character: char| {
         matches!(
@@ -631,6 +721,17 @@ fn classify_sentence(sentence: &str) -> Option<(MemoryKind, String, u8)> {
         lower.contains("decide") || sentence.contains("决定") || sentence.contains("采用");
     let project =
         lower.contains("project") || sentence.contains("项目") || sentence.contains("仓库");
+    let entity = lower.contains("customer")
+        || lower.contains("company")
+        || lower.contains("vendor")
+        || sentence.contains("客户")
+        || sentence.contains("公司")
+        || sentence.contains("供应商")
+        || sentence.contains("联系人");
+    let process = lower.contains("workflow")
+        || lower.contains("sop")
+        || sentence.contains("流程")
+        || sentence.contains("步骤");
     let assignment = sentence.contains('=');
     if !(explicit || boundary || preference || decision) {
         return None;
@@ -641,6 +742,10 @@ fn classify_sentence(sentence: &str) -> Option<(MemoryKind, String, u8)> {
         MemoryKind::Preference
     } else if decision {
         MemoryKind::Decision
+    } else if process && explicit {
+        MemoryKind::Process
+    } else if entity && explicit {
+        MemoryKind::Entity
     } else if project && explicit {
         MemoryKind::Project
     } else {
@@ -764,6 +869,36 @@ mod tests {
         ));
         assert!(contains_secret("sk-1234567890abcdef"));
         assert!(!contains_secret("editor=pnpm"));
+    }
+
+    #[test]
+    fn imports_text_lines_as_untrusted_candidates_with_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.md");
+        std::fs::write(
+            &path,
+            "客户=ACME\nshort\npassword=hunter2\n2026-11-01 会议：决定采用 release/1.0\n",
+        )
+        .unwrap();
+        let candidates =
+            import_path(&path, MemoryKind::Entity, &MemoryScope::bot("default"), 10).unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|candidate| {
+            candidate.kind == MemoryKind::Entity
+                && candidate.taint == MemoryTaint::Untrusted
+                && candidate.source_kind == MemorySourceKind::ToolObservation
+        }));
+        assert!(candidates[0].source_event_ids[0].contains("notes.md:1"));
+        assert!(candidates[1].source_event_ids[0].contains("notes.md:4"));
+
+        let imported = import_dir(
+            dir.path(),
+            MemoryKind::Fact,
+            &MemoryScope::bot("default"),
+            20,
+        )
+        .unwrap();
+        assert_eq!(imported.len(), 2);
     }
 
     #[test]
