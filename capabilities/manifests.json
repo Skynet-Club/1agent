@@ -51,6 +51,33 @@
     },
     {
       "keywords": [
+        "merge change",
+        "merge the change",
+        "merge approved change",
+        "merge the approved change",
+        "apply change",
+        "合并变更",
+        "应用变更"
+      ],
+      "media_type": "application/json",
+      "schema": "merge-receipt/v1",
+      "requirements": [
+        {
+          "verb": "merge",
+          "inputs": [
+            "approval_receipt",
+            "check_report"
+          ],
+          "outputs": [
+            "merge_receipt"
+          ],
+          "constraints": [],
+          "required": true
+        }
+      ]
+    },
+    {
+      "keywords": [
         "架构图",
         "流程图",
         "时序图",
@@ -696,6 +723,36 @@
       "verification": [
         "release manifest",
         "checksums"
+      ]
+    },
+    {
+      "id": "action.code.merge_change",
+      "name": "code.merge_change",
+      "kind": "action",
+      "source": "1ao.action-registry",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "merge",
+          "inputs": [
+            "approval_receipt",
+            "check_report"
+          ],
+          "outputs": [
+            "merge_receipt"
+          ],
+          "constraints": [
+            "local",
+            "approval_required",
+            "reversible"
+          ]
+        }
+      ],
+      "verification": [
+        "merge receipt",
+        "post-merge hashes"
       ]
     }
   ]

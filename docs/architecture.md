@@ -943,6 +943,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   graph database.
 - Session/sub-agent lineage fields are additive and optional so old journals
   and v1/v2 sessions remain readable.
+- `ontology/actions.json` is the typed `ActionType` registry. The code-release
+  vertical exposes `code.propose_change`, `code.run_checks`,
+  `code.approve_change`, `code.prepare_release` and `code.merge_change`.
+  Proposal payloads are materialized full-file replacements; approval is a
+  human CLI/library act bound to the proposal SHA; checks record staged
+  before/after hashes; merge requires the approved receipt and passed staged
+  report, writes backups under `.1a/merges`, replaces files atomically and
+  rolls back earlier files when a later write fails. Action tools are
+  advertised only when the capability preflight selects their manifests.
 - Gated tool observations project to `ActionInvocation`, `PolicyDecision`
   (outcome/reason/authority profile) and `Approval` (recorded card id) nodes
   linked to the run, tool call and observation. No approval node is invented

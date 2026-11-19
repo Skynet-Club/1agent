@@ -577,7 +577,7 @@ fn ontology_actions_list_the_code_release_registry() {
     assert_eq!(actions["schema_version"], 1);
     assert_eq!(actions["vertical"], "code-change-release");
     let entries = actions["actions"].as_array().expect("actions array");
-    assert_eq!(entries.len(), 4);
+    assert_eq!(entries.len(), 5);
     let ids: BTreeSet<&str> = entries
         .iter()
         .map(|entry| entry["id"].as_str().unwrap())
@@ -586,25 +586,27 @@ fn ontology_actions_list_the_code_release_registry() {
     assert!(ids.contains("code.run_checks"));
     assert!(ids.contains("code.approve_change"));
     assert!(ids.contains("code.prepare_release"));
+    assert!(ids.contains("code.merge_change"));
 
     let tools = parse_json_stdout(
         &run(dir.path(), &["ontology", "actions", "--tools"]),
         "ontology action tools",
     );
     let tools = tools.as_array().expect("tool array");
-    assert_eq!(tools.len(), 4);
+    assert_eq!(tools.len(), 5);
     assert!(
         tools
             .iter()
             .any(|tool| tool["name"] == "code_propose_change")
     );
+    assert!(tools.iter().any(|tool| tool["name"] == "code_merge_change"));
 
     let manifests = parse_json_stdout(
         &run(dir.path(), &["ontology", "actions", "--manifests"]),
         "ontology action manifests",
     );
     let manifests = manifests.as_array().expect("manifest array");
-    assert_eq!(manifests.len(), 4);
+    assert_eq!(manifests.len(), 5);
     assert_eq!(manifests[0]["kind"], "action");
     assert_eq!(manifests[0]["capabilities"][0]["verb"], "propose");
 }

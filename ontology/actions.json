@@ -7,7 +7,7 @@
       "id": "code.propose_change",
       "version": "1",
       "title": "Propose change",
-      "description": "Create a reviewable change proposal in an isolated worktree without modifying the release target.",
+      "description": "Create a reviewable change proposal with an optional materialized file payload without modifying the release target.",
       "object_types": [
         "Change"
       ],
@@ -40,23 +40,41 @@
             "items": {
               "type": "string"
             }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "content"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
       "preconditions": [
-        "workspace is a git repository",
-        "target paths are inside the read roots"
+        "target paths are inside the read roots",
+        "staged targets are regular files or new files with existing parents"
       ],
       "risk": "low",
       "reversible": true,
       "approval": "none",
       "side_effects": [
-        "create an isolated worktree/branch",
         "write a proposal artifact"
       ],
       "postconditions": [
         "proposal artifact exists",
-        "diff sha256 is recorded"
+        "payload sha256 is recorded when changes are supplied"
       ],
       "idempotency": "idempotency_key"
     },
@@ -227,6 +245,61 @@
         "approval and check hashes are recorded"
       ],
       "idempotency": "proposal_id+version"
+    },
+    {
+      "id": "code.merge_change",
+      "version": "1",
+      "title": "Merge approved change",
+      "description": "Apply an approved staged change payload to the workspace atomically, with backups and a merge receipt.",
+      "object_types": [
+        "Change",
+        "Workspace"
+      ],
+      "capability": {
+        "verb": "merge",
+        "inputs": [
+          "approval_receipt",
+          "check_report"
+        ],
+        "outputs": [
+          "merge_receipt"
+        ],
+        "constraints": [
+          "local",
+          "approval_required",
+          "reversible"
+        ]
+      },
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposal_id"
+        ],
+        "properties": {
+          "proposal_id": {
+            "type": "string"
+          }
+        }
+      },
+      "preconditions": [
+        "proposal exists with a staged change payload",
+        "approved receipt matches the proposal sha256",
+        "check report passed for the staged payload",
+        "target files still match the proposal base hashes"
+      ],
+      "risk": "high",
+      "reversible": true,
+      "approval": "human",
+      "side_effects": [
+        "write approved files inside the workspace",
+        "store backups under .1a/merges"
+      ],
+      "postconditions": [
+        "target files match the staged after hashes",
+        "merge receipt exists and matches proposal, approval and check hashes"
+      ],
+      "idempotency": "proposal_id"
     }
   ]
 }

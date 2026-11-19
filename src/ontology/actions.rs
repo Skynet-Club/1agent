@@ -232,18 +232,19 @@ mod tests {
         let registry = try_builtin_action_registry().unwrap();
         assert_eq!(registry.schema_version, 1);
         assert_eq!(registry.vertical, "code-change-release");
-        assert_eq!(registry.actions.len(), 4);
+        assert_eq!(registry.actions.len(), 5);
         let ids = registry
             .actions
             .iter()
             .map(|action| action.id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(ids.len(), 4);
+        assert_eq!(ids.len(), 5);
         for id in [
             "code.propose_change",
             "code.run_checks",
             "code.approve_change",
             "code.prepare_release",
+            "code.merge_change",
         ] {
             assert!(ids.contains(id), "missing {id}");
         }

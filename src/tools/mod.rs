@@ -1248,6 +1248,9 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(Arc::new(CodePrepareReleaseTool::new(builtin_action(
         "code.prepare_release",
     ))));
+    registry.register(Arc::new(CodeMergeChangeTool::new(builtin_action(
+        "code.merge_change",
+    ))));
     registry.register(Arc::new(EditFileTool));
     registry.register(Arc::new(TerminalCreateTool::from_env()));
     registry.register(Arc::new(TerminalWriteTool::from_env()));

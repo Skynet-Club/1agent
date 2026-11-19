@@ -6653,6 +6653,37 @@ mod tests {
         ] {
             assert!(advertised.contains(tool), "{tool} should be selected");
         }
+        assert!(
+            !advertised.contains("code_merge_change"),
+            "a proposal-only task must not advertise merge"
+        );
+
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("merge selected"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("merge the approved change", workspace.path().into());
+        request.permissions.allow_write = true;
+        runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+        let advertised = {
+            let requests = requests.lock().unwrap();
+            requests[0]
+                .tools
+                .iter()
+                .map(|tool| tool.name.clone())
+                .collect::<BTreeSet<_>>()
+        };
+        assert!(advertised.contains("code_merge_change"));
+        assert!(!advertised.contains("code_propose_change"));
 
         let workspace = tempfile::tempdir().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
