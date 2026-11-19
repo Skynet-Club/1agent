@@ -944,10 +944,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
   bounded summaries. It does not export raw prompts, tool content, page text,
   credentials or file bodies.
 - `1agent ontology types|bindings|export|validate` is the CLI surface.
-  `1agent ontology mcp` serves a read-only MCP stdio surface
-  (`ontology_types`, `action_list`, `ontology_read`, `ontology_search`); it
-  exposes no write or approval tool. Validation is internal, fail-visible and
-  does not require an OWL reasoner or graph database.
+  `1agent ontology mcp` serves a local MCP stdio surface: always-on read tools
+  (`ontology_types`, `action_list`, `ontology_read`, `ontology_search`) and,
+  with `--workspace` plus `--allow-write`, typed action tools. It never exposes
+  `code.approve_change`; approval remains a human CLI act. Validation is
+  internal, fail-visible and does not require an OWL reasoner or graph
+  database.
 - Session/sub-agent lineage fields are additive and optional so old journals
   and v1/v2 sessions remain readable.
 - `ontology/actions.json` is the typed `ActionType` registry. The code-release

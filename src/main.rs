@@ -3005,6 +3005,11 @@ enum OntologyCommand {
     Mcp {
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
+        /// Enable typed write tools for this workspace. Approval stays CLI-only.
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long, requires = "workspace")]
+        allow_write: bool,
     },
 }
 
@@ -9142,9 +9147,20 @@ async fn main() -> Result<()> {
                     bail!("ontology validation failed for {source}");
                 }
             }
-            OntologyCommand::Mcp { journal_dir } => {
-                first_principles_agent::ontology::serve_mcp_stdio(&journal_dir)
-                    .map_err(anyhow::Error::msg)?;
+            OntologyCommand::Mcp {
+                journal_dir,
+                workspace,
+                allow_write,
+            } => {
+                let workspace = workspace.map(|path| canonical_or_original(&path));
+                first_principles_agent::ontology::serve_mcp_stdio(
+                    &first_principles_agent::ontology::McpOptions {
+                        journal_dir,
+                        workspace,
+                        allow_write,
+                    },
+                )
+                .map_err(anyhow::Error::msg)?;
             }
         },
         Command::Action { command } => match command {

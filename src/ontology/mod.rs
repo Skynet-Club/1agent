@@ -20,7 +20,7 @@ pub use actions::{
     try_builtin_action_registry,
 };
 pub use export::{export_goal_log, export_journal, export_session};
-pub use mcp::serve_stdio as serve_mcp_stdio;
+pub use mcp::{McpOptions, serve_stdio as serve_mcp_stdio};
 pub use types::{BindingCoverage, binding_coverage, builtin_binding_coverage};
 pub use validate::{ValidationReport, validate_document};
 

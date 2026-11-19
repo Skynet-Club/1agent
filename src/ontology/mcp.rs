@@ -1,8 +1,9 @@
-//! Read-only ontology MCP surface.
+//! Ontology MCP surface.
 //!
-//! This is deliberately a read-only v0: external clients can inspect the type
-//! registry, the ActionType registry and exported journal objects. It has no
-//! write tool and cannot approve or execute an action. Stdio JSON-RPC only.
+//! Read tools are always available. Typed write tools require an explicit
+//! `--allow-write` scope and a workspace; `code.approve_change` is never
+//! exposed, so an MCP client cannot approve its own proposal. Stdio JSON-RPC
+//! only; authentication is the local launching user.
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -10,12 +11,24 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use super::{builtin_actions, builtin_types, export_journal};
+use crate::domain::PermissionSet;
+use crate::tools::{
+    AgentTool, CodeMergeChangeTool, CodePrepareReleaseTool, CodeProposeChangeTool,
+    CodeRunChecksTool,
+};
+
+#[derive(Clone, Debug)]
+pub struct McpOptions {
+    pub journal_dir: PathBuf,
+    pub workspace: Option<PathBuf>,
+    pub allow_write: bool,
+}
 
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_NODE_BYTES: usize = 256 * 1024;
 
-pub fn serve_stdio(journal_dir: &Path) -> Result<(), String> {
+pub fn serve_stdio(options: &McpOptions) -> Result<(), String> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -39,7 +52,7 @@ pub fn serve_stdio(journal_dir: &Path) -> Result<(), String> {
                 continue;
             }
         };
-        if let Some(response) = handle_request(&request, journal_dir) {
+        if let Some(response) = handle_request(&request, options) {
             writeln!(stdout, "{response}").map_err(|error| error.to_string())?;
             stdout.flush().map_err(|error| error.to_string())?;
         }
@@ -47,7 +60,7 @@ pub fn serve_stdio(journal_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn handle_request(request: &Value, journal_dir: &Path) -> Option<Value> {
+pub fn handle_request(request: &Value, options: &McpOptions) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
     if method.starts_with("notifications/") {
@@ -66,8 +79,8 @@ pub fn handle_request(request: &Value, journal_dir: &Path) -> Option<Value> {
             }),
         ),
         "ping" => result_response(id.clone(), json!({})),
-        "tools/list" => result_response(id.clone(), json!({"tools": tools()})),
-        "tools/call" => match call_tool(request.get("params"), journal_dir) {
+        "tools/list" => result_response(id.clone(), json!({"tools": tools(options)})),
+        "tools/call" => match call_tool(request.get("params"), options) {
             Ok(value) => result_response(
                 id.clone(),
                 json!({
@@ -88,19 +101,19 @@ pub fn handle_request(request: &Value, journal_dir: &Path) -> Option<Value> {
     if id.is_none() { None } else { Some(response) }
 }
 
-fn tools() -> Value {
-    json!([
-        {
+fn tools(options: &McpOptions) -> Value {
+    let mut tools = vec![
+        json!({
             "name": "ontology_types",
             "description": "List the built-in 1AO type registry.",
             "inputSchema": {"type": "object", "additionalProperties": false}
-        },
-        {
+        }),
+        json!({
             "name": "action_list",
             "description": "List the read-only ActionType registry and its approval policy.",
             "inputSchema": {"type": "object", "additionalProperties": false}
-        },
-        {
+        }),
+        json!({
             "name": "ontology_read",
             "description": "Read one object by IRI from a journal export in the configured journal directory.",
             "inputSchema": {
@@ -112,8 +125,8 @@ fn tools() -> Value {
                     "journal": {"type": "string", "description": "Optional journal file name inside the journal directory."}
                 }
             }
-        },
-        {
+        }),
+        json!({
             "name": "ontology_search",
             "description": "List objects of one @type from a journal export.",
             "inputSchema": {
@@ -126,11 +139,31 @@ fn tools() -> Value {
                     "journal": {"type": "string"}
                 }
             }
+        }),
+    ];
+    if options.allow_write
+        && options.workspace.is_some()
+        && let Ok(registry) = crate::ontology::try_builtin_action_registry()
+    {
+        for action in registry.actions {
+            if action.id == "code.approve_change" {
+                continue;
+            }
+            let spec = action.tool_spec();
+            tools.push(json!({
+                "name": spec.name,
+                "description": format!(
+                    "{} Human approval is CLI-only and is never exposed as an MCP tool.",
+                    spec.description
+                ),
+                "inputSchema": spec.parameters,
+            }));
         }
-    ])
+    }
+    Value::Array(tools)
 }
 
-fn call_tool(params: Option<&Value>, journal_dir: &Path) -> Result<Value, String> {
+fn call_tool(params: Option<&Value>, options: &McpOptions) -> Result<Value, String> {
     let params = params.ok_or_else(|| "missing tool parameters".to_string())?;
     let name = params
         .get("name")
@@ -145,7 +178,7 @@ fn call_tool(params: Option<&Value>, journal_dir: &Path) -> Result<Value, String
                 .get("iri")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "ontology_read requires iri".to_string())?;
-            let journal = journal_path(journal_dir, arguments.get("journal"))?;
+            let journal = journal_path(&options.journal_dir, arguments.get("journal"))?;
             let document = read_document(&journal)?;
             let node = document
                 .get("@graph")
@@ -168,7 +201,7 @@ fn call_tool(params: Option<&Value>, journal_dir: &Path) -> Result<Value, String
                 .and_then(Value::as_u64)
                 .unwrap_or(20)
                 .clamp(1, 100) as usize;
-            let journal = journal_path(journal_dir, arguments.get("journal"))?;
+            let journal = journal_path(&options.journal_dir, arguments.get("journal"))?;
             let document = read_document(&journal)?;
             let nodes = document
                 .get("@graph")
@@ -184,8 +217,80 @@ fn call_tool(params: Option<&Value>, journal_dir: &Path) -> Result<Value, String
                 .unwrap_or_default();
             Ok(json!({"type": object_type, "count": nodes.len(), "objects": nodes}))
         }
+        "code_propose_change"
+        | "code_run_checks"
+        | "code_prepare_release"
+        | "code_merge_change" => {
+            let workspace = options
+                .workspace
+                .as_ref()
+                .ok_or_else(|| "write scope requires --workspace".to_string())?;
+            if !options.allow_write {
+                return Err("write scope is not enabled; pass --allow-write".into());
+            }
+            let permissions = PermissionSet {
+                read_roots: vec![workspace.clone()],
+                allow_network: false,
+                allow_write: true,
+            };
+            let outcome = match name {
+                "code_propose_change" => run_tool(
+                    &CodeProposeChangeTool::new(action_definition("code.propose_change")?),
+                    arguments,
+                    &permissions,
+                )?,
+                "code_run_checks" => run_tool(
+                    &CodeRunChecksTool::new(action_definition("code.run_checks")?),
+                    arguments,
+                    &permissions,
+                )?,
+                "code_prepare_release" => run_tool(
+                    &CodePrepareReleaseTool::new(action_definition("code.prepare_release")?),
+                    arguments,
+                    &permissions,
+                )?,
+                "code_merge_change" => run_tool(
+                    &CodeMergeChangeTool::new(action_definition("code.merge_change")?),
+                    arguments,
+                    &permissions,
+                )?,
+                _ => unreachable!(),
+            };
+            Ok(json!({
+                "summary": outcome.summary,
+                "content": outcome.content,
+                "metadata": outcome.metadata,
+            }))
+        }
         _ => Err(format!("unknown tool {name}")),
     }
+}
+
+fn action_definition(id: &str) -> Result<crate::ontology::ActionDefinition, String> {
+    crate::ontology::try_builtin_action_registry()
+        .map_err(|error| error.to_string())?
+        .actions
+        .into_iter()
+        .find(|action| action.id == id)
+        .ok_or_else(|| format!("unknown action {id}"))
+}
+
+fn run_tool<T: AgentTool>(
+    tool: &T,
+    arguments: Value,
+    permissions: &PermissionSet,
+) -> Result<crate::tools::ToolOutcome, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("cannot start action runtime: {error}"))?;
+    runtime
+        .block_on(tool.execute(
+            arguments,
+            permissions,
+            &tokio_util::sync::CancellationToken::new(),
+        ))
+        .map_err(|error| error.to_string())
 }
 
 fn journal_path(journal_dir: &Path, value: Option<&Value>) -> Result<PathBuf, String> {
@@ -265,18 +370,26 @@ fn error_response(id: Option<Value>, code: i64, message: &str) -> Value {
 mod tests {
     use super::*;
 
+    fn options(dir: &Path) -> McpOptions {
+        McpOptions {
+            journal_dir: dir.to_path_buf(),
+            workspace: None,
+            allow_write: false,
+        }
+    }
+
     #[test]
     fn initialize_and_tool_list_are_read_only() {
         let dir = tempfile::tempdir().unwrap();
         let init = handle_request(
             &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
-            dir.path(),
+            &options(dir.path()),
         )
         .unwrap();
         assert_eq!(init["result"]["serverInfo"]["name"], "1agent-ontology");
         let tools = handle_request(
             &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
-            dir.path(),
+            &options(dir.path()),
         )
         .unwrap();
         let names = tools["result"]["tools"]
@@ -307,7 +420,7 @@ mod tests {
                 "method": "tools/call",
                 "params": {"name": "action_list", "arguments": {}}
             }),
-            dir.path(),
+            &options(dir.path()),
         )
         .unwrap();
         assert_eq!(actions["result"]["isError"], false);
@@ -327,10 +440,75 @@ mod tests {
                     "arguments": {"iri": "urn:1agent:run:nope"}
                 }
             }),
-            dir.path(),
+            &options(dir.path()),
         )
         .unwrap();
         assert_eq!(missing["result"]["isError"], true);
+    }
+
+    #[test]
+    fn typed_write_tools_require_scope_and_never_expose_approval() {
+        let journal = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let options = McpOptions {
+            journal_dir: journal.path().to_path_buf(),
+            workspace: Some(workspace.path().to_path_buf()),
+            allow_write: true,
+        };
+        let tools = handle_request(
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            &options,
+        )
+        .unwrap();
+        let names = tools["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"code_propose_change"));
+        assert!(names.contains(&"code_merge_change"));
+        assert!(!names.contains(&"code_approve_change"));
+
+        let proposed = handle_request(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "code_propose_change",
+                    "arguments": {"summary": "mcp proposal", "paths": ["src/lib.rs"]}
+                }
+            }),
+            &options,
+        )
+        .unwrap();
+        assert_eq!(proposed["result"]["isError"], false);
+        assert!(
+            proposed["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("proposal_id")
+        );
+
+        let denied = handle_request(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "code_propose_change",
+                    "arguments": {"summary": "no scope", "paths": ["src/lib.rs"]}
+                }
+            }),
+            &McpOptions {
+                journal_dir: journal.path().to_path_buf(),
+                workspace: Some(workspace.path().to_path_buf()),
+                allow_write: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(denied["result"]["isError"], true);
     }
 
     #[test]
@@ -346,7 +524,7 @@ mod tests {
                     "arguments": {"iri": "x", "journal": "../outside.jsonl"}
                 }
             }),
-            dir.path(),
+            &options(dir.path()),
         )
         .unwrap();
         assert_eq!(response["result"]["isError"], true);
