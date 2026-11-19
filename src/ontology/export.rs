@@ -422,6 +422,7 @@ fn build_run(
     }
 
     let mut action_iris = BTreeSet::new();
+    let mut proposal_iris = BTreeSet::new();
     for (observation, _) in &observations {
         let has_action_metadata = [
             "action_id",
@@ -517,6 +518,44 @@ fn build_run(
             && !iris.is_empty()
         {
             object.insert("hasArtifact".into(), refs_array(iris.clone()));
+        }
+        if action_type == "code.propose_change"
+            && let (Some(proposal_id), Some(sha256)) = (
+                observation
+                    .metadata
+                    .get("proposal_id")
+                    .filter(|value| !value.trim().is_empty()),
+                observation
+                    .metadata
+                    .get("sha256")
+                    .filter(|value| !value.trim().is_empty()),
+            )
+        {
+            let proposal_iri = ids::proposal_id(proposal_id);
+            let mut proposal = Map::new();
+            proposal.insert("@id".into(), Value::String(proposal_iri.clone()));
+            proposal.insert("@type".into(), Value::String("Proposal".into()));
+            proposal.insert(
+                "status".into(),
+                Value::String(
+                    observation
+                        .metadata
+                        .get("status")
+                        .map(String::as_str)
+                        .unwrap_or("proposed")
+                        .to_string(),
+                ),
+            );
+            proposal.insert("proposalSha256".into(), Value::String(bounded(sha256)));
+            proposal.insert("partOfRun".into(), ref_iri(&run_iri));
+            proposal.insert("hasAction".into(), ref_iri(&action_iri));
+            proposal.insert("wasGeneratedBy".into(), ref_iri(&observation_iri));
+            if let Some(path) = observation.metadata.get("path") {
+                proposal.insert("path".into(), Value::String(bounded(path)));
+            }
+            object.insert("hasProposal".into(), ref_iri(&proposal_iri));
+            nodes.insert(proposal_iri.clone(), Value::Object(proposal));
+            proposal_iris.insert(proposal_iri);
         }
         nodes.insert(action_iri, Value::Object(object));
     }
@@ -872,6 +911,9 @@ fn build_run(
         }
         if !action_iris.is_empty() {
             decision_object.insert("hasAction".into(), refs_array(action_iris.clone()));
+        }
+        if !proposal_iris.is_empty() {
+            decision_object.insert("hasProposal".into(), refs_array(proposal_iris.clone()));
         }
         decision_object.insert("hasOutcomeRecord".into(), ref_iri(&outcome));
         nodes.insert(decision.clone(), Value::Object(decision_object));

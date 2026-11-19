@@ -42,8 +42,8 @@ runtime behavior changed.
 - It writes a 0600 proposal artifact under `.1a/proposals/<id>.json`, never
   modifies the target files, and goes through the normal ExecutionGate.
 - The observation carries `action_type`, proposal id/path/SHA-256, risk and
-  reversibility; ontology export links `ActionInvocation` and
-  `Decision.hasAction`.
+  reversibility; ontology export links `ActionInvocation`, `Decision.hasAction`
+  and a `Proposal` node (`proposed`, SHA-256, action/decision lineage).
 - The other three ActionTypes remain registry-only; approval/release execution
   is not claimed.
 
@@ -57,13 +57,12 @@ runtime behavior changed.
 | real journal smoke | Decision + Outcome nodes exported and validated |
 | claims | 265 (241/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`.
 
 ## Not in this slice
 
-- `Scenario` nodes.
+- `Scenario` merge/atomic staging (Proposal is read-only representation).
 - Runtime wiring for the other three actions (approve/checks/release).
-- Scenario staging / atomic merge.
 - Object/action-level policy and Ontology MCP.
 
 ## Next

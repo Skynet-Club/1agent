@@ -75,6 +75,10 @@ pub fn criterion_id(run: &str, key: &str) -> String {
     )
 }
 
+pub fn proposal_id(id: &str) -> String {
+    format!("urn:1agent:proposal:{}", encode_segment(id))
+}
+
 pub fn claim_id(run: &str, claim: &str) -> String {
     format!(
         "urn:1agent:claim:{}:{}",
@@ -178,6 +182,7 @@ mod tests {
             criterion_id("run-1", "verifiable"),
             "urn:1agent:criterion:run-1:verifiable"
         );
+        assert_eq!(proposal_id("proposal-1"), "urn:1agent:proposal:proposal-1");
         assert_eq!(claim_id("run-1", "c1"), "urn:1agent:claim:run-1:c1");
         assert_eq!(
             evidence_id("run-1", 12, 0),

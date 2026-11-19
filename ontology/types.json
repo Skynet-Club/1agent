@@ -74,6 +74,13 @@
       "required": ["criterionKey", "satisfied"]
     },
     {
+      "id": "Proposal",
+      "kind": "object",
+      "owner": "runtime",
+      "version": "1",
+      "required": ["status", "proposalSha256"]
+    },
+    {
       "id": "Claim",
       "kind": "object",
       "owner": "runtime",

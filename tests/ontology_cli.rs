@@ -638,6 +638,7 @@ fn ontology_types_and_bindings_are_non_empty_valid_json() {
         "Outcome",
         "Option",
         "Criterion",
+        "Proposal",
         "Claim",
         "Evidence",
         "Artifact",

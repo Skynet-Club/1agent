@@ -6516,6 +6516,19 @@ mod tests {
             decision["hasAction"][0]["@id"], action["@id"],
             "decision must link the typed action"
         );
+        let proposal = graph
+            .iter()
+            .find(|node| node["@type"] == "Proposal")
+            .expect("proposal");
+        assert_eq!(proposal["status"], "proposed");
+        assert_eq!(
+            decision["hasProposal"][0]["@id"], proposal["@id"],
+            "decision must link the staged proposal"
+        );
+        assert_eq!(
+            proposal["hasAction"]["@id"], action["@id"],
+            "proposal must link its action"
+        );
     }
 
     #[tokio::test]

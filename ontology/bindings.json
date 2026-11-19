@@ -142,6 +142,22 @@
       "required": true
     },
     {
+      "type": "one:Proposal",
+      "property": "one:status",
+      "source": "journal#ToolObserved.metadata.status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Proposal",
+      "property": "one:proposalSha256",
+      "source": "journal#ToolObserved.metadata.sha256",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
       "type": "one:Claim",
       "property": "one:claimText",
       "source": "journal#AnswerProduced.answer.claims[].text",

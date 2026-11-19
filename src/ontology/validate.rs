@@ -25,6 +25,7 @@ const KNOWN_TYPES: &[&str] = &[
     "Outcome",
     "Option",
     "Criterion",
+    "Proposal",
     "Claim",
     "Evidence",
     "Artifact",
@@ -50,6 +51,7 @@ const REFERENCE_FIELDS: &[&str] = &[
     "hasOption",
     "chosenOption",
     "hasAction",
+    "hasProposal",
     "hasCriterion",
     "used",
     "wasGeneratedBy",
@@ -145,6 +147,7 @@ const GOAL_STATUSES: &[&str] = &["active", "paused", "achieved", "abandoned"];
 const COMMITMENT_STATUSES: &[&str] = &["pending", "kept", "missed", "cancelled"];
 const SOURCE_KINDS: &[&str] = &["web", "tool", "model_prior", "file", "unknown"];
 const OPTION_STATUSES: &[&str] = &["proposed", "selected", "rejected", "unknown"];
+const PROPOSAL_STATUSES: &[&str] = &["proposed", "approved", "rejected"];
 
 pub fn validate_document(document: &Value) -> ValidationReport {
     let mut checks = Vec::new();
@@ -310,6 +313,23 @@ pub fn validate_document(document: &Value) -> ValidationReport {
                     id,
                     object,
                     "criterionKey",
+                    &mut errors,
+                    &mut schema_failures,
+                );
+            }
+            Some("Proposal") => {
+                require_status(
+                    id,
+                    object,
+                    "status",
+                    PROPOSAL_STATUSES,
+                    &mut errors,
+                    &mut schema_failures,
+                );
+                require_string(
+                    id,
+                    object,
+                    "proposalSha256",
                     &mut errors,
                     &mut schema_failures,
                 );

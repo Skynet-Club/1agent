@@ -427,8 +427,8 @@ Bitemporal 字段（`observedAt`/`recordedAt`/`validFrom`/`validTo`）先由导�
 导出 `Decision`、`Outcome`、`Option`、`Criterion` 节点；`ontology/actions.json`
 定义代码变更/发布的 4 个 ActionType；`code.propose_change` 已注册为
 typed tool，写 0600 提案 artifact 并经 ExecutionGate，导出
-ActionInvocation/Decision.hasAction。approve/checks/release 与 `Scenario`
-仍待实现。
+ActionInvocation/Decision.hasAction/Proposal。approve/checks/release 与
+`Scenario` merge 仍待实现。
 
 P1.1 把 1AO 从“审计投影”推进到“可执行决策层”，但不改变 journal 的事实源地位：
 
