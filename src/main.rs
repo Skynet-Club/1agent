@@ -3000,6 +3000,12 @@ enum OntologyCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Serve read-only ontology tools over MCP stdio.
+    #[command(about = "启动只读本体 MCP · Serve read-only ontology MCP")]
+    Mcp {
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9135,6 +9141,10 @@ async fn main() -> Result<()> {
                 if !report.ok {
                     bail!("ontology validation failed for {source}");
                 }
+            }
+            OntologyCommand::Mcp { journal_dir } => {
+                first_principles_agent::ontology::serve_mcp_stdio(&journal_dir)
+                    .map_err(anyhow::Error::msg)?;
             }
         },
         Command::Action { command } => match command {

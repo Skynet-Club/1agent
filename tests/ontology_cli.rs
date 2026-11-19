@@ -612,6 +612,60 @@ fn ontology_actions_list_the_code_release_registry() {
 }
 
 #[test]
+fn ontology_mcp_serves_read_only_tools() {
+    use std::io::Write;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = command(dir.path())
+        .args([
+            "ontology",
+            "mcp",
+            "--journal-dir",
+            &dir.path().display().to_string(),
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        writeln!(
+            stdin,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+        )
+        .unwrap();
+        writeln!(
+            stdin,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        )
+        .unwrap();
+    }
+    drop(child.stdin.take());
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let lines = String::from_utf8(output.stdout).unwrap();
+    let responses = lines
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(responses.len(), 2);
+    assert_eq!(
+        responses[0]["result"]["serverInfo"]["name"],
+        "1agent-ontology"
+    );
+    let names = responses[1]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"ontology_read"));
+    assert!(!names.iter().any(|name| name.contains("write")));
+}
+
+#[test]
 fn human_can_decide_a_staged_change_proposal() {
     let dir = tempfile::tempdir().unwrap();
     let proposal_dir = dir.path().join(".1a/proposals");
