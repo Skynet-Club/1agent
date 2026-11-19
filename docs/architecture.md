@@ -402,8 +402,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   tenant record. The TUI renders successful memory tool results in a dark dashed
   fence: active records use a bright `✓`, stale/superseded records a dim-green
   `×`, and no-hit output has no circle marker. Model responses, tool calls and
-  tool results are indented as a hierarchy; failed calls stay on the red error
-  row instead of being hidden in the fence.
+  tool results are indented as a hierarchy; each model request sits in a dark
+  dashed phase fence. Direct answers show up to three claims/evidence/unknowns/
+  flip conditions with status badges and typed handles; full fields stay in
+  details. Failed calls stay on the red error row instead of being hidden in the
+  fence.
   `default_scope()` reads optional `ONEAGENT_BOT_ID`,
   `ONEAGENT_TENANT_ID`, `ONEAGENT_WORKSPACE_ID` and `ONEAGENT_TICKET_ID`;
   `onboard` and `memory recall` expose the same scope fields.

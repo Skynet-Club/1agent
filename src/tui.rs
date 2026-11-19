@@ -882,6 +882,7 @@ pub struct TuiState {
     run_metrics: TuiRunMetrics,
     activity: Option<TuiActivity>,
     activity_persistent: bool,
+    phase_open: bool,
     input_history: Vec<String>,
     queued_inputs: Vec<String>,
     history_cursor: Option<usize>,
@@ -961,6 +962,7 @@ impl TuiState {
             run_metrics: TuiRunMetrics::default(),
             activity: None,
             activity_persistent: false,
+            phase_open: false,
             input_history: Vec::new(),
             queued_inputs: Vec::new(),
             history_cursor: None,
@@ -1020,6 +1022,8 @@ impl TuiState {
         self.risk = risk;
         self.clear_input();
         self.scroll_from_bottom = 0;
+        self.end_phase();
+        self.assistant_heading("问题 Question", TuiTone::SectionText);
         self.push_entry(
             TranscriptKind::User,
             TuiTone::User,
@@ -1288,9 +1292,19 @@ impl TuiState {
         label_tone: TuiTone,
         text: impl Into<String>,
     ) {
+        self.assistant_item_styled(label, label_tone, text, label_tone);
+    }
+
+    pub fn assistant_item_styled(
+        &mut self,
+        label: impl Into<String>,
+        label_tone: TuiTone,
+        text: impl Into<String>,
+        text_tone: TuiTone,
+    ) {
         self.push_entry(
             TranscriptKind::Item,
-            label_tone,
+            text_tone,
             Some(label.into()),
             label_tone,
             text.into(),
@@ -2441,6 +2455,35 @@ impl TuiState {
 
     pub fn push_work(&mut self, kind: TuiActivityKind, detail: impl Into<String>) {
         self.push_work_with_tone(kind, detail, activity_kind_tone(kind));
+    }
+
+    /// Open a dashed process-phase fence. The next phase or the run summary
+    /// closes it; a replayed call closes any still-open phase first.
+    pub fn begin_phase(&mut self, title: impl Into<String>) {
+        if self.phase_open {
+            self.end_phase();
+        }
+        self.push_entry(
+            TranscriptKind::PanelStart,
+            TuiTone::Border,
+            Some(title.into()),
+            TuiTone::Evidence,
+            String::new(),
+        );
+        self.phase_open = true;
+    }
+
+    pub fn end_phase(&mut self) {
+        if self.phase_open {
+            self.push_entry(
+                TranscriptKind::PanelEnd,
+                TuiTone::Border,
+                None,
+                TuiTone::Border,
+                String::new(),
+            );
+            self.phase_open = false;
+        }
     }
 
     pub fn push_work_with_tone(
@@ -8263,6 +8306,31 @@ mod tests {
         assert_eq!(results[0].text, "  ⎿ 返回 2 个工具调用");
         assert!(results[1].text.starts_with("      ⎿ "));
         assert!(results[2].text.starts_with("      ⎿ "));
+    }
+
+    #[test]
+    fn phase_fences_wrap_work_and_close_on_the_next_phase() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.begin_phase("阶段 1");
+        state.push_work(TuiActivityKind::Requesting, "第 1 步 · 上下文 14.0k");
+        state.begin_phase("阶段 2");
+        state.push_work(TuiActivityKind::Requesting, "第 2 步 · 上下文 16.0k");
+        state.end_phase();
+        let lines = state.build_transcript_lines(60);
+        let starts = lines
+            .iter()
+            .filter(|line| line.kind == TranscriptKind::PanelStart)
+            .collect::<Vec<_>>();
+        assert_eq!(starts.len(), 2);
+        assert!(starts[0].text.starts_with("╭╌ 阶段 1"));
+        assert!(starts[1].text.starts_with("╭╌ 阶段 2"));
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.kind == TranscriptKind::PanelEnd)
+                .count(),
+            2
+        );
     }
 
     #[test]

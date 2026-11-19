@@ -25857,6 +25857,7 @@ fn append_work_events(
             } else {
                 format!("第 {step} 步")
             };
+            state.begin_phase(format!("阶段 {step}"));
             state.push_work(TuiActivityKind::Requesting, detail);
             // Mark the request event consumed before `continue`; otherwise the
             // next event causes this row to be appended a second time.
@@ -25984,6 +25985,7 @@ fn append_work_events(
                 );
             }
             JournalEventKind::RunStopped { reason } => {
+                state.end_phase();
                 let mut parts = vec![format!("运行结束 · {}", stop_reason_label(*reason))];
                 if step > 0 {
                     parts.push(format!("{step} 步"));
@@ -26667,14 +26669,27 @@ fn record_claim_section(
         return;
     }
     state.assistant_heading("我的判断", TuiTone::SectionText);
-    for claim in answer.claims.iter().take(limit) {
-        let status = claim_status_label(claim.status);
-        let label = if claim.id.trim().is_empty() {
-            status.to_string()
-        } else {
-            format!("{} · {status}", claim.id.trim())
-        };
-        state.assistant_item(label, TuiTone::SectionText, &claim.text);
+    for (index, claim) in answer.claims.iter().take(limit).enumerate() {
+        let (badge, tone) = claim_badge(claim.status);
+        state.assistant_item_styled(
+            format!("C{} · {badge}", index + 1),
+            tone,
+            &claim.text,
+            TuiTone::SectionText,
+        );
+    }
+}
+
+fn claim_badge(status: first_principles_agent::ClaimStatus) -> (&'static str, TuiTone) {
+    use first_principles_agent::ClaimStatus;
+    match status {
+        ClaimStatus::Verified => ("✓ 实测", TuiTone::Success),
+        ClaimStatus::UserAsserted => ("• 你说的", TuiTone::WorkLink),
+        ClaimStatus::Derived => ("~ 推断", TuiTone::Warning),
+        ClaimStatus::Assumed => ("? 假设", TuiTone::Warning),
+        ClaimStatus::ModelPrior => ("~ 经验", TuiTone::Evidence),
+        ClaimStatus::Conflicting => ("! 有冲突", TuiTone::Danger),
+        ClaimStatus::Unknown => ("? 未确定", TuiTone::MemoryMuted),
     }
 }
 
@@ -26687,17 +26702,57 @@ fn record_evidence_section(
         return;
     }
     state.assistant_heading("依据", TuiTone::SectionText);
-    for evidence in answer.evidence.iter().take(limit) {
+    for (index, evidence) in answer.evidence.iter().take(limit).enumerate() {
         let statement = if evidence.claim_ids.is_empty() {
             evidence.statement.clone()
         } else {
             format!(
                 "{}（对应 {}）",
                 evidence.statement,
-                evidence.claim_ids.join("、")
+                evidence
+                    .claim_ids
+                    .iter()
+                    .map(|id| display_claim_id(id))
+                    .collect::<Vec<_>>()
+                    .join("、")
             )
         };
-        state.assistant_evidence(short_evidence_source(&evidence.source), statement);
+        state.assistant_evidence(
+            format!(
+                "{} · {}",
+                evidence_handle(index, &evidence.source),
+                short_evidence_source(&evidence.source)
+            ),
+            statement,
+        );
+    }
+}
+
+fn evidence_handle(index: usize, source: &str) -> String {
+    let kind = if source.starts_with("memory") {
+        "MEM"
+    } else if source.starts_with("http") || source.contains("://") {
+        "WEB"
+    } else if source.contains("probe") || source.contains("test") {
+        "TEST"
+    } else if source.contains("terminal") || source.contains("bash") {
+        "TOOL"
+    } else if source.contains("api") {
+        "API"
+    } else if source.contains('/') || source.contains('.') {
+        "DOC"
+    } else {
+        "EV"
+    };
+    format!("{kind}-{}", index + 1)
+}
+
+fn display_claim_id(id: &str) -> String {
+    let id = id.trim();
+    if id.is_empty() {
+        "C".into()
+    } else {
+        id.to_ascii_uppercase()
     }
 }
 
@@ -29430,8 +29485,10 @@ mod tui_rendering_tests {
         let visible = state.render_screen(80, 24);
         assert!(visible.contains("结论 Conclusion"));
         assert!(visible.contains("连接测试成功。"));
+        assert!(visible.contains("问题 Question"));
         assert!(visible.contains("我的判断"));
         assert!(visible.contains("依据"));
+        assert!(visible.contains("对应 C1"));
         assert!(visible.contains("还没确定"));
         assert!(visible.contains("什么情况会改变结论"));
         assert!(!visible.contains("终止原因"));
@@ -29443,6 +29500,26 @@ mod tui_rendering_tests {
         assert!(details.contains("allow_write"));
         assert!(details.contains("我的判断"));
         assert!(details.contains("只测试通信能力"));
+    }
+
+    #[test]
+    fn claim_badges_and_evidence_handles_are_typed() {
+        assert_eq!(
+            claim_badge(first_principles_agent::ClaimStatus::Verified),
+            ("✓ 实测", TuiTone::Success)
+        );
+        assert_eq!(
+            claim_badge(first_principles_agent::ClaimStatus::Derived),
+            ("~ 推断", TuiTone::Warning)
+        );
+        assert_eq!(
+            claim_badge(first_principles_agent::ClaimStatus::Conflicting),
+            ("! 有冲突", TuiTone::Danger)
+        );
+        assert_eq!(evidence_handle(0, "probe"), "TEST-1");
+        assert_eq!(evidence_handle(1, "memory:mem-1"), "MEM-2");
+        assert_eq!(evidence_handle(2, "https://example.com"), "WEB-3");
+        assert_eq!(evidence_handle(3, "docs/manual.md"), "DOC-4");
     }
 
     #[test]
