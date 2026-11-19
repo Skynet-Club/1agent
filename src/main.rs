@@ -25832,6 +25832,7 @@ fn append_work_events(
     });
     let mut request_started_ms: Option<u128> = None;
     let mut step = 0usize;
+    let mut tool_group = false;
     let mut model_requests = ModelRequestChain::new();
     for event in events {
         let model_request = model_requests.apply(&event).ok().flatten();
@@ -25842,6 +25843,7 @@ fn append_work_events(
             continue;
         }
         if let Some(request) = model_request {
+            tool_group = false;
             request_started_ms = Some(event.timestamp_unix_ms);
             let context_tokens = first_principles_agent::context::total_request_tokens(
                 &request.messages,
@@ -25874,6 +25876,10 @@ fn append_work_events(
                     &response.turn,
                     first_principles_agent::ModelTurn::Final { .. }
                 );
+                tool_group = matches!(
+                    &response.turn,
+                    first_principles_agent::ModelTurn::ToolCalls { .. }
+                );
                 match &response.turn {
                     first_principles_agent::ModelTurn::Final { .. } => {
                         parts.push("返回最终答案".to_string())
@@ -25899,18 +25905,24 @@ fn append_work_events(
                 if final_answer {
                     parts.push("ctrl+o 详情".to_string());
                 }
-                state.push_work_result(parts.join(" · "), TuiTone::Muted);
+                state.push_work_result_at(parts.join(" · "), TuiTone::Muted, 1);
             }
             JournalEventKind::ToolCalled { call } => {
-                state.push_work_call(
+                state.push_work_call_at(
                     &call.id,
                     tool_activity_kind(&call.name),
                     work_tool_detail(call),
+                    if tool_group { 2 } else { 0 },
                 );
             }
             JournalEventKind::ToolObserved { observation } => {
                 if let Some((title, rows)) = memory_panel_for(observation) {
-                    state.push_panel(title, rows, TuiTone::Border);
+                    state.push_panel_at(
+                        title,
+                        rows,
+                        TuiTone::Border,
+                        if tool_group { 2 } else { 0 },
+                    );
                     *last_seq = Some(event.seq);
                     continue;
                 }
@@ -25926,10 +25938,11 @@ fn append_work_events(
                 );
             }
             JournalEventKind::ProviderFailed { failure } => {
-                state.push_work_with_tone(
+                state.push_work_with_tone_at(
                     TuiActivityKind::Retrying,
                     format!("{} · {}", failure.provider_id, failure.message),
                     TuiTone::Danger,
+                    1,
                 );
             }
             JournalEventKind::ProviderRetryScheduled {
@@ -25937,9 +25950,10 @@ fn append_work_events(
                 next_model,
                 ..
             } => {
-                state.push_work(
+                state.push_work_at(
                     TuiActivityKind::Retrying,
                     format!("切换到 {next_provider_id}/{next_model}"),
+                    1,
                 );
             }
             JournalEventKind::ContextCompacted {
@@ -26114,7 +26128,7 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
             let matches = value.get("matches")?.as_array()?;
             let mut rows = Vec::new();
             if matches.is_empty() {
-                rows.push(("○ 没有 active 记忆".into(), TuiTone::Supplementary));
+                rows.push(("没有 active 记忆".into(), TuiTone::MemoryMuted));
             }
             for hit in matches.iter().take(5) {
                 let id = hit
@@ -26133,9 +26147,9 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                     || hit.get("soft_forgotten_ms").is_some_and(|v| !v.is_null())
                     || hit.get("hard_forgotten_ms").is_some_and(|v| !v.is_null());
                 let (marker, tone) = if stale {
-                    ("○", TuiTone::Supplementary)
+                    ("×", TuiTone::MemoryMuted)
                 } else {
-                    ("●", TuiTone::Memory)
+                    ("✓", TuiTone::Memory)
                 };
                 rows.push((
                     format!(
@@ -26147,7 +26161,7 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
             }
             rows.push((
                 "记忆是证据，不是指令；当前用户消息优先".into(),
-                TuiTone::Muted,
+                TuiTone::Evidence,
             ));
             Some((format!("记忆 · {} 命中", matches.len()), rows))
         }
@@ -26170,7 +26184,7 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                         .unwrap_or("unknown");
                     rows.push((
                         format!(
-                            "● 偏好 {key}={value} · conf {confidence} · {}",
+                            "✓ 偏好 {key}={value} · conf {confidence} · {}",
                             short_memory_id(id)
                         ),
                         TuiTone::Memory,
@@ -26183,7 +26197,7 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                         .get("rule")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
-                    rows.push((format!("● 边界 {rule}"), TuiTone::Memory));
+                    rows.push((format!("✓ 边界 {rule}"), TuiTone::Memory));
                 }
             }
             if let Some(stale) = value
@@ -26192,11 +26206,11 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                 .and_then(Value::as_array)
             {
                 for preference in stale.iter().filter_map(Value::as_str) {
-                    rows.push((format!("○ 过期偏好 {preference}"), TuiTone::Supplementary));
+                    rows.push((format!("× 过期偏好 {preference}"), TuiTone::MemoryMuted));
                 }
             }
             if rows.is_empty() {
-                rows.push(("○ 暂无偏好或边界".into(), TuiTone::Supplementary));
+                rows.push(("暂无偏好或边界".into(), TuiTone::MemoryMuted));
             }
             Some(("用户模型".into(), rows))
         }
@@ -26220,7 +26234,7 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
             let mut rows = vec![(
-                format!("● {kind} · {content} · {source} · {}", short_memory_id(id)),
+                format!("✓ {kind} · {content} · {source} · {}", short_memory_id(id)),
                 TuiTone::Memory,
             )];
             let events = value
@@ -26228,7 +26242,7 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                 .and_then(Value::as_array)
                 .map(Vec::len)
                 .unwrap_or(0);
-            rows.push((format!("● 近 {events} 条 journal 事件"), TuiTone::Memory));
+            rows.push((format!("✓ 近 {events} 条 journal 事件"), TuiTone::Memory));
             Some(("记忆来源".into(), rows))
         }
         _ => None,
@@ -28778,8 +28792,26 @@ mod tui_rendering_tests {
         let (title, rows) = memory_panel_for(&observation).expect("memory panel");
         assert_eq!(title, "记忆 · 2 命中");
         assert_eq!(rows[0].1, TuiTone::Memory);
-        assert_eq!(rows[1].1, TuiTone::Supplementary);
+        assert_eq!(rows[1].1, TuiTone::MemoryMuted);
         assert!(rows.iter().any(|(text, _)| text.contains("editor=pnpm")));
+    }
+
+    #[test]
+    fn empty_memory_panel_has_no_circle_marker() {
+        let observation = first_principles_agent::ToolObservation {
+            call_id: "call-1".into(),
+            tool: "memory_recall".into(),
+            status: ToolStatus::Ok,
+            summary: "memory recall: not configured".into(),
+            content: serde_json::json!({"configured": false, "matches": []}).to_string(),
+            error_code: None,
+            metadata: Default::default(),
+        };
+        let (title, rows) = memory_panel_for(&observation).expect("memory panel");
+        assert_eq!(title, "记忆 · 0 命中");
+        assert_eq!(rows[0].0, "没有 active 记忆");
+        assert!(!rows[0].0.contains('○'));
+        assert!(!rows[0].0.contains('●'));
     }
 
     #[test]

@@ -155,6 +155,7 @@ pub enum TuiTone {
     ConclusionBorder,
     ConclusionTitle,
     Memory,
+    MemoryMuted,
     Strong,
     User,
 }
@@ -228,6 +229,7 @@ struct TranscriptEntry {
     label_tone: TuiTone,
     text: String,
     call_id: Option<String>,
+    indent: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2447,14 +2449,29 @@ impl TuiState {
         detail: impl Into<String>,
         tone: TuiTone,
     ) {
+        self.push_work_with_tone_at(kind, detail, tone, 0);
+    }
+
+    pub fn push_work_with_tone_at(
+        &mut self,
+        kind: TuiActivityKind,
+        detail: impl Into<String>,
+        tone: TuiTone,
+        indent: u8,
+    ) {
         let (cn, en) = kind.label();
-        self.push_entry(
+        self.push_entry_at(
             TranscriptKind::Work,
             tone,
             Some(format!("{cn} {en}")),
             tone,
             detail.into(),
+            indent,
         );
+    }
+
+    pub fn push_work_at(&mut self, kind: TuiActivityKind, detail: impl Into<String>, indent: u8) {
+        self.push_work_with_tone_at(kind, detail, activity_kind_tone(kind), indent);
     }
 
     pub fn push_work_call(
@@ -2463,14 +2480,27 @@ impl TuiState {
         kind: TuiActivityKind,
         detail: impl Into<String>,
     ) {
+        self.push_work_call_at(call_id, kind, detail, 0);
+    }
+
+    /// Tool calls under a model response are indented one level below its
+    /// "returned N tool calls" row.
+    pub fn push_work_call_at(
+        &mut self,
+        call_id: impl Into<String>,
+        kind: TuiActivityKind,
+        detail: impl Into<String>,
+        indent: u8,
+    ) {
         let tone = activity_kind_tone(kind);
         let (cn, en) = kind.label();
-        self.push_entry(
+        self.push_entry_at(
             TranscriptKind::Work,
             tone,
             Some(format!("{cn} {en}")),
             tone,
             detail.into(),
+            indent,
         );
         if let Some(entry) = self.transcript.last_mut() {
             entry.call_id = Some(call_id.into());
@@ -2478,7 +2508,18 @@ impl TuiState {
     }
 
     pub fn push_work_result(&mut self, detail: impl Into<String>, tone: TuiTone) {
-        self.push_entry(TranscriptKind::WorkResult, tone, None, tone, detail.into());
+        self.push_work_result_at(detail, tone, 1);
+    }
+
+    pub fn push_work_result_at(&mut self, detail: impl Into<String>, tone: TuiTone, indent: u8) {
+        self.push_entry_at(
+            TranscriptKind::WorkResult,
+            tone,
+            None,
+            tone,
+            detail.into(),
+            indent,
+        );
     }
 
     /// Draw one titled fence with pre-formatted rows. Rows keep their own tone
@@ -2489,22 +2530,34 @@ impl TuiState {
         rows: Vec<(String, TuiTone)>,
         border: TuiTone,
     ) {
-        self.push_entry(
+        self.push_panel_at(title, rows, border, 0);
+    }
+
+    pub fn push_panel_at(
+        &mut self,
+        title: impl Into<String>,
+        rows: Vec<(String, TuiTone)>,
+        border: TuiTone,
+        indent: u8,
+    ) {
+        self.push_entry_at(
             TranscriptKind::PanelStart,
             border,
             Some(title.into()),
-            TuiTone::Muted,
+            TuiTone::Evidence,
             String::new(),
+            indent,
         );
         for (text, tone) in rows {
-            self.push_entry(TranscriptKind::PanelLine, tone, None, border, text);
+            self.push_entry_at(TranscriptKind::PanelLine, tone, None, border, text, indent);
         }
-        self.push_entry(
+        self.push_entry_at(
             TranscriptKind::PanelEnd,
             border,
             None,
             border,
             String::new(),
+            indent,
         );
     }
 
@@ -2528,6 +2581,10 @@ impl TuiState {
             self.unseen_activity = true;
         }
         let detail = detail.into();
+        let indent = self
+            .transcript
+            .get(index)
+            .map_or(1, |entry| entry.indent.saturating_add(1));
         self.transcript.insert(
             index + 1,
             TranscriptEntry {
@@ -2537,6 +2594,7 @@ impl TuiState {
                 label_tone: tone,
                 text: sanitize_multiline(&detail),
                 call_id: None,
+                indent,
             },
         );
         if self.transcript.len() > 200 {
@@ -3356,30 +3414,34 @@ impl TuiState {
                     TuiTone::Default,
                 ));
             }
-            let (prefix, prefix_tone) = match entry.kind {
-                TranscriptKind::User => ("❯ ", TuiTone::Success),
-                TranscriptKind::Assistant => {
-                    (if in_conclusion { "   " } else { "  " }, TuiTone::Default)
+            let indent = "  ".repeat(usize::from(entry.indent));
+            let (prefix, prefix_tone): (String, TuiTone) = match entry.kind {
+                TranscriptKind::User => ("❯ ".into(), TuiTone::Success),
+                TranscriptKind::Assistant => (
+                    (if in_conclusion { "   " } else { "  " }).into(),
+                    TuiTone::Default,
+                ),
+                TranscriptKind::Heading => ("▌ ".into(), entry.tone),
+                TranscriptKind::Item => ("  • ".into(), entry.tone),
+                TranscriptKind::Quote => ("  ▌ ".into(), TuiTone::Supplementary),
+                TranscriptKind::QueryResult => ("  ◇ ".into(), TuiTone::Muted),
+                TranscriptKind::Evidence => ("  ↳ ".into(), entry.tone),
+                TranscriptKind::Code => ("  ".into(), TuiTone::Code),
+                TranscriptKind::Work => (format!("{indent}• "), entry.tone),
+                TranscriptKind::WorkResult => (format!("{indent}⎿ "), TuiTone::Body),
+                TranscriptKind::PanelStart | TranscriptKind::PanelEnd => {
+                    (indent.clone(), entry.tone)
                 }
-                TranscriptKind::Heading => ("▌ ", entry.tone),
-                TranscriptKind::Item => ("  • ", entry.tone),
-                TranscriptKind::Quote => ("  ▌ ", TuiTone::Supplementary),
-                TranscriptKind::QueryResult => ("  ◇ ", TuiTone::Muted),
-                TranscriptKind::Evidence => ("  ↳ ", entry.tone),
-                TranscriptKind::Code => ("  ", TuiTone::Code),
-                TranscriptKind::Work => ("• ", entry.tone),
-                TranscriptKind::WorkResult => ("  ⎿ ", TuiTone::Body),
-                TranscriptKind::PanelStart | TranscriptKind::PanelEnd => ("", entry.tone),
-                TranscriptKind::PanelLine => ("│ ", entry.tone),
+                TranscriptKind::PanelLine => (format!("{indent}┊ "), entry.tone),
                 TranscriptKind::ConclusionStart | TranscriptKind::ConclusionEnd => {
-                    ("", TuiTone::ConclusionBorder)
+                    (String::new(), TuiTone::ConclusionBorder)
                 }
-                TranscriptKind::System => ("Sys ", TuiTone::Muted),
-                TranscriptKind::Error => ("Err ", TuiTone::Danger),
+                TranscriptKind::System => ("Sys ".into(), TuiTone::Muted),
+                TranscriptKind::Error => ("Err ".into(), TuiTone::Danger),
             };
             let label = entry.label.as_deref().unwrap_or_default();
             if entry.kind == TranscriptKind::PanelStart {
-                let top_prefix = "╭╌ ";
+                let top_prefix = format!("{indent}╭╌ ");
                 let right = "╮";
                 let label = truncate_to_width(label, usize::from(width.saturating_sub(10)));
                 let fill = usize::from(width)
@@ -3399,7 +3461,7 @@ impl TuiState {
                 continue;
             }
             if entry.kind == TranscriptKind::PanelLine {
-                let prefix = "┊ ";
+                let prefix = format!("{indent}┊ ");
                 let suffix = " ┊";
                 let inner = usize::from(width)
                     .saturating_sub(prefix.width() + suffix.width())
@@ -3426,9 +3488,16 @@ impl TuiState {
                 lines.push(TranscriptVisualLine {
                     kind: TranscriptKind::PanelEnd,
                     tone: entry.tone,
-                    text: format!("╰{}╯", "╌".repeat(usize::from(width).saturating_sub(2))),
+                    text: format!(
+                        "{indent}╰{}╯",
+                        "╌".repeat(
+                            usize::from(width)
+                                .saturating_sub(indent.width())
+                                .saturating_sub(2)
+                        )
+                    ),
                     prompt_text: None,
-                    prefix_len: 0,
+                    prefix_len: indent.len(),
                     prefix_tone: entry.tone,
                     label_range: None,
                     label_tone: entry.tone,
@@ -3600,11 +3669,11 @@ impl TuiState {
             }
             if entry.kind == TranscriptKind::Work {
                 let first_prefix = if entry.text.trim().is_empty() {
-                    format!("• {label}")
+                    format!("{indent}• {label}")
                 } else {
-                    format!("• {label} · ")
+                    format!("{indent}• {label} · ")
                 };
-                let continuation_prefix = "  ";
+                let continuation_prefix = format!("{indent}  ");
                 let first_width = usize::from(width)
                     .saturating_sub(first_prefix.width())
                     .max(1);
@@ -3620,9 +3689,9 @@ impl TuiState {
                     };
                     for wrapped in wrapped {
                         let line_prefix = if first {
-                            &first_prefix
+                            first_prefix.as_str()
                         } else {
-                            continuation_prefix
+                            continuation_prefix.as_str()
                         };
                         let syntax_ranges = link_ranges(
                             &wrapped,
@@ -3637,10 +3706,15 @@ impl TuiState {
                             prompt_text: None,
                             // Action names, the bullet and links are the
                             // bright-green accents; details stay deep green.
-                            prefix_len: if first { "•".len() } else { 0 },
+                            prefix_len: if first {
+                                indent.len() + "•".len()
+                            } else {
+                                indent.len()
+                            },
                             prefix_tone: TuiTone::WorkLink,
-                            label_range: (first && !label.is_empty())
-                                .then_some("• ".len().."• ".len() + label.len()),
+                            label_range: (first && !label.is_empty()).then_some(
+                                indent.len() + "• ".len()..indent.len() + "• ".len() + label.len(),
+                            ),
                             label_tone: TuiTone::WorkLink,
                             syntax_ranges,
                             background: None,
@@ -3651,14 +3725,14 @@ impl TuiState {
                 continue;
             }
             if entry.kind == TranscriptKind::WorkResult {
-                let first_prefix = "  ⎿ ";
-                let continuation_prefix = "    ";
+                let first_prefix = format!("{indent}⎿ ");
+                let continuation_prefix = format!("{indent}    ");
                 let mut first = true;
                 for text_line in entry.text.lines() {
                     let line_prefix = if first {
-                        first_prefix
+                        first_prefix.as_str()
                     } else {
-                        continuation_prefix
+                        continuation_prefix.as_str()
                     };
                     let line_width = usize::from(width)
                         .saturating_sub(line_prefix.width())
@@ -3672,9 +3746,9 @@ impl TuiState {
                     };
                     for wrapped in wrap_display(text_line, line_width) {
                         let line_prefix = if first {
-                            first_prefix
+                            first_prefix.as_str()
                         } else {
-                            continuation_prefix
+                            continuation_prefix.as_str()
                         };
                         let syntax_ranges = link_ranges(
                             &wrapped,
@@ -3716,7 +3790,11 @@ impl TuiState {
                     wrap_display(text_line, continuation_width)
                 };
                 for wrapped in wrapped {
-                    let line_prefix = if first { &first_prefix } else { prefix };
+                    let line_prefix = if first {
+                        first_prefix.as_str()
+                    } else {
+                        prefix.as_str()
+                    };
                     let label_range =
                         (first && !label.is_empty()).then_some(prefix.len()..line_prefix.len());
                     let in_answer = in_conclusion && entry.kind == TranscriptKind::Assistant;
@@ -5257,6 +5335,18 @@ impl TuiState {
         label_tone: TuiTone,
         entry: String,
     ) {
+        self.push_entry_at(kind, tone, label, label_tone, entry, 0);
+    }
+
+    fn push_entry_at(
+        &mut self,
+        kind: TranscriptKind,
+        tone: TuiTone,
+        label: Option<String>,
+        label_tone: TuiTone,
+        entry: String,
+        indent: u8,
+    ) {
         if self.scroll_from_bottom > 0 {
             self.unseen_activity = true;
         }
@@ -5267,6 +5357,7 @@ impl TuiState {
             label_tone,
             text: sanitize_multiline(&entry),
             call_id: None,
+            indent,
         });
         if self.transcript.len() > 200 {
             self.transcript.remove(0);
@@ -5890,6 +5981,9 @@ fn tone_style(tone: TuiTone) -> Style {
         TuiTone::Memory => Style::default()
             .fg(MEMORY_TONE)
             .add_modifier(Modifier::BOLD),
+        TuiTone::MemoryMuted => Style::default()
+            .fg(MIL_GREEN_FAINT)
+            .add_modifier(Modifier::DIM),
         TuiTone::Strong => Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
@@ -8055,6 +8149,12 @@ mod tests {
                 .contains(Modifier::BOLD)
         );
         assert_eq!(tone_style(TuiTone::Memory).fg, Some(MEMORY_TONE));
+        assert_eq!(tone_style(TuiTone::MemoryMuted).fg, Some(MIL_GREEN_FAINT));
+        assert!(
+            tone_style(TuiTone::MemoryMuted)
+                .add_modifier
+                .contains(Modifier::DIM)
+        );
         assert_eq!(tone_style(TuiTone::User).bg, Some(PANEL_BG));
     }
 
@@ -8064,8 +8164,8 @@ mod tests {
         state.push_panel(
             "记忆 · 2 命中",
             vec![
-                ("● 偏好 editor=pnpm".into(), TuiTone::Memory),
-                ("○ 已过期 release/1.0".into(), TuiTone::Supplementary),
+                ("✓ 偏好 editor=pnpm".into(), TuiTone::Memory),
+                ("× 已过期 release/1.0".into(), TuiTone::MemoryMuted),
             ],
             TuiTone::Border,
         );
@@ -8086,7 +8186,7 @@ mod tests {
             .iter()
             .find(|line| line.text.contains("已过期"))
             .expect("stale memory");
-        assert_eq!(stale.tone, TuiTone::Supplementary);
+        assert_eq!(stale.tone, TuiTone::MemoryMuted);
         assert!(
             lines
                 .iter()
@@ -8116,15 +8216,53 @@ mod tests {
         assert!(symbol_at("┊").is_some(), "missing dashed vertical border");
         assert!(symbol_at("╰").is_some(), "missing panel bottom border");
         assert_eq!(
-            symbol_at("●").expect("active row").fg,
+            symbol_at("✓").expect("active row").fg,
             MEMORY_TONE,
             "active memory row should stay highlighted"
         );
         assert_eq!(
-            symbol_at("○").expect("stale row").fg,
-            Color::Indexed(245),
-            "stale memory row should be dimmed"
+            symbol_at("×").expect("stale row").fg,
+            MIL_GREEN_FAINT,
+            "stale memory row should use the dim green palette, not gray"
         );
+    }
+
+    #[test]
+    fn tool_calls_and_results_are_indented_under_model_response() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_work_result_at("返回 2 个工具调用", TuiTone::Muted, 1);
+        state.push_work_call_at(
+            "call-1",
+            TuiActivityKind::Searching,
+            "session_search · a",
+            2,
+        );
+        state.push_work_call_at(
+            "call-2",
+            TuiActivityKind::CallingTool,
+            "memory_recall · b",
+            2,
+        );
+        state.push_work_result_for("call-1", "✓ session search: 10 match(es)", TuiTone::Success);
+        state.push_work_result_for("call-2", "✓ memory recall: 0 match(es)", TuiTone::Success);
+        let lines = state.build_transcript_lines(80);
+        let work = lines
+            .iter()
+            .filter(|line| line.kind == TranscriptKind::Work)
+            .collect::<Vec<_>>();
+        assert!(
+            work.iter().all(|line| line.text.starts_with("    • ")),
+            "{:?}",
+            work.iter().map(|line| &line.text).collect::<Vec<_>>()
+        );
+        assert_eq!(work.len(), 2);
+        let results = lines
+            .iter()
+            .filter(|line| line.kind == TranscriptKind::WorkResult)
+            .collect::<Vec<_>>();
+        assert_eq!(results[0].text, "  ⎿ 返回 2 个工具调用");
+        assert!(results[1].text.starts_with("      ⎿ "));
+        assert!(results[2].text.starts_with("      ⎿ "));
     }
 
     #[test]

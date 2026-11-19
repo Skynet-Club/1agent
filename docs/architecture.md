@@ -399,9 +399,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `MemoryScope::matches` gives hierarchical read visibility: a record with fewer set
   tenant/workspace/ticket fields is visible to a narrower query, never the reverse.
   `UserModel` and read-by-id use the same rule, so a bare bot query cannot read a
-  tenant record. The TUI renders successful memory tool results in a titled fence:
-  active records use a bright marker, stale/superseded records a dim marker, and
-  failed calls stay on the red error row instead of being hidden in the fence.
+  tenant record. The TUI renders successful memory tool results in a dark dashed
+  fence: active records use a bright `✓`, stale/superseded records a dim-green
+  `×`, and no-hit output has no circle marker. Model responses, tool calls and
+  tool results are indented as a hierarchy; failed calls stay on the red error
+  row instead of being hidden in the fence.
   `default_scope()` reads optional `ONEAGENT_BOT_ID`,
   `ONEAGENT_TENANT_ID`, `ONEAGENT_WORKSPACE_ID` and `ONEAGENT_TICKET_ID`;
   `onboard` and `memory recall` expose the same scope fields.
