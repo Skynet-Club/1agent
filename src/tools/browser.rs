@@ -18,8 +18,8 @@ use super::web::{html_to_text, resolve_public, validate_url};
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::browser::{
     ActionAuthorization, ActionCardError, ActionCardStore, ActionRequest, BrowserConfig,
-    BrowserSession, ElementDescriptor, SecretStore, authorize_request, default_browser_root,
-    normalize_origin, origin_of,
+    BrowserSession, EgressPolicy, EgressProxy, ElementDescriptor, SecretStore, authorize_request,
+    default_browser_root, normalize_origin, origin_of,
 };
 use crate::cua::ArgumentSource;
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
@@ -97,6 +97,10 @@ impl AgentTool for BrowserReadTool {
         RiskLevel::High
     }
 
+    fn requires_network(&self) -> bool {
+        true
+    }
+
     fn timeout(&self) -> Duration {
         Duration::from_secs(45)
     }
@@ -126,6 +130,17 @@ impl AgentTool for BrowserReadTool {
         validate_url(&url)?;
         resolve_public(&url).await?;
 
+        let host = url
+            .host_str()
+            .ok_or_else(|| ToolError::InvalidArguments("URL has no host".into()))?;
+        let proxy = EgressProxy::start(EgressPolicy::new(vec![host.to_string()], false))
+            .await
+            .map_err(|error| {
+                ToolError::Failed(format!("cannot start browser egress proxy: {error}"))
+            })?;
+        let profile = tempfile::tempdir().map_err(|error| {
+            ToolError::Failed(format!("cannot create browser profile: {error}"))
+        })?;
         let mut command = tokio::process::Command::new(&self.chrome);
         command
             .args([
@@ -136,9 +151,20 @@ impl AgentTool for BrowserReadTool {
                 "--disable-extensions",
                 "--disable-background-networking",
                 "--virtual-time-budget=8000",
-                "--dump-dom",
-                url.as_str(),
             ])
+            .arg(format!("--user-data-dir={}", profile.path().display()))
+            .arg(format!("--proxy-server={}", proxy.url()))
+            .arg("--proxy-bypass-list=<-loopback>")
+            .args(["--dump-dom", url.as_str()])
+            .env_clear()
+            .env("HOME", profile.path())
+            .env("XDG_CONFIG_HOME", profile.path().join(".config"))
+            .env("XDG_CACHE_HOME", profile.path().join(".cache"))
+            .env("TMPDIR", profile.path())
+            .env(
+                "PATH",
+                std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into()),
+            )
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -230,13 +256,38 @@ fn url_is_loopback(url: &str) -> bool {
     Url::parse(url)
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))
-        .is_some_and(|host| {
-            let host = host.trim_start_matches('[').trim_end_matches(']');
-            host.eq_ignore_ascii_case("localhost")
-                || host == "::1"
-                || host == "0.0.0.0"
-                || host.starts_with("127.")
-        })
+        .is_some_and(|host| crate::net_policy::is_loopback_host(&host))
+}
+
+/// The proxy allowlist for an `open`. Without network permission the model's
+/// `allow` list is ignored: only the validated loopback URL host is allowed.
+fn browser_allowlist(
+    arguments: &Value,
+    url: &Url,
+    allow_network: bool,
+) -> Result<Vec<String>, ToolError> {
+    let mut allowlist = if allow_network {
+        arguments
+            .get("allow")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    if allowlist.is_empty() {
+        let host = url
+            .host_str()
+            .ok_or_else(|| ToolError::InvalidArguments("URL has no host".into()))?;
+        allowlist.push(host.to_string());
+    }
+    Ok(allowlist)
 }
 
 /// Same local page for an idempotent `open`: origin and path match, while
@@ -410,6 +461,10 @@ impl AgentTool for BrowserTool {
         RiskLevel::High
     }
 
+    fn requires_network(&self) -> bool {
+        true
+    }
+
     fn requires_write(&self) -> bool {
         true
     }
@@ -464,34 +519,22 @@ impl AgentTool for BrowserTool {
             "open" | "navigate" => {
                 let url = required_string(&arguments, "url")?;
                 if action == "open" && guard.is_none() {
-                    let allow = arguments
-                        .get("allow")
-                        .and_then(Value::as_array)
-                        .map(|items| {
-                            items
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    let mut allowlist = allow;
-                    if allowlist.is_empty() {
-                        let parsed = Url::parse(url).map_err(|error| {
-                            ToolError::InvalidArguments(format!("invalid URL: {error}"))
-                        })?;
-                        let host = parsed
-                            .host_str()
-                            .ok_or_else(|| ToolError::InvalidArguments("URL has no host".into()))?;
-                        allowlist.push(host.to_string());
-                    }
+                    let parsed = Url::parse(url).map_err(|error| {
+                        ToolError::InvalidArguments(format!("invalid URL: {error}"))
+                    })?;
+                    let allowlist =
+                        browser_allowlist(&arguments, &parsed, permissions.allow_network)?;
                     let config = BrowserConfig {
                         headless: true,
                         allowlist,
-                        allow_loopback: arguments
-                            .get("allow_loopback")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false),
+                        allow_loopback: if permissions.allow_network {
+                            arguments
+                                .get("allow_loopback")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                        } else {
+                            true
+                        },
                         chrome_path: None,
                         profile_root: None,
                         download_dir: None,
@@ -875,6 +918,53 @@ printf '<html><head><style>.x{}</style><script>bad()</script></head><body><h1>Re
         assert!(!outcome.content.contains("bad()"));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_uses_a_private_profile_and_egress_proxy() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("record-chrome");
+        let args_file = dir.path().join("args.txt");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf '<html><body>ok</body></html>'\n",
+            args_file.display()
+        );
+        std::fs::write(&path, script).unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+
+        let outcome = BrowserReadTool::new(path)
+            .execute(
+                json!({"url": "https://1.1.1.1/"}),
+                &PermissionSet {
+                    allow_network: true,
+                    ..PermissionSet::default()
+                },
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(outcome.content.contains("ok"));
+        let args = std::fs::read_to_string(&args_file).unwrap();
+        assert!(args.contains("--proxy-server=http://127.0.0.1:"));
+        assert!(args.contains("--user-data-dir="));
+        assert!(args.contains("--proxy-bypass-list=<-loopback>"));
+    }
+
+    #[test]
+    fn network_off_ignores_model_supplied_allowlist() {
+        let url = Url::parse("http://127.0.0.1:8765/").unwrap();
+        let arguments = json!({"allow": ["attacker.example"], "allow_loopback": true});
+        assert_eq!(
+            browser_allowlist(&arguments, &url, false).unwrap(),
+            vec!["127.0.0.1"]
+        );
+        assert_eq!(
+            browser_allowlist(&arguments, &url, true).unwrap(),
+            vec!["attacker.example"]
+        );
+    }
+
     #[tokio::test]
     async fn network_permission_is_required() {
         let error = BrowserReadTool::new("unused")
@@ -895,6 +985,8 @@ printf '<html><head><style>.x{}</style><script>bad()</script></head><body><h1>Re
         assert!(url_is_loopback("http://localhost:8765/"));
         assert!(url_is_loopback("http://[::1]:8765/"));
         assert!(!url_is_loopback("https://example.com/"));
+        assert!(!url_is_loopback("http://127.attacker.example/"));
+        assert!(!url_is_loopback("http://0.0.0.0:8765/"));
         assert!(!url_is_loopback("not a url"));
         assert!(same_loopback_page(
             "http://127.0.0.1:40593/?v=2",

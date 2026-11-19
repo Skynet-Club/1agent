@@ -374,6 +374,10 @@ impl AgentTool for TerminalCreateTool {
         true
     }
 
+    fn executes(&self) -> bool {
+        true
+    }
+
     async fn execute(
         &self,
         arguments: Value,
@@ -490,6 +494,10 @@ impl AgentTool for TerminalWriteTool {
         true
     }
 
+    fn executes(&self) -> bool {
+        true
+    }
+
     async fn execute(
         &self,
         arguments: Value,
@@ -597,6 +605,10 @@ impl AgentTool for TerminalOutputTool {
     }
 
     fn requires_write(&self) -> bool {
+        true
+    }
+
+    fn executes(&self) -> bool {
         true
     }
 
@@ -734,6 +746,10 @@ impl AgentTool for TerminalExecTool {
         true
     }
 
+    fn executes(&self) -> bool {
+        true
+    }
+
     fn timeout(&self) -> Duration {
         Duration::from_secs(MAX_EXEC_TIMEOUT_SECS + 15)
     }
@@ -864,6 +880,10 @@ impl AgentTool for TerminalDestroyTool {
     }
 
     fn requires_write(&self) -> bool {
+        true
+    }
+
+    fn executes(&self) -> bool {
         true
     }
 

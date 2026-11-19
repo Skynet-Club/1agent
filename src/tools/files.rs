@@ -129,11 +129,16 @@ async fn resolve_target(path: &str, permissions: &PermissionSet) -> Result<PathB
 
     let mut allowed = false;
     for root in &permissions.read_roots {
-        if let Ok(root) = tokio::fs::canonicalize(root).await
-            && target.starts_with(&root)
-        {
-            allowed = true;
-            break;
+        if let Ok(root) = tokio::fs::canonicalize(root).await {
+            if super::action::canonical_control_path(&root, &target) {
+                return Err(ToolError::PermissionDenied(
+                    "refusing to write to the control-plane directory".into(),
+                ));
+            }
+            if target.starts_with(&root) {
+                allowed = true;
+                break;
+            }
         }
     }
     if !allowed {
@@ -538,6 +543,29 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, ToolError::PermissionDenied(_)));
+    }
+
+    #[tokio::test]
+    async fn refuses_to_write_control_plane_paths() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".1a/approvals")).unwrap();
+        std::fs::create_dir_all(root.path().join(".git")).unwrap();
+        let tool = WriteFileTool;
+        for path in [".1a/approvals/forged.json", ".git/config"] {
+            let error = tool
+                .execute(
+                    json!({
+                        "path": root.path().join(path),
+                        "content": "forged",
+                        "overwrite": true,
+                    }),
+                    &write_permissions(root.path()),
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
+            assert!(matches!(error, ToolError::PermissionDenied(_)));
+        }
     }
 
     #[tokio::test]

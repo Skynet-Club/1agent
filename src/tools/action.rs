@@ -83,6 +83,7 @@ pub fn decide_proposal(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "proposal_id is missing".to_string())?
         .to_string();
+    validate_safe_id(&proposal_id).map_err(|error| error.to_string())?;
     let proposal_sha256 = hex::encode(Sha256::digest(&bytes));
     let control_root = proposal_path
         .parent()
@@ -90,12 +91,10 @@ pub fn decide_proposal(
         .and_then(Path::parent)
         .ok_or_else(|| "proposal path has no workspace root".to_string())?;
     ensure_control_dir(control_root, ".1a/approvals").map_err(|error| error.to_string())?;
-    let approvals_dir = proposal_path
-        .parent()
-        .and_then(Path::parent)
-        .map(|root| root.join("approvals"))
-        .ok_or_else(|| "proposal path has no approval directory".to_string())?;
-    let receipt_path = approvals_dir.join(format!("{proposal_id}.json"));
+    let receipt_path = control_root
+        .join(".1a")
+        .join("approvals")
+        .join(format!("{proposal_id}.json"));
     if let Ok(existing) = std::fs::read(&receipt_path)
         && let Ok(existing) = serde_json::from_slice::<ProposalReceipt>(&existing)
     {
@@ -631,15 +630,17 @@ impl AgentTool for CodePrepareReleaseTool {
                 "check report did not pass for this proposal".into(),
             ));
         }
+        ensure_control_dir(&root, &format!(".1a/releases/{}", args.proposal_id))?;
         let release_dir = root.join(".1a/releases").join(&args.proposal_id);
         let manifest_path = release_dir.join("release.json");
-        if let Ok(existing) = std::fs::read(&manifest_path)
-            && let Ok(existing) = serde_json::from_slice::<Value>(&existing)
+        if let Ok(existing_bytes) = std::fs::read(&manifest_path)
+            && let Ok(existing) = serde_json::from_slice::<Value>(&existing_bytes)
             && existing["proposal_sha256"] == proposal_sha256
+            && existing["version"].as_str() == Some(version.as_str())
             && existing["approval_sha256"] == hex::encode(Sha256::digest(&approval_bytes))
             && existing["check_report_sha256"] == hex::encode(Sha256::digest(&check_bytes))
         {
-            let sha256 = hex::encode(Sha256::digest(std::fs::read(&manifest_path).unwrap()));
+            let sha256 = hex::encode(Sha256::digest(&existing_bytes));
             return Ok(release_outcome(
                 self.action.risk.clone(),
                 self.action.reversible,
@@ -1385,7 +1386,7 @@ fn read_proposal(path: &Path) -> Result<(Value, Vec<u8>, String), ToolError> {
 /// Resolve an existing or new target file. Existing targets must be regular
 /// files inside the canonical workspace; new targets need an existing parent
 /// directory inside it. Symlinks are rejected instead of followed.
-fn canonical_control_path(canonical_root: &Path, path: &Path) -> bool {
+pub(crate) fn canonical_control_path(canonical_root: &Path, path: &Path) -> bool {
     path.starts_with(canonical_root.join(".1a")) || path.starts_with(canonical_root.join(".git"))
 }
 
@@ -1627,6 +1628,29 @@ mod tests {
         assert_eq!(receipt.status, "rejected");
         assert!(decide_proposal(&proposal, "approve", "", None).is_err());
         assert!(decide_proposal(&proposal, "maybe", "bob", None).is_err());
+    }
+
+    #[test]
+    fn approval_rejects_a_traversing_proposal_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".1a/proposals/p1.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "schema": "1ao.change-proposal/v1",
+                "proposal_id": "../../escape",
+                "action_version": "1",
+                "status": "proposed",
+                "summary": "test",
+                "paths": ["src/lib.rs"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let error = decide_proposal(&path, "approve", "alice", None).unwrap_err();
+        assert!(error.contains("invalid proposal_id"));
+        assert!(!dir.path().join(".1a/escape.json").exists());
     }
 
     #[tokio::test]

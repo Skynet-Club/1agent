@@ -17,7 +17,11 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent
 ADAPTER = ROOT.parent / "adapter.py"
-TASKS = [ROOT / "task-command.json", ROOT / "task-artifact.json"]
+TASKS = [
+    ROOT / "task-command.json",
+    ROOT / "task-artifact.json",
+    ROOT / "task-scorer-container.json",
+]
 IMAGE = "1ash-1agent:local"
 
 

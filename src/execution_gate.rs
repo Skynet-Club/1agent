@@ -85,7 +85,11 @@ impl ExecutionGate {
             .tools
             .get(&request.tool)
             .ok_or_else(|| ExecutionGateError::UnknownTool(request.tool.clone()))?;
-        let action = if capability.requires_write {
+        let action = if capability.requires_network {
+            PolicyAction::Network
+        } else if capability.executes {
+            PolicyAction::Execute
+        } else if capability.requires_write {
             PolicyAction::Write
         } else {
             PolicyAction::Read
@@ -227,5 +231,50 @@ mod tests {
             gate.authorize(&unknown, 10).unwrap_err(),
             ExecutionGateError::Denied(_, _)
         ));
+    }
+
+    #[test]
+    fn network_and_execute_tools_require_their_strength() {
+        let mut authority = AuthorityRegistry::default();
+        authority
+            .register(AuthorityProfile {
+                profile_id: "full-profile".into(),
+                actor_id: "actor-1".into(),
+                scopes: vec!["repo*".into()],
+                max_strength: MandateStrength::Network,
+                allowed_tools: vec!["fetch_url".into(), "terminal_exec".into()],
+                denied_tools: Vec::new(),
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
+                max_risk: RiskLevel::High,
+                expires_ms: None,
+            })
+            .unwrap();
+        authority.bind("actor-1", "full-profile").unwrap();
+        let gate = ExecutionGate::new(authority, &default_registry());
+
+        assert!(matches!(
+            gate.authorize(&request("fetch_url"), 10).unwrap_err(),
+            ExecutionGateError::Denied(_, _)
+        ));
+        let mut network = request("fetch_url");
+        network.strength = MandateStrength::Network;
+        assert_eq!(
+            gate.authorize(&network, 10).unwrap().outcome,
+            PolicyOutcome::RequireApproval
+        );
+
+        let mut write = request("terminal_exec");
+        write.strength = MandateStrength::Write;
+        assert!(matches!(
+            gate.authorize(&write, 10).unwrap_err(),
+            ExecutionGateError::Denied(_, _)
+        ));
+        let mut execute = request("terminal_exec");
+        execute.strength = MandateStrength::Execute;
+        assert_eq!(
+            gate.authorize(&execute, 10).unwrap().outcome,
+            PolicyOutcome::RequireApproval
+        );
     }
 }

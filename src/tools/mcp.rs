@@ -301,11 +301,14 @@ impl McpClient {
                 server.name
             )));
         }
-        if !loopback {
+        let pinned = if loopback {
+            None
+        } else {
             // Close the MCP HTTP SSRF gap: reject private, link-local and
-            // metadata addresses before reqwest resolves the host.
-            super::web::resolve_public(&parsed).await?;
-        }
+            // metadata addresses, and pin the validated address so a second
+            // DNS answer cannot redirect the request.
+            Some(super::web::resolve_public(&parsed).await?)
+        };
         if server.bearer_token_env.is_some() && server.bearer_token_file.is_some() {
             return Err(ToolError::InvalidArguments(format!(
                 "MCP server '{}' must set only one of bearer_token_env or bearer_token_file",
@@ -374,16 +377,19 @@ impl McpClient {
                 None,
             )
         };
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|error| {
-                ToolError::Failed(format!(
-                    "cannot build MCP HTTP client for '{}': {error}",
-                    server.name
-                ))
-            })?;
+            .redirect(reqwest::redirect::Policy::none());
+        if let Some((host, ip)) = pinned {
+            let port = parsed.port_or_known_default().unwrap_or(443);
+            builder = builder.resolve(&host, std::net::SocketAddr::new(ip, port));
+        }
+        let client = builder.build().map_err(|error| {
+            ToolError::Failed(format!(
+                "cannot build MCP HTTP client for '{}': {error}",
+                server.name
+            ))
+        })?;
         Ok(Transport::Http {
             client,
             url: parsed.to_string(),
@@ -1476,6 +1482,10 @@ impl AgentTool for McpTool {
 
     fn requires_write(&self) -> bool {
         self.requires_write
+    }
+
+    fn requires_network(&self) -> bool {
+        true
     }
 
     fn timeout(&self) -> Duration {

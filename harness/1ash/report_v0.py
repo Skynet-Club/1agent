@@ -156,6 +156,7 @@ def main() -> int:
             "no safety suite; safety_asr is not a measurement",
             "pass@k and pass^k are recorded at k=1 only",
             "cost is the provider-reported journal cost; unknown is not estimated",
+            "hash_chain_tip is an unkeyed self-checksum; reports are unsigned and not tamper-evident",
         ],
         "abc_checklist": {},
         "runs": [

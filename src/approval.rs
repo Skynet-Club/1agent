@@ -88,7 +88,8 @@ impl ApprovalKeyRegistry {
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ApprovalError> {
-        std::fs::write(path, serde_json::to_vec_pretty(self)?)?;
+        let bytes = serde_json::to_vec_pretty(self)?;
+        crate::jsonl::write_private_atomic(path.as_ref(), &bytes, "approval-keys.json")?;
         Ok(())
     }
 
@@ -284,6 +285,11 @@ pub fn verify_snapshot_chain(
     let mut previous: Option<&RegistrySnapshot> = None;
     for snapshot in snapshots {
         snapshot.verify_integrity(key, minimum_registry_version)?;
+        if registry.keys.iter().any(|record| {
+            record.key_id == snapshot.key_id && record.status == ApprovalKeyStatus::Revoked
+        }) {
+            return Err(ApprovalError::KeyRevoked);
+        }
         if let Some(previous) = previous {
             if snapshot.registry_version <= previous.registry_version {
                 return Err(ApprovalError::SnapshotChainOrder);
@@ -657,6 +663,26 @@ mod tests {
         assert!(matches!(
             verify_snapshot_chain(&[first, second_fork], &registry, &path, &key(), 1),
             Err(ApprovalError::InvalidSnapshotDigest | ApprovalError::SnapshotChainFork)
+        ));
+    }
+
+    #[test]
+    fn snapshot_chain_rejects_a_revoked_signer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        let mut registry = ApprovalKeyRegistry::default();
+        registry.add_active("key-1".into()).unwrap();
+        registry.save(&path).unwrap();
+        let first = registry
+            .sign_snapshot(&path, "admin".into(), "key-1".into(), &key(), None)
+            .unwrap();
+        registry
+            .transition("key-1", ApprovalKeyStatus::Revoked, "compromised".into())
+            .unwrap();
+        registry.save(&path).unwrap();
+        assert!(matches!(
+            verify_snapshot_chain(&[first], &registry, &path, &key(), 1),
+            Err(ApprovalError::KeyRevoked)
         ));
     }
 

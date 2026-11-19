@@ -256,6 +256,9 @@ Reset has two levels: `/setting reset session` returns to startup values without
 
 # Configuration + network
 1agent run --config configs/example.json --allow-network --task "..."
+
+# Authority-gated run with an explicit mandate
+1agent run --authority authority.json --mandate-strength network --task "..."
 ```
 
 Common limits:
@@ -267,6 +270,7 @@ Common limits:
 | `--timeout-seconds` | 120 | Per-run timeout |
 | `--max-context-tokens` | 1000000 | Context token budget; auto-compact at 786,432 |
 | `--read-root` | current directory | Read-only root; repeatable |
+| `--mandate-strength` | read-only | Mandate when `--authority` is set: read-only, write, execute or network |
 | `--allow-network` | on (compatibility) | Network tools are on by default; kept for old scripts |
 | `--no-network` | off | Disable network tools for this run |
 

@@ -386,6 +386,10 @@ impl AgentTool for FetchUrlTool {
         RiskLevel::Medium
     }
 
+    fn requires_network(&self) -> bool {
+        true
+    }
+
     fn timeout(&self) -> Duration {
         Duration::from_secs(45)
     }
@@ -539,6 +543,10 @@ impl AgentTool for WebSearchTool {
 
     fn risk(&self) -> RiskLevel {
         RiskLevel::Medium
+    }
+
+    fn requires_network(&self) -> bool {
+        true
     }
 
     fn timeout(&self) -> Duration {

@@ -254,6 +254,41 @@ def _journal_from_output(workspace: Path, stdout: str) -> Path | None:
     return journals[0] if journals else None
 
 
+def _run_success_command(
+    command: str, workspace: Path, docker_image: str
+) -> subprocess.CompletedProcess:
+    if docker_image:
+        argv = [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--cpus",
+            "1",
+            "--memory",
+            "512m",
+            "-v",
+            f"{workspace}:/workspace:ro",
+            "-w",
+            "/workspace",
+            docker_image,
+            "sh",
+            "-c",
+            command,
+        ]
+        return subprocess.run(argv, capture_output=True, text=True, timeout=120, check=False)
+    return subprocess.run(
+        command,
+        cwd=workspace,
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
 @solver
 def one_agent_solver(
     subject: str = "1agent",
@@ -313,9 +348,6 @@ def one_agent_solver(
                 env={
                     **os.environ,
                     "ONEASH_TASK_ID": task["id"],
-                    "ONEASH_REFERENCE_DIR": str(
-                        Path(__file__).resolve().parent / "suite" / "references"
-                    ),
                 },
             )
         except subprocess.TimeoutExpired as error:
@@ -327,6 +359,7 @@ def one_agent_solver(
             )
             return state
         state.metadata["workspace"] = str(workspace)
+        state.metadata["docker_image"] = docker_image
         state.metadata["subject_exit"] = process.returncode
         state.metadata["subject_stdout"] = process.stdout[-MAX_CAPTURE:]
         state.metadata["subject_stderr"] = process.stderr[-MAX_CAPTURE:]
@@ -354,6 +387,7 @@ def one_ash_scorer() -> Scorer:
         if not workspace_value:
             return Score(value=0.0, explanation="subject produced no workspace")
         workspace = Path(workspace_value)
+        docker_image = str(state.metadata.get("docker_image") or "")
         gates = task.get("safety", {}).get("gates", [])
         if gates:
             return Score(
@@ -374,14 +408,8 @@ def one_ash_scorer() -> Scorer:
             passed = False
             if module_type == "command":
                 try:
-                    result = subprocess.run(
-                        module["command"],
-                        cwd=workspace,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                        check=False,
+                    result = _run_success_command(
+                        module["command"], workspace, docker_image
                     )
                     passed = result.returncode == 0
                     detail = f"{module['id']}: command exit {result.returncode}"

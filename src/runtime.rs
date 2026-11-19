@@ -419,7 +419,6 @@ struct ToolGateContext {
     actor_id: String,
     scope: String,
     strength: MandateStrength,
-    now_ms: u128,
 }
 
 #[derive(Clone)]
@@ -667,14 +666,12 @@ impl AgentRuntime {
         actor_id: impl Into<String>,
         scope: impl Into<String>,
         strength: MandateStrength,
-        now_ms: u128,
     ) -> Self {
         self.tool_gate = Some(ToolGateContext {
             gate,
             actor_id: actor_id.into(),
             scope: scope.into(),
             strength,
-            now_ms,
         });
         self
     }
@@ -849,7 +846,7 @@ impl AgentRuntime {
                     strength: context.strength,
                     risk: RiskLevel::Low,
                 },
-                context.now_ms,
+                crate::current_time_ms(),
             );
             let base = GateFacts {
                 action_id: current_action_id(call),
@@ -4314,7 +4311,6 @@ mod tests {
             "owner-1",
             "repo:1-agent",
             crate::task_graph::MandateStrength::ReadOnly,
-            10,
         )
     }
 
@@ -4535,7 +4531,6 @@ mod tests {
                 "owner-1",
                 "repo:1-agent",
                 crate::task_graph::MandateStrength::Write,
-                10,
             )
             .with_action_log_journal(ActionLogJournal::open(&log_path).unwrap());
         let observation = crate::tools::RUN_CONTEXT
@@ -4626,7 +4621,6 @@ mod tests {
                 "owner-1",
                 "repo:1-agent",
                 crate::task_graph::MandateStrength::ReadOnly,
-                10,
             )
             .with_action_log_journal(ActionLogJournal::open(&log_path).unwrap());
         let result = runtime
@@ -4685,7 +4679,6 @@ mod tests {
                 "owner-1",
                 "repo:1-agent",
                 crate::task_graph::MandateStrength::Write,
-                10,
             )
             .with_action_log_journal(ActionLogJournal::open(log_path).unwrap())
             .with_tool_approval_store(crate::tool_approval::ToolApprovalStore::at(store_path))
@@ -6802,7 +6795,7 @@ mod tests {
             tools,
             workspace.path().join(".journal"),
         )
-        .with_execution_gate(gate, "actor-1", "repo:1-agent", MandateStrength::Write, 0);
+        .with_execution_gate(gate, "actor-1", "repo:1-agent", MandateStrength::Write);
 
         let request = TaskRequest::from_objective("read one thing", workspace.path().into());
         let result = runtime

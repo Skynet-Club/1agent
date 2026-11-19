@@ -212,6 +212,8 @@ Provider 告警历史：
 | `Ctrl+V` / `Shift+Insert` | 粘贴剪贴板；右键不再自动粘贴 |
 
 > 本地 CLI/TUI 默认满血：文件写入、终端执行和网络开启；`--read-only` 关闭写入，`--no-network` 关闭网络。最终是否执行仍由 Authority/Policy 和 Workshop 决定。TUI 内 `/permissions network off|on` 只影响下一次运行，无需重启。
+>
+> 启用 `--authority` 时，用 `--mandate-strength read-only|write|execute|network` 声明本次授权强度（默认 `read-only`）。网络工具需要 `network`，终端/进程工具需要 `execute`。
 
 会话输入框使用深绿色面板：背景、边框与面板文字整体压暗 50%；输入内容保持白色。宽度足够时，token 指标嵌在输入框顶部边框的右侧：
 

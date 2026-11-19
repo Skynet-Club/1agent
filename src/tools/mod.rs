@@ -105,6 +105,10 @@ pub struct ToolCapability {
     pub parameters: Value,
     pub risk: RiskLevel,
     pub requires_write: bool,
+    #[serde(default)]
+    pub requires_network: bool,
+    #[serde(default)]
+    pub executes: bool,
     pub timeout_ms: u64,
     pub status: ToolCapabilityStatus,
 }
@@ -231,6 +235,16 @@ pub trait AgentTool: Send + Sync {
     fn requires_write(&self) -> bool {
         false
     }
+    /// Whether the tool can reach the network. Used by Authority policy to
+    /// require a Network-strength mandate instead of classifying it as read.
+    fn requires_network(&self) -> bool {
+        false
+    }
+    /// Whether the tool runs code or drives a process. Used by Authority
+    /// policy to require an Execute-strength mandate.
+    fn executes(&self) -> bool {
+        false
+    }
     /// Whether the runtime can plausibly undo this tool's side effect. The
     /// default treats every write-capable tool as irreversible until it
     /// declares otherwise.
@@ -321,6 +335,8 @@ impl ToolRegistry {
                     parameters: spec.parameters,
                     risk: tool.risk(),
                     requires_write: tool.requires_write(),
+                    requires_network: tool.requires_network(),
+                    executes: tool.executes(),
                     timeout_ms: tool.timeout().as_millis().min(u128::from(u64::MAX)) as u64,
                     status: ToolCapabilityStatus::Implemented,
                 }

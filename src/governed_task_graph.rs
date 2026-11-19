@@ -274,6 +274,10 @@ impl GovernedTaskGraph {
         now_ms: u128,
     ) -> Result<String, GovernedTaskGraphError> {
         self.ensure_ticket_policy(ticket_id, actor_id, PolicyAction::Approve, now_ms)?;
+        let outcome = match decision {
+            ApprovalDecision::Deny => "denied",
+            ApprovalDecision::AllowOnce | ApprovalDecision::Always => "allowed",
+        };
         let approval_id = self.graph.with_graph_mut(|graph| {
             graph.approve_ticket(ticket_id, actor_id, decision, expires_ms, now_ms)
         })?;
@@ -281,7 +285,7 @@ impl GovernedTaskGraph {
             actor_id,
             ActionKind::Approve,
             ticket_id,
-            "allowed",
+            outcome,
             "approval recorded",
             now_ms,
         )?;

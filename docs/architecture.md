@@ -663,6 +663,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   action log as an optional payload; legacy entries verify with their original
   hash. A gated call fails closed if its pre-execution record cannot be
   written. Authority/Policy remains the only allow/deny source.
+- Gated runs declare a mandate with `run --mandate-strength
+  read-only|write|execute|network` (default `read-only`). The gate classifies
+  tools by capability: network tools require Network, terminal/process tools
+  require Execute, other writes require Write, and everything else is Read.
   `reconcile_actions` (AR-003) compares the gated `ToolObserved` entries of one
   run with its latest `ActionRecord`s: a missing record, a missing journal
   observation, or a tool/status/policy/artifact mismatch is reported; non-gated

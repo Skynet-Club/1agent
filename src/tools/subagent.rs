@@ -147,7 +147,7 @@ impl AgentTool for SpawnAgentTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "spawn_agent".into(),
-            description: "Spawn a bounded child 1Agent run for a subtask. The child has its own journal, workspace and budget; results are returned as JSON. Depth is capped to prevent runaway trees. Child write/network permissions are intersected with the parent's permissions, so allow_write/allow_network can only restrict; AGENT_* provider environment is inherited. The spawn itself is classified as write-capable because the child may write, so read-only mode, the kill switch and write-level Authority gates apply before any child starts.".into(),
+            description: "Spawn a bounded child 1Agent run for a subtask. The child has its own journal, workspace and budget; results are returned as JSON. Depth is capped to prevent runaway trees. Child write/network permissions are intersected with the parent's permissions, so allow_write/allow_network can only restrict; AGENT_* provider environment is inherited. The spawn itself is classified as write- and execute-capable because the child may write or run terminal tools, so read-only mode, the kill switch and write/execute-level Authority gates apply before any child starts.".into(),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
@@ -192,6 +192,10 @@ impl AgentTool for SpawnAgentTool {
     }
 
     fn requires_write(&self) -> bool {
+        true
+    }
+
+    fn executes(&self) -> bool {
         true
     }
 

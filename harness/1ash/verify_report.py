@@ -42,8 +42,13 @@ def main() -> int:
     if tip != expected:
         print(f"hash chain mismatch: recorded {tip}, expected {expected}")
         return 1
+    if not report.get("signatures"):
+        print(
+            "warning: no signatures; the hash tip is an unkeyed self-checksum, "
+            "not proof of origin"
+        )
     print(
-        "1ASH report v0 verified: "
+        "1ASH report v0 internally consistent: "
         f"{report['report_id']} · runs={len(report['runs'])} · {tip}"
     )
     return 0

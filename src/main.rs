@@ -87,6 +87,25 @@ struct Cli {
     command: Option<Command>,
 }
 
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum MandateStrengthArg {
+    ReadOnly,
+    Write,
+    Execute,
+    Network,
+}
+
+impl From<MandateStrengthArg> for first_principles_agent::MandateStrength {
+    fn from(value: MandateStrengthArg) -> Self {
+        match value {
+            MandateStrengthArg::ReadOnly => Self::ReadOnly,
+            MandateStrengthArg::Write => Self::Write,
+            MandateStrengthArg::Execute => Self::Execute,
+            MandateStrengthArg::Network => Self::Network,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum Command {
@@ -182,6 +201,9 @@ enum Command {
         actor_id: String,
         #[arg(long, default_value = "workspace")]
         authority_scope: String,
+        /// Minimum authority strength for this run when --authority is set.
+        #[arg(long, value_enum, default_value_t = MandateStrengthArg::ReadOnly)]
+        mandate_strength: MandateStrengthArg,
         #[arg(long)]
         provider_health: bool,
         #[arg(long)]
@@ -6835,6 +6857,7 @@ async fn main() -> Result<()> {
             authority,
             actor_id,
             authority_scope,
+            mandate_strength,
             provider_health,
             alert_log,
             alert_webhook,
@@ -7002,8 +7025,7 @@ async fn main() -> Result<()> {
                     gate,
                     actor_id,
                     authority_scope,
-                    first_principles_agent::MandateStrength::ReadOnly,
-                    now_unix_ms(),
+                    mandate_strength.into(),
                 );
                 if let Some(journal) = action_journal {
                     runtime = runtime.with_action_log_journal(journal);

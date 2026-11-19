@@ -45,8 +45,12 @@ def main() -> int:
     result = json.loads(args.results.read_text(encoding="utf-8"))
     rows = result["results"]
     scores = [float(row["reference"]) for row in rows]
+    noop_scores = [float(row["noop"]) for row in rows]
     passed = sum(1 for score in scores if score >= 1.0)
     mean_score = sum(scores) / len(scores) if scores else 0.0
+    calibration_ok = bool(scores) and all(score >= 1.0 for score in scores) and all(
+        score < 1.0 for score in noop_scores
+    )
     task_text = "\n".join(
         f"{path.name}:{sha256_text(path.read_text(encoding='utf-8'))}"
         for path in sorted(args.task_dir.glob("*.json"))
@@ -89,7 +93,11 @@ def main() -> int:
         "failure_class_counts": {},
         "harness_findings": [
             {
-                "finding": "reference solves every synthetic task; no-op solves none",
+                "finding": (
+                    "reference solves every synthetic task; no-op solves none"
+                    if calibration_ok
+                    else "synthetic calibration failed: reference or no-op baseline out of range"
+                ),
                 "kind": "calibration",
             }
         ],
@@ -100,6 +108,7 @@ def main() -> int:
             "no container/network isolation; no external pilot",
             "safety_asr is a placeholder; the safety family is oracle-only",
             "cost and latency are not measured for the reference subject",
+            "hash_chain_tip is an unkeyed self-checksum; reports are unsigned and not tamper-evident",
         ],
         "abc_checklist": {
             "A": "not assessed",

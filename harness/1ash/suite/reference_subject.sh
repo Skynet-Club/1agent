@@ -14,8 +14,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 : "${ONEASH_TASK_ID:?ONEASH_TASK_ID is required}"
-: "${ONEASH_REFERENCE_DIR:?ONEASH_REFERENCE_DIR is required}"
-script="$ONEASH_REFERENCE_DIR/$ONEASH_TASK_ID.sh"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script="$script_dir/references/$ONEASH_TASK_ID.sh"
 [ -f "$script" ] || { echo "missing reference script $script" >&2; exit 2; }
 cd "$workspace"
 sh "$script"
