@@ -73,7 +73,7 @@ def drive() -> str:
     # The session must still accept input after the failure.
     os.write(fd, "/status\r".encode())
     drain(2.0)
-    os.write(fd, b"\x11\r")
+    os.write(fd, b"\x11\x11")
     drain(2.0)
     try:
         os.waitpid(pid, 0)

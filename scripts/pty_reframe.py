@@ -57,7 +57,7 @@ def drive() -> str:
     # typing "/reframe accept 1" is the scripting path and is covered by tests.
     os.write(fd, b"\r")
     drain(3.0)
-    os.write(fd, b"\x11\r")
+    os.write(fd, b"\x11\x11")
     drain(2.0)
     try:
         os.waitpid(pid, 0)

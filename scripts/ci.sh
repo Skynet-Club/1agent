@@ -33,8 +33,8 @@ fi
   printf 'started %s\n\n' "$stamp"
   ./scripts/check-attribution.sh
   ./scripts/verify.sh
-  ./scripts/verify-claims.sh --run
   cargo build --offline --release
+  ./scripts/verify-claims.sh --run
 ) >"$log" 2>&1
 status=$?
 

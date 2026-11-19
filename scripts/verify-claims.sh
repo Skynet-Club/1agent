@@ -17,6 +17,11 @@ cd "$project_dir"
 export TMPDIR="$HOME/.cache/1agent-tmp"
 mkdir -p "$TMPDIR"
 
+# Keep evidence execution hermetic: a developer's ~/.1a config must not change
+# provider routing or permission defaults during --run.
+export ONEAGENT_HOME="${ONEAGENT_HOME:-$TMPDIR/oneagent-home}"
+mkdir -p "$ONEAGENT_HOME"
+
 doc="docs/claims.md"
 run=0
 [[ "${1-}" == "--run" ]] && run=1

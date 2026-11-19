@@ -69,7 +69,7 @@ file: <路径>              → 文件必须存在
 | 真实任务套件 v1：8 个真实任务；`EvalCase.allow_write` 逐例显式开启写权限；`eval --validate-only` 校验结构/元数据/唯一 id，不跑模型；无 `--config` 拒绝运行 model_quality | cmd: cargo test shipped_real_task_suite_is_structurally_valid --lib && cargo test --test eval_validate_cli | ✅ | 已在 DeepSeek 上运行两次（11/16）；rubric 未人工校准；M1/M2/M3 仍未测量 |
 | 真实任务基线：DeepSeek `deepseek-flash`，suite v1.1 两次运行 16/16（100%），rubric 36/36；v1.0 校准后三次 17/24（70.83%），1 次硬门失败 | file: docs/evidence/real-tasks-benchmark-2026-11-12.md | ⚠️ | 单 provider/单模型；8 任务×2 次，样本小；未人工评审/校准；不是 M1 8h |
 | 旧 journal 兼容：Evidence 时间戳与 ReframeDecided 使用 u64，含时间戳的 tagged event 可读；JSON 数字格式不变 | test: tagged_events_with_evidence_timestamps_round_trip | ✅ | 修复 serde tagged-enum 的 u128 缓冲限制；其它应用层 u128 字段若进入 tagged payload 仍需转换 |
-| TUI 纯文本函数已拆到 `tui_text`（sanitize/fit/wrap/truncate/split），`tui.rs` 重新导出；行为不变 | cmd: cargo test tui_text --lib && ./scripts/tui-interaction-check.sh | ✅ | 仅第一批拆分；transcript/input/command panel/state 与 main.rs 未拆 |
+| TUI 纯文本函数已拆到 `tui_text`（sanitize/fit/wrap/truncate/split），`tui.rs` 重新导出；行为不变 | cmd: cargo test tui_text --lib && env -u ONEAGENT_HOME ./scripts/tui-interaction-check.sh | ✅ | 仅第一批拆分；transcript/input/command panel/state 与 main.rs 未拆；交互检查用本机 live provider |
 | 答案渲染已拆到 `answer_render`（完整/分层/标签），`main.rs` 导入；输出不变 | cmd: cargo test answer_render --lib && cargo test --test cli_e2e default_run_output_is_concise_and_details_expands_it | ✅ | 仅渲染函数；main.rs 命令组/路由轨迹未拆 |
 | 回答质量看板：从 JSONL 样本计算 M19–M23；M20 平局排除、零分母 null、非法行报行号、追问采纳必须有追问 | cmd: cargo test answer_quality --lib && cargo test --test answer_quality_cli | ✅ | 只计算调用方标签；不执行盲评/不采集 golden set；标签质量不受控 |
 | core-v3 八例契约套件 8/8 且两次运行判定一致；报告 digest 含 duration，不逐字节比较 | cmd: cargo test --test eval_repeatability_cli && cargo run --offline --quiet -- eval --suite evals/core.json | ✅ | 契约夹具，不是真实任务/模型质量；历史 6/6 文档不回写 |
@@ -296,13 +296,13 @@ file: <路径>              → 文件必须存在
 | 真实模型的决策质量 | 无 | ❌ | 无 held-out 结果 |
 | 回答不复述请求、不含开场脚手架 | file: docs/evidence-answer-style-v2set.md | ⚠️ | 两套独立 14 任务均达标：散文 p50 292/222，句子 4.0/5.0，复述 2/14、2/14，脚手架 0 |
 | 五条风格法已写入系统提示词 | test: system_prompt_carries_the_occam_style_laws | ✅ | 只证明条款存在，不证明模型遵守 |
-| 输出风格基线已建立 | cmd: python3 scripts/answer_style/baseline.py | ✅ | 19 条可测答案，全部来自加规则之前的提示词 |
+| 输出风格基线脚本可运行（需填充的 `.journal`） | file: docs/evidence-answer-style-v3.md | ⚠️ | 19 条答案的原始基线来自主线 journal；release/1.0 worktree 未带 journal，T7 未重跑脚本 |
 | 并列方案不超过 3 个且给出默认推荐 | cmd: cargo test reframe --lib | ⚠️ | 2..=3 选项上限已由 validate 强制；默认推荐字段/校验未实现 |
 | 未决定时给出可执行的方案菜单 | test: no_decision_prints_a_menu_and_writes_nothing | ✅ | CLI 层；TUI 未接；方案菜单按设计无默认项 |
 | /reframe 可被 Ctrl+C 取消且不残留提议 | cmd: python3 scripts/pty_reframe_cancel.py | ✅ | PTY，本地黑洞端点；取消后会话仍可用 |
 | 重构失败时给出可读错误且不泄露端点 | cmd: python3 scripts/pty_reframe_failure.py | ✅ | PTY，连本地关闭端口；失败后会话仍可用 |
 | TUI 内可完成需求重构与决定 | cmd: python3 scripts/pty_reframe.py | ✅ | PTY 真实输入，断言提议面板与决定落库 |
-| 每轮结束提供带默认项的动作菜单 | cmd: python3 scripts/pty_next_actions.py | ✅ | 真实 PTY 驱动 TUI，断言面板出现且默认项有标记 |
+| 独立 TUI 轮次结束后不弹出未经请求的下一步面板；`/frame` 仍可显式打开 | cmd: python3 scripts/pty_next_actions.py | ✅ | 旧行为（自动打开 `/frame` 菜单）已移除；Workshop 宿主的菜单由单测覆盖 |
 | 回答语言与请求一致 | file: docs/evidence-answer-style-v3.md | ⚠️ | 全新 14 个任务 0 条语言错配；关掉语言条款的对照曾出现 1 条 |
 | 菜单项只来自已注册命令 | test: every_entry_carries_a_real_command_name | ✅ | 只证明在注册表内；`implemented` 标志恒为 true，见下方缺陷 |
 | 真实语料中"手段类请求"的占比 | 无 | ❌ | 75 条 journal 中真实请求约 10 条，样本不足 |

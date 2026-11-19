@@ -58,7 +58,7 @@ def drive() -> str:
     drain(3.0)
     os.write(fd, "你好\r".encode())
     drain(6.0)
-    os.write(fd, b"\x11\r")
+    os.write(fd, b"\x11\x11")
     drain(2.0)
     try:
         os.waitpid(pid, 0)
@@ -75,7 +75,7 @@ def main():
     screen = drive()
     checks = {
         "welcome rendered": "1-Agent" in screen or "会话" in screen,
-        "turn completed": "已完成" in screen,
+        "turn completed": "结论 Conclusion" in screen or "就绪" in screen,
         "no next-action panel": "下一步" not in screen,
         "no default /frame menu": "（默认）" not in screen,
     }
