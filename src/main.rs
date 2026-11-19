@@ -26664,8 +26664,15 @@ fn looks_like_structured_tool_output(content: &str) -> bool {
 }
 
 fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
-    // Direct mode is conversation-first: a two-sentence brief is the answer.
-    // The remaining sentences are capped and kept in /details.
+    // Code is content, not supporting detail: never let the short-answer
+    // contract fold requested code into /details.
+    if first_principles_agent::has_fenced_code(&answer.conclusion) {
+        state.assistant_conclusion_start(conclusion_label(answer));
+        state.assistant_markdown(&answer.conclusion);
+        state.assistant_conclusion_end();
+        return;
+    }
+    // Otherwise a two-sentence brief is the answer; the rest stays in /details.
     let brief = answer.brief();
     let summary = if brief.summary.is_empty() {
         brief_direct_answer(&answer.conclusion)
@@ -29554,6 +29561,19 @@ mod tui_rendering_tests {
         assert!(details.contains("allow_write"));
         assert!(details.contains("我的判断"));
         assert!(details.contains("只测试通信能力"));
+    }
+
+    #[test]
+    fn direct_answer_keeps_requested_code_visible() {
+        let mut run = result();
+        run.answer.conclusion =
+            "这里是摘要。\n\n```python\nprint('hello')\n```\n\n补充说明。".into();
+        let mut state = TuiState::new("deepseek", 6, 120);
+        state.begin("写代码", CognitiveMode::DirectAnswer, RiskLevel::Low);
+        record_tui_result(&mut state, &run);
+        let visible = state.render_screen(80, 40);
+        assert!(visible.contains("print('hello')"), "{visible}");
+        assert!(!visible.contains("更多要点"), "{visible}");
     }
 
     #[test]

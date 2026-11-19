@@ -4,7 +4,7 @@
 //! layered summary that hides structured fields unless the answer is
 //! high-risk. TUI hosts have their own renderer.
 
-use crate::domain::{AnswerStatus, ClaimStatus, ImpactLevel, RunResult};
+use crate::domain::{AnswerStatus, ClaimStatus, ImpactLevel, RunResult, has_fenced_code};
 
 pub fn render_answer(result: &RunResult) -> String {
     let answer = &result.answer;
@@ -70,7 +70,7 @@ pub fn render_answer(result: &RunResult) -> String {
 pub fn render_answer_default(result: &RunResult) -> String {
     let answer = &result.answer;
     let summary = answer.brief().summary;
-    let summary = if summary.is_empty() {
+    let summary = if summary.is_empty() || has_fenced_code(&answer.conclusion) {
         &answer.conclusion
     } else {
         &summary

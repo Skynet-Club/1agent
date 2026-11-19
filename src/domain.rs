@@ -956,6 +956,11 @@ pub enum AnswerValidationError {
     StaleEvidenceForPolicy(String),
 }
 
+pub fn has_fenced_code(text: &str) -> bool {
+    text.lines()
+        .any(|line| line.trim_start().starts_with("```"))
+}
+
 fn answer_sentences(text: &str) -> Vec<String> {
     let mut sentences = Vec::new();
     let mut start = 0;
@@ -2040,6 +2045,12 @@ mod tests {
                 serde_json::Value::String(mode.as_str().into())
             );
         }
+    }
+
+    #[test]
+    fn fenced_code_is_detected_for_the_answer_brief_exception() {
+        assert!(has_fenced_code("说明\n```python\nprint('hi')\n```"));
+        assert!(!has_fenced_code("普通回答"));
     }
 
     #[test]
