@@ -46,18 +46,23 @@ runtime behavior changed.
   and a `Proposal` node (`proposed`, SHA-256, action/decision lineage).
 - The other three ActionTypes remain registry-only; approval/release execution
   is not claimed.
+- Human decision path: `1agent action approve-change --proposal <path>
+  --decision approve|reject --actor <name> --yes` records a 0600 receipt under
+  `.1a/approvals/<proposal_id>.json`; identical decisions are idempotent.
+  This is a CLI/library operation, not a model tool, so an agent cannot
+  self-approve. It records the decision; it does not merge or release.
 
 ## Verification
 
 | Check | Result |
 |---|---|
-| `./scripts/verify.sh` | **pass**; 1661 total, 0 failed, 13 ignored |
-| ontology/unit tests | 34 ontology + 3 typed-tool tests |
-| ontology CLI tests | 28 passed |
+| `./scripts/verify.sh` | **pass**; 1664 total, 0 failed, 13 ignored |
+| ontology/unit tests | 34 ontology + 5 action tests |
+| ontology CLI tests | 29 passed |
 | real journal smoke | Decision + Outcome nodes exported and validated |
-| claims | 265 (241/16/8) |
+| claims | 266 (242/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`, `verify-1ao-proposal-approval.log`.
 
 ## Not in this slice
 

@@ -3046,6 +3046,22 @@ enum ActionCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Record a human decision for a staged change proposal.
+    #[command(about = "批准变更提案 · Decide a change proposal")]
+    ApproveChange {
+        #[arg(long)]
+        proposal: PathBuf,
+        #[arg(long, value_parser = ["approve", "reject"])]
+        decision: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -9290,6 +9306,33 @@ async fn main() -> Result<()> {
                     );
                 } else {
                     println!("denied {}", card.card_id);
+                }
+            }
+            ActionCommand::ApproveChange {
+                proposal,
+                decision,
+                actor,
+                reason,
+                yes,
+                json,
+            } => {
+                if !yes {
+                    bail!("refusing to record a change decision without --yes");
+                }
+                let receipt = first_principles_agent::decide_proposal(
+                    &proposal,
+                    &decision,
+                    &actor,
+                    reason.as_deref(),
+                )
+                .map_err(anyhow::Error::msg)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&receipt)?);
+                } else {
+                    println!(
+                        "{} {} by {} (proposal sha256 {})",
+                        receipt.status, receipt.proposal_id, receipt.actor, receipt.proposal_sha256
+                    );
                 }
             }
         },

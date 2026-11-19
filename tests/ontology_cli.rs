@@ -610,6 +610,47 @@ fn ontology_actions_list_the_code_release_registry() {
 }
 
 #[test]
+fn human_can_decide_a_staged_change_proposal() {
+    let dir = tempfile::tempdir().unwrap();
+    let proposal_dir = dir.path().join(".1a/proposals");
+    std::fs::create_dir_all(&proposal_dir).unwrap();
+    let proposal = proposal_dir.join("p1.json");
+    std::fs::write(
+        &proposal,
+        serde_json::to_vec(&serde_json::json!({
+            "schema": "1ao.change-proposal/v1",
+            "proposal_id": "p1",
+            "status": "proposed",
+            "summary": "tighten parser",
+            "paths": ["src/parser.rs"]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = run(
+        dir.path(),
+        &[
+            "action",
+            "approve-change",
+            "--proposal",
+            proposal.to_str().unwrap(),
+            "--decision",
+            "approve",
+            "--actor",
+            "alice",
+            "--yes",
+            "--json",
+        ],
+    );
+    assert_success(&output, "approve-change");
+    let receipt: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(receipt["status"], "approved");
+    assert_eq!(receipt["actor"], "alice");
+    assert_eq!(receipt["proposal_id"], "p1");
+    assert!(dir.path().join(".1a/approvals/p1.json").exists());
+}
+
+#[test]
 fn ontology_types_and_bindings_are_non_empty_valid_json() {
     let dir = tempfile::tempdir().unwrap();
     let types = parse_json_stdout(&run(dir.path(), &["ontology", "types"]), "ontology types");
