@@ -1134,6 +1134,12 @@ enum Command {
         memory_key: PathBuf,
         #[arg(long, default_value = "default")]
         bot_id: String,
+        #[arg(long)]
+        tenant_id: Option<String>,
+        #[arg(long)]
+        workspace_id: Option<String>,
+        #[arg(long)]
+        ticket_id: Option<String>,
         #[arg(long, default_value = "local-user")]
         user_id: String,
         #[arg(long)]
@@ -2237,6 +2243,18 @@ enum MemoryCommand {
         query: String,
         #[arg(long, default_value = "default")]
         bot_id: String,
+        #[arg(long)]
+        tenant_id: Option<String>,
+        #[arg(long)]
+        workspace_id: Option<String>,
+        #[arg(long)]
+        ticket_id: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        since_ms: Option<u128>,
+        #[arg(long)]
+        until_ms: Option<u128>,
         #[arg(long, default_value_t = 10)]
         limit: usize,
         #[arg(long)]
@@ -11506,6 +11524,12 @@ async fn main() -> Result<()> {
                 key,
                 query,
                 bot_id,
+                tenant_id,
+                workspace_id,
+                ticket_id,
+                kind,
+                since_ms,
+                until_ms,
                 limit,
                 json,
             } => {
@@ -11513,8 +11537,30 @@ async fn main() -> Result<()> {
                     anyhow::bail!("query must not be empty");
                 }
                 let service = first_principles_agent::MemoryService::open(journal, payloads, &key)?;
-                let scope = first_principles_agent::MemoryScope::bot(bot_id);
-                let hits = service.recall(&query, &scope, current_time_ms(), limit.clamp(1, 100));
+                let mut scope = first_principles_agent::MemoryScope::bot(bot_id);
+                scope.tenant_id = tenant_id;
+                scope.workspace_id = workspace_id;
+                scope.ticket_id = ticket_id;
+                let kinds: Vec<_> = kind
+                    .as_deref()
+                    .map(|value| {
+                        first_principles_agent::memory_context::kind_from_str(value)
+                            .ok_or_else(|| anyhow::anyhow!("unknown memory kind `{value}`"))
+                    })
+                    .transpose()?
+                    .into_iter()
+                    .collect();
+                let hits = service.recall_query(
+                    &first_principles_agent::MemoryQuery {
+                        text: &query,
+                        kinds: &kinds,
+                        since_ms,
+                        until_ms,
+                    },
+                    &scope,
+                    current_time_ms(),
+                    limit.clamp(1, 100),
+                );
                 if json {
                     let hits = hits
                         .iter()
@@ -13432,6 +13478,9 @@ async fn main() -> Result<()> {
             memory_payloads,
             memory_key,
             bot_id,
+            tenant_id,
+            workspace_id,
+            ticket_id,
             user_id,
             mut voice,
             quiet_hours,
@@ -13491,7 +13540,10 @@ async fn main() -> Result<()> {
                 memory_payloads,
                 &memory_key,
             )?;
-            let scope = first_principles_agent::MemoryScope::bot(bot_id);
+            let mut scope = first_principles_agent::MemoryScope::bot(bot_id);
+            scope.tenant_id = tenant_id;
+            scope.workspace_id = workspace_id;
+            scope.ticket_id = ticket_id;
             let now = current_time_ms();
             if interactive {
                 let answer =

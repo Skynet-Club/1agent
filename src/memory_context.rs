@@ -60,7 +60,17 @@ pub struct MemoryStatus {
 }
 
 pub fn default_scope() -> MemoryScope {
-    MemoryScope::bot(DEFAULT_BOT_ID)
+    fn env_nonempty(name: &str) -> Option<String> {
+        std::env::var(name)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    }
+    let mut scope =
+        MemoryScope::bot(env_nonempty("ONEAGENT_BOT_ID").unwrap_or_else(|| DEFAULT_BOT_ID.into()));
+    scope.tenant_id = env_nonempty("ONEAGENT_TENANT_ID");
+    scope.workspace_id = env_nonempty("ONEAGENT_WORKSPACE_ID");
+    scope.ticket_id = env_nonempty("ONEAGENT_TICKET_ID");
+    scope
 }
 
 pub fn open_read_only(paths: &MemoryPaths) -> Result<Option<MemoryService>, MemoryServiceError> {
