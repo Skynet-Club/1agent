@@ -26670,19 +26670,14 @@ fn looks_like_structured_tool_output(content: &str) -> bool {
     )
 }
 
-const DIRECT_ANSWER_SECTION_LIMIT: usize = 3;
-
 fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
-    // Direct mode stays conversation-first, but keeps a compact evidence trail:
-    // at most three claims/evidence/unknowns/flip conditions. Full fields stay
-    // in /details.
+    // Direct mode is conversation-first: the conclusion is the answer. Its
+    // headings and lists are structured by the markdown renderer; structured
+    // claims/evidence/flip fields stay in /details instead of being appended a
+    // second time.
     state.assistant_conclusion_start(conclusion_label(answer));
     state.assistant_markdown(&answer.conclusion);
     state.assistant_conclusion_end();
-    record_claim_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
-    record_evidence_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
-    record_unknown_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
-    record_flip_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
 }
 
 fn conclusion_label(answer: &first_principles_agent::AgentAnswer) -> String {
@@ -29521,12 +29516,11 @@ mod tui_rendering_tests {
         let visible = state.render_screen(80, 24);
         assert!(visible.contains("结论 Conclusion"));
         assert!(visible.contains("连接测试成功。"));
-        assert!(visible.contains("问题 Question"));
-        assert!(visible.contains("我的判断"));
-        assert!(visible.contains("依据"));
-        assert!(visible.contains("对应 C1"));
-        assert!(visible.contains("还没确定"));
-        assert!(visible.contains("什么情况会改变结论"));
+        assert!(!visible.contains("问题 Question"));
+        assert!(!visible.contains("我的判断"));
+        assert!(!visible.lines().any(|line| line.trim() == "依据"));
+        assert!(!visible.contains("还没确定"));
+        assert!(!visible.contains("什么情况会改变结论"));
         assert!(!visible.contains("终止原因"));
         assert!(!visible.contains("allow_write"));
         assert!(!visible.contains("只测试通信能力"));
@@ -29556,27 +29550,6 @@ mod tui_rendering_tests {
         assert_eq!(evidence_handle(1, "memory:mem-1"), "MEM-2");
         assert_eq!(evidence_handle(2, "https://example.com"), "WEB-3");
         assert_eq!(evidence_handle(3, "docs/manual.md"), "DOC-4");
-    }
-
-    #[test]
-    fn direct_answer_caps_compact_sections_at_three() {
-        let mut run = result();
-        let base = run.answer.claims[0].clone();
-        run.answer.claims = (1..=4)
-            .map(|index| {
-                let mut claim = base.clone();
-                claim.id = format!("c{index}");
-                claim.text = format!("判断 {index}");
-                claim
-            })
-            .collect();
-        let mut state = TuiState::new("deepseek", 6, 120);
-        state.begin("连接测试", CognitiveMode::DirectAnswer, RiskLevel::Low);
-        record_tui_result(&mut state, &run);
-        let visible = state.render_screen(80, 30);
-        assert!(visible.contains("判断 1"));
-        assert!(visible.contains("判断 3"));
-        assert!(!visible.contains("判断 4"));
     }
 
     #[test]

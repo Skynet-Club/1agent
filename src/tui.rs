@@ -1023,7 +1023,6 @@ impl TuiState {
         self.clear_input();
         self.scroll_from_bottom = 0;
         self.end_phase();
-        self.assistant_heading("问题 Question", TuiTone::SectionText);
         self.push_entry(
             TranscriptKind::User,
             TuiTone::User,
@@ -1218,6 +1217,19 @@ impl TuiState {
                     None,
                     TuiTone::Strong,
                     heading.to_string(),
+                );
+                index += 1;
+                continue;
+            }
+
+            if let Some(heading) = plain_section_heading(&lines, index) {
+                self.flush_markdown_prose(&mut prose);
+                self.push_entry(
+                    TranscriptKind::Heading,
+                    TuiTone::SectionText,
+                    None,
+                    TuiTone::SectionText,
+                    heading,
                 );
                 index += 1;
                 continue;
@@ -5466,6 +5478,33 @@ fn markdown_heading(line: &str) -> Option<&str> {
     None
 }
 
+fn plain_section_heading(lines: &[&str], index: usize) -> Option<String> {
+    let line = lines.get(index)?.trim();
+    if line.is_empty()
+        || markdown_bullet(line).is_some()
+        || markdown_numbered(line).is_some()
+        || line.starts_with('>')
+        || line.width() > 40
+        || line.ends_with('。')
+        || line.ends_with('！')
+        || line.ends_with('？')
+        || line.ends_with('.')
+        || line.ends_with('!')
+        || line.ends_with('?')
+    {
+        return None;
+    }
+    let next = lines[index + 1..]
+        .iter()
+        .find(|line| !line.trim().is_empty())?
+        .trim();
+    let next_is_item = markdown_bullet(next).is_some() || markdown_numbered(next).is_some();
+    let label_like = line.ends_with('：')
+        || line.ends_with(':')
+        || (line.chars().count() <= 24 && !line.contains('。'));
+    (next_is_item && label_like).then(|| strip_bold_markers(line))
+}
+
 fn markdown_bullet(line: &str) -> Option<&str> {
     ["- ", "* ", "+ "]
         .into_iter()
@@ -8709,6 +8748,21 @@ mod tests {
             .find(|cell| cell.symbol() == "╭")
             .expect("top border");
         assert_eq!(border.fg, CONCLUSION_BORDER);
+    }
+
+    #[test]
+    fn plain_answer_section_labels_become_headings() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown(
+            "功能（按用途分四组）\n- 文件与产物\n- 网页与网络\n\n机制（核心）\n- 证据绑定\n",
+        );
+        let headings = state
+            .transcript
+            .iter()
+            .filter(|entry| entry.kind == TranscriptKind::Heading)
+            .map(|entry| entry.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(headings, vec!["功能（按用途分四组）", "机制（核心）"]);
     }
 
     #[test]
