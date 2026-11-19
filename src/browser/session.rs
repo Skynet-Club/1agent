@@ -828,27 +828,6 @@ impl BrowserSession {
         Ok(frames)
     }
 
-    pub async fn wait_for_download(
-        &self,
-        file_name: &str,
-        timeout: Duration,
-    ) -> Result<PathBuf, BrowserError> {
-        let path = self.download_dir.join(file_name);
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            if path.is_file() {
-                return Ok(path);
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(BrowserError::Action(format!(
-                    "download did not appear: {}",
-                    path.display()
-                )));
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-    }
-
     pub async fn close(mut self) {
         let _ = tokio::time::timeout(
             Duration::from_secs(2),

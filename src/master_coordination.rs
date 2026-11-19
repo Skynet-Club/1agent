@@ -620,6 +620,7 @@ impl MasterState {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn renew_lease(
         &mut self,
         task_id: &str,

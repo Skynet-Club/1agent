@@ -142,11 +142,13 @@ impl SurfaceService {
         self
     }
 
+    #[cfg(test)]
     pub fn with_quota(mut self, quota: SurfaceQuota) -> Self {
         self.quota = Some(quota);
         self
     }
 
+    #[cfg(test)]
     pub fn with_context_cache(mut self, path: impl Into<PathBuf>) -> Self {
         self.context_cache = Some(crate::context_graph::ContextGraphCache::new(path));
         self
@@ -154,10 +156,6 @@ impl SurfaceService {
 
     pub fn resources(&self) -> &SurfaceResources {
         &self.resources
-    }
-
-    pub fn resources_mut(&mut self) -> &mut SurfaceResources {
-        &mut self.resources
     }
 
     pub fn graph(&self) -> &GovernedTaskGraph {

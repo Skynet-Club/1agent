@@ -7,15 +7,11 @@
 //! hash-chained receipt.
 
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use uuid::Uuid;
 
 use crate::domain::RiskLevel;
 
@@ -485,6 +481,7 @@ pub struct Lesson {
     pub created_ms: u128,
 }
 
+#[cfg(test)]
 pub fn new_reflection(
     reflection_id: impl Into<String>,
     actor_id: impl Into<String>,
@@ -517,6 +514,7 @@ pub fn new_reflection(
     })
 }
 
+#[cfg(test)]
 pub fn new_lesson(
     lesson_id: impl Into<String>,
     kind: LessonKind,
@@ -699,39 +697,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<(), EvolutionStoreError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        crate::jsonl::ensure_parent_private(path)?;
-    }
-    let name = path
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("evolution.json");
-    let temp = path.with_file_name(format!(".{name}.{}.tmp", Uuid::new_v4()));
-    let result = (|| -> Result<(), EvolutionStoreError> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-            options.custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_data()?;
-        drop(file);
-        std::fs::rename(&temp, path)?;
-        if let Some(parent) = path.parent() {
-            File::open(parent)?.sync_all()?;
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result
+    crate::jsonl::write_private_atomic(path, bytes, "evolution.json")
+        .map_err(EvolutionStoreError::Io)
 }
 
 #[cfg(test)]

@@ -78,6 +78,7 @@ pub enum AcceptanceDecision {
 }
 
 impl AcceptanceDecision {
+    #[cfg(test)]
     pub fn is_accepted(self) -> bool {
         self == Self::Accepted
     }

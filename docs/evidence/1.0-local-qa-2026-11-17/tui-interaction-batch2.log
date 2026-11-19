@@ -1,0 +1,6 @@
+   Compiling reqwest v0.12.28
+   Compiling first-principles-agent v1.0.0-rc.12 (/home/skynet/1-agent)
+    Finished `release` profile [optimized] target(s) in 1m 41s
+pty-backspace: passed
+pty-edit-stability: passed (400 mixed edit events)
+tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation, panel focus, Backspace/Ctrl+Q and mixed paste/space/backspace editing)

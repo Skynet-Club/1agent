@@ -1315,6 +1315,7 @@ impl TaskGraph {
     }
 
     /// Subscriptions only route thread context; they never grant authority.
+    #[cfg(test)]
     pub fn add_subscription(
         &mut self,
         thread_id: &str,
@@ -1348,6 +1349,7 @@ impl TaskGraph {
         Ok(subscription_id)
     }
 
+    #[cfg(test)]
     pub fn remove_subscription(
         &mut self,
         subscription_id: &str,
@@ -1368,6 +1370,7 @@ impl TaskGraph {
         )
     }
 
+    #[cfg(test)]
     pub fn close_thread(&mut self, thread_id: &str, now_ms: u128) -> Result<(), TaskGraphError> {
         let thread = self.thread(thread_id)?;
         if thread.status == ThreadStatus::Closed {

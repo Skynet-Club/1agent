@@ -14,15 +14,21 @@ use crate::authority::{
     AuthorityError, AuthorityProfile, AuthorityRegistry, PolicyAction, PolicyOutcome, PolicyRequest,
 };
 use crate::domain::RiskLevel;
-use crate::gate::{GateError, GateInput, GatePolicy, evaluate as evaluate_gate};
+use crate::gate::GateError;
+#[cfg(test)]
+use crate::gate::{GateInput, GatePolicy, evaluate as evaluate_gate};
 use crate::identity::{IdentityDirectory, IdentityError};
-use crate::standing_approval::{StandingApproval, StandingApprovalError, StandingApprovalRegistry};
+#[cfg(test)]
+use crate::standing_approval::StandingApproval;
+use crate::standing_approval::{StandingApprovalError, StandingApprovalRegistry};
 use crate::task_graph::{
     ApprovalDecision, Decision, MandateStrength, ReportStatus, SideEffectDraft, TaskGraph,
     TaskGraphError, TaskGraphSnapshot, Trigger, TriggerIngest,
 };
 use crate::task_graph_store::{TaskGraphService, TaskGraphStoreError};
-use crate::worker_runtime::{Dispatch, RouterRuntime, WorkerRuntimeError, WorkerTask};
+use crate::worker_runtime::WorkerRuntimeError;
+#[cfg(test)]
+use crate::worker_runtime::{Dispatch, RouterRuntime, WorkerTask};
 
 #[derive(Debug, Error)]
 pub enum GovernedTaskGraphError {
@@ -99,17 +105,6 @@ impl GovernedTaskGraph {
         })
     }
 
-    pub fn with_authority(graph: TaskGraphService, authority: AuthorityRegistry) -> Self {
-        Self {
-            graph,
-            authority,
-            standing: StandingApprovalRegistry::default(),
-            actions: ActionLog::default(),
-            action_journal: None,
-            identity: IdentityDirectory::default(),
-        }
-    }
-
     pub fn graph(&self) -> &TaskGraph {
         self.graph.graph()
     }
@@ -141,6 +136,7 @@ impl GovernedTaskGraph {
         &self.identity
     }
 
+    #[cfg(test)]
     pub fn identity_mut(&mut self) -> &mut IdentityDirectory {
         &mut self.identity
     }
@@ -149,10 +145,7 @@ impl GovernedTaskGraph {
         &self.standing
     }
 
-    pub fn standing_mut(&mut self) -> &mut StandingApprovalRegistry {
-        &mut self.standing
-    }
-
+    #[cfg(test)]
     pub fn grant_standing(
         &mut self,
         approval: StandingApproval,
@@ -199,6 +192,7 @@ impl GovernedTaskGraph {
             .with_graph_mut(|graph| graph.ingest_trigger(thread_id, trigger, now_ms))?)
     }
 
+    #[cfg(test)]
     pub fn ingest_trigger_gated(
         &mut self,
         thread_id: &str,
@@ -294,6 +288,7 @@ impl GovernedTaskGraph {
         Ok(approval_id)
     }
 
+    #[cfg(test)]
     pub fn approve_ticket_as_subject(
         &mut self,
         ticket_id: &str,
@@ -325,6 +320,7 @@ impl GovernedTaskGraph {
         })?)
     }
 
+    #[cfg(test)]
     pub fn dispatch_ticket(
         &mut self,
         ticket_id: &str,

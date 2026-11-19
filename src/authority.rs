@@ -219,6 +219,7 @@ impl AuthorityRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn unbind(&mut self, actor_id: &str) -> Option<String> {
         self.bindings.remove(actor_id)
     }

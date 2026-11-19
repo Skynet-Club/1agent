@@ -106,6 +106,7 @@ impl CuaPlan {
         &self.branches
     }
 
+    #[cfg(test)]
     pub fn is_frozen(&self) -> bool {
         self.frozen
     }
@@ -196,6 +197,7 @@ pub fn evaluate(action: &CuaAction) -> CuaVerdict {
 /// The planner must not see untrusted screen content. It may only receive
 /// trusted plan/config values; the quarantined perception layer resolves the
 /// rest.
+#[cfg(test)]
 pub fn planner_sees_untrusted(content_is_untrusted: bool) -> CuaVerdict {
     if content_is_untrusted {
         verdict(

@@ -42,7 +42,9 @@ what the release must not claim.
 
 ## 4. Kill switch and stopping work
 
-- `ops_guard` provides runtime cost/call/time limits and a manual kill switch.
+- The runtime kill switch is the file-based `home_or_legacy("KILL", ".1a/KILL")`
+  check (ADR-0118). The unused in-memory `ops_guard` module was removed in the
+  1.0 redundancy cleanup; budget limits live in the run budget and journal.
 - Cancel a run with Ctrl+C (CLI/TUI) or the configured cancellation path; the
   journal records `RunStopped { Cancelled }`.
 - Stop the daemon before replacing the binary. Do not kill a worker process

@@ -770,16 +770,6 @@ impl ExperienceStore {
         Ok(candidate)
     }
 
-    pub fn retrieve_shadow(
-        &self,
-        candidates: Vec<ExperienceCandidate>,
-        mode: CognitiveMode,
-        scope: &str,
-        max_chars: usize,
-    ) -> Vec<ExperienceCandidate> {
-        select_applicable(candidates, mode, scope, max_chars, true)
-    }
-
     fn transition<F>(
         &mut self,
         id: Uuid,

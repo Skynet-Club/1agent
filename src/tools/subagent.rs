@@ -135,6 +135,7 @@ impl SpawnAgentTool {
         }
     }
 
+    #[cfg(test)]
     pub fn with_depth(mut self, depth: u8) -> Self {
         self.depth = depth;
         self

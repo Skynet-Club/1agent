@@ -110,6 +110,7 @@ pub fn authorize(policy: &TeamPolicy, actor: &str, action: TeamAction, scope: &s
     verdict(TeamDecision::Allow, "role and scope allow the action")
 }
 
+#[cfg(test)]
 pub fn intersect_scopes(requested: &[String], granted: &[String]) -> Vec<String> {
     let mut result = requested
         .iter()

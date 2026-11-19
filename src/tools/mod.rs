@@ -337,13 +337,6 @@ impl ToolRegistry {
             .collect()
     }
 
-    pub fn capability_snapshot(&self) -> Result<ToolCapabilitySnapshot, String> {
-        self.capability_snapshot_for(&PermissionSet {
-            allow_write: true,
-            ..PermissionSet::default()
-        })
-    }
-
     /// Capability snapshot for the tools actually available under `permissions`.
     ///
     /// This is what the run journal records, so a read-only run does not claim

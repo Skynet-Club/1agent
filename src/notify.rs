@@ -262,6 +262,7 @@ pub async fn notify_inbox_if_new_to(
 }
 
 /// Single-target convenience wrapper around [`notify_inbox_if_new_to`].
+#[cfg(test)]
 pub async fn notify_inbox_if_new(
     notifier: &InboxNotifier,
     items: &[InboxItem],

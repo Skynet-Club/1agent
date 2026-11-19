@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{StopReason, ToolStatus};
 use crate::journal::{JournalEvent, JournalEventKind, read_events, replay_events};
+#[cfg(test)]
 use crate::provider::ProviderProbeReport;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -54,6 +55,7 @@ pub struct ProviderProbeDigest {
 
 /// Aggregate probe reports by provider/model, keeping failures visible and
 /// averaging latency only over successful probes.
+#[cfg(test)]
 pub fn digest_provider_probes(reports: &[ProviderProbeReport]) -> Vec<ProviderProbeDigest> {
     struct Accumulator {
         checks: u64,
@@ -133,6 +135,7 @@ pub struct ProviderAlert {
 /// Evaluate provider digests against a failure/latency policy. Digests with
 /// fewer than `min_checks` probes are ignored so a new provider is not paged
 /// on its first sample.
+#[cfg(test)]
 pub fn evaluate_provider_alerts(
     digests: &[ProviderProbeDigest],
     policy: &ProviderAlertPolicy,

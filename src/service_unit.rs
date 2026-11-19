@@ -3,7 +3,7 @@
 //! The unit supervises the existing daemon; it does not add auto-resume or
 //! auto-kill semantics. It deliberately does not enable lingering.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use thiserror::Error;
 
@@ -57,14 +57,6 @@ pub fn write_user_unit(path: &Path, unit: &str) -> Result<(), UnitError> {
     }
     std::fs::write(path, unit)?;
     Ok(())
-}
-
-pub fn default_unit_path() -> PathBuf {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("systemd/user/1agent.service")
 }
 
 fn escape(path: &Path) -> String {
