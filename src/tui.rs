@@ -8754,7 +8754,7 @@ mod tests {
     fn plain_answer_section_labels_become_headings() {
         let mut state = TuiState::new("mock", 6, 120);
         state.assistant_markdown(
-            "功能（按用途分四组）\n- 文件与产物\n- 网页与网络\n\n机制（核心）\n- 证据绑定\n",
+            "功能（按用途分四组）\n- 文件与产物\n- 网页与网络\n\n机制（区别于普通对话模型的核心）\n- 证据绑定\n\n与其他 agent 的差别\n- 以回执收尾\n\n如实披露的不足\n- 仅支持 Linux\n",
         );
         let headings = state
             .transcript
@@ -8762,7 +8762,15 @@ mod tests {
             .filter(|entry| entry.kind == TranscriptKind::Heading)
             .map(|entry| entry.text.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(headings, vec!["功能（按用途分四组）", "机制（核心）"]);
+        assert_eq!(
+            headings,
+            vec![
+                "功能（按用途分四组）",
+                "机制（区别于普通对话模型的核心）",
+                "与其他 agent 的差别",
+                "如实披露的不足"
+            ]
+        );
     }
 
     #[test]
