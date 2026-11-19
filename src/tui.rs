@@ -3619,7 +3619,7 @@ impl TuiState {
             }
             if entry.kind == TranscriptKind::Code {
                 let info = if label.is_empty() { "code" } else { label };
-                let language = info.split_whitespace().next().unwrap_or("code");
+                let (language, code_label) = code_info_parts(info);
                 let all_lines = entry.text.lines().collect::<Vec<_>>();
                 let line_count = all_lines.len();
                 let diff_block = matches!(language, "diff" | "patch")
@@ -3631,7 +3631,10 @@ impl TuiState {
                 let number_width = line_count.to_string().len();
                 let header_prefix = "  ╭─ ";
                 let right = "╮";
-                let metadata = format!("{info} · {line_count} 行");
+                let metadata = match code_label {
+                    Some(label) => format!("{language} · {label} · {line_count} 行"),
+                    None => format!("{language} · {line_count} 行"),
+                };
                 let fill = usize::from(width)
                     .saturating_sub(header_prefix.width() + metadata.width() + 1 + right.width());
                 lines.push(TranscriptVisualLine {
@@ -5616,6 +5619,22 @@ fn markdown_heading(line: &str) -> Option<&str> {
         }
     }
     None
+}
+
+fn code_info_parts(info: &str) -> (&str, Option<String>) {
+    let mut parts = info.split_whitespace();
+    let language = parts.next().unwrap_or("code");
+    let rest = parts.collect::<Vec<_>>().join(" ");
+    if rest.is_empty() {
+        return (language, None);
+    }
+    if let Some(path) = rest.strip_prefix("file:") {
+        let path = path.trim();
+        if !path.is_empty() {
+            return (language, Some(path.to_string()));
+        }
+    }
+    (language, Some("示例".into()))
 }
 
 fn plain_section_heading(lines: &[&str], index: usize) -> Option<String> {
@@ -10118,12 +10137,35 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line.text.starts_with("  ╭─ python hello.py · 25 行"))
+                .any(|line| line.text.starts_with("  ╭─ python · 示例 · 25 行"))
         );
         assert!(lines.iter().any(|line| line.text.contains("  1 print(1)")));
         assert!(lines.iter().any(|line| line.text.contains(" 20 print(20)")));
         assert!(lines.iter().any(|line| line.text.contains("还有 5 行")));
         assert!(!lines.iter().any(|line| line.text.contains(" 21 print(21)")));
+    }
+
+    #[test]
+    fn code_info_only_shows_a_file_name_when_explicitly_marked() {
+        assert_eq!(code_info_parts("python"), ("python", None));
+        assert_eq!(
+            code_info_parts("python file:hello.py"),
+            ("python", Some("hello.py".into()))
+        );
+        assert_eq!(
+            code_info_parts("python 99乘法表.py"),
+            ("python", Some("示例".into()))
+        );
+
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown("```python 99乘法表.py\nprint(1)\n```");
+        let lines = state.build_transcript_lines(60);
+        let header = lines
+            .iter()
+            .find(|line| line.kind == TranscriptKind::Code)
+            .expect("code header");
+        assert!(header.text.contains("示例"));
+        assert!(!header.text.contains("99乘法表.py"));
     }
 
     #[test]
