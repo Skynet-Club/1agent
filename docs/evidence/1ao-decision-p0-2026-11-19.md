@@ -33,29 +33,41 @@ runtime behavior changed.
 - `1agent ontology actions` lists the registry; `--tools` prints generated
   ToolSpec JSON and `--manifests` prints generated CapabilityManifest JSON.
 - This is read-only registry data; runtime typed-tool registration and gating
-  are not wired yet.
+  are not wired yet for the remaining actions.
+
+## Typed tool first slice
+
+- `code.propose_change` is registered as `code_propose_change` in the default
+  tool registry; its ToolSpec comes from the ActionType registry.
+- It writes a 0600 proposal artifact under `.1a/proposals/<id>.json`, never
+  modifies the target files, and goes through the normal ExecutionGate.
+- The observation carries `action_type`, proposal id/path/SHA-256, risk and
+  reversibility; ontology export links `ActionInvocation` and
+  `Decision.hasAction`.
+- The other three ActionTypes remain registry-only; approval/release execution
+  is not claimed.
 
 ## Verification
 
 | Check | Result |
 |---|---|
-| `./scripts/verify.sh` | **pass**; 1657 total, 0 failed, 13 ignored |
-| ontology unit tests | 34 passed |
+| `./scripts/verify.sh` | **pass**; 1661 total, 0 failed, 13 ignored |
+| ontology/unit tests | 34 ontology + 3 typed-tool tests |
 | ontology CLI tests | 28 passed |
 | real journal smoke | Decision + Outcome nodes exported and validated |
-| claims | 264 (240/16/8) |
+| claims | 265 (241/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`.
 
 ## Not in this slice
 
 - `Scenario` nodes.
-- Runtime typed-tool registration, gating and execution.
+- Runtime wiring for the other three actions (approve/checks/release).
 - Scenario staging / atomic merge.
 - Object/action-level policy and Ontology MCP.
 
 ## Next
 
-1. Add decision/action competency questions and golden tests.
-2. Wire the Action Registry into runtime typed tools, then add `Scenario`
-   staging semantics (P2).
+1. Finish decision/action CQ golden tests.
+2. Wire `code.approve_change` to a human approval path, then `code.run_checks`
+   and `code.prepare_release`; add `Scenario` staging (P2) after that.

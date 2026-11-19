@@ -452,10 +452,12 @@ fn build_run(
                     .into(),
             ),
         );
-        object.insert(
-            "actionType".into(),
-            Value::String(bounded(&observation.tool)),
-        );
+        let action_type = observation
+            .metadata
+            .get("action_type")
+            .map(String::as_str)
+            .unwrap_or(&observation.tool);
+        object.insert("actionType".into(), Value::String(bounded(action_type)));
         object.insert("partOfRun".into(), ref_iri(&run_iri));
         if called.contains(observation.call_id.as_str()) {
             object.insert(
@@ -1563,6 +1565,7 @@ mod tests {
                     ("policy_reason".into(), "write within profile".into()),
                     ("authority_profile_id".into(), "tool-profile".into()),
                     ("approval_id".into(), "card-1".into()),
+                    ("action_type".into(), "code.propose_change".into()),
                     ("risk".into(), "medium".into()),
                     ("reversible".into(), "false".into()),
                     ("sha256".into(), artifact_sha.clone()),
@@ -1662,6 +1665,7 @@ mod tests {
             &format!("urn:1agent:action:{run_id}:call-executed"),
         );
         assert_eq!(executed["status"], "executed");
+        assert_eq!(executed["actionType"], "code.propose_change");
         assert_eq!(
             executed["hasArtifact"][0]["@id"],
             format!("urn:1agent:artifact:sha256:{artifact_sha}")

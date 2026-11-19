@@ -41,6 +41,7 @@ pub(crate) fn current_action_id() -> Option<String> {
 }
 
 mod acceptance;
+mod action;
 mod artifact;
 mod browser;
 mod capability;
@@ -55,6 +56,7 @@ mod subagent;
 mod terminal;
 mod web;
 pub use acceptance::*;
+pub use action::*;
 pub use artifact::*;
 pub use browser::*;
 pub use capability::*;
@@ -1228,6 +1230,13 @@ pub fn default_registry() -> ToolRegistry {
         std::env::current_exe().unwrap_or_else(|_| PathBuf::from("1agent")),
     )));
     registry.register(Arc::new(WriteFileTool));
+    let propose_change = crate::ontology::try_builtin_action_registry()
+        .expect("built-in ActionType registry")
+        .actions
+        .into_iter()
+        .find(|action| action.id == "code.propose_change")
+        .expect("code.propose_change action");
+    registry.register(Arc::new(CodeProposeChangeTool::new(propose_change)));
     registry.register(Arc::new(EditFileTool));
     registry.register(Arc::new(TerminalCreateTool::from_env()));
     registry.register(Arc::new(TerminalWriteTool::from_env()));

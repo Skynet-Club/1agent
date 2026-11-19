@@ -316,6 +316,7 @@ file: <路径>              → 文件必须存在
 | 最终答案两次修复失败时，若已有 accepted 验收收据或已验证产物，纯文本答案规范化为结构化答案，不丢弃已验证交付；缺少验收/设计证据仍由 CompletionGate 降级 | cmd: cargo test --lib accepted_receipt_survives_unrepairable_plain_text_final | ✅ | 只接受非 JSON 文本；结论正文仍是模型自述，结构化 claims 为空；状态以验收门为准 |
 | 评测新增过程指标（tool_calls、failed_tool_calls、redundant_tool_calls、time_to_first_tool_ms）、规则失败分类和重复采样 pass^k；`eval --repeats` 输出 repeat-report.json | cmd: cargo test --lib eval::tests::failure_classes_and_ratios_are_deterministic && cargo test --lib eval::tests::repeated_suite_reports_pass_power_k && cargo run --offline --quiet -- eval --suite evals/core.json --repeats 2 | ✅ | 失败分类是规则不是语义判断；人工校准与 8h/R1–R9 仍未完成 |
 | `/setting` 两级设置面板（`/settings` 别名）提供预算/权限/外观/模型/恢复，8 套 TUI 主题在二级选择、数值在面板内编辑；主题存 `appearance.theme`，全局恢复先备份并要求 confirm | cmd: cargo test --bin first-principles-agent setting_ && cargo test --lib tui_theme::tests && cargo test --test cli_e2e tui_setting_menu_shows_values_and_switches_theme | ✅ | 主题仅 TUI，CLI help 不变；主题为静态表，无自定义主题编辑器 |
+| 1AO Action Registry 定义 4 个代码发布 ActionType；`code.propose_change` 作为 typed tool 写入 0600 提案 artifact，经 ExecutionGate，并在 ontology 导出 ActionInvocation 与 Decision.hasAction | cmd: cargo test --lib tools::action::tests && cargo test --lib typed_propose_change_runs_through_gate_and_exports_decision_lineage && cargo test --test ontology_cli | ✅ | 仅 propose_change 可执行；其余 3 个仍是只读注册表；不是完整发布流水线 |
 
 ## 覆盖率
 

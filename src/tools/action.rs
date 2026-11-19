@@ -1,0 +1,250 @@
+//! Typed action tools generated from the 1AO ActionType registry.
+//!
+//! The first reference action is `code.propose_change`: it writes a reviewable
+//! proposal artifact and never modifies the target files or a release target.
+//! The tool spec comes from `ontology/actions.json`; the runtime gate still
+//! applies the normal permission, risk and approval checks.
+
+use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use async_trait::async_trait;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
+use crate::ontology::ActionDefinition;
+
+use super::{AgentTool, ToolError, ToolOutcome};
+
+const MAX_SUMMARY_CHARS: usize = 2_000;
+const MAX_PATHS: usize = 100;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposeChangeArgs {
+    summary: String,
+    paths: Vec<String>,
+}
+
+pub struct CodeProposeChangeTool {
+    action: ActionDefinition,
+}
+
+impl CodeProposeChangeTool {
+    pub fn new(action: ActionDefinition) -> Self {
+        Self { action }
+    }
+}
+
+#[async_trait]
+impl AgentTool for CodeProposeChangeTool {
+    fn spec(&self) -> ToolSpec {
+        self.action.tool_spec()
+    }
+
+    fn risk(&self) -> RiskLevel {
+        match self.action.risk.as_str() {
+            "high" => RiskLevel::High,
+            "medium" => RiskLevel::Medium,
+            _ => RiskLevel::Low,
+        }
+    }
+
+    fn requires_write(&self) -> bool {
+        true
+    }
+
+    fn reversible(&self) -> bool {
+        self.action.reversible
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+
+    async fn execute(
+        &self,
+        arguments: Value,
+        permissions: &PermissionSet,
+        _cancellation: &tokio_util::sync::CancellationToken,
+    ) -> Result<ToolOutcome, ToolError> {
+        if !permissions.allow_write {
+            return Err(ToolError::PermissionDenied(
+                "propose_change requires write permission for its proposal artifact".into(),
+            ));
+        }
+        let args: ProposeChangeArgs = serde_json::from_value(arguments)
+            .map_err(|error| ToolError::InvalidArguments(error.to_string()))?;
+        let summary = args.summary.trim();
+        if summary.is_empty() || summary.chars().count() > MAX_SUMMARY_CHARS {
+            return Err(ToolError::InvalidArguments(format!(
+                "summary must be 1..={MAX_SUMMARY_CHARS} characters"
+            )));
+        }
+        if args.paths.is_empty() || args.paths.len() > MAX_PATHS {
+            return Err(ToolError::InvalidArguments(format!(
+                "paths must contain 1..={MAX_PATHS} entries"
+            )));
+        }
+        for path in &args.paths {
+            validate_relative_path(path)?;
+        }
+
+        let root = permissions
+            .read_roots
+            .first()
+            .cloned()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let proposal_id = uuid::Uuid::new_v4().to_string();
+        let path = root
+            .join(".1a")
+            .join("proposals")
+            .join(format!("{proposal_id}.json"));
+        let created_unix_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let run_id = super::RUN_CONTEXT
+            .try_with(|context| context.run_id.clone())
+            .ok();
+        let proposal = json!({
+            "schema": "1ao.change-proposal/v1",
+            "proposal_id": proposal_id,
+            "action_type": "code.propose_change",
+            "status": "proposed",
+            "summary": summary,
+            "paths": args.paths,
+            "run_id": run_id,
+            "created_unix_ms": created_unix_ms,
+        });
+        let bytes = serde_json::to_vec_pretty(&proposal)
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        let sha256 = hex::encode(Sha256::digest(&bytes));
+        crate::jsonl::write_private_atomic(&path, &bytes, "proposal.json")
+            .map_err(|error| ToolError::Failed(format!("cannot write proposal: {error}")))?;
+        Ok(ToolOutcome {
+            summary: format!("proposed change {proposal_id}"),
+            content: serde_json::to_string(&proposal)
+                .map_err(|error| ToolError::Failed(error.to_string()))?,
+            metadata: std::collections::BTreeMap::from([
+                ("action_type".into(), "code.propose_change".into()),
+                ("proposal_id".into(), proposal_id),
+                ("path".into(), path.display().to_string()),
+                ("sha256".into(), sha256),
+                ("bytes".into(), bytes.len().to_string()),
+                ("risk".into(), self.action.risk.clone()),
+                ("reversible".into(), self.action.reversible.to_string()),
+                ("status".into(), "proposed".into()),
+            ]),
+        })
+    }
+}
+
+fn validate_relative_path(value: &str) -> Result<(), ToolError> {
+    if value.trim().is_empty() {
+        return Err(ToolError::InvalidArguments(
+            "paths must not be empty".into(),
+        ));
+    }
+    let path = Path::new(value);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir | Component::RootDir))
+    {
+        return Err(ToolError::InvalidArguments(format!(
+            "path `{value}` must stay inside the workspace"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn permissions(root: &Path) -> PermissionSet {
+        PermissionSet {
+            read_roots: vec![root.to_path_buf()],
+            allow_network: false,
+            allow_write: true,
+        }
+    }
+
+    fn action() -> ActionDefinition {
+        crate::ontology::try_builtin_action_registry()
+            .unwrap()
+            .actions
+            .into_iter()
+            .find(|action| action.id == "code.propose_change")
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn propose_change_writes_a_private_proposal() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = CodeProposeChangeTool::new(action());
+        let outcome = tool
+            .execute(
+                json!({"summary": "tighten the parser", "paths": ["src/parser.rs"]}),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.metadata["action_type"], "code.propose_change");
+        let path = PathBuf::from(&outcome.metadata["path"]);
+        assert!(path.starts_with(dir.path().join(".1a/proposals")));
+        let bytes = std::fs::read(&path).unwrap();
+        let proposal: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(proposal["status"], "proposed");
+        assert_eq!(proposal["paths"][0], "src/parser.rs");
+        assert_eq!(
+            outcome.metadata["sha256"],
+            hex::encode(Sha256::digest(&bytes))
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn propose_change_rejects_absolute_and_parent_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = CodeProposeChangeTool::new(action());
+        for path in ["/etc/passwd", "../outside"] {
+            let error = tool
+                .execute(
+                    json!({"summary": "x", "paths": [path]}),
+                    &permissions(dir.path()),
+                    &tokio_util::sync::CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("inside the workspace"));
+        }
+    }
+
+    #[tokio::test]
+    async fn propose_change_requires_write_permission() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = CodeProposeChangeTool::new(action());
+        let mut permissions = permissions(dir.path());
+        permissions.allow_write = false;
+        let error = tool
+            .execute(
+                json!({"summary": "x", "paths": ["src/lib.rs"]}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ToolError::PermissionDenied(_)));
+    }
+}

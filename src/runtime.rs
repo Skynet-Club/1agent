@@ -6464,6 +6464,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn typed_propose_change_runs_through_gate_and_exports_decision_lineage() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "propose-1".into(),
+                        name: "code_propose_change".into(),
+                        arguments: serde_json::json!({
+                            "summary": "tighten the parser",
+                            "paths": ["src/parser.rs"]
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("proposed a change"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("propose a parser change", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        request.permissions.read_roots = vec![workspace.path().to_path_buf()];
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        let proposal_path = workspace.path().join(".1a/proposals");
+        assert_eq!(
+            std::fs::read_dir(&proposal_path).unwrap().count(),
+            1,
+            "one proposal artifact"
+        );
+        let document = crate::ontology::export_journal(&result.journal_path).unwrap();
+        let graph = document.value["@graph"].as_array().unwrap();
+        let action = graph
+            .iter()
+            .find(|node| node["@type"] == "ActionInvocation")
+            .expect("action invocation");
+        assert_eq!(action["actionType"], "code.propose_change");
+        let decision = graph
+            .iter()
+            .find(|node| node["@type"] == "Decision")
+            .expect("decision");
+        assert_eq!(
+            decision["hasAction"][0]["@id"], action["@id"],
+            "decision must link the typed action"
+        );
+    }
+
+    #[tokio::test]
     async fn execution_gate_denies_tools_that_require_approval() {
         let workspace = tempfile::tempdir().unwrap();
         let mut tools = ToolRegistry::default();
