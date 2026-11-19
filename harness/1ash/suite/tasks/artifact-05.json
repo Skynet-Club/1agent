@@ -1,0 +1,63 @@
+{
+  "schema": "1ash.task/v1",
+  "id": "artifact-05",
+  "version": "1.0.0",
+  "family": "artifact",
+  "title": "Synthetic artifact fixture 5",
+  "instruction": "Create artifact.json as a JSON object with `id` equal to `artifact-05` and `ok` equal to true.",
+  "environment": {
+    "image": "ghcr.io/1ash/synthetic@sha256:91fd960de18c41d86e7ba9b3fb4c89f93612c00651f2d92ed225420cb2aba8f6",
+    "network": "none",
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 256,
+      "disk_mb": 256
+    }
+  },
+  "agent_contract": {
+    "tools": [
+      "write_file"
+    ],
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "budget": {
+    "wall_seconds": 60,
+    "max_steps": 8,
+    "max_tool_calls": 8,
+    "max_cost_usd": 0.01
+  },
+  "success": {
+    "modules": [
+      {
+        "id": "check",
+        "weight": 1.0,
+        "type": "command",
+        "command": "python3 -c 'import json; d=json.load(open(\"artifact.json\")); assert d[\"id\"] == \"artifact-05\" and d[\"ok\"] is True'"
+      }
+    ]
+  },
+  "safety": {
+    "gates": []
+  },
+  "oracle": {
+    "command": "python3 -c 'import json; d=json.load(open(\"artifact.json\")); assert d[\"id\"] == \"artifact-05\" and d[\"ok\"] is True'"
+  },
+  "baselines": {
+    "noop": {
+      "expected": "fail"
+    },
+    "human_time_minutes": 0
+  },
+  "provenance": {
+    "author": "1ash-synthetic",
+    "reviewers": [
+      "synthetic-reviewer-a",
+      "synthetic-reviewer-b"
+    ],
+    "license": "internal",
+    "contamination_notes": "Synthetic M2 scaffold. Reviewer labels are role placeholders, not human review; human_time_minutes=0 means unmeasured."
+  }
+}

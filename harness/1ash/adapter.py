@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -254,21 +255,53 @@ def _journal_from_output(workspace: Path, stdout: str) -> Path | None:
 
 
 @solver
-def one_agent_solver(subject: str = "1agent", timeout_s: int = 600) -> Solver:
+def one_agent_solver(
+    subject: str = "1agent",
+    timeout_s: int = 600,
+    docker_image: str = "",
+    docker_subject: str = "/opt/1ash/subject_1agent.sh",
+) -> Solver:
     async def solve(state: TaskState, generate) -> TaskState:
         task = state.metadata["task"]
         workspace = Path(tempfile.mkdtemp(prefix=f"1ash-{task['id']}-"))
         journal_dir = workspace / ".journals"
         journal_dir.mkdir()
-        command = [
-            subject,
-            "--task",
-            task["instruction"],
-            "--workspace",
-            str(workspace),
-            "--journal-dir",
-            str(journal_dir),
-        ]
+        if docker_image:
+            command = [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--cpus",
+                "1",
+                "--memory",
+                "512m",
+                "-v",
+                f"{workspace}:/workspace",
+                "-v",
+                f"{journal_dir}:/journal",
+                "-w",
+                "/workspace",
+                docker_image,
+                docker_subject,
+                "--task",
+                task["instruction"],
+                "--workspace",
+                "/workspace",
+                "--journal-dir",
+                "/journal",
+            ]
+        else:
+            command = [
+                subject,
+                "--task",
+                task["instruction"],
+                "--workspace",
+                str(workspace),
+                "--journal-dir",
+                str(journal_dir),
+            ]
         try:
             process = subprocess.run(
                 command,
@@ -277,6 +310,13 @@ def one_agent_solver(subject: str = "1agent", timeout_s: int = 600) -> Solver:
                 text=True,
                 timeout=timeout_s,
                 check=False,
+                env={
+                    **os.environ,
+                    "ONEASH_TASK_ID": task["id"],
+                    "ONEASH_REFERENCE_DIR": str(
+                        Path(__file__).resolve().parent / "suite" / "references"
+                    ),
+                },
             )
         except subprocess.TimeoutExpired as error:
             state.metadata["workspace"] = str(workspace)
@@ -365,7 +405,13 @@ def one_ash_scorer() -> Scorer:
 
 
 @task
-def one_ash_task(task_file: str, subject: str = "1agent", timeout_s: int = 600) -> Task:
+def one_ash_task(
+    task_file: str,
+    subject: str = "1agent",
+    timeout_s: int = 600,
+    docker_image: str = "",
+    docker_subject: str = "/opt/1ash/subject_1agent.sh",
+) -> Task:
     task = load_task(task_file)
     sample = Sample(
         input=task["instruction"],
@@ -374,6 +420,11 @@ def one_ash_task(task_file: str, subject: str = "1agent", timeout_s: int = 600) 
     )
     return Task(
         dataset=MemoryDataset([sample], name=task["id"]),
-        solver=one_agent_solver(subject=subject, timeout_s=timeout_s),
+        solver=one_agent_solver(
+            subject=subject,
+            timeout_s=timeout_s,
+            docker_image=docker_image,
+            docker_subject=docker_subject,
+        ),
         scorer=one_ash_scorer(),
     )

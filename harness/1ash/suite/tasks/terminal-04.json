@@ -1,0 +1,63 @@
+{
+  "schema": "1ash.task/v1",
+  "id": "terminal-04",
+  "version": "1.0.0",
+  "family": "terminal",
+  "title": "Synthetic terminal fixture 4",
+  "instruction": "Write run.txt containing the exact line `run-terminal-04`.",
+  "environment": {
+    "image": "ghcr.io/1ash/synthetic@sha256:439090aa5fabd37f479b0d25b7ff8fd0fadc9a5c7f801ff0426eae13ddd8ff45",
+    "network": "none",
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 256,
+      "disk_mb": 256
+    }
+  },
+  "agent_contract": {
+    "tools": [
+      "write_file"
+    ],
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "budget": {
+    "wall_seconds": 60,
+    "max_steps": 8,
+    "max_tool_calls": 8,
+    "max_cost_usd": 0.01
+  },
+  "success": {
+    "modules": [
+      {
+        "id": "check",
+        "weight": 1.0,
+        "type": "command",
+        "command": "test \"$(cat run.txt)\" = 'run-terminal-04'"
+      }
+    ]
+  },
+  "safety": {
+    "gates": []
+  },
+  "oracle": {
+    "command": "test \"$(cat run.txt)\" = 'run-terminal-04'"
+  },
+  "baselines": {
+    "noop": {
+      "expected": "fail"
+    },
+    "human_time_minutes": 0
+  },
+  "provenance": {
+    "author": "1ash-synthetic",
+    "reviewers": [
+      "synthetic-reviewer-a",
+      "synthetic-reviewer-b"
+    ],
+    "license": "internal",
+    "contamination_notes": "Synthetic M2 scaffold. Reviewer labels are role placeholders, not human review; human_time_minutes=0 means unmeasured."
+  }
+}

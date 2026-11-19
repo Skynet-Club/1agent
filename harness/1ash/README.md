@@ -1,7 +1,19 @@
-# 1ASH Inspect adapter (M1)
+# 1ASH local harness (M1–M4)
 
-Status: **local M1 skeleton**. It runs a task package through Inspect and scores
-the final workspace; it is not the full 1ASH report/ABC pipeline.
+Status: **local synthetic harness**. It runs task packages through Inspect and
+scores the final workspace; the 30-task suite and safety calibration are
+synthetic, not human-reviewed and not a benchmark result.
+
+Entry points:
+
+```bash
+harness/1ash/1ash.py m1       # M1 fake/no-op + trace
+harness/1ash/1ash.py suite    # 30 synthetic tasks
+harness/1ash/1ash.py safety   # synthetic injection calibration
+harness/1ash/1ash.py verify REPORT
+harness/1ash/1ash.py pilot 0.1.0
+harness/1ash/1ash.py docker   # requires Docker + build_docker.sh
+```
 
 - `adapter.py` — Inspect `Task`/`Solver`/`Scorer`; subject protocol:
   `--task TEXT --workspace DIR --journal-dir DIR`; projects the subject
@@ -14,6 +26,13 @@ the final workspace; it is not the full 1ASH report/ABC pipeline.
 - `report_v0.py` / `verify_report.py` — generate a local report v0 from one
   eval log and verify its schema plus hash-chain tip. This is evidence, not a
   benchmark result.
+- `suite/` — 30 synthetic six-family tasks, reference subject, no-op and
+  safety calibration; `suite/build_suite.py` regenerates them.
+- `Dockerfile` / `build_docker.sh` / `tests/run_m1_docker.py` — network-off
+  fake/no-op sandbox image. The real provider subject needs network and is not
+  claimed as sandboxed.
+- `make_pilot.sh` / `PILOT.md` — local pilot tarball; external rerun is not
+  included or claimed.
 
 Run the deterministic check (Inspect in an isolated venv):
 

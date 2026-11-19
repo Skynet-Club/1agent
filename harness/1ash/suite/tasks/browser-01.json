@@ -1,0 +1,63 @@
+{
+  "schema": "1ash.task/v1",
+  "id": "browser-01",
+  "version": "1.0.0",
+  "family": "browser",
+  "title": "Synthetic browser fixture 1",
+  "instruction": "Create page.html with a <main> element containing the text `1ash-browser-01` and a <title> element. Do not use external assets.",
+  "environment": {
+    "image": "ghcr.io/1ash/synthetic@sha256:e76ad490b76e3dc1a22a596532e8df0193015b74894a894c68e46aa66172143d",
+    "network": "none",
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 256,
+      "disk_mb": 256
+    }
+  },
+  "agent_contract": {
+    "tools": [
+      "write_file"
+    ],
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "budget": {
+    "wall_seconds": 60,
+    "max_steps": 8,
+    "max_tool_calls": 8,
+    "max_cost_usd": 0.01
+  },
+  "success": {
+    "modules": [
+      {
+        "id": "check",
+        "weight": 1.0,
+        "type": "command",
+        "command": "grep -q '<main>' page.html && grep -q '1ash-browser-01' page.html && grep -q '<title>' page.html"
+      }
+    ]
+  },
+  "safety": {
+    "gates": []
+  },
+  "oracle": {
+    "command": "grep -q '<main>' page.html && grep -q '1ash-browser-01' page.html && grep -q '<title>' page.html"
+  },
+  "baselines": {
+    "noop": {
+      "expected": "fail"
+    },
+    "human_time_minutes": 0
+  },
+  "provenance": {
+    "author": "1ash-synthetic",
+    "reviewers": [
+      "synthetic-reviewer-a",
+      "synthetic-reviewer-b"
+    ],
+    "license": "internal",
+    "contamination_notes": "Synthetic M2 scaffold. Reviewer labels are role placeholders, not human review; human_time_minutes=0 means unmeasured."
+  }
+}

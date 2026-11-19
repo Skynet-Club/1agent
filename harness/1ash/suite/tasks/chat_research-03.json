@@ -1,0 +1,63 @@
+{
+  "schema": "1ash.task/v1",
+  "id": "chat_research-03",
+  "version": "1.0.0",
+  "family": "chat_research",
+  "title": "Synthetic chat_research fixture 3",
+  "instruction": "Write the exact text `1ash-chat_research-03` to answer.txt in the current directory.",
+  "environment": {
+    "image": "ghcr.io/1ash/synthetic@sha256:e8c49a39553881ffcb5fa2e18ab6b32c20d9cc0f0a13174831cf4c849d9a12eb",
+    "network": "none",
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 256,
+      "disk_mb": 256
+    }
+  },
+  "agent_contract": {
+    "tools": [
+      "write_file"
+    ],
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "budget": {
+    "wall_seconds": 60,
+    "max_steps": 8,
+    "max_tool_calls": 8,
+    "max_cost_usd": 0.01
+  },
+  "success": {
+    "modules": [
+      {
+        "id": "check",
+        "weight": 1.0,
+        "type": "command",
+        "command": "test \"$(cat answer.txt)\" = \"1ash-chat_research-03\""
+      }
+    ]
+  },
+  "safety": {
+    "gates": []
+  },
+  "oracle": {
+    "command": "test \"$(cat answer.txt)\" = \"1ash-chat_research-03\""
+  },
+  "baselines": {
+    "noop": {
+      "expected": "fail"
+    },
+    "human_time_minutes": 0
+  },
+  "provenance": {
+    "author": "1ash-synthetic",
+    "reviewers": [
+      "synthetic-reviewer-a",
+      "synthetic-reviewer-b"
+    ],
+    "license": "internal",
+    "contamination_notes": "Synthetic M2 scaffold. Reviewer labels are role placeholders, not human review; human_time_minutes=0 means unmeasured."
+  }
+}
