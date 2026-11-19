@@ -2235,7 +2235,7 @@ enum MemoryCommand {
         key: PathBuf,
         #[arg(long)]
         query: String,
-        #[arg(long, default_value = "bot-1")]
+        #[arg(long, default_value = "default")]
         bot_id: String,
         #[arg(long, default_value_t = 10)]
         limit: usize,
@@ -6868,6 +6868,12 @@ async fn main() -> Result<()> {
             let max_context_tokens =
                 max_context_tokens.clamp(1_000, first_principles_agent::DEFAULT_MAX_CONTEXT_TOKENS);
             let mut request = load_request(task, input)?;
+            request
+                .known_facts
+                .extend(first_principles_agent::memory_context::context_facts(
+                    &request.objective,
+                    first_principles_agent::memory_context::DEFAULT_CONTEXT_CHARS,
+                ));
             if let Some(spec) = routine_skill {
                 let service = SkillService::open(default_skill_store())?;
                 request.objective = service.routine_task(&spec, &request.objective)?;
@@ -17038,6 +17044,10 @@ impl TuiRunSettings {
                 "Short reply `{trimmed}`: if it names an entity from the previous turn, treat it as the answer to the previous question instead of a new task."
             ));
         }
+        known_facts.extend(first_principles_agent::memory_context::context_facts(
+            instruction,
+            first_principles_agent::memory_context::DEFAULT_CONTEXT_CHARS,
+        ));
         request.known_facts = known_facts;
         request.permissions.allow_network = self.allow_network;
         request.permissions.allow_write = self.allow_write;

@@ -1193,6 +1193,23 @@ impl AgentRuntime {
         model: &str,
         capabilities: &[ToolCapability],
     ) -> ToolObservation {
+        let mut content = crate::dynamic_tools::render_self_model(
+            provider_id,
+            model,
+            permissions,
+            budget,
+            capabilities,
+        );
+        let memory = crate::memory_context::default_status();
+        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&content) {
+            value["memory"] = serde_json::json!({
+                "configured": memory.configured,
+                "records": memory.records,
+                "active": memory.active,
+                "events": memory.events,
+            });
+            content = value.to_string();
+        }
         ToolObservation {
             call_id: call.id.clone(),
             tool: call.name.clone(),
@@ -1203,13 +1220,7 @@ impl AgentRuntime {
                 provider_id,
                 model
             ),
-            content: crate::dynamic_tools::render_self_model(
-                provider_id,
-                model,
-                permissions,
-                budget,
-                capabilities,
-            ),
+            content,
             error_code: None,
             metadata: BTreeMap::new(),
         }
