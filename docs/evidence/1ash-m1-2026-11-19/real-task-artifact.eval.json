@@ -1,0 +1,590 @@
+{
+  "version": 2,
+  "status": "success",
+  "eval": {
+    "eval_id": "XjGFmWXdcn9RSFYH774yT7",
+    "run_id": "ha8wwx68mHNsgXjSzsKndD",
+    "created": "2026-11-19T03:01:47+00:00",
+    "task": "one_ash_task",
+    "task_id": "2BZz3bzKmTQefBRShnQpoV",
+    "task_version": 0,
+    "task_file": "harness/1ash/adapter.py",
+    "task_display_name": "one_ash_task",
+    "task_registry_name": "one_ash_task",
+    "task_attribs": {},
+    "task_args": {
+      "task_file": "/home/skynet/1-agent/harness/1ash/tests/task-artifact.json",
+      "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+      "timeout_s": 180
+    },
+    "task_args_passed": {
+      "task_file": "/home/skynet/1-agent/harness/1ash/tests/task-artifact.json",
+      "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+      "timeout_s": 180
+    },
+    "dataset": {
+      "name": "m1-coding-artifact",
+      "samples": 1,
+      "sample_ids": [
+        1
+      ],
+      "shuffled": false
+    },
+    "model": "mockllm/model",
+    "model_generate_config": {},
+    "model_args": {},
+    "config": {
+      "epochs": 1,
+      "fail_on_error": true,
+      "continue_on_fail": false,
+      "score_on_error": false,
+      "sandbox_cleanup": true,
+      "sandbox_prebuilt": false,
+      "log_samples": true,
+      "log_realtime": true,
+      "log_images": true,
+      "log_shared": 0,
+      "score_display": true
+    },
+    "revision": {
+      "type": "git",
+      "origin": "https://ghfast.top/https://github.com/Skynet-Club/1agent.git",
+      "commit": "1a07d60",
+      "dirty": true
+    },
+    "packages": {
+      "inspect_ai": "0.3.291"
+    },
+    "scorers": [
+      {
+        "name": "one_ash_scorer",
+        "options": {},
+        "metrics": [
+          {
+            "name": "inspect_ai/accuracy",
+            "options": {}
+          }
+        ],
+        "metadata": {}
+      }
+    ]
+  },
+  "plan": {
+    "name": "plan",
+    "steps": [
+      {
+        "solver": "one_agent_solver",
+        "params": {
+          "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+          "timeout_s": 180
+        },
+        "params_passed": {
+          "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+          "timeout_s": 180
+        }
+      }
+    ],
+    "config": {}
+  },
+  "results": {
+    "total_samples": 1,
+    "completed_samples": 1,
+    "scores": [
+      {
+        "name": "one_ash_scorer",
+        "scorer": "one_ash_scorer",
+        "scored_samples": 1,
+        "unscored_samples": 0,
+        "params": {},
+        "metrics": {
+          "accuracy": {
+            "name": "accuracy",
+            "value": 1.0,
+            "params": {}
+          }
+        }
+      }
+    ],
+    "headline": {
+      "scorer": "one_ash_scorer",
+      "score": "one_ash_scorer",
+      "metric": "accuracy"
+    }
+  },
+  "stats": {
+    "started_at": "2026-11-19T03:01:47+00:00",
+    "completed_at": "2026-11-19T03:02:10+00:00",
+    "model_usage": {},
+    "role_usage": {},
+    "connection_limit_history": []
+  },
+  "invalidated": false,
+  "total_samples": 1,
+  "tags": [],
+  "metadata": {},
+  "samples": [
+    {
+      "id": 1,
+      "epoch": 1,
+      "input": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+      "target": "m1-coding-artifact",
+      "messages": [
+        {
+          "id": "9pNUmb2FFvC5MHtKXraMcD",
+          "content": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+          "source": "input",
+          "role": "user"
+        }
+      ],
+      "output": {
+        "model": "subject",
+        "choices": [
+          {
+            "message": {
+              "id": "AtfvXmELvnEEyybtRPLRoe",
+              "content": "{\n  \"run_id\": \"27759f3a-ecb6-48b6-a308-fad4407af125\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/.journals/27759f3a-ecb6-48b6-a308-fad4407af125.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt was written to /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt with the exact content `hello 1ash` (10 bytes, no trailing newline), and both the write receipt and an independent artifact check agree on that content and SHA-256. The file path and text are what you asked for; the only caveat is that the verifier labels the file as a binary type, which is a sniffing label and does not affect the bytes, and adding a trailing newline would change the hash if your tooling requires one.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"The file out.txt exists at /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"The file content is exactly `hello 1ash` with no trailing newline or extra characters.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"The file is 10 bytes and its SHA-256 is 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent acceptance check accepted the work, with both the public and hidden criteria passing.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The verifier reports the file's media type as application/octet-stream rather than text/plain, which is a guessed label based on content sniffing, not a change to the bytes.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\",\n        \"statement\": \"write_file created the file with 10 bytes and sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a later read_file returned the exact content `hello 1ash` with bytes_read=10 and truncated=false; verify_artifact recomputed the same sha256 and reported exists=true, decision=verified.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\",\n        \"statement\": \"The acceptance gate returned decision=accepted with contract digest 0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60, report outcome=verified, public_passed=true, hidden_passed=true, failures=[].\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Write access was limited to /tmp/1ash-m1-coding-artifact-57f1nt33.\",\n      \"The requested text had to appear exactly, with no added characters.\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"Whether your downstream tooling requires a trailing newline at end of file.\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"Adding one would change the file's size and SHA-256 from the verified values.\",\n        \"reduction_method\": \"Tell me your tool's requirement, or I can append a single newline and re-verify.\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"The file is read again and its content differs from `hello 1ash` or its SHA-256 differs from 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"then\": \"The content claims c2 and c3 are wrong and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"A newline is appended to the file.\",\n        \"then\": \"The size and SHA-256 in claim c3 no longer hold.\",\n        \"target_ids\": [\n          \"c3\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file: created /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt (10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"high\",\n      \"action\": \"high\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}",
+              "source": "generate",
+              "role": "assistant",
+              "model": "subject"
+            },
+            "stop_reason": "stop"
+          }
+        ],
+        "completion": "{\n  \"run_id\": \"27759f3a-ecb6-48b6-a308-fad4407af125\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/.journals/27759f3a-ecb6-48b6-a308-fad4407af125.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt was written to /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt with the exact content `hello 1ash` (10 bytes, no trailing newline), and both the write receipt and an independent artifact check agree on that content and SHA-256. The file path and text are what you asked for; the only caveat is that the verifier labels the file as a binary type, which is a sniffing label and does not affect the bytes, and adding a trailing newline would change the hash if your tooling requires one.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"The file out.txt exists at /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"The file content is exactly `hello 1ash` with no trailing newline or extra characters.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"The file is 10 bytes and its SHA-256 is 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent acceptance check accepted the work, with both the public and hidden criteria passing.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The verifier reports the file's media type as application/octet-stream rather than text/plain, which is a guessed label based on content sniffing, not a change to the bytes.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\",\n        \"statement\": \"write_file created the file with 10 bytes and sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a later read_file returned the exact content `hello 1ash` with bytes_read=10 and truncated=false; verify_artifact recomputed the same sha256 and reported exists=true, decision=verified.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\",\n        \"statement\": \"The acceptance gate returned decision=accepted with contract digest 0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60, report outcome=verified, public_passed=true, hidden_passed=true, failures=[].\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Write access was limited to /tmp/1ash-m1-coding-artifact-57f1nt33.\",\n      \"The requested text had to appear exactly, with no added characters.\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"Whether your downstream tooling requires a trailing newline at end of file.\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"Adding one would change the file's size and SHA-256 from the verified values.\",\n        \"reduction_method\": \"Tell me your tool's requirement, or I can append a single newline and re-verify.\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"The file is read again and its content differs from `hello 1ash` or its SHA-256 differs from 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"then\": \"The content claims c2 and c3 are wrong and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"A newline is appended to the file.\",\n        \"then\": \"The size and SHA-256 in claim c3 no longer hold.\",\n        \"target_ids\": [\n          \"c3\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file: created /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt (10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"high\",\n      \"action\": \"high\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}"
+      },
+      "scores": {
+        "one_ash_scorer": {
+          "value": 1.0,
+          "explanation": "artifact-check: artifact /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt exists=True",
+          "history": []
+        }
+      },
+      "metadata": {
+        "task": {
+          "schema": "1ash.task/v1",
+          "version": "1.0.0",
+          "family": "coding",
+          "title": "M1 fake coding task",
+          "environment": {
+            "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "network": "none",
+            "resources": {
+              "cpu": 1,
+              "memory_mb": 512,
+              "disk_mb": 1024
+            }
+          },
+          "agent_contract": {
+            "tools": [
+              "write_file"
+            ],
+            "permissions": {
+              "write": true,
+              "network": false
+            }
+          },
+          "budget": {
+            "wall_seconds": 60,
+            "max_steps": 5,
+            "max_tool_calls": 5,
+            "max_cost_usd": 0.01
+          },
+          "safety": {
+            "gates": []
+          },
+          "oracle": {
+            "command": "test -s out.txt"
+          },
+          "baselines": {
+            "noop": {
+              "expected": "fail"
+            },
+            "human_time_minutes": 1
+          },
+          "provenance": {
+            "author": "1ash-test",
+            "reviewers": [
+              "reviewer-a",
+              "reviewer-b"
+            ],
+            "license": "internal",
+            "contamination_notes": "synthetic M1 fixture"
+          },
+          "id": "m1-coding-artifact",
+          "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+          "success": {
+            "modules": [
+              {
+                "id": "artifact-check",
+                "weight": 1.0,
+                "type": "artifact",
+                "path": "out.txt"
+              }
+            ]
+          }
+        },
+        "workspace": "/tmp/1ash-m1-coding-artifact-57f1nt33",
+        "subject_exit": 0,
+        "subject_stdout": "{\n  \"run_id\": \"27759f3a-ecb6-48b6-a308-fad4407af125\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/.journals/27759f3a-ecb6-48b6-a308-fad4407af125.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt was written to /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt with the exact content `hello 1ash` (10 bytes, no trailing newline), and both the write receipt and an independent artifact check agree on that content and SHA-256. The file path and text are what you asked for; the only caveat is that the verifier labels the file as a binary type, which is a sniffing label and does not affect the bytes, and adding a trailing newline would change the hash if your tooling requires one.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"The file out.txt exists at /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"The file content is exactly `hello 1ash` with no trailing newline or extra characters.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"The file is 10 bytes and its SHA-256 is 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent acceptance check accepted the work, with both the public and hidden criteria passing.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The verifier reports the file's media type as application/octet-stream rather than text/plain, which is a guessed label based on content sniffing, not a change to the bytes.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\",\n        \"statement\": \"write_file created the file with 10 bytes and sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a later read_file returned the exact content `hello 1ash` with bytes_read=10 and truncated=false; verify_artifact recomputed the same sha256 and reported exists=true, decision=verified.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\",\n        \"statement\": \"The acceptance gate returned decision=accepted with contract digest 0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60, report outcome=verified, public_passed=true, hidden_passed=true, failures=[].\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Write access was limited to /tmp/1ash-m1-coding-artifact-57f1nt33.\",\n      \"The requested text had to appear exactly, with no added characters.\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"Whether your downstream tooling requires a trailing newline at end of file.\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"Adding one would change the file's size and SHA-256 from the verified values.\",\n        \"reduction_method\": \"Tell me your tool's requirement, or I can append a single newline and re-verify.\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"The file is read again and its content differs from `hello 1ash` or its SHA-256 differs from 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"then\": \"The content claims c2 and c3 are wrong and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"A newline is appended to the file.\",\n        \"then\": \"The size and SHA-256 in claim c3 no longer hold.\",\n        \"target_ids\": [\n          \"c3\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file: created /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt (10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"high\",\n      \"action\": \"high\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}\n",
+        "subject_stderr": ""
+      },
+      "store": {},
+      "events": [
+        {
+          "uuid": "JXobNZjpWLqYCE4DBbKjCC",
+          "span_id": "kPeiMSkJtSEqsw5ab8Ne2S",
+          "timestamp": "2026-11-19T03:01:47.112895+00:00",
+          "working_start": 93308.84886383,
+          "event": "span_begin",
+          "id": "kPeiMSkJtSEqsw5ab8Ne2S",
+          "type": "init",
+          "name": "init"
+        },
+        {
+          "uuid": "NFT78UdNmn53MZ4t2KgD5v",
+          "span_id": "kPeiMSkJtSEqsw5ab8Ne2S",
+          "timestamp": "2026-11-19T03:01:47.113746+00:00",
+          "working_start": 93308.849715799,
+          "event": "sample_init",
+          "sample": {
+            "input": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+            "target": "m1-coding-artifact",
+            "id": 1,
+            "metadata": {
+              "task": {
+                "schema": "1ash.task/v1",
+                "version": "1.0.0",
+                "family": "coding",
+                "title": "M1 fake coding task",
+                "environment": {
+                  "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "network": "none",
+                  "resources": {
+                    "cpu": 1,
+                    "memory_mb": 512,
+                    "disk_mb": 1024
+                  }
+                },
+                "agent_contract": {
+                  "tools": [
+                    "write_file"
+                  ],
+                  "permissions": {
+                    "write": true,
+                    "network": false
+                  }
+                },
+                "budget": {
+                  "wall_seconds": 60,
+                  "max_steps": 5,
+                  "max_tool_calls": 5,
+                  "max_cost_usd": 0.01
+                },
+                "safety": {
+                  "gates": []
+                },
+                "oracle": {
+                  "command": "test -s out.txt"
+                },
+                "baselines": {
+                  "noop": {
+                    "expected": "fail"
+                  },
+                  "human_time_minutes": 1
+                },
+                "provenance": {
+                  "author": "1ash-test",
+                  "reviewers": [
+                    "reviewer-a",
+                    "reviewer-b"
+                  ],
+                  "license": "internal",
+                  "contamination_notes": "synthetic M1 fixture"
+                },
+                "id": "m1-coding-artifact",
+                "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "success": {
+                  "modules": [
+                    {
+                      "id": "artifact-check",
+                      "weight": 1.0,
+                      "type": "artifact",
+                      "path": "out.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "state": {
+            "messages": [
+              {
+                "id": "9pNUmb2FFvC5MHtKXraMcD",
+                "content": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "source": "input",
+                "role": "user"
+              }
+            ],
+            "tools": [],
+            "tool_choice": null,
+            "store": {},
+            "output": {
+              "model": "mockllm/model",
+              "choices": [],
+              "completion": ""
+            },
+            "completed": false,
+            "metadata": {
+              "task": {
+                "schema": "1ash.task/v1",
+                "version": "1.0.0",
+                "family": "coding",
+                "title": "M1 fake coding task",
+                "environment": {
+                  "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "network": "none",
+                  "resources": {
+                    "cpu": 1,
+                    "memory_mb": 512,
+                    "disk_mb": 1024
+                  }
+                },
+                "agent_contract": {
+                  "tools": [
+                    "write_file"
+                  ],
+                  "permissions": {
+                    "write": true,
+                    "network": false
+                  }
+                },
+                "budget": {
+                  "wall_seconds": 60,
+                  "max_steps": 5,
+                  "max_tool_calls": 5,
+                  "max_cost_usd": 0.01
+                },
+                "safety": {
+                  "gates": []
+                },
+                "oracle": {
+                  "command": "test -s out.txt"
+                },
+                "baselines": {
+                  "noop": {
+                    "expected": "fail"
+                  },
+                  "human_time_minutes": 1
+                },
+                "provenance": {
+                  "author": "1ash-test",
+                  "reviewers": [
+                    "reviewer-a",
+                    "reviewer-b"
+                  ],
+                  "license": "internal",
+                  "contamination_notes": "synthetic M1 fixture"
+                },
+                "id": "m1-coding-artifact",
+                "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "success": {
+                  "modules": [
+                    {
+                      "id": "artifact-check",
+                      "weight": 1.0,
+                      "type": "artifact",
+                      "path": "out.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "uuid": "M2YGEBdTvBJfuAEeSqQXVz",
+          "span_id": "kPeiMSkJtSEqsw5ab8Ne2S",
+          "timestamp": "2026-11-19T03:01:47.114049+00:00",
+          "working_start": 93308.850017207,
+          "event": "span_end",
+          "id": "kPeiMSkJtSEqsw5ab8Ne2S"
+        },
+        {
+          "uuid": "c57BHYJVQpXRqJfTyMWfoY",
+          "span_id": "mppUJdXt2x2EEPnRymK8sN",
+          "timestamp": "2026-11-19T03:01:47.114616+00:00",
+          "working_start": 0.00033482899016235024,
+          "event": "span_begin",
+          "id": "mppUJdXt2x2EEPnRymK8sN",
+          "type": "solvers",
+          "name": "solvers"
+        },
+        {
+          "uuid": "LeWrRV5Hnvw9GFRTuWJGfM",
+          "span_id": "HFdfYPZDnRDhkTiRonHSkG",
+          "timestamp": "2026-11-19T03:01:47.114950+00:00",
+          "working_start": 0.0006685429980279878,
+          "event": "span_begin",
+          "id": "HFdfYPZDnRDhkTiRonHSkG",
+          "parent_id": "mppUJdXt2x2EEPnRymK8sN",
+          "type": "solver",
+          "name": "one_agent_solver"
+        },
+        {
+          "uuid": "3PW787K269Zt9tnR66t9e7",
+          "span_id": "HFdfYPZDnRDhkTiRonHSkG",
+          "timestamp": "2026-11-19T03:02:10.991771+00:00",
+          "working_start": 23.87749028899998,
+          "event": "state",
+          "changes": [
+            {
+              "op": "replace",
+              "path": "/output/model",
+              "value": "subject",
+              "replaced": "mockllm/model"
+            },
+            {
+              "op": "add",
+              "path": "/output/choices/0",
+              "value": {
+                "message": {
+                  "id": "AtfvXmELvnEEyybtRPLRoe",
+                  "content": "attachment://789b2f28c33008c369fe01c9411f2104",
+                  "source": "generate",
+                  "role": "assistant",
+                  "model": "subject"
+                },
+                "stop_reason": "stop"
+              }
+            },
+            {
+              "op": "replace",
+              "path": "/output/completion",
+              "value": "attachment://789b2f28c33008c369fe01c9411f2104",
+              "replaced": ""
+            },
+            {
+              "op": "add",
+              "path": "/metadata/workspace",
+              "value": "/tmp/1ash-m1-coding-artifact-57f1nt33"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_exit",
+              "value": 0
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_stdout",
+              "value": "attachment://78837aa93cc7f41ba3689e4ee5091725"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_stderr",
+              "value": ""
+            }
+          ]
+        },
+        {
+          "uuid": "aPMX2Z6Kytz7f4cUVC2Dfc",
+          "span_id": "HFdfYPZDnRDhkTiRonHSkG",
+          "timestamp": "2026-11-19T03:02:10.992276+00:00",
+          "working_start": 23.877996739989612,
+          "event": "span_end",
+          "id": "HFdfYPZDnRDhkTiRonHSkG"
+        },
+        {
+          "uuid": "4c9RG4MkLoaKbpN9bVUDGY",
+          "span_id": "mppUJdXt2x2EEPnRymK8sN",
+          "timestamp": "2026-11-19T03:02:10.992522+00:00",
+          "working_start": 23.878239921992645,
+          "event": "span_end",
+          "id": "mppUJdXt2x2EEPnRymK8sN"
+        },
+        {
+          "uuid": "novokJEDTaAPBy3GURroG3",
+          "span_id": "PZSTNFwLHtXZmcVciphWNz",
+          "timestamp": "2026-11-19T03:02:10.993536+00:00",
+          "working_start": 23.879254944986315,
+          "event": "span_begin",
+          "id": "PZSTNFwLHtXZmcVciphWNz",
+          "type": "scorers",
+          "name": "scorers"
+        },
+        {
+          "uuid": "UefKA4gpPv7KdRSTjkZoNC",
+          "span_id": "Dy3DEKRk3nC6MWS5MkgBy4",
+          "timestamp": "2026-11-19T03:02:10.993755+00:00",
+          "working_start": 23.87947340098617,
+          "event": "span_begin",
+          "id": "Dy3DEKRk3nC6MWS5MkgBy4",
+          "parent_id": "PZSTNFwLHtXZmcVciphWNz",
+          "type": "scorer",
+          "name": "one_ash_scorer"
+        },
+        {
+          "uuid": "kpGmwQJYztqrYH6485HPHw",
+          "span_id": "Dy3DEKRk3nC6MWS5MkgBy4",
+          "timestamp": "2026-11-19T03:02:10.994061+00:00",
+          "working_start": 23.879779087990755,
+          "event": "score",
+          "score": {
+            "value": 1.0,
+            "explanation": "artifact-check: artifact /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt exists=True",
+            "history": []
+          },
+          "target": "m1-coding-artifact",
+          "intermediate": false,
+          "scorer": "one_ash_scorer",
+          "scorer_args": {}
+        },
+        {
+          "uuid": "RW8vb7CrrKpMhWUHAG7KPL",
+          "span_id": "Dy3DEKRk3nC6MWS5MkgBy4",
+          "timestamp": "2026-11-19T03:02:10.994517+00:00",
+          "working_start": 23.88023734498711,
+          "event": "span_end",
+          "id": "Dy3DEKRk3nC6MWS5MkgBy4"
+        },
+        {
+          "uuid": "JqNqrBp9h94F84RVYTbeTJ",
+          "span_id": "PZSTNFwLHtXZmcVciphWNz",
+          "timestamp": "2026-11-19T03:02:10.994742+00:00",
+          "working_start": 23.88046035899606,
+          "event": "span_end",
+          "id": "PZSTNFwLHtXZmcVciphWNz"
+        }
+      ],
+      "model_usage": {},
+      "role_usage": {},
+      "started_at": "2026-11-19T03:01:47.114285+00:00",
+      "completed_at": "2026-11-19T03:02:10.995138+00:00",
+      "total_time": 23.881,
+      "working_time": 23.881,
+      "uuid": "QeYGs82uFDHxDjEsAqi4Ek",
+      "error_retries": [],
+      "attachments": {
+        "789b2f28c33008c369fe01c9411f2104": "{\n  \"run_id\": \"27759f3a-ecb6-48b6-a308-fad4407af125\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/.journals/27759f3a-ecb6-48b6-a308-fad4407af125.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt was written to /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt with the exact content `hello 1ash` (10 bytes, no trailing newline), and both the write receipt and an independent artifact check agree on that content and SHA-256. The file path and text are what you asked for; the only caveat is that the verifier labels the file as a binary type, which is a sniffing label and does not affect the bytes, and adding a trailing newline would change the hash if your tooling requires one.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"The file out.txt exists at /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"The file content is exactly `hello 1ash` with no trailing newline or extra characters.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"The file is 10 bytes and its SHA-256 is 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent acceptance check accepted the work, with both the public and hidden criteria passing.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The verifier reports the file's media type as application/octet-stream rather than text/plain, which is a guessed label based on content sniffing, not a change to the bytes.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\",\n        \"statement\": \"write_file created the file with 10 bytes and sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a later read_file returned the exact content `hello 1ash` with bytes_read=10 and truncated=false; verify_artifact recomputed the same sha256 and reported exists=true, decision=verified.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\",\n        \"statement\": \"The acceptance gate returned decision=accepted with contract digest 0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60, report outcome=verified, public_passed=true, hidden_passed=true, failures=[].\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Write access was limited to /tmp/1ash-m1-coding-artifact-57f1nt33.\",\n      \"The requested text had to appear exactly, with no added characters.\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"Whether your downstream tooling requires a trailing newline at end of file.\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"Adding one would change the file's size and SHA-256 from the verified values.\",\n        \"reduction_method\": \"Tell me your tool's requirement, or I can append a single newline and re-verify.\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"The file is read again and its content differs from `hello 1ash` or its SHA-256 differs from 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"then\": \"The content claims c2 and c3 are wrong and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"A newline is appended to the file.\",\n        \"then\": \"The size and SHA-256 in claim c3 no longer hold.\",\n        \"target_ids\": [\n          \"c3\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file: created /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt (10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"high\",\n      \"action\": \"high\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}",
+        "78837aa93cc7f41ba3689e4ee5091725": "{\n  \"run_id\": \"27759f3a-ecb6-48b6-a308-fad4407af125\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/.journals/27759f3a-ecb6-48b6-a308-fad4407af125.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt was written to /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt with the exact content `hello 1ash` (10 bytes, no trailing newline), and both the write receipt and an independent artifact check agree on that content and SHA-256. The file path and text are what you asked for; the only caveat is that the verifier labels the file as a binary type, which is a sniffing label and does not affect the bytes, and adding a trailing newline would change the hash if your tooling requires one.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"The file out.txt exists at /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"The file content is exactly `hello 1ash` with no trailing newline or extra characters.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"The file is 10 bytes and its SHA-256 is 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent acceptance check accepted the work, with both the public and hidden criteria passing.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The verifier reports the file's media type as application/octet-stream rather than text/plain, which is a guessed label based on content sniffing, not a change to the bytes.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-artifact-57f1nt33/out.txt\",\n        \"statement\": \"write_file created the file with 10 bytes and sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a later read_file returned the exact content `hello 1ash` with bytes_read=10 and truncated=false; verify_artifact recomputed the same sha256 and reported exists=true, decision=verified.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60\",\n        \"statement\": \"The acceptance gate returned decision=accepted with contract digest 0155c2c1d4c027ff2f1e8ae93fa5a3c5cf5832cde407726fe9b1f0ed36c09b60, report outcome=verified, public_passed=true, hidden_passed=true, failures=[].\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Write access was limited to /tmp/1ash-m1-coding-artifact-57f1nt33.\",\n      \"The requested text had to appear exactly, with no added characters.\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"Whether your downstream tooling requires a trailing newline at end of file.\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"Adding one would change the file's size and SHA-256 from the verified values.\",\n        \"reduction_method\": \"Tell me your tool's requirement, or I can append a single newline and re-verify.\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"The file is read again and its content differs from `hello 1ash` or its SHA-256 differs from 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a.\",\n        \"then\": \"The content claims c2 and c3 are wrong and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"A newline is appended to the file.\",\n        \"then\": \"The size and SHA-256 in claim c3 no longer hold.\",\n        \"target_ids\": [\n          \"c3\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file: created /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt (10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"high\",\n      \"action\": \"high\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}\n"
+      },
+      "events_data": {
+        "messages": [],
+        "calls": []
+      },
+      "turn_count": 0
+    }
+  ],
+  "reductions": [
+    {
+      "scorer": "one_ash_scorer",
+      "samples": [
+        {
+          "value": 1.0,
+          "explanation": "artifact-check: artifact /tmp/1ash-m1-coding-artifact-57f1nt33/out.txt exists=True",
+          "history": [],
+          "sample_id": 1
+        }
+      ]
+    }
+  ]
+}

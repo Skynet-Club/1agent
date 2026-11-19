@@ -1,0 +1,590 @@
+{
+  "version": 2,
+  "status": "success",
+  "eval": {
+    "eval_id": "kWAfaMCyN7ikUMGEJ3ec78",
+    "run_id": "EEkvtwLjLDANZe3n8TNFgY",
+    "created": "2026-11-19T03:01:27+00:00",
+    "task": "one_ash_task",
+    "task_id": "EXeGh5WbLxhj7NsfBseXvk",
+    "task_version": 0,
+    "task_file": "harness/1ash/adapter.py",
+    "task_display_name": "one_ash_task",
+    "task_registry_name": "one_ash_task",
+    "task_attribs": {},
+    "task_args": {
+      "task_file": "/home/skynet/1-agent/harness/1ash/tests/task-command.json",
+      "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+      "timeout_s": 180
+    },
+    "task_args_passed": {
+      "task_file": "/home/skynet/1-agent/harness/1ash/tests/task-command.json",
+      "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+      "timeout_s": 180
+    },
+    "dataset": {
+      "name": "m1-coding-command",
+      "samples": 1,
+      "sample_ids": [
+        1
+      ],
+      "shuffled": false
+    },
+    "model": "mockllm/model",
+    "model_generate_config": {},
+    "model_args": {},
+    "config": {
+      "epochs": 1,
+      "fail_on_error": true,
+      "continue_on_fail": false,
+      "score_on_error": false,
+      "sandbox_cleanup": true,
+      "sandbox_prebuilt": false,
+      "log_samples": true,
+      "log_realtime": true,
+      "log_images": true,
+      "log_shared": 0,
+      "score_display": true
+    },
+    "revision": {
+      "type": "git",
+      "origin": "https://ghfast.top/https://github.com/Skynet-Club/1agent.git",
+      "commit": "1a07d60",
+      "dirty": true
+    },
+    "packages": {
+      "inspect_ai": "0.3.291"
+    },
+    "scorers": [
+      {
+        "name": "one_ash_scorer",
+        "options": {},
+        "metrics": [
+          {
+            "name": "inspect_ai/accuracy",
+            "options": {}
+          }
+        ],
+        "metadata": {}
+      }
+    ]
+  },
+  "plan": {
+    "name": "plan",
+    "steps": [
+      {
+        "solver": "one_agent_solver",
+        "params": {
+          "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+          "timeout_s": 180
+        },
+        "params_passed": {
+          "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+          "timeout_s": 180
+        }
+      }
+    ],
+    "config": {}
+  },
+  "results": {
+    "total_samples": 1,
+    "completed_samples": 1,
+    "scores": [
+      {
+        "name": "one_ash_scorer",
+        "scorer": "one_ash_scorer",
+        "scored_samples": 1,
+        "unscored_samples": 0,
+        "params": {},
+        "metrics": {
+          "accuracy": {
+            "name": "accuracy",
+            "value": 1.0,
+            "params": {}
+          }
+        }
+      }
+    ],
+    "headline": {
+      "scorer": "one_ash_scorer",
+      "score": "one_ash_scorer",
+      "metric": "accuracy"
+    }
+  },
+  "stats": {
+    "started_at": "2026-11-19T03:01:27+00:00",
+    "completed_at": "2026-11-19T03:01:45+00:00",
+    "model_usage": {},
+    "role_usage": {},
+    "connection_limit_history": []
+  },
+  "invalidated": false,
+  "total_samples": 1,
+  "tags": [],
+  "metadata": {},
+  "samples": [
+    {
+      "id": 1,
+      "epoch": 1,
+      "input": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+      "target": "m1-coding-command",
+      "messages": [
+        {
+          "id": "dRhxAiyxspTBW9CqJLeLU2",
+          "content": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+          "source": "input",
+          "role": "user"
+        }
+      ],
+      "output": {
+        "model": "subject",
+        "choices": [
+          {
+            "message": {
+              "id": "6GojvK899Ak3zBeGBCX79o",
+              "content": "{\n  \"run_id\": \"4ebbd775-4da0-4d32-b923-29d8beb94961\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-jzah4_gq/.journals/4ebbd775-4da0-4d32-b923-29d8beb94961.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"`out.txt` 已写入并验证通过：内容正是 `hello 1ash`，10 字节，无末尾换行。\\n\\n- **路径**：`/tmp/1ash-m1-coding-command-jzah4_gq/out.txt`\\n- **sha256**：`8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a`\\n- **验收**：独立校验器 `agent:read-back-verifier` 判定 `accepted`，合约摘要 `a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6`\\n- **取舍**：按“精确文本”理解，未追加换行符；若下游工具要求 POSIX 行尾，需要补一个 `\\\\n`。\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"写文件操作成功创建了 out.txt，共 10 字节。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"读回文件内容为 hello 1ash，没有多余空白或末尾换行。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"文件字节数与 hello 1ash 的 10 个字符一致，说明未加换行符。\",\n        \"status\": \"derived\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": \"依据 10 字节的实测大小与内容读回推断\"\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"独立校验器接受了这次交付，公共与隐藏标准均通过。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"write_file 回执：created=true，bytes=10，sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"read_file 读回内容为 hello 1ash，bytes=10，truncated=false。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c2\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"verify_artifact 返回 decision=verified，exists=true，checks 为 exists 与 non-empty，sha256 与写入时一致。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c3\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\",\n        \"statement\": \"acceptance_gate 返回 decision=accepted，public_passed=true，hidden_passed=true，failures 为空。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [\n      {\n        \"description\": \"用户要的“精确文本”指文件只含这 10 个字符，不含末尾换行。\",\n        \"impact\": \"low\",\n        \"verification_method\": \"若需要 POSIX 行尾，重新写入并在末尾追加 \\\\n 后再次读回校验。\"\n      }\n    ],\n    \"constraints\": [\n      \"写入范围限定在 /tmp/1ash-m1-coding-command-jzah4_gq 下。\",\n      \"文件名固定为 out.txt。\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"下游使用方是否要求文件以换行结尾。\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"影响某些按行读取的工具是否把该文件当成完整一行。\",\n        \"reduction_method\": \"确认使用方的读取方式，或按需补一个换行符。\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"读回内容不是 hello 1ash，或字节数不是 10。\",\n        \"then\": \"c2 和 c3 不成立，交付应判为未完成并重写文件。\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"校验器返回 rejected 或 conditional。\",\n        \"then\": \"c4 不成立，不能声称交付已被接受。\",\n        \"target_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> created=true, bytes=10, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"verify_artifact /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> decision=verified, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}",
+              "source": "generate",
+              "role": "assistant",
+              "model": "subject"
+            },
+            "stop_reason": "stop"
+          }
+        ],
+        "completion": "{\n  \"run_id\": \"4ebbd775-4da0-4d32-b923-29d8beb94961\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-jzah4_gq/.journals/4ebbd775-4da0-4d32-b923-29d8beb94961.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"`out.txt` 已写入并验证通过：内容正是 `hello 1ash`，10 字节，无末尾换行。\\n\\n- **路径**：`/tmp/1ash-m1-coding-command-jzah4_gq/out.txt`\\n- **sha256**：`8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a`\\n- **验收**：独立校验器 `agent:read-back-verifier` 判定 `accepted`，合约摘要 `a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6`\\n- **取舍**：按“精确文本”理解，未追加换行符；若下游工具要求 POSIX 行尾，需要补一个 `\\\\n`。\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"写文件操作成功创建了 out.txt，共 10 字节。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"读回文件内容为 hello 1ash，没有多余空白或末尾换行。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"文件字节数与 hello 1ash 的 10 个字符一致，说明未加换行符。\",\n        \"status\": \"derived\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": \"依据 10 字节的实测大小与内容读回推断\"\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"独立校验器接受了这次交付，公共与隐藏标准均通过。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"write_file 回执：created=true，bytes=10，sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"read_file 读回内容为 hello 1ash，bytes=10，truncated=false。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c2\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"verify_artifact 返回 decision=verified，exists=true，checks 为 exists 与 non-empty，sha256 与写入时一致。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c3\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\",\n        \"statement\": \"acceptance_gate 返回 decision=accepted，public_passed=true，hidden_passed=true，failures 为空。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [\n      {\n        \"description\": \"用户要的“精确文本”指文件只含这 10 个字符，不含末尾换行。\",\n        \"impact\": \"low\",\n        \"verification_method\": \"若需要 POSIX 行尾，重新写入并在末尾追加 \\\\n 后再次读回校验。\"\n      }\n    ],\n    \"constraints\": [\n      \"写入范围限定在 /tmp/1ash-m1-coding-command-jzah4_gq 下。\",\n      \"文件名固定为 out.txt。\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"下游使用方是否要求文件以换行结尾。\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"影响某些按行读取的工具是否把该文件当成完整一行。\",\n        \"reduction_method\": \"确认使用方的读取方式，或按需补一个换行符。\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"读回内容不是 hello 1ash，或字节数不是 10。\",\n        \"then\": \"c2 和 c3 不成立，交付应判为未完成并重写文件。\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"校验器返回 rejected 或 conditional。\",\n        \"then\": \"c4 不成立，不能声称交付已被接受。\",\n        \"target_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> created=true, bytes=10, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"verify_artifact /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> decision=verified, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}"
+      },
+      "scores": {
+        "one_ash_scorer": {
+          "value": 1.0,
+          "explanation": "file-check: command exit 0",
+          "history": []
+        }
+      },
+      "metadata": {
+        "task": {
+          "schema": "1ash.task/v1",
+          "version": "1.0.0",
+          "family": "coding",
+          "title": "M1 fake coding task",
+          "environment": {
+            "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "network": "none",
+            "resources": {
+              "cpu": 1,
+              "memory_mb": 512,
+              "disk_mb": 1024
+            }
+          },
+          "agent_contract": {
+            "tools": [
+              "write_file"
+            ],
+            "permissions": {
+              "write": true,
+              "network": false
+            }
+          },
+          "budget": {
+            "wall_seconds": 60,
+            "max_steps": 5,
+            "max_tool_calls": 5,
+            "max_cost_usd": 0.01
+          },
+          "safety": {
+            "gates": []
+          },
+          "oracle": {
+            "command": "test -s out.txt"
+          },
+          "baselines": {
+            "noop": {
+              "expected": "fail"
+            },
+            "human_time_minutes": 1
+          },
+          "provenance": {
+            "author": "1ash-test",
+            "reviewers": [
+              "reviewer-a",
+              "reviewer-b"
+            ],
+            "license": "internal",
+            "contamination_notes": "synthetic M1 fixture"
+          },
+          "id": "m1-coding-command",
+          "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+          "success": {
+            "modules": [
+              {
+                "id": "file-check",
+                "weight": 1.0,
+                "type": "command",
+                "command": "test -s out.txt"
+              }
+            ]
+          }
+        },
+        "workspace": "/tmp/1ash-m1-coding-command-jzah4_gq",
+        "subject_exit": 0,
+        "subject_stdout": "{\n  \"run_id\": \"4ebbd775-4da0-4d32-b923-29d8beb94961\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-jzah4_gq/.journals/4ebbd775-4da0-4d32-b923-29d8beb94961.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"`out.txt` 已写入并验证通过：内容正是 `hello 1ash`，10 字节，无末尾换行。\\n\\n- **路径**：`/tmp/1ash-m1-coding-command-jzah4_gq/out.txt`\\n- **sha256**：`8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a`\\n- **验收**：独立校验器 `agent:read-back-verifier` 判定 `accepted`，合约摘要 `a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6`\\n- **取舍**：按“精确文本”理解，未追加换行符；若下游工具要求 POSIX 行尾，需要补一个 `\\\\n`。\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"写文件操作成功创建了 out.txt，共 10 字节。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"读回文件内容为 hello 1ash，没有多余空白或末尾换行。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"文件字节数与 hello 1ash 的 10 个字符一致，说明未加换行符。\",\n        \"status\": \"derived\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": \"依据 10 字节的实测大小与内容读回推断\"\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"独立校验器接受了这次交付，公共与隐藏标准均通过。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"write_file 回执：created=true，bytes=10，sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"read_file 读回内容为 hello 1ash，bytes=10，truncated=false。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c2\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"verify_artifact 返回 decision=verified，exists=true，checks 为 exists 与 non-empty，sha256 与写入时一致。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c3\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\",\n        \"statement\": \"acceptance_gate 返回 decision=accepted，public_passed=true，hidden_passed=true，failures 为空。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [\n      {\n        \"description\": \"用户要的“精确文本”指文件只含这 10 个字符，不含末尾换行。\",\n        \"impact\": \"low\",\n        \"verification_method\": \"若需要 POSIX 行尾，重新写入并在末尾追加 \\\\n 后再次读回校验。\"\n      }\n    ],\n    \"constraints\": [\n      \"写入范围限定在 /tmp/1ash-m1-coding-command-jzah4_gq 下。\",\n      \"文件名固定为 out.txt。\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"下游使用方是否要求文件以换行结尾。\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"影响某些按行读取的工具是否把该文件当成完整一行。\",\n        \"reduction_method\": \"确认使用方的读取方式，或按需补一个换行符。\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"读回内容不是 hello 1ash，或字节数不是 10。\",\n        \"then\": \"c2 和 c3 不成立，交付应判为未完成并重写文件。\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"校验器返回 rejected 或 conditional。\",\n        \"then\": \"c4 不成立，不能声称交付已被接受。\",\n        \"target_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> created=true, bytes=10, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"verify_artifact /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> decision=verified, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}\n",
+        "subject_stderr": ""
+      },
+      "store": {},
+      "events": [
+        {
+          "uuid": "BuGEKUt4ZhaBWySHJddeFN",
+          "span_id": "5r3NMcguMAyL63Ycfem9wV",
+          "timestamp": "2026-11-19T03:01:27.049976+00:00",
+          "working_start": 93288.785945504,
+          "event": "span_begin",
+          "id": "5r3NMcguMAyL63Ycfem9wV",
+          "type": "init",
+          "name": "init"
+        },
+        {
+          "uuid": "gjSH2rcjn4MoPVcVssuy7w",
+          "span_id": "5r3NMcguMAyL63Ycfem9wV",
+          "timestamp": "2026-11-19T03:01:27.050823+00:00",
+          "working_start": 93288.786792583,
+          "event": "sample_init",
+          "sample": {
+            "input": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+            "target": "m1-coding-command",
+            "id": 1,
+            "metadata": {
+              "task": {
+                "schema": "1ash.task/v1",
+                "version": "1.0.0",
+                "family": "coding",
+                "title": "M1 fake coding task",
+                "environment": {
+                  "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "network": "none",
+                  "resources": {
+                    "cpu": 1,
+                    "memory_mb": 512,
+                    "disk_mb": 1024
+                  }
+                },
+                "agent_contract": {
+                  "tools": [
+                    "write_file"
+                  ],
+                  "permissions": {
+                    "write": true,
+                    "network": false
+                  }
+                },
+                "budget": {
+                  "wall_seconds": 60,
+                  "max_steps": 5,
+                  "max_tool_calls": 5,
+                  "max_cost_usd": 0.01
+                },
+                "safety": {
+                  "gates": []
+                },
+                "oracle": {
+                  "command": "test -s out.txt"
+                },
+                "baselines": {
+                  "noop": {
+                    "expected": "fail"
+                  },
+                  "human_time_minutes": 1
+                },
+                "provenance": {
+                  "author": "1ash-test",
+                  "reviewers": [
+                    "reviewer-a",
+                    "reviewer-b"
+                  ],
+                  "license": "internal",
+                  "contamination_notes": "synthetic M1 fixture"
+                },
+                "id": "m1-coding-command",
+                "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "success": {
+                  "modules": [
+                    {
+                      "id": "file-check",
+                      "weight": 1.0,
+                      "type": "command",
+                      "command": "test -s out.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "state": {
+            "messages": [
+              {
+                "id": "dRhxAiyxspTBW9CqJLeLU2",
+                "content": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "source": "input",
+                "role": "user"
+              }
+            ],
+            "tools": [],
+            "tool_choice": null,
+            "store": {},
+            "output": {
+              "model": "mockllm/model",
+              "choices": [],
+              "completion": ""
+            },
+            "completed": false,
+            "metadata": {
+              "task": {
+                "schema": "1ash.task/v1",
+                "version": "1.0.0",
+                "family": "coding",
+                "title": "M1 fake coding task",
+                "environment": {
+                  "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "network": "none",
+                  "resources": {
+                    "cpu": 1,
+                    "memory_mb": 512,
+                    "disk_mb": 1024
+                  }
+                },
+                "agent_contract": {
+                  "tools": [
+                    "write_file"
+                  ],
+                  "permissions": {
+                    "write": true,
+                    "network": false
+                  }
+                },
+                "budget": {
+                  "wall_seconds": 60,
+                  "max_steps": 5,
+                  "max_tool_calls": 5,
+                  "max_cost_usd": 0.01
+                },
+                "safety": {
+                  "gates": []
+                },
+                "oracle": {
+                  "command": "test -s out.txt"
+                },
+                "baselines": {
+                  "noop": {
+                    "expected": "fail"
+                  },
+                  "human_time_minutes": 1
+                },
+                "provenance": {
+                  "author": "1ash-test",
+                  "reviewers": [
+                    "reviewer-a",
+                    "reviewer-b"
+                  ],
+                  "license": "internal",
+                  "contamination_notes": "synthetic M1 fixture"
+                },
+                "id": "m1-coding-command",
+                "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "success": {
+                  "modules": [
+                    {
+                      "id": "file-check",
+                      "weight": 1.0,
+                      "type": "command",
+                      "command": "test -s out.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "uuid": "89o7zCzrBUdD5J29HuYqrZ",
+          "span_id": "5r3NMcguMAyL63Ycfem9wV",
+          "timestamp": "2026-11-19T03:01:27.051115+00:00",
+          "working_start": 93288.787084032,
+          "event": "span_end",
+          "id": "5r3NMcguMAyL63Ycfem9wV"
+        },
+        {
+          "uuid": "Ez3DyPyXJdR2BY9FJei2DJ",
+          "span_id": "cYkRUtDz9KJ8DswribPyMt",
+          "timestamp": "2026-11-19T03:01:27.051780+00:00",
+          "working_start": 0.0004047149996040389,
+          "event": "span_begin",
+          "id": "cYkRUtDz9KJ8DswribPyMt",
+          "type": "solvers",
+          "name": "solvers"
+        },
+        {
+          "uuid": "f6uAXENqciaRrSRFRWGdxQ",
+          "span_id": "4QwFQcXXhj2gNS3PBd5RFt",
+          "timestamp": "2026-11-19T03:01:27.052191+00:00",
+          "working_start": 0.00081598199903965,
+          "event": "span_begin",
+          "id": "4QwFQcXXhj2gNS3PBd5RFt",
+          "parent_id": "cYkRUtDz9KJ8DswribPyMt",
+          "type": "solver",
+          "name": "one_agent_solver"
+        },
+        {
+          "uuid": "DAz5Xi43eGJ3w8BE6CVfDN",
+          "span_id": "4QwFQcXXhj2gNS3PBd5RFt",
+          "timestamp": "2026-11-19T03:01:45.319580+00:00",
+          "working_start": 18.268206059001386,
+          "event": "state",
+          "changes": [
+            {
+              "op": "replace",
+              "path": "/output/model",
+              "value": "subject",
+              "replaced": "mockllm/model"
+            },
+            {
+              "op": "add",
+              "path": "/output/choices/0",
+              "value": {
+                "message": {
+                  "id": "6GojvK899Ak3zBeGBCX79o",
+                  "content": "attachment://588824e71e246bc0a4e4f8bf3c39bc35",
+                  "source": "generate",
+                  "role": "assistant",
+                  "model": "subject"
+                },
+                "stop_reason": "stop"
+              }
+            },
+            {
+              "op": "replace",
+              "path": "/output/completion",
+              "value": "attachment://588824e71e246bc0a4e4f8bf3c39bc35",
+              "replaced": ""
+            },
+            {
+              "op": "add",
+              "path": "/metadata/workspace",
+              "value": "/tmp/1ash-m1-coding-command-jzah4_gq"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_exit",
+              "value": 0
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_stdout",
+              "value": "attachment://176b1aa91d8702025502b86e7856cf56"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_stderr",
+              "value": ""
+            }
+          ]
+        },
+        {
+          "uuid": "mainfTHmk2pcChzDWvi2EN",
+          "span_id": "4QwFQcXXhj2gNS3PBd5RFt",
+          "timestamp": "2026-11-19T03:01:45.320094+00:00",
+          "working_start": 18.26871850900352,
+          "event": "span_end",
+          "id": "4QwFQcXXhj2gNS3PBd5RFt"
+        },
+        {
+          "uuid": "Qmb3ehjHJX8m2HBs8tQZAD",
+          "span_id": "cYkRUtDz9KJ8DswribPyMt",
+          "timestamp": "2026-11-19T03:01:45.320338+00:00",
+          "working_start": 18.26896212900465,
+          "event": "span_end",
+          "id": "cYkRUtDz9KJ8DswribPyMt"
+        },
+        {
+          "uuid": "dKLj3RZLezZpAntZtVL7ky",
+          "span_id": "nVhdid6oBFUtKsGQ6cchU8",
+          "timestamp": "2026-11-19T03:01:45.321256+00:00",
+          "working_start": 18.26987998500408,
+          "event": "span_begin",
+          "id": "nVhdid6oBFUtKsGQ6cchU8",
+          "type": "scorers",
+          "name": "scorers"
+        },
+        {
+          "uuid": "G9bn752spu45LPKPu5MgxZ",
+          "span_id": "TojSMgTqvW6hpcQC6YwfzP",
+          "timestamp": "2026-11-19T03:01:45.321523+00:00",
+          "working_start": 18.270146292998106,
+          "event": "span_begin",
+          "id": "TojSMgTqvW6hpcQC6YwfzP",
+          "parent_id": "nVhdid6oBFUtKsGQ6cchU8",
+          "type": "scorer",
+          "name": "one_ash_scorer"
+        },
+        {
+          "uuid": "UNiw5PHSSjNAVN8xuVKxbd",
+          "span_id": "TojSMgTqvW6hpcQC6YwfzP",
+          "timestamp": "2026-11-19T03:01:45.323053+00:00",
+          "working_start": 18.271677145996364,
+          "event": "score",
+          "score": {
+            "value": 1.0,
+            "explanation": "file-check: command exit 0",
+            "history": []
+          },
+          "target": "m1-coding-command",
+          "intermediate": false,
+          "scorer": "one_ash_scorer",
+          "scorer_args": {}
+        },
+        {
+          "uuid": "7cfaX7aAh5GFrHfg8T4zU5",
+          "span_id": "TojSMgTqvW6hpcQC6YwfzP",
+          "timestamp": "2026-11-19T03:01:45.323377+00:00",
+          "working_start": 18.272000340002705,
+          "event": "span_end",
+          "id": "TojSMgTqvW6hpcQC6YwfzP"
+        },
+        {
+          "uuid": "G3A2A78Ur3JYPVXwCw372s",
+          "span_id": "nVhdid6oBFUtKsGQ6cchU8",
+          "timestamp": "2026-11-19T03:01:45.323494+00:00",
+          "working_start": 18.272116473992355,
+          "event": "span_end",
+          "id": "nVhdid6oBFUtKsGQ6cchU8"
+        }
+      ],
+      "model_usage": {},
+      "role_usage": {},
+      "started_at": "2026-11-19T03:01:27.051380+00:00",
+      "completed_at": "2026-11-19T03:01:45.323796+00:00",
+      "total_time": 18.272,
+      "working_time": 18.272,
+      "uuid": "53cqnrKu2qH6uaWG2b7sSh",
+      "error_retries": [],
+      "attachments": {
+        "588824e71e246bc0a4e4f8bf3c39bc35": "{\n  \"run_id\": \"4ebbd775-4da0-4d32-b923-29d8beb94961\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-jzah4_gq/.journals/4ebbd775-4da0-4d32-b923-29d8beb94961.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"`out.txt` 已写入并验证通过：内容正是 `hello 1ash`，10 字节，无末尾换行。\\n\\n- **路径**：`/tmp/1ash-m1-coding-command-jzah4_gq/out.txt`\\n- **sha256**：`8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a`\\n- **验收**：独立校验器 `agent:read-back-verifier` 判定 `accepted`，合约摘要 `a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6`\\n- **取舍**：按“精确文本”理解，未追加换行符；若下游工具要求 POSIX 行尾，需要补一个 `\\\\n`。\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"写文件操作成功创建了 out.txt，共 10 字节。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"读回文件内容为 hello 1ash，没有多余空白或末尾换行。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"文件字节数与 hello 1ash 的 10 个字符一致，说明未加换行符。\",\n        \"status\": \"derived\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": \"依据 10 字节的实测大小与内容读回推断\"\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"独立校验器接受了这次交付，公共与隐藏标准均通过。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"write_file 回执：created=true，bytes=10，sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"read_file 读回内容为 hello 1ash，bytes=10，truncated=false。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c2\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"verify_artifact 返回 decision=verified，exists=true，checks 为 exists 与 non-empty，sha256 与写入时一致。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c3\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\",\n        \"statement\": \"acceptance_gate 返回 decision=accepted，public_passed=true，hidden_passed=true，failures 为空。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [\n      {\n        \"description\": \"用户要的“精确文本”指文件只含这 10 个字符，不含末尾换行。\",\n        \"impact\": \"low\",\n        \"verification_method\": \"若需要 POSIX 行尾，重新写入并在末尾追加 \\\\n 后再次读回校验。\"\n      }\n    ],\n    \"constraints\": [\n      \"写入范围限定在 /tmp/1ash-m1-coding-command-jzah4_gq 下。\",\n      \"文件名固定为 out.txt。\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"下游使用方是否要求文件以换行结尾。\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"影响某些按行读取的工具是否把该文件当成完整一行。\",\n        \"reduction_method\": \"确认使用方的读取方式，或按需补一个换行符。\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"读回内容不是 hello 1ash，或字节数不是 10。\",\n        \"then\": \"c2 和 c3 不成立，交付应判为未完成并重写文件。\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"校验器返回 rejected 或 conditional。\",\n        \"then\": \"c4 不成立，不能声称交付已被接受。\",\n        \"target_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> created=true, bytes=10, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"verify_artifact /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> decision=verified, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}",
+        "176b1aa91d8702025502b86e7856cf56": "{\n  \"run_id\": \"4ebbd775-4da0-4d32-b923-29d8beb94961\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-jzah4_gq/.journals/4ebbd775-4da0-4d32-b923-29d8beb94961.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"`out.txt` 已写入并验证通过：内容正是 `hello 1ash`，10 字节，无末尾换行。\\n\\n- **路径**：`/tmp/1ash-m1-coding-command-jzah4_gq/out.txt`\\n- **sha256**：`8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a`\\n- **验收**：独立校验器 `agent:read-back-verifier` 判定 `accepted`，合约摘要 `a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6`\\n- **取舍**：按“精确文本”理解，未追加换行符；若下游工具要求 POSIX 行尾，需要补一个 `\\\\n`。\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"写文件操作成功创建了 out.txt，共 10 字节。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"读回文件内容为 hello 1ash，没有多余空白或末尾换行。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"文件字节数与 hello 1ash 的 10 个字符一致，说明未加换行符。\",\n        \"status\": \"derived\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\"\n        ],\n        \"scope\": \"依据 10 字节的实测大小与内容读回推断\"\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"独立校验器接受了这次交付，公共与隐藏标准均通过。\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"write_file 回执：created=true，bytes=10，sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"read_file 读回内容为 hello 1ash，bytes=10，truncated=false。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c2\"\n        ]\n      },\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-jzah4_gq/out.txt\",\n        \"statement\": \"verify_artifact 返回 decision=verified，exists=true，checks 为 exists 与 non-empty，sha256 与写入时一致。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c3\"\n        ]\n      },\n      {\n        \"source\": \"acceptance_gate:a91b89918d2962b29620e5f017c932464e14fd48288566349b955f84907f53d6\",\n        \"statement\": \"acceptance_gate 返回 decision=accepted，public_passed=true，hidden_passed=true，failures 为空。\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [\n      {\n        \"description\": \"用户要的“精确文本”指文件只含这 10 个字符，不含末尾换行。\",\n        \"impact\": \"low\",\n        \"verification_method\": \"若需要 POSIX 行尾，重新写入并在末尾追加 \\\\n 后再次读回校验。\"\n      }\n    ],\n    \"constraints\": [\n      \"写入范围限定在 /tmp/1ash-m1-coding-command-jzah4_gq 下。\",\n      \"文件名固定为 out.txt。\"\n    ],\n    \"unknowns\": [\n      {\n        \"id\": \"u1\",\n        \"description\": \"下游使用方是否要求文件以换行结尾。\",\n        \"impact\": \"low\",\n        \"why_it_matters\": \"影响某些按行读取的工具是否把该文件当成完整一行。\",\n        \"reduction_method\": \"确认使用方的读取方式，或按需补一个换行符。\"\n      }\n    ],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"读回内容不是 hello 1ash，或字节数不是 10。\",\n        \"then\": \"c2 和 c3 不成立，交付应判为未完成并重写文件。\",\n        \"target_ids\": [\n          \"c2\",\n          \"c3\"\n        ]\n      },\n      {\n        \"if_observed\": \"校验器返回 rejected 或 conditional。\",\n        \"then\": \"c4 不成立，不能声称交付已被接受。\",\n        \"target_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> created=true, bytes=10, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"verify_artifact /tmp/1ash-m1-coding-command-jzah4_gq/out.txt -> decision=verified, sha256=8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"low\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}\n"
+      },
+      "events_data": {
+        "messages": [],
+        "calls": []
+      },
+      "turn_count": 0
+    }
+  ],
+  "reductions": [
+    {
+      "scorer": "one_ash_scorer",
+      "samples": [
+        {
+          "value": 1.0,
+          "explanation": "file-check: command exit 0",
+          "history": [],
+          "sample_id": 1
+        }
+      ]
+    }
+  ]
+}

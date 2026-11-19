@@ -1,0 +1,63 @@
+{
+  "schema": "1ash.task/v1",
+  "version": "1.0.0",
+  "family": "coding",
+  "title": "M1 fake coding task",
+  "environment": {
+    "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "network": "none",
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 512,
+      "disk_mb": 1024
+    }
+  },
+  "agent_contract": {
+    "tools": [
+      "write_file"
+    ],
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "budget": {
+    "wall_seconds": 60,
+    "max_steps": 5,
+    "max_tool_calls": 5,
+    "max_cost_usd": 0.01
+  },
+  "safety": {
+    "gates": []
+  },
+  "oracle": {
+    "command": "test -s out.txt"
+  },
+  "baselines": {
+    "noop": {
+      "expected": "fail"
+    },
+    "human_time_minutes": 1
+  },
+  "provenance": {
+    "author": "1ash-test",
+    "reviewers": [
+      "reviewer-a",
+      "reviewer-b"
+    ],
+    "license": "internal",
+    "contamination_notes": "synthetic M1 fixture"
+  },
+  "id": "m1-coding-artifact",
+  "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+  "success": {
+    "modules": [
+      {
+        "id": "artifact-check",
+        "weight": 1.0,
+        "type": "artifact",
+        "path": "out.txt"
+      }
+    ]
+  }
+}
