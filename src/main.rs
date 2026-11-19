@@ -26665,12 +26665,32 @@ fn looks_like_structured_tool_output(content: &str) -> bool {
 
 fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
     // Direct mode is conversation-first: the conclusion is the answer. Its
-    // headings and lists are structured by the markdown renderer; structured
-    // claims/evidence/flip fields stay in /details instead of being appended a
-    // second time.
+    // headings and lists are structured by the markdown renderer; long lines
+    // are capped and the full text remains in /details.
     state.assistant_conclusion_start(conclusion_label(answer));
-    state.assistant_markdown(&answer.conclusion);
+    state.assistant_markdown(&brief_direct_answer(&answer.conclusion));
     state.assistant_conclusion_end();
+}
+
+fn brief_direct_answer(text: &str) -> String {
+    const BULLET_LIMIT: usize = 320;
+    const PARAGRAPH_LIMIT: usize = 600;
+    text.lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            let limit = if matches!(trimmed.chars().next(), Some('-' | '*' | '+')) {
+                BULLET_LIMIT
+            } else {
+                PARAGRAPH_LIMIT
+            };
+            if line.chars().count() > limit {
+                format!("{}…", line.chars().take(limit).collect::<String>())
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn conclusion_label(answer: &first_principles_agent::AgentAnswer) -> String {
@@ -29523,6 +29543,15 @@ mod tui_rendering_tests {
         assert!(details.contains("allow_write"));
         assert!(details.contains("我的判断"));
         assert!(details.contains("只测试通信能力"));
+    }
+
+    #[test]
+    fn direct_answer_caps_long_bullets() {
+        let long = format!("- {}", "x".repeat(400));
+        let brief = brief_direct_answer(&long);
+        assert_eq!(brief.chars().count(), 321);
+        assert!(brief.ends_with('…'));
+        assert_eq!(brief_direct_answer("- short"), "- short");
     }
 
     #[test]
