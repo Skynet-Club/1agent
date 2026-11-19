@@ -62,6 +62,7 @@ const MENU_DIM: Color = MIL_GREEN_FAINT;
 const CONCLUSION_BORDER: Color = PANEL_GREEN;
 const MEMORY_TONE: Color = Color::Rgb(0x7e, 0xc8, 0xa8);
 const LOCAL_FILE_GREEN: Color = MIL_GREEN;
+const MAX_CODE_LINES: usize = 20;
 
 /// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3617,55 +3618,93 @@ impl TuiState {
                 continue;
             }
             if entry.kind == TranscriptKind::Code {
-                let language = if label.is_empty() { "code" } else { label };
-                let header = format!("  ╭─ {language}");
+                let info = if label.is_empty() { "code" } else { label };
+                let language = info.split_whitespace().next().unwrap_or("code");
+                let all_lines = entry.text.lines().collect::<Vec<_>>();
+                let line_count = all_lines.len();
+                let diff_block = matches!(language, "diff" | "patch")
+                    || all_lines.iter().any(|line| {
+                        let line = line.trim_start();
+                        line.starts_with("@@") || line.starts_with("+++") || line.starts_with("---")
+                    });
+                let show_numbers = line_count > 3 && !diff_block;
+                let number_width = line_count.to_string().len();
                 let header_prefix = "  ╭─ ";
+                let right = "╮";
+                let metadata = format!("{info} · {line_count} 行");
+                let fill = usize::from(width)
+                    .saturating_sub(header_prefix.width() + metadata.width() + 1 + right.width());
                 lines.push(TranscriptVisualLine {
                     kind: TranscriptKind::Code,
                     tone: TuiTone::Success,
-                    text: header.clone(),
+                    text: format!("{header_prefix}{metadata} {}╮", "─".repeat(fill)),
                     prompt_text: None,
                     prefix_len: header_prefix.len(),
                     prefix_tone: TuiTone::Success,
-                    label_range: Some(header_prefix.len()..header.len()),
+                    label_range: Some(header_prefix.len()..header_prefix.len() + metadata.len()),
                     label_tone: TuiTone::Accent,
                     syntax_ranges: Vec::new(),
                     background: Some(CODE_BG),
                 });
-                let code_prefix = "  │ ";
-                let code_width = usize::from(width)
-                    .saturating_sub(code_prefix.width())
-                    .max(1);
-                let diff_block = matches!(language, "diff" | "patch")
-                    || entry.text.lines().any(|line| {
-                        let line = line.trim_start();
-                        line.starts_with("@@") || line.starts_with("+++") || line.starts_with("---")
-                    });
-                for text_line in entry.text.lines() {
-                    for wrapped in wrap_display(text_line, code_width) {
-                        let mut syntax_ranges = highlight_code_line(&wrapped, language);
-                        for (range, _) in &mut syntax_ranges {
-                            range.start += code_prefix.len();
-                            range.end += code_prefix.len();
-                        }
-                        lines.push(TranscriptVisualLine {
-                            kind: TranscriptKind::Code,
-                            tone: TuiTone::Code,
-                            text: format!("{code_prefix}{wrapped}"),
-                            prompt_text: None,
-                            prefix_len: code_prefix.len(),
-                            prefix_tone: TuiTone::Success,
-                            label_range: None,
-                            label_tone: TuiTone::Default,
-                            syntax_ranges,
-                            background: Some(code_line_background(text_line, diff_block)),
-                        });
+                let suffix = " │";
+                for (index, text_line) in all_lines.iter().take(MAX_CODE_LINES).enumerate() {
+                    let prefix = if show_numbers {
+                        format!("  │ {:>number_width$} ", index + 1)
+                    } else {
+                        "  │ ".to_string()
+                    };
+                    let inner = usize::from(width)
+                        .saturating_sub(prefix.width() + suffix.width())
+                        .max(1);
+                    let mut rendered = truncate_to_width(text_line, inner);
+                    if text_line.width() > inner {
+                        rendered =
+                            format!("{}…", truncate_to_width(text_line, inner.saturating_sub(1)));
                     }
+                    let mut syntax_ranges = highlight_code_line(&rendered, language);
+                    for (range, _) in &mut syntax_ranges {
+                        range.start += prefix.len();
+                        range.end += prefix.len();
+                    }
+                    lines.push(TranscriptVisualLine {
+                        kind: TranscriptKind::Code,
+                        tone: TuiTone::Code,
+                        text: format!("{prefix}{}{suffix}", fit_row(&rendered, inner)),
+                        prompt_text: None,
+                        prefix_len: prefix.len(),
+                        prefix_tone: TuiTone::Success,
+                        label_range: None,
+                        label_tone: TuiTone::Default,
+                        syntax_ranges,
+                        background: Some(code_line_background(text_line, diff_block)),
+                    });
+                }
+                if line_count > MAX_CODE_LINES {
+                    let prefix = "  │ ";
+                    let inner = usize::from(width)
+                        .saturating_sub(prefix.width() + suffix.width())
+                        .max(1);
+                    let note = format!(
+                        "… 还有 {} 行 · ctrl+o 查看完整代码",
+                        line_count - MAX_CODE_LINES
+                    );
+                    lines.push(TranscriptVisualLine {
+                        kind: TranscriptKind::Code,
+                        tone: TuiTone::Muted,
+                        text: format!("{prefix}{}{suffix}", fit_row(&note, inner)),
+                        prompt_text: None,
+                        prefix_len: prefix.len(),
+                        prefix_tone: TuiTone::Muted,
+                        label_range: None,
+                        label_tone: TuiTone::Muted,
+                        syntax_ranges: Vec::new(),
+                        background: Some(CODE_BG),
+                    });
                 }
                 lines.push(TranscriptVisualLine {
                     kind: TranscriptKind::Code,
                     tone: TuiTone::Success,
-                    text: "  ╰────".to_string(),
+                    text: format!("  ╰{}╯", "─".repeat(usize::from(width).saturating_sub(4))),
                     prompt_text: None,
                     prefix_len: 0,
                     prefix_tone: TuiTone::Default,
@@ -9976,7 +10015,7 @@ mod tests {
         let header_row = state
             .transcript_lines
             .iter()
-            .position(|line| line.text == "  ╭─ python")
+            .position(|line| line.text.starts_with("  ╭─ python · 1 行"))
             .unwrap();
         let body_row = state
             .transcript_lines
@@ -9986,7 +10025,7 @@ mod tests {
         let footer_row = state
             .transcript_lines
             .iter()
-            .position(|line| line.text == "  ╰────")
+            .position(|line| line.text.starts_with("  ╰") && line.text.ends_with('╯'))
             .unwrap();
         let row_y = |line: usize| {
             area.y
@@ -10047,17 +10086,51 @@ mod tests {
         let lines = state.build_transcript_lines(80);
         let header = lines
             .iter()
-            .position(|line| line.text == "  ╭─ python")
+            .position(|line| line.text.starts_with("  ╭─ python · 1 行"))
             .unwrap();
         assert!(lines[header - 1].text.is_empty());
         assert!(lines[header - 2].text.contains("第一段"));
 
         let footer = lines
             .iter()
-            .position(|line| line.text == "  ╰────")
+            .position(|line| line.text.starts_with("  ╰") && line.text.ends_with('╯'))
             .unwrap();
         assert!(lines[footer + 1].text.is_empty());
         assert!(lines[footer + 2].text.contains("第二段"));
+    }
+
+    #[test]
+    fn long_code_blocks_get_line_numbers_and_a_collapse_note() {
+        let code = (1..=25)
+            .map(|index| format!("print({index})"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown(&format!("```python hello.py\n{code}\n```"));
+        let lines = state.build_transcript_lines(80);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.text.starts_with("  ╭─ python hello.py · 25 行"))
+        );
+        assert!(lines.iter().any(|line| line.text.contains("  1 print(1)")));
+        assert!(lines.iter().any(|line| line.text.contains(" 20 print(20)")));
+        assert!(lines.iter().any(|line| line.text.contains("还有 5 行")));
+        assert!(!lines.iter().any(|line| line.text.contains(" 21 print(21)")));
+    }
+
+    #[test]
+    fn code_lines_are_truncated_instead_of_wrapped() {
+        let long = format!("print(\"{}\")", "x".repeat(200));
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown(&format!("```python\n{long}\n```"));
+        let lines = state.build_transcript_lines(60);
+        let body = lines
+            .iter()
+            .find(|line| line.kind == TranscriptKind::Code && line.text.contains("print("))
+            .expect("code body");
+        assert!(body.text.contains('…'));
+        assert_eq!(body.text.width(), 60);
     }
 
     #[test]
@@ -10154,19 +10227,19 @@ int main(int argc, char **argv) {
             state
                 .transcript_lines
                 .iter()
-                .any(|line| line.text == "  ╭─ c")
+                .any(|line| line.text.starts_with("  ╭─ c ·"))
         );
         assert!(
             state
                 .transcript_lines
                 .iter()
-                .any(|line| line.text == "  │ #include <stdio.h>")
+                .any(|line| line.text.contains("#include <stdio.h>"))
         );
         assert!(
             state
                 .transcript_lines
                 .iter()
-                .any(|line| line.text == "  ╰────")
+                .any(|line| line.text.starts_with("  ╰") && line.text.ends_with('╯'))
         );
         let code_row = state
             .transcript_lines

@@ -403,7 +403,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   fence: active records use a bright `✓`, stale/superseded records a dim-green
   `×`, and no-hit output has no circle marker. Model responses, tool calls and
   tool results are indented as a hierarchy; each model request sits in a dark
-  dashed phase fence. Direct answers render the conclusion body and promote
+  dashed phase fence. Code fences carry language/path/line-count metadata, do
+  not wrap code lines, show line numbers after three lines, and collapse blocks
+  over twenty lines with full code in details. Direct answers render the
+  conclusion body and promote
   short section labels to headings; structured claims/evidence/unknowns/flip
   conditions with status badges and typed handles remain in non-direct modes,
   and full fields stay in details. Failed calls stay on the red error row
