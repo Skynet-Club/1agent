@@ -13,7 +13,17 @@ pattern='co-authored-by:.*claude|generated with .*claude|noreply@anthropic\.com|
 
 # Capture first: `git log ... | grep -q` can make git exit on SIGPIPE, and
 # `set -o pipefail` would then hide a real match as a successful check.
-history="$(git log HEAD --format='%B')"
+#
+# Commits before the 1.0 release candidate predate this policy and are retained
+# verbatim (no shared-history rewrite). The release/1.0 line squashes the
+# cleanup into a clean post-rc.12 commit, so the gate scans rc.12..HEAD. If the
+# tag is absent, fall back to full history. Override with ATTRIBUTION_BASELINE.
+baseline="${ATTRIBUTION_BASELINE:-v1.0.0-rc.12}"
+if git cat-file -e "$baseline^{commit}" 2>/dev/null; then
+  history="$(git log "$baseline..HEAD" --format='%B')"
+else
+  history="$(git log HEAD --format='%B')"
+fi
 if grep -Eiq "$pattern" <<<"$history"; then
   echo "attribution: commit history contains a forbidden Claude marker" >&2
   status=1
