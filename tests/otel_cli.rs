@@ -10,7 +10,7 @@ fn otel_cli_projects_agent_chat_and_tool_spans() {
     let journal_dir = dir.path().join("journals");
     let bin = env!("CARGO_BIN_EXE_first-principles-agent");
     let run = Command::new(bin)
-        .args(["run", "--task"])
+        .args(["run", "--provider", "deterministic", "--task"])
         .arg(format!("@read-file:\"{}\"", note.display()))
         .arg("--read-root")
         .arg(&workspace)

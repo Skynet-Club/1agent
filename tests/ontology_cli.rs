@@ -568,6 +568,27 @@ fn simple_journal(dir: &Path) -> (PathBuf, String, String) {
 }
 
 #[test]
+fn ontology_actions_list_the_code_release_registry() {
+    let dir = tempfile::tempdir().unwrap();
+    let actions = parse_json_stdout(
+        &run(dir.path(), &["ontology", "actions"]),
+        "ontology actions",
+    );
+    assert_eq!(actions["schema_version"], 1);
+    assert_eq!(actions["vertical"], "code-change-release");
+    let entries = actions["actions"].as_array().expect("actions array");
+    assert_eq!(entries.len(), 4);
+    let ids: BTreeSet<&str> = entries
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains("code.propose_change"));
+    assert!(ids.contains("code.run_checks"));
+    assert!(ids.contains("code.approve_change"));
+    assert!(ids.contains("code.prepare_release"));
+}
+
+#[test]
 fn ontology_types_and_bindings_are_non_empty_valid_json() {
     let dir = tempfile::tempdir().unwrap();
     let types = parse_json_stdout(&run(dir.path(), &["ontology", "types"]), "ontology types");

@@ -8,11 +8,16 @@ use std::path::Path;
 use serde_json::Value;
 use thiserror::Error;
 
+pub mod actions;
 pub mod export;
 pub mod ids;
 pub mod types;
 pub mod validate;
 
+pub use actions::{
+    ActionDefinition, ActionRegistryFile, action_registry_sha256, builtin_actions,
+    try_builtin_action_registry,
+};
 pub use export::{export_goal_log, export_journal, export_session};
 pub use types::{BindingCoverage, binding_coverage, builtin_binding_coverage};
 pub use validate::{ValidationReport, validate_document};
@@ -120,6 +125,10 @@ pub fn read_builtin_types() -> &'static str {
 
 pub fn read_builtin_bindings() -> &'static str {
     include_str!("../../ontology/bindings.json")
+}
+
+pub fn read_builtin_actions() -> &'static str {
+    include_str!("../../ontology/actions.json")
 }
 
 pub fn path_text(path: &Path) -> String {

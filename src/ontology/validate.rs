@@ -49,6 +49,7 @@ const REFERENCE_FIELDS: &[&str] = &[
     "forDecision",
     "hasOption",
     "chosenOption",
+    "hasAction",
     "hasCriterion",
     "used",
     "wasGeneratedBy",

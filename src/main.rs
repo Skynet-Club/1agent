@@ -2944,6 +2944,12 @@ enum OntologyCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Print the built-in ActionType registry.
+    #[command(about = "列出本体动作 · List ontology actions")]
+    Actions {
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Print the built-in data bindings or their coverage report.
     #[command(about = "查看本体绑定 · Inspect ontology bindings")]
     Bindings {
@@ -8922,6 +8928,16 @@ async fn main() -> Result<()> {
         Command::Ontology { command } => match command {
             OntologyCommand::Types { out } => {
                 let value = first_principles_agent::ontology::builtin_types();
+                if let Some(path) = out {
+                    let bytes = serde_json::to_vec_pretty(&value)?;
+                    write_private_file(&path, &bytes)?;
+                    println!("已写入 {}（{} 字节）", path.display(), bytes.len());
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&value)?);
+                }
+            }
+            OntologyCommand::Actions { out } => {
+                let value = first_principles_agent::ontology::builtin_actions();
                 if let Some(path) = out {
                     let bytes = serde_json::to_vec_pretty(&value)?;
                     write_private_file(&path, &bytes)?;

@@ -23,27 +23,39 @@ runtime behavior changed.
 - Validator knows all four types and their status/field rules; unknown
   references and malformed statuses still fail closed.
 
+## Action Registry first slice
+
+- `ontology/actions.json` defines the code-change/release vertical:
+  `code.propose_change`, `code.run_checks`, `code.approve_change`,
+  `code.prepare_release`.
+- Each action carries parameters JSON Schema, preconditions, risk,
+  reversibility, approval policy, side effects, postconditions and idempotency.
+- `1agent ontology actions` lists the registry; `ActionDefinition` can generate
+  a `ToolSpec` and a `CapabilityManifest` for the capability compiler.
+- This is read-only registry data; runtime typed-tool registration and gating
+  are not wired yet.
+
 ## Verification
 
 | Check | Result |
 |---|---|
-| `./scripts/verify.sh` | **pass**; 1653 total, 0 failed, 13 ignored |
-| ontology unit tests | 31 passed |
-| ontology CLI tests | 27 passed |
+| `./scripts/verify.sh` | **pass**; 1657 total, 0 failed, 13 ignored |
+| ontology unit tests | 34 passed |
+| ontology CLI tests | 28 passed |
 | real journal smoke | Decision + Outcome nodes exported and validated |
 | claims | 264 (240/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`.
 
 ## Not in this slice
 
 - `Scenario` nodes.
-- Standalone `ActionType` registry and generated typed tools.
+- Runtime typed-tool registration, gating and execution.
 - Scenario staging / atomic merge.
 - Object/action-level policy and Ontology MCP.
 
 ## Next
 
 1. Add decision/action competency questions and golden tests.
-2. Add `Scenario` staging semantics (P2) and the code-change/release
-   ActionType registry (P1, 1.2).
+2. Wire the Action Registry into runtime typed tools, then add `Scenario`
+   staging semantics (P2).

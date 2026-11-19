@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "registry_version": "1",
+  "vertical": "code-change-release",
+  "actions": [
+    {
+      "id": "code.propose_change",
+      "version": "1",
+      "title": "Propose change",
+      "description": "Create a reviewable change proposal in an isolated worktree without modifying the release target.",
+      "object_types": ["Change"],
+      "capability": {
+        "verb": "propose",
+        "inputs": ["change_request"],
+        "outputs": ["change_proposal"],
+        "constraints": ["local", "reversible"]
+      },
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary", "paths"],
+        "properties": {
+          "summary": {"type": "string"},
+          "paths": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "preconditions": [
+        "workspace is a git repository",
+        "target paths are inside the read roots"
+      ],
+      "risk": "low",
+      "reversible": true,
+      "approval": "none",
+      "side_effects": ["create an isolated worktree/branch", "write a proposal artifact"],
+      "postconditions": ["proposal artifact exists", "diff sha256 is recorded"],
+      "idempotency": "idempotency_key"
+    },
+    {
+      "id": "code.run_checks",
+      "version": "1",
+      "title": "Run checks",
+      "description": "Run tests, build and lint for a proposal in a sandbox with network disabled.",
+      "object_types": ["Change", "TestRun"],
+      "capability": {
+        "verb": "verify",
+        "inputs": ["change_proposal"],
+        "outputs": ["test_report"],
+        "constraints": ["local", "network_off"]
+      },
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposal_id"],
+        "properties": {
+          "proposal_id": {"type": "string"}
+        }
+      },
+      "preconditions": [
+        "proposal exists",
+        "proposal worktree is inside the workspace"
+      ],
+      "risk": "low",
+      "reversible": true,
+      "approval": "none",
+      "side_effects": ["run commands in a sandbox", "write a test report artifact"],
+      "postconditions": ["test report exists", "exit status is recorded"],
+      "idempotency": "idempotency_key"
+    },
+    {
+      "id": "code.approve_change",
+      "version": "1",
+      "title": "Approve change",
+      "description": "Record a human approval decision for a checked proposal.",
+      "object_types": ["Change", "Approval"],
+      "capability": {
+        "verb": "approve",
+        "inputs": ["change_proposal", "test_report"],
+        "outputs": ["approval_receipt"],
+        "constraints": ["human", "local"]
+      },
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposal_id", "decision"],
+        "properties": {
+          "proposal_id": {"type": "string"},
+          "decision": {"type": "string", "enum": ["approve", "reject"]},
+          "reason": {"type": "string"}
+        }
+      },
+      "preconditions": [
+        "proposal exists",
+        "test report exists",
+        "requester is not the approver"
+      ],
+      "risk": "medium",
+      "reversible": false,
+      "approval": "human",
+      "side_effects": ["write an approval receipt"],
+      "postconditions": [
+        "receipt has approver, decision and proposal sha256"
+      ],
+      "idempotency": "proposal_id+decision+approver"
+    },
+    {
+      "id": "code.prepare_release",
+      "version": "1",
+      "title": "Prepare release",
+      "description": "Build a local release candidate from an approved proposal; it does not publish externally.",
+      "object_types": ["Release", "Artifact"],
+      "capability": {
+        "verb": "package",
+        "inputs": ["approval_receipt", "change_proposal"],
+        "outputs": ["release_candidate"],
+        "constraints": ["local", "no_external_publish"]
+      },
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposal_id"],
+        "properties": {
+          "proposal_id": {"type": "string"},
+          "version": {"type": "string"}
+        }
+      },
+      "preconditions": [
+        "approval receipt exists and is approved",
+        "proposal sha256 matches the approval"
+      ],
+      "risk": "medium",
+      "reversible": true,
+      "approval": "human",
+      "side_effects": ["create a package artifact", "write checksums and provenance"],
+      "postconditions": [
+        "archive sha256 exists",
+        "checksums verify",
+        "version matches the proposal"
+      ],
+      "idempotency": "proposal_id+version"
+    }
+  ]
+}

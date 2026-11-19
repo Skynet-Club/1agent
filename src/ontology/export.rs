@@ -868,6 +868,9 @@ fn build_run(
         if !criterion_iris.is_empty() {
             decision_object.insert("hasCriterion".into(), refs_array(criterion_iris.clone()));
         }
+        if !action_iris.is_empty() {
+            decision_object.insert("hasAction".into(), refs_array(action_iris.clone()));
+        }
         decision_object.insert("hasOutcomeRecord".into(), ref_iri(&outcome));
         nodes.insert(decision.clone(), Value::Object(decision_object));
 
@@ -1603,6 +1606,24 @@ mod tests {
                 .unwrap();
         }
         journal
+            .append(crate::journal::JournalEventKind::AnswerProduced {
+                answer: AgentAnswer {
+                    schema_version: 2,
+                    status: AnswerStatus::Completed,
+                    conclusion: "Applied the allowed action".into(),
+                    claims: Vec::new(),
+                    evidence: Vec::new(),
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    conflicts: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                    task_need: None,
+                },
+            })
+            .unwrap();
+        journal
             .append(crate::journal::JournalEventKind::RunStopped {
                 reason: StopReason::Completed,
             })
@@ -1611,6 +1632,11 @@ mod tests {
         session.record_journal(&journal_path).unwrap();
 
         let document = export_session(workspace.path(), &session_id).unwrap();
+        let decision = node(
+            &document.value,
+            &format!("urn:1agent:decision:{run_id}:main"),
+        );
+        assert_eq!(decision["hasAction"].as_array().unwrap().len(), 2);
         let denied = node(
             &document.value,
             &format!("urn:1agent:action:{run_id}:call-denied"),

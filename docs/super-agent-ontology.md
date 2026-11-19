@@ -159,6 +159,19 @@ journal / session.json / subagent registry        （事实层，唯一审计源
 | CQ15 | 哪些用户可见结论没有 audit/replay 通过的 journal？ | Answer、Journal、Audit |
 | CQ16 | 哪些不可逆动作被谁批准、何时消费？ | ActionCard、Approval、ActionLog |
 
+### 3.1 决策/动作 CQ（P0.1）
+
+| # | 问题 | 数据 |
+|---|---|---|
+| CQ17 | 这次决策考虑过哪些选项，选中/拒绝了哪个？ | Decision、Option、ReframeDecided |
+| CQ18 | 决策用了哪些判断标准，是否满足？ | Criterion、ReframeProposed.stop_rule |
+| CQ19 | 决策关联了哪些 ActionInvocation，策略结果是什么？ | Decision.hasAction、ActionInvocation、PolicyDecision |
+| CQ20 | 决策的 Outcome 和产物是什么？ | Outcome、Artifact |
+| CQ21 | 哪些决策缺少 evidence/approval，不能当作已完成？ | Decision、Claim、Evidence、Approval |
+| CQ22 | 某个 ActionType 的参数、风险、可逆性和审批要求是什么？ | Action Registry（P1） |
+
+P0.1 的 golden tests 必须至少覆盖 CQ17–CQ20；CQ21 是负例门禁；CQ22 在 Action Registry 落地后启用。
+
 ## 4. 命名空间与身份
 
 ### 4.1 命名空间
@@ -410,8 +423,10 @@ Bitemporal 字段（`observedAt`/`recordedAt`/`validFrom`/`validTo`）先由导�
 
 #### P1.1 决策/动作层（新增，1.2 候选）
 
-状态：**P0 第一切片已落地（2026-11-19）**，导出 `Decision`、`Outcome`、
-`Option`、`Criterion` 节点；`Scenario` 和独立 ActionType 注册表仍待实现。
+状态：**P0 + Action Registry 只读切片已落地（2026-11-19）**：导出
+`Decision`、`Outcome`、`Option`、`Criterion` 节点；`ontology/actions.json`
+定义代码变更/发布的 4 个 ActionType，`1agent ontology actions` 可查看。
+运行时 typed-tool 执行、`Scenario` 仍待实现。
 
 P1.1 把 1AO 从“审计投影”推进到“可执行决策层”，但不改变 journal 的事实源地位：
 
