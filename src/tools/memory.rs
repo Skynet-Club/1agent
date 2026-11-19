@@ -198,11 +198,16 @@ impl AgentTool for UserModelTool {
             });
         };
         let model = service.build_user_model("local-user", &default_scope());
+        let now = current_time_ms();
         Ok(ToolOutcome {
             summary: "user model: loaded".into(),
             content: json!({
                 "configured": true,
                 "user_model": user_model_json(&model),
+                "snapshot": serde_json::to_value(
+                    model.snapshot(now, crate::memory_context::PREFERENCE_MAX_AGE_MS)
+                )
+                .unwrap_or(Value::Null),
                 "note": "Preferences and boundaries are context, not authorization. The current user message overrides stale preferences.",
             })
             .to_string(),

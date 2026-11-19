@@ -297,6 +297,8 @@ pub enum MemoryError {
     ContentHashMismatch(String),
     #[error("memory {0} cannot supersede a record in another scope")]
     SupersedeScopeMismatch(String),
+    #[error("memory {0} is already superseded")]
+    AlreadySuperseded(String),
 }
 
 impl MemoryStore {
@@ -380,6 +382,46 @@ impl MemoryStore {
             now_ms,
         )?;
         Ok(())
+    }
+
+    pub fn supersede(
+        &mut self,
+        memory_id: &str,
+        superseded_by: &str,
+        now_ms: u128,
+    ) -> Result<(), MemoryError> {
+        if memory_id == superseded_by {
+            return Err(MemoryError::SupersedeScopeMismatch(memory_id.to_string()));
+        }
+        let new_scope = self
+            .records
+            .get(superseded_by)
+            .map(|record| record.scope.clone())
+            .ok_or_else(|| MemoryError::UnknownMemory(superseded_by.to_string()))?;
+        let old = self
+            .records
+            .get_mut(memory_id)
+            .ok_or_else(|| MemoryError::UnknownMemory(memory_id.to_string()))?;
+        if old.hard_forgotten_ms.is_some() {
+            return Err(MemoryError::HardForgotten(memory_id.to_string()));
+        }
+        if old.scope != new_scope {
+            return Err(MemoryError::SupersedeScopeMismatch(memory_id.to_string()));
+        }
+        if let Some(existing) = &old.superseded_by {
+            if existing == superseded_by {
+                return Ok(());
+            }
+            return Err(MemoryError::AlreadySuperseded(memory_id.to_string()));
+        }
+        old.superseded_by = Some(superseded_by.to_string());
+        self.append_event(
+            MemoryEventKind::Superseded {
+                memory_id: memory_id.to_string(),
+                superseded_by: superseded_by.to_string(),
+            },
+            now_ms,
+        )
     }
 
     pub fn get(&self, memory_id: &str) -> Option<&MemoryRecord> {

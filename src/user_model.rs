@@ -140,6 +140,15 @@ pub struct Boundary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct UserModelSnapshot {
+    pub schema: String,
+    pub generated_ms: u128,
+    pub model: UserModel,
+    pub stale_preferences: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct UserModel {
     pub user_id: String,
     pub scope: MemoryScope,
@@ -299,6 +308,21 @@ impl UserModel {
         self.consent_for(kind).and_then(|rule| rule.retention_ms)
     }
 
+    pub fn snapshot(&self, now_ms: u128, max_age_ms: u128) -> UserModelSnapshot {
+        let stale_preferences = self
+            .preferences
+            .iter()
+            .filter(|(_, preference)| now_ms.saturating_sub(preference.updated_ms) > max_age_ms)
+            .map(|(key, _)| key.clone())
+            .collect();
+        UserModelSnapshot {
+            schema: "1agent.user-model-snapshot/v1".into(),
+            generated_ms: now_ms,
+            model: self.clone(),
+            stale_preferences,
+        }
+    }
+
     fn set_autonomy(
         &mut self,
         domain: &str,
@@ -429,6 +453,17 @@ mod tests {
         );
         record.valid_from_ms = at;
         record
+    }
+
+    #[test]
+    fn snapshot_flags_stale_preferences_and_keeps_values() {
+        let mut model = UserModel::new("user-1", MemoryScope::bot("bot-1"));
+        model.apply(&record("m1", MemoryKind::Preference, "editor=pnpm", 10));
+        let fresh = model.snapshot(50, 100);
+        assert!(fresh.stale_preferences.is_empty());
+        assert_eq!(fresh.model.preference("editor").unwrap().value, "pnpm");
+        let stale = model.snapshot(200, 100);
+        assert_eq!(stale.stale_preferences, vec!["editor"]);
     }
 
     #[test]

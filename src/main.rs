@@ -11755,17 +11755,16 @@ async fn main() -> Result<()> {
             } => {
                 let mut service =
                     first_principles_agent::MemoryService::open(journal, payloads, &key)?;
-                let groups = first_principles_agent::memory_consolidate::plan(service.store());
+                let now = current_time_ms();
+                let plan =
+                    first_principles_agent::memory_consolidate::plan_v2(service.store(), now);
                 let report = if apply {
-                    first_principles_agent::memory_consolidate::apply(
-                        &mut service,
-                        &groups,
-                        current_time_ms(),
-                    )?
+                    first_principles_agent::memory_consolidate::apply_v2(&mut service, &plan, now)?
                 } else {
-                    first_principles_agent::memory_consolidate::ConsolidationReport {
-                        groups,
+                    first_principles_agent::memory_consolidate::ConsolidationReportV2 {
+                        plan,
                         forgotten: 0,
+                        superseded: 0,
                         dry_run: true,
                     }
                 };
@@ -11773,19 +11772,36 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     println!(
-                        "记忆整合：{} 组重复，{} 条{}",
-                        report.groups.len(),
+                        "记忆整合：{} 组重复，{} 组近似重复，{} 组矛盾，{} 条过期/陈旧；{} 条软遗忘，{} 条 supersede{}",
+                        report.plan.duplicates.len(),
+                        report.plan.near_duplicates.len(),
+                        report.plan.contradictions.len(),
+                        report.plan.stale.len(),
                         report.forgotten,
-                        if report.dry_run {
-                            "（dry-run）"
-                        } else {
-                            "已软遗忘"
-                        }
+                        report.superseded,
+                        if report.dry_run { "（dry-run）" } else { "" }
                     );
-                    for group in &report.groups {
+                    for group in report
+                        .plan
+                        .duplicates
+                        .iter()
+                        .chain(report.plan.near_duplicates.iter())
+                    {
                         println!(
                             "- {}: keep {}，forget {:?}",
                             group.scope_id, group.keep, group.forget
+                        );
+                    }
+                    for group in &report.plan.contradictions {
+                        println!(
+                            "- {}: key={} keep {}，supersede {:?}，values {:?}",
+                            group.scope_id, group.key, group.keep, group.supersede, group.values
+                        );
+                    }
+                    for stale in &report.plan.stale {
+                        println!(
+                            "- stale {}: {} (age {} ms)",
+                            stale.memory_id, stale.reason, stale.age_ms
                         );
                     }
                 }

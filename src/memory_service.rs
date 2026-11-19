@@ -180,6 +180,20 @@ impl MemoryService {
         Ok(())
     }
 
+    pub fn supersede(
+        &mut self,
+        memory_id: &str,
+        superseded_by: &str,
+        scope: &MemoryScope,
+        now_ms: u128,
+    ) -> Result<(), MemoryServiceError> {
+        self.ensure_scope(memory_id, scope)?;
+        self.ensure_scope(superseded_by, scope)?;
+        let mut candidate = self.store.clone();
+        candidate.supersede(memory_id, superseded_by, now_ms)?;
+        self.persist_candidate(&candidate)
+    }
+
     pub fn restore_soft_at(
         &mut self,
         memory_id: &str,
