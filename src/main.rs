@@ -26632,48 +26632,118 @@ fn looks_like_structured_tool_output(content: &str) -> bool {
     )
 }
 
+const DIRECT_ANSWER_SECTION_LIMIT: usize = 3;
+
 fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
-    // Direct mode is deliberately conversation-first: the answer is the
-    // conclusion. Structured evidence/claims/flip-condition sections are kept
-    // in /details, not appended to the transcript.
-    state.assistant_conclusion_start("结论 Conclusion");
+    // Direct mode stays conversation-first, but keeps a compact evidence trail:
+    // at most three claims/evidence/unknowns/flip conditions. Full fields stay
+    // in /details.
+    state.assistant_conclusion_start(conclusion_label(answer));
     state.assistant_markdown(&answer.conclusion);
     state.assistant_conclusion_end();
+    record_claim_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
+    record_evidence_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
+    record_unknown_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
+    record_flip_section(state, answer, DIRECT_ANSWER_SECTION_LIMIT);
+}
+
+fn conclusion_label(answer: &first_principles_agent::AgentAnswer) -> String {
+    let mut label = format!("结论 Conclusion · {}", answer_status_label(answer.status));
+    if !answer.evidence.is_empty() {
+        label.push_str(&format!(" · 依据 {}", answer.evidence.len()));
+    }
+    if !answer.unknowns.is_empty() {
+        label.push_str(&format!(" · 未定 {}", answer.unknowns.len()));
+    }
+    label
+}
+
+fn record_claim_section(
+    state: &mut TuiState,
+    answer: &first_principles_agent::AgentAnswer,
+    limit: usize,
+) {
+    if answer.claims.is_empty() {
+        return;
+    }
+    state.assistant_heading("我的判断", TuiTone::SectionText);
+    for claim in answer.claims.iter().take(limit) {
+        let status = claim_status_label(claim.status);
+        let label = if claim.id.trim().is_empty() {
+            status.to_string()
+        } else {
+            format!("{} · {status}", claim.id.trim())
+        };
+        state.assistant_item(label, TuiTone::SectionText, &claim.text);
+    }
+}
+
+fn record_evidence_section(
+    state: &mut TuiState,
+    answer: &first_principles_agent::AgentAnswer,
+    limit: usize,
+) {
+    if answer.evidence.is_empty() {
+        return;
+    }
+    state.assistant_heading("依据", TuiTone::SectionText);
+    for evidence in answer.evidence.iter().take(limit) {
+        let statement = if evidence.claim_ids.is_empty() {
+            evidence.statement.clone()
+        } else {
+            format!(
+                "{}（对应 {}）",
+                evidence.statement,
+                evidence.claim_ids.join("、")
+            )
+        };
+        state.assistant_evidence(short_evidence_source(&evidence.source), statement);
+    }
+}
+
+fn record_unknown_section(
+    state: &mut TuiState,
+    answer: &first_principles_agent::AgentAnswer,
+    limit: usize,
+) {
+    if answer.unknowns.is_empty() {
+        return;
+    }
+    state.assistant_heading("还没确定", TuiTone::SectionText);
+    for unknown in answer.unknowns.iter().take(limit) {
+        state.assistant_item(
+            format!("影响{}", answer_impact_label(unknown.impact)),
+            TuiTone::SectionText,
+            &unknown.description,
+        );
+    }
+}
+
+fn record_flip_section(
+    state: &mut TuiState,
+    answer: &first_principles_agent::AgentAnswer,
+    limit: usize,
+) {
+    if answer.flip_conditions.is_empty() {
+        return;
+    }
+    state.assistant_heading("什么情况会改变结论", TuiTone::SectionText);
+    for condition in answer.flip_conditions.iter().take(limit) {
+        let mut text = format!("{}，就 {}", condition.if_observed, condition.then);
+        if !condition.target_ids.is_empty() {
+            text.push_str(&format!("（推翻 {}）", condition.target_ids.join("、")));
+        }
+        state.assistant_item("如果", TuiTone::SectionText, text);
+    }
 }
 
 fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
-    state.assistant_conclusion_start("结论 Conclusion");
+    state.assistant_conclusion_start(conclusion_label(answer));
     state.assistant_markdown(&answer.conclusion);
     state.assistant_conclusion_end();
 
-    if !answer.claims.is_empty() {
-        state.assistant_heading("我的判断", TuiTone::SectionText);
-        for claim in &answer.claims {
-            let status = claim_status_label(claim.status);
-            let label = if claim.id.trim().is_empty() {
-                status.to_string()
-            } else {
-                format!("{} · {status}", claim.id.trim())
-            };
-            state.assistant_item(label, TuiTone::SectionText, &claim.text);
-        }
-    }
-
-    if !answer.evidence.is_empty() {
-        state.assistant_heading("依据", TuiTone::SectionText);
-        for evidence in &answer.evidence {
-            let statement = if evidence.claim_ids.is_empty() {
-                evidence.statement.clone()
-            } else {
-                format!(
-                    "{}（对应 {}）",
-                    evidence.statement,
-                    evidence.claim_ids.join("、")
-                )
-            };
-            state.assistant_evidence(short_evidence_source(&evidence.source), statement);
-        }
-    }
+    record_claim_section(state, answer, usize::MAX);
+    record_evidence_section(state, answer, usize::MAX);
 
     if !answer.assumptions.is_empty() {
         state.assistant_heading("我默认的前提", TuiTone::SectionText);
@@ -26693,16 +26763,7 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
         }
     }
 
-    if !answer.unknowns.is_empty() {
-        state.assistant_heading("还没确定", TuiTone::SectionText);
-        for unknown in &answer.unknowns {
-            state.assistant_item(
-                format!("影响{}", answer_impact_label(unknown.impact)),
-                TuiTone::SectionText,
-                &unknown.description,
-            );
-        }
-    }
+    record_unknown_section(state, answer, usize::MAX);
 
     if !answer.conflicts.is_empty() {
         state.assistant_heading("有矛盾的地方", TuiTone::SectionText);
@@ -26723,16 +26784,7 @@ fn record_structured_answer(state: &mut TuiState, answer: &first_principles_agen
         }
     }
 
-    if !answer.flip_conditions.is_empty() {
-        state.assistant_heading("什么情况会改变结论", TuiTone::SectionText);
-        for condition in &answer.flip_conditions {
-            let mut text = format!("{}，就 {}", condition.if_observed, condition.then);
-            if !condition.target_ids.is_empty() {
-                text.push_str(&format!("（推翻 {}）", condition.target_ids.join("、")));
-            }
-            state.assistant_item("如果", TuiTone::SectionText, text);
-        }
-    }
+    record_flip_section(state, answer, usize::MAX);
 }
 
 fn short_evidence_source(source: &str) -> String {
@@ -29369,7 +29421,7 @@ mod tui_rendering_tests {
     }
 
     #[test]
-    fn direct_answer_hides_repetitive_schema_sections_but_keeps_details() {
+    fn direct_answer_shows_compact_sections_but_keeps_full_details() {
         let mut state = TuiState::new("deepseek", 6, 120);
         state.begin("连接测试", CognitiveMode::DirectAnswer, RiskLevel::Low);
         let mut run = result();
@@ -29378,18 +29430,40 @@ mod tui_rendering_tests {
         let visible = state.render_screen(80, 24);
         assert!(visible.contains("结论 Conclusion"));
         assert!(visible.contains("连接测试成功。"));
+        assert!(visible.contains("我的判断"));
+        assert!(visible.contains("依据"));
+        assert!(visible.contains("还没确定"));
+        assert!(visible.contains("什么情况会改变结论"));
         assert!(!visible.contains("终止原因"));
         assert!(!visible.contains("allow_write"));
-        assert!(!visible.contains("我的判断"));
-        assert!(!visible.contains("依据"));
-        assert!(!visible.contains("需要注意"));
-        assert!(!visible.contains("如何确认"));
-        assert!(!visible.contains("什么情况会改变结论"));
+        assert!(!visible.contains("只测试通信能力"));
 
         let details = state.last_details().unwrap();
         assert!(details.contains("终止原因"));
         assert!(details.contains("allow_write"));
         assert!(details.contains("我的判断"));
+        assert!(details.contains("只测试通信能力"));
+    }
+
+    #[test]
+    fn direct_answer_caps_compact_sections_at_three() {
+        let mut run = result();
+        let base = run.answer.claims[0].clone();
+        run.answer.claims = (1..=4)
+            .map(|index| {
+                let mut claim = base.clone();
+                claim.id = format!("c{index}");
+                claim.text = format!("判断 {index}");
+                claim
+            })
+            .collect();
+        let mut state = TuiState::new("deepseek", 6, 120);
+        state.begin("连接测试", CognitiveMode::DirectAnswer, RiskLevel::Low);
+        record_tui_result(&mut state, &run);
+        let visible = state.render_screen(80, 30);
+        assert!(visible.contains("判断 1"));
+        assert!(visible.contains("判断 3"));
+        assert!(!visible.contains("判断 4"));
     }
 
     #[test]
