@@ -63,6 +63,7 @@ pub mod mcp_exchange;
 pub mod mcp_oauth;
 pub mod memory;
 pub mod memory_backup;
+pub mod memory_candidate;
 pub mod memory_consolidate;
 pub mod memory_context;
 pub mod memory_journal;

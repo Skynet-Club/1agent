@@ -2242,6 +2242,94 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成候选记忆 · Propose candidate memories")]
+    Propose {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
+        candidates: PathBuf,
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long)]
+        from_run: Option<PathBuf>,
+        #[arg(long)]
+        from_dir: Option<PathBuf>,
+        #[arg(long, default_value = "fact")]
+        kind: String,
+        #[arg(long, default_value = "manual")]
+        source_event: String,
+        #[arg(long, default_value = "default")]
+        bot_id: String,
+        #[arg(long, default_value_t = 50)]
+        confidence: u8,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "查看候选记忆 · List candidate memories")]
+    Inbox {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
+        candidates: PathBuf,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "接受候选记忆 · Accept a candidate memory")]
+    Accept {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
+        candidates: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        key: PathBuf,
+        #[arg(long)]
+        candidate_id: String,
+        #[arg(long, default_value = "local-user")]
+        actor: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "拒绝候选记忆 · Reject a candidate memory")]
+    Reject {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
+        candidates: PathBuf,
+        #[arg(long)]
+        candidate_id: String,
+        #[arg(long, default_value = "local-user")]
+        actor: String,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "编辑候选记忆 · Edit a candidate memory")]
+    Edit {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-candidates.jsonl", ".1a/memory-candidates.jsonl"))]
+        candidates: PathBuf,
+        #[arg(long)]
+        candidate_id: String,
+        #[arg(long)]
+        content: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "遗忘记忆 · Hard-forget an active memory")]
+    Forget {
+        #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
+        journal: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("payloads", ".1a/payloads"))]
+        payloads: PathBuf,
+        #[arg(long, default_value_os_t = home_or_legacy("keys/memory.key", ".1a/memory.key"))]
+        key: PathBuf,
+        #[arg(long)]
+        memory_id: String,
+        #[arg(long, default_value = "default")]
+        bot_id: String,
+        #[arg(long)]
+        soft: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "合并重复记忆 · Merge duplicate memories")]
     Consolidate {
         #[arg(long, default_value_os_t = home_or_legacy("memory-journal.jsonl", ".1a/memory-journal.jsonl"))]
@@ -3704,6 +3792,18 @@ fn read_import_lines(path: &Path) -> Result<Vec<String>> {
         bail!("import file has no usable context lines");
     }
     Ok(lines)
+}
+
+fn memory_candidate_duplicate(
+    store: &first_principles_agent::memory_candidate::CandidateStore,
+    candidate: &first_principles_agent::memory_candidate::MemoryCandidate,
+) -> bool {
+    store.candidates().any(|existing| {
+        existing.scope == candidate.scope
+            && existing.content == candidate.content
+            && existing.status
+                != first_principles_agent::memory_candidate::CandidateStatus::Rejected
+    })
 }
 
 fn write_onboard(
@@ -11435,6 +11535,215 @@ async fn main() -> Result<()> {
                             record.valid_to_ms
                         );
                     }
+                }
+            }
+            MemoryCommand::Propose {
+                candidates,
+                content,
+                from_run,
+                from_dir,
+                kind,
+                source_event,
+                bot_id,
+                confidence,
+                json,
+            } => {
+                let scope = first_principles_agent::MemoryScope::bot(bot_id);
+                let now = current_time_ms();
+                let mut store =
+                    first_principles_agent::memory_candidate::CandidateStore::open(&candidates)?;
+                let selectors = usize::from(content.is_some())
+                    + usize::from(from_run.is_some())
+                    + usize::from(from_dir.is_some());
+                if selectors != 1 {
+                    anyhow::bail!("provide exactly one of --content, --from-run or --from-dir");
+                }
+                let mut proposed = Vec::new();
+                let mut skipped = 0usize;
+                if let Some(content) = content {
+                    let kind = first_principles_agent::memory_context::kind_from_str(&kind)
+                        .ok_or_else(|| anyhow::anyhow!("unknown memory kind `{kind}`"))?;
+                    let mut candidate =
+                        first_principles_agent::memory_candidate::MemoryCandidate::new(
+                            kind,
+                            scope,
+                            content,
+                            first_principles_agent::MemorySourceKind::UserMessage,
+                            vec![source_event],
+                            now,
+                        );
+                    candidate.confidence = confidence;
+                    if memory_candidate_duplicate(&store, &candidate) {
+                        skipped += 1;
+                    } else {
+                        proposed.push(store.propose(candidate)?);
+                    }
+                } else {
+                    let extracted = if let Some(path) = from_run {
+                        first_principles_agent::memory_candidate::extract_from_journal(
+                            &path, &scope, now,
+                        )?
+                    } else {
+                        first_principles_agent::memory_candidate::extract_from_dir(
+                            from_dir.as_deref().expect("selector validated"),
+                            &scope,
+                            now,
+                        )?
+                    };
+                    for candidate in extracted {
+                        if memory_candidate_duplicate(&store, &candidate) {
+                            skipped += 1;
+                        } else {
+                            proposed.push(store.propose(candidate)?);
+                        }
+                    }
+                }
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "proposed": proposed,
+                            "skipped": skipped,
+                        }))?
+                    );
+                } else {
+                    for candidate in &proposed {
+                        println!(
+                            "proposed {} · {:?} · {}",
+                            candidate.candidate_id, candidate.kind, candidate.content
+                        );
+                    }
+                    println!(
+                        "proposed {} candidate(s), skipped {} duplicate(s)",
+                        proposed.len(),
+                        skipped
+                    );
+                }
+            }
+            MemoryCommand::Inbox {
+                candidates,
+                all,
+                json,
+            } => {
+                let store =
+                    first_principles_agent::memory_candidate::CandidateStore::open(&candidates)?;
+                let list = if all {
+                    store.candidates().collect::<Vec<_>>()
+                } else {
+                    store.proposed().collect::<Vec<_>>()
+                };
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&list)?);
+                } else if list.is_empty() {
+                    println!("(no candidate memories)");
+                } else {
+                    for candidate in list {
+                        println!(
+                            "{} · {:?} · {:?} · {}",
+                            candidate.candidate_id,
+                            candidate.status,
+                            candidate.kind,
+                            candidate.content
+                        );
+                    }
+                }
+            }
+            MemoryCommand::Accept {
+                candidates,
+                journal,
+                payloads,
+                key,
+                candidate_id,
+                actor,
+                json,
+            } => {
+                let mut store =
+                    first_principles_agent::memory_candidate::CandidateStore::open(&candidates)?;
+                let mut service =
+                    first_principles_agent::MemoryService::open(journal, payloads, &key)?;
+                let record = first_principles_agent::memory_candidate::accept(
+                    &mut store,
+                    &mut service,
+                    &candidate_id,
+                    &actor,
+                    current_time_ms(),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                } else {
+                    println!(
+                        "accepted {} -> memory {} ({:?})",
+                        candidate_id, record.memory_id, record.kind
+                    );
+                }
+            }
+            MemoryCommand::Reject {
+                candidates,
+                candidate_id,
+                actor,
+                reason,
+                json,
+            } => {
+                let mut store =
+                    first_principles_agent::memory_candidate::CandidateStore::open(&candidates)?;
+                let candidate =
+                    store.reject(&candidate_id, &actor, reason.as_deref(), current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&candidate)?);
+                } else {
+                    println!(
+                        "rejected {} ({:?})",
+                        candidate.candidate_id, candidate.status
+                    );
+                }
+            }
+            MemoryCommand::Edit {
+                candidates,
+                candidate_id,
+                content,
+                json,
+            } => {
+                let mut store =
+                    first_principles_agent::memory_candidate::CandidateStore::open(&candidates)?;
+                let candidate = store.edit(&candidate_id, content, current_time_ms())?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&candidate)?);
+                } else {
+                    println!("edited {} · {}", candidate.candidate_id, candidate.content);
+                }
+            }
+            MemoryCommand::Forget {
+                journal,
+                payloads,
+                key,
+                memory_id,
+                bot_id,
+                soft,
+                json,
+            } => {
+                let mut service =
+                    first_principles_agent::MemoryService::open(journal, payloads, &key)?;
+                let scope = first_principles_agent::MemoryScope::bot(bot_id);
+                let mode = if soft {
+                    first_principles_agent::ForgetMode::Soft
+                } else {
+                    first_principles_agent::ForgetMode::Hard
+                };
+                service.forget(&memory_id, &scope, mode, current_time_ms())?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "memory_id": memory_id,
+                            "mode": if soft { "soft" } else { "hard" },
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "forgot {} ({})",
+                        memory_id,
+                        if soft { "soft" } else { "hard" }
+                    );
                 }
             }
             MemoryCommand::Consolidate {
