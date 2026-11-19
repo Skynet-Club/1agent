@@ -673,11 +673,12 @@ P0/P1 完成需要同时满足：
 建议下一步顺序：
 
 1. owner 评审本文 0.3 与第 12 节；
-2. 只读 exporter + golden tests（P0）；
-3. P1 lineage 字段；
-4. P1.1 决策/动作层：先做一个垂直切片（3–5 个 ActionType），与 1ASH 任务集共用验收；
-5. 用 16 个 CQ + 新增决策/动作 CQ 做一次真实会话导出验收；
-6. 再决定是否进入 SQLite/图查询或 OWL。
+2. 只读 exporter + golden tests（P0）——已实现 Decision/Outcome/Option/Criterion/Proposal；
+3. P1 lineage 字段（parent/session/run/sha 等）；
+4. P1.1 代码发布垂直：propose/checks/approve/release 已本地走通；下一步补负例、action_version 与 capability manifest 选择；
+5. 用 16 个 CQ + 新增决策/动作 CQ 做真实会话导出验收；
+6. **负例全绿后**再做 Scenario patch/worktree/merge；
+7. 再决定是否进入 SQLite/图查询或 OWL。
 
 不要先做：全量 OWL 建模、图数据库迁移、LLM 自动抽取知识图谱、没有 Action 的“本体大屏”。
 
