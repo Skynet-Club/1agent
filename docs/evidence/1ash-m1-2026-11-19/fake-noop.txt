@@ -1,3 +1,4 @@
 {"task": "task-command.json", "fake": 1.0, "noop": 0.0}
 {"task": "task-artifact.json", "fake": 1.0, "noop": 0.0}
+1ASH trace conversion passed
 1ASH M1 adapter passed

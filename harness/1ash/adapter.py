@@ -10,8 +10,8 @@ This is a local runner skeleton, not the full 1ASH report/scoring pipeline.
 
 from __future__ import annotations
 
+import hashlib
 import json
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -43,6 +43,214 @@ def _workspace_path(workspace: Path, value: str) -> Path:
     if not resolved.is_relative_to(workspace.resolve()):
         raise ValueError(f"artifact path escapes workspace: {value}")
     return resolved
+
+
+def _short(value: object, limit: int = 2_000) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return text[:limit]
+
+
+def _arguments_sha256(arguments: object) -> str:
+    encoded = json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def journal_to_trace(journal_path: Path, task_id: str) -> list[dict]:
+    """Project a 1Agent run journal onto the closed 1ASH Trace IR."""
+    events: list[dict] = []
+    run_id = journal_path.stem
+    last_answer: dict = {}
+
+    def emit(event_type: str, data: dict[str, object], timestamp: int) -> None:
+        events.append(
+            {
+                "schema": "1ash.trace/v1",
+                "run_id": run_id,
+                "seq": len(events),
+                "timestamp_unix_ms": max(int(timestamp), 0),
+                "type": event_type,
+                "span_id": f"span-{len(events)}",
+                "parent_span_id": None,
+                "data": data,
+            }
+        )
+
+    for line in journal_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        event = record.get("event") or {}
+        data = event.get("data") or {}
+        timestamp = int(record.get("timestamp_unix_ms") or 0)
+        run_id = record.get("run_id") or run_id
+        kind = event.get("type")
+        if kind == "run_started":
+            request = data.get("request") or {}
+            emit(
+                "run_started",
+                {
+                    "task_id": task_id,
+                    "mode": data.get("mode"),
+                    "objective": _short(request.get("objective"), 500),
+                    "permissions": request.get("permissions"),
+                    "budget": request.get("budget"),
+                },
+                timestamp,
+            )
+        elif kind == "model_requested":
+            request = data.get("request") or {}
+            messages = request.get("messages") or []
+            emit(
+                "model_request",
+                {
+                    "mode": request.get("mode"),
+                    "message_count": len(messages),
+                    "tool_count": len(request.get("tools") or []),
+                },
+                timestamp,
+            )
+        elif kind == "model_responded":
+            response = data.get("response") or {}
+            turn = response.get("turn") or {}
+            emit(
+                "model_response",
+                {
+                    "provider_id": response.get("provider_id"),
+                    "model": response.get("model"),
+                    "turn": turn.get("kind"),
+                    "usage": response.get("usage"),
+                },
+                timestamp,
+            )
+        elif kind == "tool_called":
+            call = data.get("call") or {}
+            emit(
+                "tool_call",
+                {
+                    "call_id": call.get("id"),
+                    "name": call.get("name"),
+                    "arguments_sha256": _arguments_sha256(call.get("arguments")),
+                },
+                timestamp,
+            )
+        elif kind == "tool_observed":
+            observation = data.get("observation") or {}
+            metadata = observation.get("metadata") or {}
+            status = observation.get("status")
+            error_code = observation.get("error_code")
+            emit(
+                "tool_result",
+                {
+                    "call_id": observation.get("call_id"),
+                    "tool": observation.get("tool"),
+                    "status": status,
+                    "error_code": error_code,
+                    "summary": _short(observation.get("summary"), 500),
+                },
+                timestamp,
+            )
+            if metadata.get("path") and metadata.get("sha256"):
+                emit(
+                    "artifact_written",
+                    {
+                        "path": metadata.get("path"),
+                        "sha256": metadata.get("sha256"),
+                        "bytes": metadata.get("bytes"),
+                    },
+                    timestamp,
+                )
+            if observation.get("tool") == "verify_artifact":
+                if metadata.get("decision") == "verified":
+                    emit(
+                        "artifact_verified",
+                        {
+                            "path": metadata.get("path"),
+                            "sha256": metadata.get("sha256"),
+                        },
+                        timestamp,
+                    )
+                elif metadata.get("decision") == "failed":
+                    emit(
+                        "verification_failed",
+                        {
+                            "path": metadata.get("path"),
+                            "checks": _short(observation.get("content"), 500),
+                        },
+                        timestamp,
+                    )
+            card_id = metadata.get("approval_card_id") or metadata.get("approval_id")
+            if error_code == "approval_required" or card_id:
+                emit(
+                    "approval_requested",
+                    {
+                        "tool": observation.get("tool"),
+                        "card_id": card_id,
+                        "reason": error_code,
+                    },
+                    timestamp,
+                )
+            if error_code in {"authority_denied", "permission_denied", "write_not_allowed"}:
+                emit(
+                    "policy_denied",
+                    {
+                        "tool": observation.get("tool"),
+                        "error_code": error_code,
+                        "summary": _short(observation.get("summary"), 500),
+                    },
+                    timestamp,
+                )
+        elif kind == "answer_produced":
+            last_answer = data.get("answer") or {}
+        elif kind == "run_stopped":
+            emit(
+                "run_stopped",
+                {
+                    "reason": data.get("reason"),
+                    "answer_status": last_answer.get("status"),
+                    "conclusion": _short(last_answer.get("conclusion"), 1_000),
+                },
+                timestamp,
+            )
+    return events
+
+
+def write_trace(
+    workspace: Path, task_id: str, journal_path: Path | None
+) -> tuple[Path | None, str | None]:
+    if journal_path is None or not journal_path.is_file():
+        return None, "subject produced no readable journal"
+    try:
+        trace = journal_to_trace(journal_path, task_id)
+    except (OSError, ValueError) as error:
+        return None, f"cannot read journal: {error}"
+    path = workspace / ".1ash" / "trace.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in trace),
+        encoding="utf-8",
+    )
+    return path, None
+
+
+def _journal_from_output(workspace: Path, stdout: str) -> Path | None:
+    try:
+        result = json.loads(stdout)
+    except json.JSONDecodeError:
+        result = {}
+    candidate = result.get("journal_path")
+    if isinstance(candidate, str):
+        path = Path(candidate)
+        if path.is_file() and path.resolve().is_relative_to(workspace.resolve()):
+            return path
+    journals = sorted(
+        (workspace / ".journals").glob("*.jsonl"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )
+    return journals[0] if journals else None
 
 
 @solver
@@ -82,6 +290,11 @@ def one_agent_solver(subject: str = "1agent", timeout_s: int = 600) -> Solver:
         state.metadata["subject_exit"] = process.returncode
         state.metadata["subject_stdout"] = process.stdout[-MAX_CAPTURE:]
         state.metadata["subject_stderr"] = process.stderr[-MAX_CAPTURE:]
+        journal_path = _journal_from_output(workspace, process.stdout)
+        trace_path, trace_error = write_trace(workspace, task["id"], journal_path)
+        state.metadata["journal_path"] = str(journal_path) if journal_path else None
+        state.metadata["trace_path"] = str(trace_path) if trace_path else None
+        state.metadata["trace_error"] = trace_error
         state.output = ModelOutput.from_content(
             model="subject",
             content=(process.stdout.strip() or process.stderr.strip() or "(no output)")[

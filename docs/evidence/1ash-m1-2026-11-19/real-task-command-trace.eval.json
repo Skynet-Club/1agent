@@ -1,0 +1,607 @@
+{
+  "version": 2,
+  "status": "success",
+  "eval": {
+    "eval_id": "EPiNnYCrYThfkgr9jjs2rM",
+    "run_id": "7MdZotsmRxDgN4JnGDnsWr",
+    "created": "2026-11-19T03:12:07+00:00",
+    "task": "one_ash_task",
+    "task_id": "8vN3jNusqFT84wBd9dNzpM",
+    "task_version": 0,
+    "task_file": "harness/1ash/adapter.py",
+    "task_display_name": "one_ash_task",
+    "task_registry_name": "one_ash_task",
+    "task_attribs": {},
+    "task_args": {
+      "task_file": "/home/skynet/1-agent/harness/1ash/tests/task-command.json",
+      "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+      "timeout_s": 180
+    },
+    "task_args_passed": {
+      "task_file": "/home/skynet/1-agent/harness/1ash/tests/task-command.json",
+      "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+      "timeout_s": 180
+    },
+    "dataset": {
+      "name": "m1-coding-command",
+      "samples": 1,
+      "sample_ids": [
+        1
+      ],
+      "shuffled": false
+    },
+    "model": "mockllm/model",
+    "model_generate_config": {},
+    "model_args": {},
+    "config": {
+      "epochs": 1,
+      "fail_on_error": true,
+      "continue_on_fail": false,
+      "score_on_error": false,
+      "sandbox_cleanup": true,
+      "sandbox_prebuilt": false,
+      "log_samples": true,
+      "log_realtime": true,
+      "log_images": true,
+      "log_shared": 0,
+      "score_display": true
+    },
+    "revision": {
+      "type": "git",
+      "origin": "https://ghfast.top/https://github.com/Skynet-Club/1agent.git",
+      "commit": "fbc56f8",
+      "dirty": true
+    },
+    "packages": {
+      "inspect_ai": "0.3.291"
+    },
+    "scorers": [
+      {
+        "name": "one_ash_scorer",
+        "options": {},
+        "metrics": [
+          {
+            "name": "inspect_ai/accuracy",
+            "options": {}
+          }
+        ],
+        "metadata": {}
+      }
+    ]
+  },
+  "plan": {
+    "name": "plan",
+    "steps": [
+      {
+        "solver": "one_agent_solver",
+        "params": {
+          "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+          "timeout_s": 180
+        },
+        "params_passed": {
+          "subject": "/home/skynet/1-agent/harness/1ash/subject_1agent.sh",
+          "timeout_s": 180
+        }
+      }
+    ],
+    "config": {}
+  },
+  "results": {
+    "total_samples": 1,
+    "completed_samples": 1,
+    "scores": [
+      {
+        "name": "one_ash_scorer",
+        "scorer": "one_ash_scorer",
+        "scored_samples": 1,
+        "unscored_samples": 0,
+        "params": {},
+        "metrics": {
+          "accuracy": {
+            "name": "accuracy",
+            "value": 1.0,
+            "params": {}
+          }
+        }
+      }
+    ],
+    "headline": {
+      "scorer": "one_ash_scorer",
+      "score": "one_ash_scorer",
+      "metric": "accuracy"
+    }
+  },
+  "stats": {
+    "started_at": "2026-11-19T03:12:07+00:00",
+    "completed_at": "2026-11-19T03:12:28+00:00",
+    "model_usage": {},
+    "role_usage": {},
+    "connection_limit_history": []
+  },
+  "invalidated": false,
+  "total_samples": 1,
+  "tags": [],
+  "metadata": {},
+  "samples": [
+    {
+      "id": 1,
+      "epoch": 1,
+      "input": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+      "target": "m1-coding-command",
+      "messages": [
+        {
+          "id": "HYjGjdUTR5aJ5xYkfvg7q6",
+          "content": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+          "source": "input",
+          "role": "user"
+        }
+      ],
+      "output": {
+        "model": "subject",
+        "choices": [
+          {
+            "message": {
+              "id": "2b2vqnvboZpRjjoQXfUMuk",
+              "content": "{\n  \"run_id\": \"026a05f0-1c52-4a06-80e1-292572d61568\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt now holds exactly `hello 1ash` at /tmp/1ash-m1-coding-command-fo7ohija/out.txt: 10 bytes, no trailing newline, SHA-256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a, read back unchanged. The independent verifier agent:checker accepted the task (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65), so no further action is needed. One low-impact note: the file-type detector labels the .txt file `application/octet-stream` instead of `text/plain`; the bytes and content are correct, only the label differs.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"out.txt was created at /tmp/1ash-m1-coding-command-fo7ohija/out.txt with exactly the text `hello 1ash`, 10 bytes, no trailing newline.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"Reading the file back returned the exact string `hello 1ash`, 10 bytes, not truncated.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"Artifact verification returned verified with bytes 10 and that same SHA-256.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent verifier agent:checker accepted the task with contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The type detector labels the .txt file application/octet-stream instead of text/plain, which is a label mismatch only.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\",\n        \"statement\": \"Write receipt reported created=true, bytes=10, diff '+hello 1ash', sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a full read returned content 'hello 1ash' with bytes_read=10 and truncated=false; verify_artifact returned decision verified with the same hash and media_type application/octet-stream.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\",\n        \"statement\": \"acceptance_gate returned decision accepted, public_passed=true, hidden_passed=true, no failures, verifier agent:checker (independent), contract_digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Content must be exactly `hello 1ash` with no extra characters.\",\n      \"File must be named out.txt in the working directory /tmp/1ash-m1-coding-command-fo7ohija.\"\n    ],\n    \"unknowns\": [],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"A byte-level check shows out.txt contains anything other than the 10 bytes of `hello 1ash`, for example a trailing newline or different casing.\",\n        \"then\": \"c1 and c2 fail and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c1\",\n          \"c2\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file call_00_ET_9SVsYGSu9D9P1GR1FZRT9915 created /tmp/1ash-m1-coding-command-fo7ohija/out.txt, 10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"acceptance_gate call_00_ET_xkXsImjjo3KXIK55EJsm5571 returned decision accepted (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"none\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}",
+              "source": "generate",
+              "role": "assistant",
+              "model": "subject"
+            },
+            "stop_reason": "stop"
+          }
+        ],
+        "completion": "{\n  \"run_id\": \"026a05f0-1c52-4a06-80e1-292572d61568\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt now holds exactly `hello 1ash` at /tmp/1ash-m1-coding-command-fo7ohija/out.txt: 10 bytes, no trailing newline, SHA-256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a, read back unchanged. The independent verifier agent:checker accepted the task (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65), so no further action is needed. One low-impact note: the file-type detector labels the .txt file `application/octet-stream` instead of `text/plain`; the bytes and content are correct, only the label differs.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"out.txt was created at /tmp/1ash-m1-coding-command-fo7ohija/out.txt with exactly the text `hello 1ash`, 10 bytes, no trailing newline.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"Reading the file back returned the exact string `hello 1ash`, 10 bytes, not truncated.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"Artifact verification returned verified with bytes 10 and that same SHA-256.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent verifier agent:checker accepted the task with contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The type detector labels the .txt file application/octet-stream instead of text/plain, which is a label mismatch only.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\",\n        \"statement\": \"Write receipt reported created=true, bytes=10, diff '+hello 1ash', sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a full read returned content 'hello 1ash' with bytes_read=10 and truncated=false; verify_artifact returned decision verified with the same hash and media_type application/octet-stream.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\",\n        \"statement\": \"acceptance_gate returned decision accepted, public_passed=true, hidden_passed=true, no failures, verifier agent:checker (independent), contract_digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Content must be exactly `hello 1ash` with no extra characters.\",\n      \"File must be named out.txt in the working directory /tmp/1ash-m1-coding-command-fo7ohija.\"\n    ],\n    \"unknowns\": [],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"A byte-level check shows out.txt contains anything other than the 10 bytes of `hello 1ash`, for example a trailing newline or different casing.\",\n        \"then\": \"c1 and c2 fail and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c1\",\n          \"c2\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file call_00_ET_9SVsYGSu9D9P1GR1FZRT9915 created /tmp/1ash-m1-coding-command-fo7ohija/out.txt, 10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"acceptance_gate call_00_ET_xkXsImjjo3KXIK55EJsm5571 returned decision accepted (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"none\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}"
+      },
+      "scores": {
+        "one_ash_scorer": {
+          "value": 1.0,
+          "explanation": "file-check: command exit 0",
+          "history": []
+        }
+      },
+      "metadata": {
+        "task": {
+          "schema": "1ash.task/v1",
+          "version": "1.0.0",
+          "family": "coding",
+          "title": "M1 fake coding task",
+          "environment": {
+            "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "network": "none",
+            "resources": {
+              "cpu": 1,
+              "memory_mb": 512,
+              "disk_mb": 1024
+            }
+          },
+          "agent_contract": {
+            "tools": [
+              "write_file"
+            ],
+            "permissions": {
+              "write": true,
+              "network": false
+            }
+          },
+          "budget": {
+            "wall_seconds": 60,
+            "max_steps": 5,
+            "max_tool_calls": 5,
+            "max_cost_usd": 0.01
+          },
+          "safety": {
+            "gates": []
+          },
+          "oracle": {
+            "command": "test -s out.txt"
+          },
+          "baselines": {
+            "noop": {
+              "expected": "fail"
+            },
+            "human_time_minutes": 1
+          },
+          "provenance": {
+            "author": "1ash-test",
+            "reviewers": [
+              "reviewer-a",
+              "reviewer-b"
+            ],
+            "license": "internal",
+            "contamination_notes": "synthetic M1 fixture"
+          },
+          "id": "m1-coding-command",
+          "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+          "success": {
+            "modules": [
+              {
+                "id": "file-check",
+                "weight": 1.0,
+                "type": "command",
+                "command": "test -s out.txt"
+              }
+            ]
+          }
+        },
+        "workspace": "/tmp/1ash-m1-coding-command-fo7ohija",
+        "subject_exit": 0,
+        "subject_stdout": "{\n  \"run_id\": \"026a05f0-1c52-4a06-80e1-292572d61568\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt now holds exactly `hello 1ash` at /tmp/1ash-m1-coding-command-fo7ohija/out.txt: 10 bytes, no trailing newline, SHA-256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a, read back unchanged. The independent verifier agent:checker accepted the task (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65), so no further action is needed. One low-impact note: the file-type detector labels the .txt file `application/octet-stream` instead of `text/plain`; the bytes and content are correct, only the label differs.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"out.txt was created at /tmp/1ash-m1-coding-command-fo7ohija/out.txt with exactly the text `hello 1ash`, 10 bytes, no trailing newline.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"Reading the file back returned the exact string `hello 1ash`, 10 bytes, not truncated.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"Artifact verification returned verified with bytes 10 and that same SHA-256.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent verifier agent:checker accepted the task with contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The type detector labels the .txt file application/octet-stream instead of text/plain, which is a label mismatch only.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\",\n        \"statement\": \"Write receipt reported created=true, bytes=10, diff '+hello 1ash', sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a full read returned content 'hello 1ash' with bytes_read=10 and truncated=false; verify_artifact returned decision verified with the same hash and media_type application/octet-stream.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\",\n        \"statement\": \"acceptance_gate returned decision accepted, public_passed=true, hidden_passed=true, no failures, verifier agent:checker (independent), contract_digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Content must be exactly `hello 1ash` with no extra characters.\",\n      \"File must be named out.txt in the working directory /tmp/1ash-m1-coding-command-fo7ohija.\"\n    ],\n    \"unknowns\": [],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"A byte-level check shows out.txt contains anything other than the 10 bytes of `hello 1ash`, for example a trailing newline or different casing.\",\n        \"then\": \"c1 and c2 fail and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c1\",\n          \"c2\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file call_00_ET_9SVsYGSu9D9P1GR1FZRT9915 created /tmp/1ash-m1-coding-command-fo7ohija/out.txt, 10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"acceptance_gate call_00_ET_xkXsImjjo3KXIK55EJsm5571 returned decision accepted (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"none\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}\n",
+        "subject_stderr": "",
+        "journal_path": "/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl",
+        "trace_path": "/tmp/1ash-m1-coding-command-fo7ohija/.1ash/trace.jsonl",
+        "trace_error": null
+      },
+      "store": {},
+      "events": [
+        {
+          "uuid": "nwV4ac3qLnAthNK5ooKsj9",
+          "span_id": "HPrhu8ZFWGqwqwot3vXJY4",
+          "timestamp": "2026-11-19T03:12:07.592669+00:00",
+          "working_start": 93929.328638156,
+          "event": "span_begin",
+          "id": "HPrhu8ZFWGqwqwot3vXJY4",
+          "type": "init",
+          "name": "init"
+        },
+        {
+          "uuid": "UwyAHSujKfvHcMC4mA5uEg",
+          "span_id": "HPrhu8ZFWGqwqwot3vXJY4",
+          "timestamp": "2026-11-19T03:12:07.593505+00:00",
+          "working_start": 93929.32947476,
+          "event": "sample_init",
+          "sample": {
+            "input": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+            "target": "m1-coding-command",
+            "id": 1,
+            "metadata": {
+              "task": {
+                "schema": "1ash.task/v1",
+                "version": "1.0.0",
+                "family": "coding",
+                "title": "M1 fake coding task",
+                "environment": {
+                  "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "network": "none",
+                  "resources": {
+                    "cpu": 1,
+                    "memory_mb": 512,
+                    "disk_mb": 1024
+                  }
+                },
+                "agent_contract": {
+                  "tools": [
+                    "write_file"
+                  ],
+                  "permissions": {
+                    "write": true,
+                    "network": false
+                  }
+                },
+                "budget": {
+                  "wall_seconds": 60,
+                  "max_steps": 5,
+                  "max_tool_calls": 5,
+                  "max_cost_usd": 0.01
+                },
+                "safety": {
+                  "gates": []
+                },
+                "oracle": {
+                  "command": "test -s out.txt"
+                },
+                "baselines": {
+                  "noop": {
+                    "expected": "fail"
+                  },
+                  "human_time_minutes": 1
+                },
+                "provenance": {
+                  "author": "1ash-test",
+                  "reviewers": [
+                    "reviewer-a",
+                    "reviewer-b"
+                  ],
+                  "license": "internal",
+                  "contamination_notes": "synthetic M1 fixture"
+                },
+                "id": "m1-coding-command",
+                "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "success": {
+                  "modules": [
+                    {
+                      "id": "file-check",
+                      "weight": 1.0,
+                      "type": "command",
+                      "command": "test -s out.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "state": {
+            "messages": [
+              {
+                "id": "HYjGjdUTR5aJ5xYkfvg7q6",
+                "content": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "source": "input",
+                "role": "user"
+              }
+            ],
+            "tools": [],
+            "tool_choice": null,
+            "store": {},
+            "output": {
+              "model": "mockllm/model",
+              "choices": [],
+              "completion": ""
+            },
+            "completed": false,
+            "metadata": {
+              "task": {
+                "schema": "1ash.task/v1",
+                "version": "1.0.0",
+                "family": "coding",
+                "title": "M1 fake coding task",
+                "environment": {
+                  "image": "ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "network": "none",
+                  "resources": {
+                    "cpu": 1,
+                    "memory_mb": 512,
+                    "disk_mb": 1024
+                  }
+                },
+                "agent_contract": {
+                  "tools": [
+                    "write_file"
+                  ],
+                  "permissions": {
+                    "write": true,
+                    "network": false
+                  }
+                },
+                "budget": {
+                  "wall_seconds": 60,
+                  "max_steps": 5,
+                  "max_tool_calls": 5,
+                  "max_cost_usd": 0.01
+                },
+                "safety": {
+                  "gates": []
+                },
+                "oracle": {
+                  "command": "test -s out.txt"
+                },
+                "baselines": {
+                  "noop": {
+                    "expected": "fail"
+                  },
+                  "human_time_minutes": 1
+                },
+                "provenance": {
+                  "author": "1ash-test",
+                  "reviewers": [
+                    "reviewer-a",
+                    "reviewer-b"
+                  ],
+                  "license": "internal",
+                  "contamination_notes": "synthetic M1 fixture"
+                },
+                "id": "m1-coding-command",
+                "instruction": "Write the exact text `hello 1ash` into a file named out.txt in the current directory.",
+                "success": {
+                  "modules": [
+                    {
+                      "id": "file-check",
+                      "weight": 1.0,
+                      "type": "command",
+                      "command": "test -s out.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "uuid": "JrPjkKizKT7xSBci9Z3GZh",
+          "span_id": "HPrhu8ZFWGqwqwot3vXJY4",
+          "timestamp": "2026-11-19T03:12:07.593810+00:00",
+          "working_start": 93929.329779288,
+          "event": "span_end",
+          "id": "HPrhu8ZFWGqwqwot3vXJY4"
+        },
+        {
+          "uuid": "99dcv4xCFVvwiqsQyGyavf",
+          "span_id": "SkcnJbJJZdoMomwqmMZNHS",
+          "timestamp": "2026-11-19T03:12:07.594382+00:00",
+          "working_start": 0.00037803799204993993,
+          "event": "span_begin",
+          "id": "SkcnJbJJZdoMomwqmMZNHS",
+          "type": "solvers",
+          "name": "solvers"
+        },
+        {
+          "uuid": "ZTDjSx93AKn2rDznsRQF2Q",
+          "span_id": "2Wwkre496NpfgoxLfdGSs7",
+          "timestamp": "2026-11-19T03:12:07.594751+00:00",
+          "working_start": 0.0007467669929610565,
+          "event": "span_begin",
+          "id": "2Wwkre496NpfgoxLfdGSs7",
+          "parent_id": "SkcnJbJJZdoMomwqmMZNHS",
+          "type": "solver",
+          "name": "one_agent_solver"
+        },
+        {
+          "uuid": "mRoG43dQHYW7efQrYqY54b",
+          "span_id": "2Wwkre496NpfgoxLfdGSs7",
+          "timestamp": "2026-11-19T03:12:28.811696+00:00",
+          "working_start": 21.217693375991075,
+          "event": "state",
+          "changes": [
+            {
+              "op": "replace",
+              "path": "/output/model",
+              "value": "subject",
+              "replaced": "mockllm/model"
+            },
+            {
+              "op": "add",
+              "path": "/output/choices/0",
+              "value": {
+                "message": {
+                  "id": "2b2vqnvboZpRjjoQXfUMuk",
+                  "content": "attachment://7ec6a2f6183c7d298a4b25cbf79b9975",
+                  "source": "generate",
+                  "role": "assistant",
+                  "model": "subject"
+                },
+                "stop_reason": "stop"
+              }
+            },
+            {
+              "op": "replace",
+              "path": "/output/completion",
+              "value": "attachment://7ec6a2f6183c7d298a4b25cbf79b9975",
+              "replaced": ""
+            },
+            {
+              "op": "add",
+              "path": "/metadata/workspace",
+              "value": "/tmp/1ash-m1-coding-command-fo7ohija"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_exit",
+              "value": 0
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_stdout",
+              "value": "attachment://4f0c3ebfabc2c07297b68f6325c5e94a"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/subject_stderr",
+              "value": ""
+            },
+            {
+              "op": "add",
+              "path": "/metadata/journal_path",
+              "value": "/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/trace_path",
+              "value": "/tmp/1ash-m1-coding-command-fo7ohija/.1ash/trace.jsonl"
+            },
+            {
+              "op": "add",
+              "path": "/metadata/trace_error"
+            }
+          ]
+        },
+        {
+          "uuid": "QfYkv2wTRPbf4rEPBn3BBe",
+          "span_id": "2Wwkre496NpfgoxLfdGSs7",
+          "timestamp": "2026-11-19T03:12:28.812166+00:00",
+          "working_start": 21.218162488003145,
+          "event": "span_end",
+          "id": "2Wwkre496NpfgoxLfdGSs7"
+        },
+        {
+          "uuid": "cFj94mHMAovtFeDWg7bD8B",
+          "span_id": "SkcnJbJJZdoMomwqmMZNHS",
+          "timestamp": "2026-11-19T03:12:28.812379+00:00",
+          "working_start": 21.218374080999638,
+          "event": "span_end",
+          "id": "SkcnJbJJZdoMomwqmMZNHS"
+        },
+        {
+          "uuid": "bH2vtszEYAAmrVdnsPjNJL",
+          "span_id": "FBUfjWT26mkNPFmEdKZ2Nk",
+          "timestamp": "2026-11-19T03:12:28.813201+00:00",
+          "working_start": 21.219196507998277,
+          "event": "span_begin",
+          "id": "FBUfjWT26mkNPFmEdKZ2Nk",
+          "type": "scorers",
+          "name": "scorers"
+        },
+        {
+          "uuid": "9fTGo72JxbhQ3k5Q8gZ7uq",
+          "span_id": "PdUEZWAyYyGqnaMS3gZ9oj",
+          "timestamp": "2026-11-19T03:12:28.813481+00:00",
+          "working_start": 21.219475791003788,
+          "event": "span_begin",
+          "id": "PdUEZWAyYyGqnaMS3gZ9oj",
+          "parent_id": "FBUfjWT26mkNPFmEdKZ2Nk",
+          "type": "scorer",
+          "name": "one_ash_scorer"
+        },
+        {
+          "uuid": "RxSg2EfSpEcQKYmHcJrfAh",
+          "span_id": "PdUEZWAyYyGqnaMS3gZ9oj",
+          "timestamp": "2026-11-19T03:12:28.814754+00:00",
+          "working_start": 21.220749790998525,
+          "event": "score",
+          "score": {
+            "value": 1.0,
+            "explanation": "file-check: command exit 0",
+            "history": []
+          },
+          "target": "m1-coding-command",
+          "intermediate": false,
+          "scorer": "one_ash_scorer",
+          "scorer_args": {}
+        },
+        {
+          "uuid": "LceCKV6PPYP6WG5Z9vysf4",
+          "span_id": "PdUEZWAyYyGqnaMS3gZ9oj",
+          "timestamp": "2026-11-19T03:12:28.815145+00:00",
+          "working_start": 21.221141221001744,
+          "event": "span_end",
+          "id": "PdUEZWAyYyGqnaMS3gZ9oj"
+        },
+        {
+          "uuid": "4vEJ62JKLZ8ooxU9GK43pC",
+          "span_id": "FBUfjWT26mkNPFmEdKZ2Nk",
+          "timestamp": "2026-11-19T03:12:28.815355+00:00",
+          "working_start": 21.22135005799646,
+          "event": "span_end",
+          "id": "FBUfjWT26mkNPFmEdKZ2Nk"
+        }
+      ],
+      "model_usage": {},
+      "role_usage": {},
+      "started_at": "2026-11-19T03:12:07.594013+00:00",
+      "completed_at": "2026-11-19T03:12:28.815715+00:00",
+      "total_time": 21.222,
+      "working_time": 21.222,
+      "uuid": "fVoCGQHww8fLwyj4zWsokP",
+      "error_retries": [],
+      "attachments": {
+        "7ec6a2f6183c7d298a4b25cbf79b9975": "{\n  \"run_id\": \"026a05f0-1c52-4a06-80e1-292572d61568\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt now holds exactly `hello 1ash` at /tmp/1ash-m1-coding-command-fo7ohija/out.txt: 10 bytes, no trailing newline, SHA-256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a, read back unchanged. The independent verifier agent:checker accepted the task (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65), so no further action is needed. One low-impact note: the file-type detector labels the .txt file `application/octet-stream` instead of `text/plain`; the bytes and content are correct, only the label differs.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"out.txt was created at /tmp/1ash-m1-coding-command-fo7ohija/out.txt with exactly the text `hello 1ash`, 10 bytes, no trailing newline.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"Reading the file back returned the exact string `hello 1ash`, 10 bytes, not truncated.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"Artifact verification returned verified with bytes 10 and that same SHA-256.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent verifier agent:checker accepted the task with contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The type detector labels the .txt file application/octet-stream instead of text/plain, which is a label mismatch only.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\",\n        \"statement\": \"Write receipt reported created=true, bytes=10, diff '+hello 1ash', sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a full read returned content 'hello 1ash' with bytes_read=10 and truncated=false; verify_artifact returned decision verified with the same hash and media_type application/octet-stream.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\",\n        \"statement\": \"acceptance_gate returned decision accepted, public_passed=true, hidden_passed=true, no failures, verifier agent:checker (independent), contract_digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Content must be exactly `hello 1ash` with no extra characters.\",\n      \"File must be named out.txt in the working directory /tmp/1ash-m1-coding-command-fo7ohija.\"\n    ],\n    \"unknowns\": [],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"A byte-level check shows out.txt contains anything other than the 10 bytes of `hello 1ash`, for example a trailing newline or different casing.\",\n        \"then\": \"c1 and c2 fail and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c1\",\n          \"c2\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file call_00_ET_9SVsYGSu9D9P1GR1FZRT9915 created /tmp/1ash-m1-coding-command-fo7ohija/out.txt, 10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"acceptance_gate call_00_ET_xkXsImjjo3KXIK55EJsm5571 returned decision accepted (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"none\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}",
+        "4f0c3ebfabc2c07297b68f6325c5e94a": "{\n  \"run_id\": \"026a05f0-1c52-4a06-80e1-292572d61568\",\n  \"journal_path\": \"/tmp/1ash-m1-coding-command-fo7ohija/.journals/026a05f0-1c52-4a06-80e1-292572d61568.jsonl\",\n  \"answer\": {\n    \"schema_version\": 2,\n    \"status\": \"completed\",\n    \"conclusion\": \"out.txt now holds exactly `hello 1ash` at /tmp/1ash-m1-coding-command-fo7ohija/out.txt: 10 bytes, no trailing newline, SHA-256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a, read back unchanged. The independent verifier agent:checker accepted the task (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65), so no further action is needed. One low-impact note: the file-type detector labels the .txt file `application/octet-stream` instead of `text/plain`; the bytes and content are correct, only the label differs.\",\n    \"claims\": [\n      {\n        \"id\": \"c1\",\n        \"text\": \"out.txt was created at /tmp/1ash-m1-coding-command-fo7ohija/out.txt with exactly the text `hello 1ash`, 10 bytes, no trailing newline.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c2\",\n        \"text\": \"Reading the file back returned the exact string `hello 1ash`, 10 bytes, not truncated.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c3\",\n        \"text\": \"Artifact verification returned verified with bytes 10 and that same SHA-256.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c4\",\n        \"text\": \"The independent verifier agent:checker accepted the task with contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\"\n        ],\n        \"scope\": null\n      },\n      {\n        \"id\": \"c5\",\n        \"text\": \"The type detector labels the .txt file application/octet-stream instead of text/plain, which is a label mismatch only.\",\n        \"status\": \"verified\",\n        \"sources\": [\n          \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\"\n        ],\n        \"scope\": null\n      }\n    ],\n    \"evidence\": [\n      {\n        \"source\": \"/tmp/1ash-m1-coding-command-fo7ohija/out.txt\",\n        \"statement\": \"Write receipt reported created=true, bytes=10, diff '+hello 1ash', sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a; a full read returned content 'hello 1ash' with bytes_read=10 and truncated=false; verify_artifact returned decision verified with the same hash and media_type application/octet-stream.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c1\",\n          \"c2\",\n          \"c3\",\n          \"c5\"\n        ]\n      },\n      {\n        \"source\": \"call_00_ET_xkXsImjjo3KXIK55EJsm5571\",\n        \"statement\": \"acceptance_gate returned decision accepted, public_passed=true, hidden_passed=true, no failures, verifier agent:checker (independent), contract_digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65.\",\n        \"observed_unix_ms\": null,\n        \"expires_unix_ms\": null,\n        \"claim_ids\": [\n          \"c4\"\n        ]\n      }\n    ],\n    \"assumptions\": [],\n    \"constraints\": [\n      \"Content must be exactly `hello 1ash` with no extra characters.\",\n      \"File must be named out.txt in the working directory /tmp/1ash-m1-coding-command-fo7ohija.\"\n    ],\n    \"unknowns\": [],\n    \"conflicts\": [],\n    \"flip_conditions\": [\n      {\n        \"if_observed\": \"A byte-level check shows out.txt contains anything other than the 10 bytes of `hello 1ash`, for example a trailing newline or different casing.\",\n        \"then\": \"c1 and c2 fail and the file must be rewritten.\",\n        \"target_ids\": [\n          \"c1\",\n          \"c2\"\n        ]\n      }\n    ],\n    \"action_receipts\": [\n      \"write_file call_00_ET_9SVsYGSu9D9P1GR1FZRT9915 created /tmp/1ash-m1-coding-command-fo7ohija/out.txt, 10 bytes, sha256 8b8b1418102cf064981c0a2b5e89f4fd73dae8bc003fa674590c3e560be5170a\",\n      \"acceptance_gate call_00_ET_xkXsImjjo3KXIK55EJsm5571 returned decision accepted (contract digest 4bdca35382ebbdffbb791d3bd61787cf02d2f6fc2f9e5c0ec4382eb0f7ae2b65)\"\n    ],\n    \"task_need\": {\n      \"freshness\": \"none\",\n      \"locality\": \"low\",\n      \"action\": \"medium\",\n      \"risk\": \"low\",\n      \"ambiguity\": \"none\",\n      \"budget\": \"none\"\n    }\n  },\n  \"stop_reason\": \"completed\"\n}\n"
+      },
+      "events_data": {
+        "messages": [],
+        "calls": []
+      },
+      "turn_count": 0
+    }
+  ],
+  "reductions": [
+    {
+      "scorer": "one_ash_scorer",
+      "samples": [
+        {
+          "value": 1.0,
+          "explanation": "file-check: command exit 0",
+          "history": [],
+          "sample_id": 1
+        }
+      ]
+    }
+  ]
+}

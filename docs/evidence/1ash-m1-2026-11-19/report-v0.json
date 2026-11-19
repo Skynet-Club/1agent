@@ -1,0 +1,64 @@
+{
+  "schema": "1ash.report/v1",
+  "report_id": "1ash-m1-m1-coding-command-1795057987",
+  "generated_at": "2026-11-19T03:13:07.938362Z",
+  "harness": {
+    "name": "1ASH",
+    "version": "0.1.0-m1"
+  },
+  "task_set": {
+    "name": "1ash-m1-m1-coding-command",
+    "version": "1.0.0",
+    "digest": "sha256:5d7c09cac09314efe2f8102756849726552ca8f8ca38a69adce414d355ee033d"
+  },
+  "subject": {
+    "agent": "1agent",
+    "version": "1agent 1.0.0-rc.12",
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "model_snapshot": "deepseek-flash",
+    "config_digest": "sha256:2d7407d752fdfd68ff35b4e30a7fad997020552351118bacac1ade4e530fde5e"
+  },
+  "environment": {
+    "image_digest": "not-enforced:ghcr.io/example/1ash-m1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "network": "host",
+    "tool_versions": {
+      "python": "3.14.4"
+    }
+  },
+  "metrics": {
+    "pass_at_1": 1.0,
+    "pass_at_k": 1.0,
+    "pass_power_k": 1.0,
+    "mean_score": 1.0,
+    "harness_score": 1.0,
+    "mean_cost_usd": 0.0,
+    "p95_latency_ms": 21222,
+    "safety_asr": 0.0,
+    "confidence_intervals": {}
+  },
+  "failure_class_counts": {},
+  "harness_findings": [],
+  "limitations": [
+    "single synthetic M1 task; not a benchmark or general capability claim",
+    "no container isolation; the task image was not used",
+    "no safety suite; safety_asr is not a measurement",
+    "pass@k and pass^k are recorded at k=1 only",
+    "cost is the provider-reported journal cost; unknown is not estimated"
+  ],
+  "abc_checklist": {},
+  "runs": [
+    {
+      "task_id": "m1-coding-command",
+      "score": 1.0,
+      "subject_exit": 0,
+      "duration_ms": 21222,
+      "eval_log_sha256": "sha256:a0eddf1001188e341f353e8fcecc6a6739fb9af2f3e2ee0868b1854fabcd7065",
+      "trace_sha256": "sha256:b271f327072db61da8e1bf60eb8f2e30c33bcde9214faa898210ef369a6622ff",
+      "journal_sha256": "sha256:38c1086afa4227d67422367ebeabebea9a62520eb4cfda9a4c3b7c63e486b905",
+      "cost_usd": 0.0
+    }
+  ],
+  "signatures": [],
+  "hash_chain_tip": "sha256:51d2781ef15e19b9547953a98447eac3cfa7421505ba469ef1124fadac4b6909"
+}
