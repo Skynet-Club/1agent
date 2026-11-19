@@ -37,9 +37,9 @@ const PANEL_BG: Color = Color::Rgb(0x08, 0x14, 0x0d);
 const PANEL_GREEN: Color = MIL_GREEN_RULE;
 const PANEL_TEXT_GREEN: Color = MIL_GREEN_DIM;
 const INPUT_BG: Color = PANEL_BG;
-const CODE_BG: Color = Color::Indexed(236);
-const CODE_ADDED_BG: Color = Color::Indexed(22);
-const CODE_REMOVED_BG: Color = Color::Indexed(52);
+const CODE_BG: Color = Color::Rgb(0x0c, 0x18, 0x0f);
+const CODE_ADDED_BG: Color = Color::Rgb(0x12, 0x2a, 0x18);
+const CODE_REMOVED_BG: Color = Color::Rgb(0x2a, 0x14, 0x14);
 const MUTED_TEXT: Color = Color::Indexed(245);
 /// Military-green palette shared with the CLI help output. Keep these RGB
 /// values in sync with `MIL_GREEN*` in `main.rs` and `tui_terminal.rs`.
@@ -8414,6 +8414,13 @@ mod tests {
                 .contains(Modifier::DIM)
         );
         assert_eq!(tone_style(TuiTone::User).bg, Some(PANEL_BG));
+    }
+
+    #[test]
+    fn code_fence_uses_the_dark_military_green_palette() {
+        assert_eq!(CODE_BG, Color::Rgb(0x0c, 0x18, 0x0f));
+        assert_ne!(CODE_BG, PANEL_BG);
+        assert_ne!(CODE_BG, APP_BG);
     }
 
     #[test]
