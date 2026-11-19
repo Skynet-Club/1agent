@@ -2944,11 +2944,17 @@ enum OntologyCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Print the built-in ActionType registry.
+    /// Print the built-in ActionType registry or its generated tool specs.
     #[command(about = "列出本体动作 · List ontology actions")]
     Actions {
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Print generated ToolSpec JSON instead of the registry.
+        #[arg(long, conflicts_with = "manifests")]
+        tools: bool,
+        /// Print generated CapabilityManifest JSON instead of the registry.
+        #[arg(long, conflicts_with = "tools")]
+        manifests: bool,
     },
     /// Print the built-in data bindings or their coverage report.
     #[command(about = "查看本体绑定 · Inspect ontology bindings")]
@@ -8936,8 +8942,33 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&value)?);
                 }
             }
-            OntologyCommand::Actions { out } => {
-                let value = first_principles_agent::ontology::builtin_actions();
+            OntologyCommand::Actions {
+                out,
+                tools,
+                manifests,
+            } => {
+                let value = if tools || manifests {
+                    let registry = first_principles_agent::ontology::try_builtin_action_registry()?;
+                    if tools {
+                        serde_json::to_value(
+                            registry
+                                .actions
+                                .iter()
+                                .map(|action| action.tool_spec())
+                                .collect::<Vec<_>>(),
+                        )?
+                    } else {
+                        serde_json::to_value(
+                            registry
+                                .actions
+                                .iter()
+                                .map(|action| action.capability_manifest())
+                                .collect::<Vec<_>>(),
+                        )?
+                    }
+                } else {
+                    first_principles_agent::ontology::builtin_actions()
+                };
                 if let Some(path) = out {
                     let bytes = serde_json::to_vec_pretty(&value)?;
                     write_private_file(&path, &bytes)?;

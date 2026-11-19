@@ -30,8 +30,8 @@ runtime behavior changed.
   `code.prepare_release`.
 - Each action carries parameters JSON Schema, preconditions, risk,
   reversibility, approval policy, side effects, postconditions and idempotency.
-- `1agent ontology actions` lists the registry; `ActionDefinition` can generate
-  a `ToolSpec` and a `CapabilityManifest` for the capability compiler.
+- `1agent ontology actions` lists the registry; `--tools` prints generated
+  ToolSpec JSON and `--manifests` prints generated CapabilityManifest JSON.
 - This is read-only registry data; runtime typed-tool registration and gating
   are not wired yet.
 
@@ -45,7 +45,7 @@ runtime behavior changed.
 | real journal smoke | Decision + Outcome nodes exported and validated |
 | claims | 264 (240/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`.
 
 ## Not in this slice
 
