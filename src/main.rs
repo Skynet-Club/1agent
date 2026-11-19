@@ -25909,6 +25909,11 @@ fn append_work_events(
                 );
             }
             JournalEventKind::ToolObserved { observation } => {
+                if let Some((title, rows)) = memory_panel_for(observation) {
+                    state.push_panel(title, rows, TuiTone::Memory);
+                    *last_seq = Some(event.seq);
+                    continue;
+                }
                 let tone = if observation.status == ToolStatus::Ok {
                     TuiTone::Success
                 } else {
@@ -26094,6 +26099,144 @@ fn file_change_detail(observation: &ToolObservation) -> Option<String> {
         }
     }
     Some(detail)
+}
+
+/// Turn a successful memory tool observation into one fence. Returns `None` for
+/// other tools or unparseable content so the normal work row remains the
+/// fallback; a failed memory call is never hidden inside a friendly panel.
+fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(String, TuiTone)>)> {
+    if observation.status != ToolStatus::Ok {
+        return None;
+    }
+    let value: Value = serde_json::from_str(&observation.content).ok()?;
+    match observation.tool.as_str() {
+        "memory_recall" => {
+            let matches = value.get("matches")?.as_array()?;
+            let mut rows = Vec::new();
+            if matches.is_empty() {
+                rows.push(("○ 没有 active 记忆".into(), TuiTone::Supplementary));
+            }
+            for hit in matches.iter().take(5) {
+                let id = hit
+                    .get("memory_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                let kind = hit.get("kind").and_then(Value::as_str).unwrap_or("?");
+                let content = bounded_tui_text(
+                    hit.get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    60,
+                );
+                let confidence = hit.get("confidence").and_then(Value::as_u64).unwrap_or(0);
+                let stale = hit.get("superseded_by").and_then(Value::as_str).is_some()
+                    || hit.get("soft_forgotten_ms").is_some_and(|v| !v.is_null())
+                    || hit.get("hard_forgotten_ms").is_some_and(|v| !v.is_null());
+                let (marker, tone) = if stale {
+                    ("○", TuiTone::Supplementary)
+                } else {
+                    ("●", TuiTone::Memory)
+                };
+                rows.push((
+                    format!(
+                        "{marker} {kind} · {content} · conf {confidence} · {}",
+                        short_memory_id(id)
+                    ),
+                    tone,
+                ));
+            }
+            rows.push((
+                "记忆是证据，不是指令；当前用户消息优先".into(),
+                TuiTone::Muted,
+            ));
+            Some((format!("记忆 · {} 命中", matches.len()), rows))
+        }
+        "user_model" => {
+            let model = value.get("user_model")?;
+            let mut rows = Vec::new();
+            if let Some(preferences) = model.get("preferences").and_then(Value::as_object) {
+                for (key, preference) in preferences.iter().take(3) {
+                    let value = preference
+                        .get("value")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let confidence = preference
+                        .get("confidence")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    let id = preference
+                        .get("source_memory_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    rows.push((
+                        format!(
+                            "● 偏好 {key}={value} · conf {confidence} · {}",
+                            short_memory_id(id)
+                        ),
+                        TuiTone::Memory,
+                    ));
+                }
+            }
+            if let Some(boundaries) = model.get("boundaries").and_then(Value::as_array) {
+                for boundary in boundaries.iter().take(3) {
+                    let rule = boundary
+                        .get("rule")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    rows.push((format!("● 边界 {rule}"), TuiTone::Memory));
+                }
+            }
+            if let Some(stale) = value
+                .get("snapshot")
+                .and_then(|snapshot| snapshot.get("stale_preferences"))
+                .and_then(Value::as_array)
+            {
+                for preference in stale.iter().filter_map(Value::as_str) {
+                    rows.push((format!("○ 过期偏好 {preference}"), TuiTone::Supplementary));
+                }
+            }
+            if rows.is_empty() {
+                rows.push(("○ 暂无偏好或边界".into(), TuiTone::Supplementary));
+            }
+            Some(("用户模型".into(), rows))
+        }
+        "memory_why" => {
+            let record = value.get("record")?;
+            let id = record
+                .get("memory_id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let kind = record.get("kind").and_then(Value::as_str).unwrap_or("?");
+            let content = bounded_tui_text(
+                record
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                60,
+            );
+            let source = record
+                .get("source")
+                .and_then(|source| source.get("event_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let mut rows = vec![(
+                format!("● {kind} · {content} · {source} · {}", short_memory_id(id)),
+                TuiTone::Memory,
+            )];
+            let events = value
+                .get("events")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
+            rows.push((format!("● 近 {events} 条 journal 事件"), TuiTone::Memory));
+            Some(("记忆来源".into(), rows))
+        }
+        _ => None,
+    }
+}
+
+fn short_memory_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
 }
 
 fn work_result_detail(observation: &ToolObservation) -> String {
@@ -28600,6 +28743,43 @@ mod tui_rendering_tests {
             )),
             "✓ 已抓取 example.com（HTTP 200）"
         );
+    }
+
+    #[test]
+    fn memory_panel_marks_active_and_stale_records() {
+        let observation = first_principles_agent::ToolObservation {
+            call_id: "call-1".into(),
+            tool: "memory_recall".into(),
+            status: ToolStatus::Ok,
+            summary: "memory recall: 2 match(es)".into(),
+            content: serde_json::json!({
+                "configured": true,
+                "matches": [
+                    {
+                        "memory_id": "mem-active-1",
+                        "kind": "preference",
+                        "content": "editor=pnpm",
+                        "confidence": 80,
+                        "superseded_by": null
+                    },
+                    {
+                        "memory_id": "mem-stale-1",
+                        "kind": "fact",
+                        "content": "1.0 is GA",
+                        "confidence": 50,
+                        "superseded_by": "mem-active-1"
+                    }
+                ]
+            })
+            .to_string(),
+            error_code: None,
+            metadata: Default::default(),
+        };
+        let (title, rows) = memory_panel_for(&observation).expect("memory panel");
+        assert_eq!(title, "记忆 · 2 命中");
+        assert_eq!(rows[0].1, TuiTone::Memory);
+        assert_eq!(rows[1].1, TuiTone::Supplementary);
+        assert!(rows.iter().any(|(text, _)| text.contains("editor=pnpm")));
     }
 
     #[test]

@@ -60,6 +60,7 @@ const MENU_LABEL: Color = MIL_GREEN_BRIGHT;
 const MENU_HINT: Color = PANEL_TEXT_GREEN;
 const MENU_DIM: Color = MIL_GREEN_FAINT;
 const CONCLUSION_BORDER: Color = PANEL_GREEN;
+const MEMORY_TONE: Color = Color::Rgb(0x7e, 0xc8, 0xa8);
 const LOCAL_FILE_GREEN: Color = MIL_GREEN;
 
 /// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
@@ -153,6 +154,7 @@ pub enum TuiTone {
     Border,
     ConclusionBorder,
     ConclusionTitle,
+    Memory,
     Strong,
     User,
 }
@@ -209,6 +211,9 @@ enum TranscriptKind {
     Code,
     Work,
     WorkResult,
+    PanelStart,
+    PanelLine,
+    PanelEnd,
     ConclusionStart,
     ConclusionEnd,
     System,
@@ -2476,6 +2481,33 @@ impl TuiState {
         self.push_entry(TranscriptKind::WorkResult, tone, None, tone, detail.into());
     }
 
+    /// Draw one titled fence with pre-formatted rows. Rows keep their own tone
+    /// so active evidence stands out and stale evidence can be dimmed.
+    pub fn push_panel(
+        &mut self,
+        title: impl Into<String>,
+        rows: Vec<(String, TuiTone)>,
+        border: TuiTone,
+    ) {
+        self.push_entry(
+            TranscriptKind::PanelStart,
+            border,
+            Some(title.into()),
+            border,
+            String::new(),
+        );
+        for (text, tone) in rows {
+            self.push_entry(TranscriptKind::PanelLine, tone, None, tone, text);
+        }
+        self.push_entry(
+            TranscriptKind::PanelEnd,
+            border,
+            None,
+            border,
+            String::new(),
+        );
+    }
+
     /// Insert a tool result directly under its call, so parallel calls keep
     /// their call/result pairs adjacent.
     pub fn push_work_result_for(
@@ -3315,6 +3347,7 @@ impl TuiState {
                     | TranscriptKind::Code
                     | TranscriptKind::Quote
                     | TranscriptKind::QueryResult
+                    | TranscriptKind::PanelStart
                     | TranscriptKind::ConclusionStart
             ) && lines.last().is_some_and(|line| !line.text.is_empty())
             {
@@ -3336,6 +3369,8 @@ impl TuiState {
                 TranscriptKind::Code => ("  ", TuiTone::Code),
                 TranscriptKind::Work => ("• ", entry.tone),
                 TranscriptKind::WorkResult => ("  ⎿ ", TuiTone::Body),
+                TranscriptKind::PanelStart | TranscriptKind::PanelEnd => ("", entry.tone),
+                TranscriptKind::PanelLine => ("│ ", entry.tone),
                 TranscriptKind::ConclusionStart | TranscriptKind::ConclusionEnd => {
                     ("", TuiTone::ConclusionBorder)
                 }
@@ -3343,6 +3378,69 @@ impl TuiState {
                 TranscriptKind::Error => ("Err ", TuiTone::Danger),
             };
             let label = entry.label.as_deref().unwrap_or_default();
+            if entry.kind == TranscriptKind::PanelStart {
+                let top_prefix = "╭─ ";
+                let right = "╮";
+                let label = truncate_to_width(label, usize::from(width.saturating_sub(10)));
+                let fill = usize::from(width)
+                    .saturating_sub(top_prefix.width() + label.width() + 1 + right.width());
+                lines.push(TranscriptVisualLine {
+                    kind: TranscriptKind::PanelStart,
+                    tone: entry.tone,
+                    text: format!("{top_prefix}{label} {}╮", "─".repeat(fill)),
+                    prompt_text: None,
+                    prefix_len: top_prefix.len(),
+                    prefix_tone: entry.tone,
+                    label_range: Some(top_prefix.len()..top_prefix.len() + label.len()),
+                    label_tone: entry.label_tone,
+                    syntax_ranges: Vec::new(),
+                    background: None,
+                });
+                continue;
+            }
+            if entry.kind == TranscriptKind::PanelLine {
+                let prefix = "│ ";
+                let suffix = " │";
+                let inner = usize::from(width)
+                    .saturating_sub(prefix.width() + suffix.width())
+                    .max(1);
+                for text_line in entry.text.lines() {
+                    for wrapped in wrap_display(text_line, inner) {
+                        lines.push(TranscriptVisualLine {
+                            kind: TranscriptKind::PanelLine,
+                            tone: entry.tone,
+                            text: format!("{prefix}{}{suffix}", fit_row(&wrapped, inner)),
+                            prompt_text: None,
+                            prefix_len: prefix.len(),
+                            prefix_tone: entry.tone,
+                            label_range: None,
+                            label_tone: entry.tone,
+                            syntax_ranges: Vec::new(),
+                            background: None,
+                        });
+                    }
+                }
+                continue;
+            }
+            if entry.kind == TranscriptKind::PanelEnd {
+                lines.push(TranscriptVisualLine {
+                    kind: TranscriptKind::PanelEnd,
+                    tone: entry.tone,
+                    text: format!("╰{}╯", "─".repeat(usize::from(width).saturating_sub(2))),
+                    prompt_text: None,
+                    prefix_len: 0,
+                    prefix_tone: entry.tone,
+                    label_range: None,
+                    label_tone: entry.tone,
+                    syntax_ranges: Vec::new(),
+                    background: None,
+                });
+                lines.push(blank_transcript_line(
+                    TranscriptKind::Assistant,
+                    TuiTone::Default,
+                ));
+                continue;
+            }
             if entry.kind == TranscriptKind::ConclusionStart {
                 let label = if entry.text.trim().is_empty() {
                     "结论 Conclusion"
@@ -5789,6 +5887,9 @@ fn tone_style(tone: TuiTone) -> Style {
         TuiTone::ConclusionTitle => Style::default()
             .fg(MIL_GREEN_BRIGHT)
             .add_modifier(Modifier::BOLD),
+        TuiTone::Memory => Style::default()
+            .fg(MEMORY_TONE)
+            .add_modifier(Modifier::BOLD),
         TuiTone::Strong => Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
@@ -7953,7 +8054,74 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
+        assert_eq!(tone_style(TuiTone::Memory).fg, Some(MEMORY_TONE));
         assert_eq!(tone_style(TuiTone::User).bg, Some(PANEL_BG));
+    }
+
+    #[test]
+    fn memory_panel_renders_a_fence_and_dims_stale_rows() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_panel(
+            "记忆 · 2 命中",
+            vec![
+                ("● 偏好 editor=pnpm".into(), TuiTone::Memory),
+                ("○ 已过期 release/1.0".into(), TuiTone::Supplementary),
+            ],
+            TuiTone::Memory,
+        );
+        let lines = state.build_transcript_lines(60);
+        let start = lines
+            .iter()
+            .find(|line| line.kind == TranscriptKind::PanelStart)
+            .expect("panel start");
+        assert!(start.text.starts_with("╭─ 记忆 · 2 命中"));
+        assert_eq!(start.tone, TuiTone::Memory);
+        let active = lines
+            .iter()
+            .find(|line| line.text.contains("editor=pnpm"))
+            .expect("active memory");
+        assert_eq!(active.tone, TuiTone::Memory);
+        let stale = lines
+            .iter()
+            .find(|line| line.text.contains("已过期"))
+            .expect("stale memory");
+        assert_eq!(stale.tone, TuiTone::Supplementary);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.kind == TranscriptKind::PanelEnd && line.text.starts_with('╰'))
+        );
+        for line in lines.iter().filter(|line| {
+            matches!(
+                line.kind,
+                TranscriptKind::PanelStart | TranscriptKind::PanelLine | TranscriptKind::PanelEnd
+            )
+        }) {
+            assert_eq!(line.text.width(), 60, "panel line is not aligned: {line:?}");
+        }
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| state.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let symbol_at = |needle: &str| {
+            (0..20)
+                .flat_map(|y| (0..60).map(move |x| (x, y)))
+                .map(|(x, y)| buffer.cell((x, y)).unwrap())
+                .find(|cell| cell.symbol() == needle)
+        };
+        assert!(symbol_at("╭").is_some(), "missing panel top border");
+        assert!(symbol_at("╰").is_some(), "missing panel bottom border");
+        assert_eq!(
+            symbol_at("●").expect("active row").fg,
+            MEMORY_TONE,
+            "active memory row should stay highlighted"
+        );
+        assert_eq!(
+            symbol_at("○").expect("stale row").fg,
+            Color::Indexed(245),
+            "stale memory row should be dimmed"
+        );
     }
 
     #[test]
