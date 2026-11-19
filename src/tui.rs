@@ -8350,10 +8350,10 @@ mod tests {
     #[test]
     fn phase_fences_wrap_work_and_close_on_the_next_phase() {
         let mut state = TuiState::new("mock", 6, 120);
-        state.begin_phase("阶段 1");
-        state.push_work(TuiActivityKind::Requesting, "第 1 步 · 上下文 14.0k");
-        state.begin_phase("阶段 2");
-        state.push_work(TuiActivityKind::Requesting, "第 2 步 · 上下文 16.0k");
+        state.begin_phase("模型请求 · 第 1 步 · 上下文 14.0k");
+        state.push_work(TuiActivityKind::CallingTool, "session_search");
+        state.begin_phase("模型请求 · 第 2 步 · 上下文 16.0k");
+        state.push_work(TuiActivityKind::CallingTool, "memory_recall");
         state.end_phase();
         let lines = state.build_transcript_lines(60);
         let starts = lines
@@ -8361,8 +8361,8 @@ mod tests {
             .filter(|line| line.kind == TranscriptKind::PanelStart)
             .collect::<Vec<_>>();
         assert_eq!(starts.len(), 2);
-        assert!(starts[0].text.starts_with("╭╌ 阶段 1"));
-        assert!(starts[1].text.starts_with("╭╌ 阶段 2"));
+        assert!(starts[0].text.starts_with("╭╌ 模型请求 · 第 1 步"));
+        assert!(starts[1].text.starts_with("╭╌ 模型请求 · 第 2 步"));
         assert_eq!(
             lines
                 .iter()

@@ -25857,20 +25857,13 @@ fn append_work_events(
             } else {
                 format!("第 {step} 步")
             };
-            state.begin_phase(format!("阶段 {step}"));
-            state.push_work(TuiActivityKind::Requesting, detail);
+            state.begin_phase(format!("模型请求 · {detail}"));
             // Mark the request event consumed before `continue`; otherwise the
             // next event causes this row to be appended a second time.
             *last_seq = Some(event.seq);
             continue;
         }
         match &event.event {
-            JournalEventKind::RunStarted { .. } => {
-                state.push_work(TuiActivityKind::Understanding, "解析目标与约束");
-            }
-            JournalEventKind::RoutePlanned { .. } => {
-                state.push_work(TuiActivityKind::Planning, "任务计划已生成");
-            }
             JournalEventKind::ModelResponded { response } => {
                 let mut parts = Vec::new();
                 let final_answer = matches!(
