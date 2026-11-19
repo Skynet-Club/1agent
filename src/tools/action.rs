@@ -30,6 +30,8 @@ pub struct ProposalReceipt {
     pub decision: String,
     pub actor: String,
     #[serde(default)]
+    pub action_version: String,
+    #[serde(default)]
     pub reason: Option<String>,
     pub proposal_sha256: String,
     pub decided_at_unix_ms: u128,
@@ -69,6 +71,10 @@ pub fn decide_proposal(
     if proposal["status"] != "proposed" {
         return Err("proposal is not in proposed status".into());
     }
+    let action_version = proposal["action_version"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     let proposal_id = proposal["proposal_id"]
         .as_str()
         .filter(|value| !value.trim().is_empty())
@@ -94,6 +100,7 @@ pub fn decide_proposal(
         proposal_id,
         decision: decision.into(),
         actor: actor.into(),
+        action_version,
         reason: reason
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -207,6 +214,7 @@ impl AgentTool for CodeProposeChangeTool {
             "schema": "1ao.change-proposal/v1",
             "proposal_id": proposal_id,
             "action_type": "code.propose_change",
+            "action_version": self.action.version,
             "status": "proposed",
             "summary": summary,
             "paths": args.paths,
@@ -342,6 +350,7 @@ impl AgentTool for CodeRunChecksTool {
             "schema": "1ao.check-report/v1",
             "proposal_id": args.proposal_id,
             "proposal_sha256": proposal_sha256,
+            "action_version": self.action.version,
             "status": if passed { "passed" } else { "failed" },
             "files": files,
             "checked_unix_ms": SystemTime::now()
@@ -442,7 +451,7 @@ impl AgentTool for CodePrepareReleaseTool {
         let proposal_path = root
             .join(".1a/proposals")
             .join(format!("{}.json", args.proposal_id));
-        let (_proposal, _proposal_bytes, proposal_sha256) = read_proposal(&proposal_path)?;
+        let (proposal, _proposal_bytes, proposal_sha256) = read_proposal(&proposal_path)?;
         let approval_path = root
             .join(".1a/approvals")
             .join(format!("{}.json", args.proposal_id));
@@ -457,6 +466,15 @@ impl AgentTool for CodePrepareReleaseTool {
         if approval.proposal_id != args.proposal_id {
             return Err(ToolError::Failed(
                 "approval receipt proposal id does not match".into(),
+            ));
+        }
+        let proposal_version = proposal["action_version"].as_str().unwrap_or_default();
+        if !approval.action_version.is_empty()
+            && !proposal_version.is_empty()
+            && approval.action_version != proposal_version
+        {
+            return Err(ToolError::Failed(
+                "approval receipt action version does not match".into(),
             ));
         }
         let check_path = root
@@ -496,6 +514,7 @@ impl AgentTool for CodePrepareReleaseTool {
             "version": version,
             "status": "prepared",
             "proposal_sha256": proposal_sha256,
+            "action_version": self.action.version,
             "approval_sha256": hex::encode(Sha256::digest(&approval_bytes)),
             "check_report_sha256": hex::encode(Sha256::digest(&check_bytes)),
             "files": check_report["files"].clone(),
@@ -685,6 +704,7 @@ mod tests {
         let proposal: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(proposal["status"], "proposed");
         assert_eq!(proposal["paths"][0], "src/parser.rs");
+        assert_eq!(proposal["action_version"], "1");
         assert_eq!(
             outcome.metadata["sha256"],
             hex::encode(Sha256::digest(&bytes))
@@ -724,6 +744,7 @@ mod tests {
             serde_json::to_vec(&json!({
                 "schema": "1ao.change-proposal/v1",
                 "proposal_id": "p1",
+                "action_version": "1",
                 "status": "proposed",
                 "summary": "test",
                 "paths": ["src/lib.rs"]
@@ -741,6 +762,7 @@ mod tests {
         let receipt = decide_proposal(&proposal, "approve", "alice", Some("looks good")).unwrap();
         assert_eq!(receipt.status, "approved");
         assert_eq!(receipt.actor, "alice");
+        assert_eq!(receipt.action_version, "1");
         assert_eq!(receipt.proposal_sha256.len(), 64);
         let path = dir.path().join(".1a/approvals/p1.json");
         assert!(path.exists());
@@ -827,6 +849,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
         assert_eq!(manifest["status"], "prepared");
         assert_eq!(manifest["version"], "1.0.0");
+        assert_eq!(manifest["action_version"], "1");
         assert_eq!(manifest["proposal_sha256"], receipt.proposal_sha256);
         assert_eq!(manifest["files"][0]["path"], "src/lib.rs");
     }
@@ -851,6 +874,161 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(checks.metadata["status"], "failed");
+    }
+
+    #[tokio::test]
+    async fn checks_and_release_reject_read_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut permissions = permissions(dir.path());
+        permissions.allow_write = false;
+        let checks = CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": "p1"}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(checks, ToolError::PermissionDenied(_)));
+        let release = CodePrepareReleaseTool::new(action_by_id("code.prepare_release"))
+            .execute(
+                json!({"proposal_id": "p1"}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(release, ToolError::PermissionDenied(_)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn checks_fail_when_a_symlink_escapes_the_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let victim = outside.path().join("victim.txt");
+        std::fs::write(&victim, "outside").unwrap();
+        symlink(&victim, dir.path().join("link.txt")).unwrap();
+        let proposal = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({"summary": "escape", "paths": ["link.txt"]}),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let checks = CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": proposal.metadata["proposal_id"]}),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(checks.metadata["status"], "failed");
+    }
+
+    #[tokio::test]
+    async fn release_rejects_a_stale_approval_after_the_proposal_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "fn old() {}").unwrap();
+        let permissions = permissions(dir.path());
+        let proposal = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({"summary": "old", "paths": ["src/lib.rs"]}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let proposal_id = proposal.metadata["proposal_id"].clone();
+        let proposal_path = PathBuf::from(&proposal.metadata["path"]);
+        CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        decide_proposal(&proposal_path, "approve", "alice", None).unwrap();
+        std::fs::write(&proposal_path, b"{}").unwrap();
+        let error = CodePrepareReleaseTool::new(action_by_id("code.prepare_release"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("proposal") || error.to_string().contains("approval"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn release_rejects_a_tampered_check_report() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "fn ok() {}").unwrap();
+        let permissions = permissions(dir.path());
+        let proposal = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({"summary": "ok", "paths": ["src/lib.rs"]}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let proposal_id = proposal.metadata["proposal_id"].clone();
+        let proposal_path = PathBuf::from(&proposal.metadata["path"]);
+        CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        decide_proposal(&proposal_path, "approve", "alice", None).unwrap();
+        let check_path = dir
+            .path()
+            .join(".1a/checks")
+            .join(format!("{proposal_id}.json"));
+        let mut report: Value =
+            serde_json::from_slice(&std::fs::read(&check_path).unwrap()).unwrap();
+        report["status"] = json!("failed");
+        std::fs::write(&check_path, serde_json::to_vec(&report).unwrap()).unwrap();
+        let error = CodePrepareReleaseTool::new(action_by_id("code.prepare_release"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("check report"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn corrupt_proposal_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".1a/proposals/p1.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"not json").unwrap();
+        let error = CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": "p1"}),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid proposal"), "{error}");
     }
 
     #[tokio::test]

@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://1ash.dev/schemas/run/v1",
+  "title": "1ASH Run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "task_set",
+    "subject",
+    "runner",
+    "judge",
+    "output"
+  ],
+  "properties": {
+    "schema": {
+      "const": "1ash.run/v1"
+    },
+    "task_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "harness_version",
+        "agent_version",
+        "provider",
+        "model",
+        "model_snapshot",
+        "temperature",
+        "seed",
+        "tools",
+        "permissions"
+      ],
+      "properties": {
+        "kind": {
+          "const": "1agent"
+        },
+        "harness_version": {
+          "type": "string"
+        },
+        "agent_version": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model_snapshot": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "tools": {
+          "type": "string"
+        },
+        "permissions": {
+          "type": "object",
+          "required": [
+            "write",
+            "network"
+          ],
+          "properties": {
+            "write": {
+              "type": "boolean"
+            },
+            "network": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "sandbox",
+        "network",
+        "timeout_s"
+      ],
+      "properties": {
+        "backend": {
+          "enum": [
+            "inspect",
+            "harbor",
+            "native"
+          ]
+        },
+        "sandbox": {
+          "type": "string"
+        },
+        "network": {
+          "enum": [
+            "none",
+            "allowlist",
+            "full"
+          ]
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "judge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "model": {
+          "type": "string"
+        },
+        "prompt_sha256": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dir",
+        "formats"
+      ],
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "json",
+              "markdown"
+            ]
+          },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}

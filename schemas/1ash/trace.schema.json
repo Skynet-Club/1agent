@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://1ash.dev/schemas/trace/v1",
+  "title": "1ASH Trace Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "seq",
+    "timestamp_unix_ms",
+    "type",
+    "data"
+  ],
+  "properties": {
+    "schema": {
+      "const": "1ash.trace/v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestamp_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "type": {
+      "enum": [
+        "run_started",
+        "run_stopped",
+        "model_request",
+        "model_response",
+        "tool_call",
+        "tool_result",
+        "artifact_written",
+        "artifact_verified",
+        "approval_requested",
+        "approval_decided",
+        "policy_denied",
+        "context_compacted",
+        "session_handoff",
+        "subagent_spawned",
+        "subagent_finished",
+        "budget_updated",
+        "verification_failed",
+        "recovery_attempt"
+      ]
+    },
+    "span_id": {
+      "type": "string"
+    },
+    "parent_span_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  }
+}

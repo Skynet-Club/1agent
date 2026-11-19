@@ -64,17 +64,27 @@ runtime behavior changed.
   a separate future action.
 - `code.approve_change` remains a human CLI/library operation, not a model tool.
 
+## P1 hardening (2026-11-19)
+
+- Added negative tests: read-only checks/release, path traversal/absolute
+  paths, symlink escape, corrupt proposal, stale approval after proposal
+  change, tampered check report, missing approval.
+- `proposal`, `receipt`, `check report` and `release manifest` now carry
+  `action_version`; approval version mismatch fails release.
+- Added capability manifests for the four typed actions and a resolver test
+  selecting `code.propose_change`.
+
 ## Verification
 
 | Check | Result |
 |---|---|
-| `./scripts/verify.sh` | **pass**; 1666 total, 0 failed, 13 ignored |
-| ontology/unit tests | 34 ontology + 7 action tests |
+| `./scripts/verify.sh` | **pass**; 1675 total, 0 failed, 13 ignored |
+| ontology/unit tests | 34 ontology + 12 action tests + capability selection |
 | ontology CLI tests | 29 passed |
 | real journal smoke | Decision + Outcome nodes exported and validated |
-| claims | 266 (242/16/8) |
+| claims | 267 (243/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`, `verify-1ao-proposal-approval.log`, `verify-1ao-release-tools.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`, `verify-1ao-action-registry.log`, `verify-1ao-action-tools.log`, `verify-1ao-typed-tool.log`, `verify-1ao-proposal.log`, `verify-1ao-proposal-approval.log`, `verify-1ao-release-tools.log`, `verify-p1-1ash-m0.log`.
 
 ## Not in this slice
 

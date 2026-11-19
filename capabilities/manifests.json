@@ -535,6 +535,120 @@
         "sha256",
         "optional preview"
       ]
+    },
+    {
+      "id": "action.code.propose_change",
+      "name": "code.propose_change",
+      "kind": "action",
+      "source": "1ao.action-registry",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "propose",
+          "inputs": [
+            "change_request"
+          ],
+          "outputs": [
+            "change_proposal"
+          ],
+          "constraints": [
+            "local",
+            "write"
+          ]
+        }
+      ],
+      "verification": [
+        "proposal artifact",
+        "diff sha256"
+      ]
+    },
+    {
+      "id": "action.code.run_checks",
+      "name": "code.run_checks",
+      "kind": "action",
+      "source": "1ao.action-registry",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "check",
+          "inputs": [
+            "change_proposal"
+          ],
+          "outputs": [
+            "check_report"
+          ],
+          "constraints": [
+            "local",
+            "network_off"
+          ]
+        }
+      ],
+      "verification": [
+        "check report",
+        "file sha256"
+      ]
+    },
+    {
+      "id": "action.code.approve_change",
+      "name": "code.approve_change",
+      "kind": "action",
+      "source": "1ao.action-registry",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "approve",
+          "inputs": [
+            "change_proposal",
+            "check_report"
+          ],
+          "outputs": [
+            "approval_receipt"
+          ],
+          "constraints": [
+            "human",
+            "local"
+          ]
+        }
+      ],
+      "verification": [
+        "approval receipt",
+        "approver"
+      ]
+    },
+    {
+      "id": "action.code.prepare_release",
+      "name": "code.prepare_release",
+      "kind": "action",
+      "source": "1ao.action-registry",
+      "installed": true,
+      "trust": "core",
+      "license": "internal",
+      "capabilities": [
+        {
+          "verb": "package",
+          "inputs": [
+            "approval_receipt",
+            "check_report"
+          ],
+          "outputs": [
+            "release_manifest"
+          ],
+          "constraints": [
+            "local",
+            "no_external_publish"
+          ]
+        }
+      ],
+      "verification": [
+        "release manifest",
+        "checksums"
+      ]
     }
   ]
 }

@@ -318,6 +318,7 @@ file: <路径>              → 文件必须存在
 | `/setting` 两级设置面板（`/settings` 别名）提供预算/权限/外观/模型/恢复，8 套 TUI 主题在二级选择、数值在面板内编辑；主题存 `appearance.theme`，全局恢复先备份并要求 confirm | cmd: cargo test --bin first-principles-agent setting_ && cargo test --lib tui_theme::tests && cargo test --test cli_e2e tui_setting_menu_shows_values_and_switches_theme | ✅ | 主题仅 TUI，CLI help 不变；主题为静态表，无自定义主题编辑器 |
 | 1AO Action Registry 定义 4 个代码发布 ActionType；`propose_change` 写 0600 提案，`run_checks` 写检查报告，`prepare_release` 在人工批准+检查通过后写本地 release manifest；均经 ExecutionGate 并导出 Decision/Action/Proposal lineage | cmd: cargo test --lib tools::action::tests && cargo test --lib typed_propose_change_runs_through_gate_and_exports_decision_lineage && cargo test --test ontology_cli | ✅ | `approve_change` 是人类 CLI 回执，不是模型工具；release 只是本地 manifest，不打包/不发布外部 |
 | 人类可为 staged change proposal 记录 approve/reject 回执（`--yes`，0600，幂等），模型工具不能自批 | cmd: cargo test --lib tools::action::tests::human_can_approve_a_proposal_once && cargo test --test ontology_cli human_can_decide_a_staged_change_proposal | ✅ | 只记录回执，不执行 merge/release；`code.approve_change` 不是模型工具 |
+| 1ASH v1 四套 JSON Schema（task/run/trace/report）与示例落地；结构测试与 jsonschema 校验通过 | cmd: cargo test --test 1ash_schema && python3 scripts/check-1ash-schemas.py | ✅ | 只是 M0 契约；无 runner/任务集，不是 1ASH 实现 |
 
 ## 覆盖率
 

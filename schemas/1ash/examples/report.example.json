@@ -1,0 +1,49 @@
+{
+  "schema": "1ash.report/v1",
+  "report_id": "report-example",
+  "generated_at": "2026-11-19T00:00:00Z",
+  "harness": {
+    "name": "1ASH",
+    "version": "0.1.0"
+  },
+  "task_set": {
+    "name": "1ash-core",
+    "version": "0.1.0",
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "subject": {
+    "agent": "1agent",
+    "version": "1.1.0",
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "model_snapshot": "2026-11-01",
+    "config_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "environment": {
+    "image_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "network": "none",
+    "tool_versions": {
+      "rust": "1.99.1"
+    }
+  },
+  "metrics": {
+    "pass_at_1": 0.0,
+    "pass_at_k": 0.0,
+    "pass_power_k": 0.0,
+    "mean_score": 0.0,
+    "harness_score": 0.0,
+    "mean_cost_usd": 0.0,
+    "p95_latency_ms": 0,
+    "safety_asr": 0.0,
+    "confidence_intervals": {}
+  },
+  "failure_class_counts": {},
+  "harness_findings": [],
+  "limitations": [
+    "design example, not a result"
+  ],
+  "abc_checklist": {},
+  "runs": [],
+  "signatures": [],
+  "hash_chain_tip": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

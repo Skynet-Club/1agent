@@ -1,0 +1,39 @@
+{
+  "schema": "1ash.run/v1",
+  "task_set": {
+    "name": "1ash-core",
+    "version": "0.1.0",
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "subject": {
+    "kind": "1agent",
+    "harness_version": "1.1.0",
+    "agent_version": "1.1.0",
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "model_snapshot": "2026-11-01",
+    "temperature": 0,
+    "seed": 42,
+    "tools": "native",
+    "permissions": {
+      "write": true,
+      "network": false
+    }
+  },
+  "runner": {
+    "backend": "inspect",
+    "sandbox": "docker",
+    "network": "none",
+    "timeout_s": 900
+  },
+  "judge": {
+    "enabled": false
+  },
+  "output": {
+    "dir": "runs/example",
+    "formats": [
+      "json",
+      "markdown"
+    ]
+  }
+}

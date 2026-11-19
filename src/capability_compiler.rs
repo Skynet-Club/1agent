@@ -568,4 +568,29 @@ mod tests {
                 .is_some_and(|candidate| candidate.installed)
         );
     }
+
+    #[test]
+    fn builtin_action_manifests_select_the_typed_code_release_actions() {
+        let resolution = resolve_task(
+            "propose a code change",
+            None,
+            Some(vec![CapabilityRequirement {
+                verb: "propose".into(),
+                inputs: vec!["change_request".into()],
+                outputs: vec!["change_proposal".into()],
+                constraints: Vec::new(),
+                required: true,
+            }]),
+            &["code.propose_change".into()],
+        )
+        .unwrap();
+        assert!(resolution.gaps.is_empty());
+        assert_eq!(
+            resolution.requirements[0]
+                .selected
+                .as_ref()
+                .map(|candidate| candidate.name.as_str()),
+            Some("code.propose_change")
+        );
+    }
 }

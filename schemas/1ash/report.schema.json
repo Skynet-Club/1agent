@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://1ash.dev/schemas/report/v1",
+  "title": "1ASH Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_id",
+    "generated_at",
+    "harness",
+    "task_set",
+    "subject",
+    "environment",
+    "metrics",
+    "failure_class_counts",
+    "harness_findings",
+    "limitations",
+    "abc_checklist",
+    "runs",
+    "signatures",
+    "hash_chain_tip"
+  ],
+  "properties": {
+    "schema": {
+      "const": "1ash.report/v1"
+    },
+    "report_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "harness": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "task_set": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "agent",
+        "version",
+        "provider",
+        "model",
+        "model_snapshot",
+        "config_digest"
+      ],
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model_snapshot": {
+          "type": "string"
+        },
+        "config_digest": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "image_digest",
+        "network",
+        "tool_versions"
+      ],
+      "properties": {
+        "image_digest": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "tool_versions": {
+          "type": "object"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "pass_at_1",
+        "pass_at_k",
+        "pass_power_k",
+        "mean_score",
+        "harness_score",
+        "mean_cost_usd",
+        "p95_latency_ms",
+        "safety_asr",
+        "confidence_intervals"
+      ],
+      "properties": {
+        "pass_at_1": {
+          "type": "number"
+        },
+        "pass_at_k": {
+          "type": "number"
+        },
+        "pass_power_k": {
+          "type": "number"
+        },
+        "mean_score": {
+          "type": "number"
+        },
+        "harness_score": {
+          "type": "number"
+        },
+        "mean_cost_usd": {
+          "type": "number"
+        },
+        "p95_latency_ms": {
+          "type": "number"
+        },
+        "safety_asr": {
+          "type": "number"
+        },
+        "confidence_intervals": {
+          "type": "object"
+        }
+      }
+    },
+    "failure_class_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "harness_findings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "abc_checklist": {
+      "type": "object"
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "signatures": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "hash_chain_tip": {
+      "type": "string"
+    }
+  }
+}
