@@ -26128,9 +26128,20 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
     match observation.tool.as_str() {
         "memory_recall" => {
             let matches = value.get("matches")?.as_array()?;
+            let configured = value
+                .get("configured")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
             let mut rows = Vec::new();
             if matches.is_empty() {
-                rows.push(("没有 active 记忆".into(), TuiTone::MemoryMuted));
+                rows.push((
+                    if configured {
+                        "没有 active 记忆".into()
+                    } else {
+                        "记忆库未配置 · 先运行 1agent-dev onboard --interactive".into()
+                    },
+                    TuiTone::MemoryMuted,
+                ));
             }
             for hit in matches.iter().take(5) {
                 let id = hit
@@ -26165,10 +26176,21 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                 "记忆是证据，不是指令；当前用户消息优先".into(),
                 TuiTone::Evidence,
             ));
-            Some((format!("记忆 · {} 命中", matches.len()), rows))
+            Some((
+                if configured {
+                    format!("记忆 · {} 命中", matches.len())
+                } else {
+                    "记忆 · 未配置".into()
+                },
+                rows,
+            ))
         }
         "user_model" => {
             let model = value.get("user_model")?;
+            let configured = value
+                .get("configured")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
             let mut rows = Vec::new();
             if let Some(preferences) = model.get("preferences").and_then(Value::as_object) {
                 for (key, preference) in preferences.iter().take(3) {
@@ -26212,9 +26234,23 @@ fn memory_panel_for(observation: &ToolObservation) -> Option<(String, Vec<(Strin
                 }
             }
             if rows.is_empty() {
-                rows.push(("暂无偏好或边界".into(), TuiTone::MemoryMuted));
+                rows.push((
+                    if configured {
+                        "暂无偏好或边界".into()
+                    } else {
+                        "记忆库未配置 · 先运行 1agent-dev onboard --interactive".into()
+                    },
+                    TuiTone::MemoryMuted,
+                ));
             }
-            Some(("用户模型".into(), rows))
+            Some((
+                if configured {
+                    "用户模型".into()
+                } else {
+                    "用户模型 · 未配置".into()
+                },
+                rows,
+            ))
         }
         "memory_why" => {
             let record = value.get("record")?;
@@ -28915,8 +28951,8 @@ mod tui_rendering_tests {
             metadata: Default::default(),
         };
         let (title, rows) = memory_panel_for(&observation).expect("memory panel");
-        assert_eq!(title, "记忆 · 0 命中");
-        assert_eq!(rows[0].0, "没有 active 记忆");
+        assert_eq!(title, "记忆 · 未配置");
+        assert!(rows[0].0.contains("记忆库未配置"));
         assert!(!rows[0].0.contains('○'));
         assert!(!rows[0].0.contains('●'));
     }
