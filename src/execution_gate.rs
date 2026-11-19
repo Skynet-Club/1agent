@@ -39,6 +39,7 @@ pub struct ToolAuthorization {
 pub struct ExecutionGate {
     authority: AuthorityRegistry,
     tools: BTreeMap<String, crate::tools::ToolCapability>,
+    action_metadata: BTreeMap<String, (String, Vec<String>)>,
 }
 
 impl ExecutionGate {
@@ -48,7 +49,20 @@ impl ExecutionGate {
             .into_iter()
             .map(|capability| (capability.name.clone(), capability))
             .collect();
-        Self { authority, tools }
+        let action_metadata = crate::ontology::try_builtin_action_registry()
+            .map(|registry| {
+                registry
+                    .actions
+                    .into_iter()
+                    .map(|action| (action.tool_spec().name, (action.id, action.object_types)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            authority,
+            tools,
+            action_metadata,
+        }
     }
 
     pub fn tools(&self) -> impl Iterator<Item = &crate::tools::ToolCapability> {
@@ -76,6 +90,13 @@ impl ExecutionGate {
         } else {
             PolicyAction::Read
         };
+        let (action_type, object_types) = self
+            .action_metadata
+            .get(&request.tool)
+            .cloned()
+            .map_or((None, Vec::new()), |(action_type, objects)| {
+                (Some(action_type), objects)
+            });
         let policy = self.authority.evaluate(
             &PolicyRequest {
                 actor_id: request.actor_id.clone(),
@@ -83,6 +104,8 @@ impl ExecutionGate {
                 scope: request.scope.clone(),
                 strength: request.strength,
                 tool: Some(request.tool.clone()),
+                action_type,
+                object_types,
                 risk: request.risk.max(capability.risk),
             },
             now_ms,
@@ -119,6 +142,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: vec!["read_file".into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Low,
                 expires_ms: None,
             })
@@ -151,6 +177,45 @@ mod tests {
             gate.authorize(&request("missing-tool"), 10).unwrap_err(),
             ExecutionGateError::UnknownTool("missing-tool".into())
         );
+    }
+
+    #[test]
+    fn typed_action_and_object_scopes_reach_policy() {
+        fn typed_authority(allowed_objects: &[&str]) -> AuthorityRegistry {
+            let mut authority = AuthorityRegistry::default();
+            authority
+                .register(AuthorityProfile {
+                    profile_id: "typed-profile".into(),
+                    actor_id: "actor-1".into(),
+                    scopes: vec!["repo*".into()],
+                    max_strength: MandateStrength::Write,
+                    allowed_tools: vec!["code_propose_change".into()],
+                    denied_tools: Vec::new(),
+                    allowed_action_types: vec!["code.propose_change".into()],
+                    allowed_object_types: allowed_objects
+                        .iter()
+                        .map(|value| value.to_string())
+                        .collect(),
+                    max_risk: RiskLevel::Medium,
+                    expires_ms: None,
+                })
+                .unwrap();
+            authority.bind("actor-1", "typed-profile").unwrap();
+            authority
+        }
+
+        let mut request = request("code_propose_change");
+        request.strength = MandateStrength::Write;
+        let gate = ExecutionGate::new(typed_authority(&["Change"]), &default_registry());
+        assert_eq!(
+            gate.authorize(&request, 10).unwrap().outcome,
+            PolicyOutcome::RequireApproval
+        );
+        let gate = ExecutionGate::new(typed_authority(&["Release"]), &default_registry());
+        assert!(matches!(
+            gate.authorize(&request, 10).unwrap_err(),
+            ExecutionGateError::Denied(_, _)
+        ));
     }
 
     #[test]

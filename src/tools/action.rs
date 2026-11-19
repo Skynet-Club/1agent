@@ -759,6 +759,7 @@ struct PendingMerge {
     before_mode: u32,
     after_sha256: String,
     already_applied: bool,
+    matches_after: bool,
 }
 
 #[async_trait]
@@ -996,10 +997,11 @@ impl AgentTool for CodeMergeChangeTool {
                 before_mode,
                 after_sha256,
                 already_applied,
+                matches_after,
             });
         }
         let already_count = pending.iter().filter(|file| file.already_applied).count();
-        if already_count == pending.len() {
+        if pending.iter().all(|file| file.matches_after) {
             write_merge_receipt(
                 &receipt_path,
                 &args.proposal_id,
@@ -1204,6 +1206,9 @@ fn replace_file_atomic(
     if !canonical_parent.starts_with(canonical_root) {
         return Err("target parent escapes the workspace".into());
     }
+    if canonical_control_path(canonical_root, &canonical_parent) {
+        return Err("target parent resolves into .1a or .git".into());
+    }
     if std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err("target became a symlink".into());
     }
@@ -1380,6 +1385,10 @@ fn read_proposal(path: &Path) -> Result<(Value, Vec<u8>, String), ToolError> {
 /// Resolve an existing or new target file. Existing targets must be regular
 /// files inside the canonical workspace; new targets need an existing parent
 /// directory inside it. Symlinks are rejected instead of followed.
+fn canonical_control_path(canonical_root: &Path, path: &Path) -> bool {
+    path.starts_with(canonical_root.join(".1a")) || path.starts_with(canonical_root.join(".git"))
+}
+
 fn target_path(root: &Path, canonical_root: &Path, relative: &str) -> Result<PathBuf, ToolError> {
     validate_relative_path(relative)?;
     let full = root.join(relative);
@@ -1398,6 +1407,11 @@ fn target_path(root: &Path, canonical_root: &Path, relative: &str) -> Result<Pat
                     "target `{relative}` escapes the workspace"
                 )));
             }
+            if canonical_control_path(canonical_root, &canonical) {
+                return Err(ToolError::InvalidArguments(format!(
+                    "target `{relative}` resolves into .1a or .git"
+                )));
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let parent = full
@@ -1408,9 +1422,12 @@ fn target_path(root: &Path, canonical_root: &Path, relative: &str) -> Result<Pat
                     "parent directory for `{relative}` must already exist"
                 ))
             })?;
-            if !canonical_parent.starts_with(canonical_root) || !canonical_parent.is_dir() {
+            if !canonical_parent.starts_with(canonical_root)
+                || canonical_control_path(canonical_root, &canonical_parent)
+                || !canonical_parent.is_dir()
+            {
                 return Err(ToolError::InvalidArguments(format!(
-                    "parent directory for `{relative}` escapes the workspace"
+                    "parent directory for `{relative}` is outside the workspace or inside a control area"
                 )));
             }
         }
@@ -1908,6 +1925,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn merge_completes_a_crash_with_a_noop_change() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/a.rs"), "old-a").unwrap();
+        std::fs::write(dir.path().join("src/b.rs"), "same").unwrap();
+        let permissions = permissions(dir.path());
+        let proposal = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({
+                    "summary": "noop recovery",
+                    "paths": ["src/a.rs", "src/b.rs"],
+                    "changes": [
+                        {"path": "src/a.rs", "content": "new-a"},
+                        {"path": "src/b.rs", "content": "same"}
+                    ]
+                }),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let proposal_id = proposal.metadata["proposal_id"].clone();
+        CodeRunChecksTool::new(action_by_id("code.run_checks"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        decide_proposal(
+            &PathBuf::from(&proposal.metadata["path"]),
+            "approve",
+            "alice",
+            None,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("src/a.rs"), "new-a").unwrap();
+        let merged = CodeMergeChangeTool::new(action_by_id("code.merge_change"))
+            .execute(
+                json!({"proposal_id": proposal_id}),
+                &permissions,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(merged.metadata["status"], "merged");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("src/b.rs")).unwrap(),
+            "same"
+        );
+    }
+
+    #[tokio::test]
     async fn merge_fails_closed_on_a_partial_crash() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
@@ -2018,6 +2089,29 @@ mod tests {
             std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap(),
             "tampered"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn propose_rejects_a_symlink_alias_into_the_control_ledger() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".1a/approvals")).unwrap();
+        symlink(dir.path().join(".1a"), dir.path().join("x")).unwrap();
+        let error = CodeProposeChangeTool::new(action())
+            .execute(
+                json!({
+                    "summary": "alias",
+                    "paths": ["x/approvals/C.json"],
+                    "changes": [{"path": "x/approvals/C.json", "content": "{}"}]
+                }),
+                &permissions(dir.path()),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("control area"));
     }
 
     #[cfg(unix)]

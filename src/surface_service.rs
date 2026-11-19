@@ -1440,6 +1440,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: Vec::new(),
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: None,
             })
@@ -2146,6 +2149,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: Vec::new(),
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: None,
             })

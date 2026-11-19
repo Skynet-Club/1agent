@@ -3,6 +3,36 @@
   "deliverable_hints": [
     {
       "keywords": [
+        "merge change",
+        "merge the change",
+        "merge approved change",
+        "merge the approved change",
+        "merge the approved proposal",
+        "merge the proposal",
+        "apply change",
+        "合并变更",
+        "应用变更",
+        "合并提案"
+      ],
+      "media_type": "application/json",
+      "schema": "merge-receipt/v1",
+      "requirements": [
+        {
+          "verb": "merge",
+          "inputs": [
+            "approval_receipt",
+            "check_report"
+          ],
+          "outputs": [
+            "merge_receipt"
+          ],
+          "constraints": [],
+          "required": true
+        }
+      ]
+    },
+    {
+      "keywords": [
         "propose a change",
         "change proposal",
         "code change proposal",
@@ -43,33 +73,6 @@
           ],
           "outputs": [
             "release_manifest"
-          ],
-          "constraints": [],
-          "required": true
-        }
-      ]
-    },
-    {
-      "keywords": [
-        "merge change",
-        "merge the change",
-        "merge approved change",
-        "merge the approved change",
-        "apply change",
-        "合并变更",
-        "应用变更"
-      ],
-      "media_type": "application/json",
-      "schema": "merge-receipt/v1",
-      "requirements": [
-        {
-          "verb": "merge",
-          "inputs": [
-            "approval_receipt",
-            "check_report"
-          ],
-          "outputs": [
-            "merge_receipt"
           ],
           "constraints": [],
           "required": true

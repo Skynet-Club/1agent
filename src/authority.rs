@@ -19,6 +19,8 @@ pub enum AuthorityError {
     UnsafeId,
     #[error("authority scope is empty")]
     EmptyScope,
+    #[error("authority action/object scope is invalid")]
+    InvalidScope,
     #[error("authority profile {0} already exists")]
     ProfileExists(String),
     #[error("authority profile {0} not found")]
@@ -44,6 +46,12 @@ pub struct AuthorityProfile {
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub denied_tools: Vec<String>,
+    /// Empty means no typed-action restriction. `*` allows every action type.
+    #[serde(default)]
+    pub allowed_action_types: Vec<String>,
+    /// Empty means no object-type restriction. `*` allows every object type.
+    #[serde(default)]
+    pub allowed_object_types: Vec<String>,
     pub max_risk: RiskLevel,
     #[serde(default)]
     pub expires_ms: Option<u128>,
@@ -62,6 +70,18 @@ impl AuthorityProfile {
             })
         {
             return Err(AuthorityError::EmptyScope);
+        }
+        if self
+            .allowed_action_types
+            .iter()
+            .chain(&self.allowed_object_types)
+            .any(|value| {
+                value.trim().is_empty()
+                    || value.chars().count() > 128
+                    || value.chars().any(char::is_control)
+            })
+        {
+            return Err(AuthorityError::InvalidScope);
         }
         Ok(())
     }
@@ -120,6 +140,13 @@ pub struct PolicyRequest {
     pub strength: MandateStrength,
     #[serde(default)]
     pub tool: Option<String>,
+    /// Typed action id (for example `code.propose_change`); None for ordinary
+    /// tools.
+    #[serde(default)]
+    pub action_type: Option<String>,
+    /// Object types touched by the action. Empty for ordinary tools.
+    #[serde(default)]
+    pub object_types: Vec<String>,
     pub risk: RiskLevel,
 }
 
@@ -283,6 +310,25 @@ impl AuthorityRegistry {
                 ));
             }
         }
+        if let Some(action_type) = &request.action_type
+            && !profile.allowed_action_types.is_empty()
+            && !scope_allowed(&profile.allowed_action_types, action_type)
+        {
+            return PolicyDecision::deny(format!(
+                "action type {action_type} is outside the profile allowlist"
+            ));
+        }
+        if !profile.allowed_object_types.is_empty()
+            && request
+                .object_types
+                .iter()
+                .any(|object| !scope_allowed(&profile.allowed_object_types, object))
+        {
+            return PolicyDecision::deny(format!(
+                "object types {:?} are outside the profile allowlist",
+                request.object_types
+            ));
+        }
         if matches!(
             request.action,
             PolicyAction::Write
@@ -367,6 +413,8 @@ mod tests {
                 max_strength: MandateStrength::Write,
                 allowed_tools: vec!["read-file".into(), "echo".into()],
                 denied_tools: vec!["shell".into()],
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: Some(100),
             })
@@ -382,6 +430,8 @@ mod tests {
             scope: "repo:1-agent/src".into(),
             strength: MandateStrength::ReadOnly,
             tool: Some("read-file".into()),
+            action_type: None,
+            object_types: Vec::new(),
             risk: RiskLevel::Low,
         }
     }
@@ -434,6 +484,48 @@ mod tests {
     }
 
     #[test]
+    fn action_and_object_scopes_are_enforced() {
+        let mut registry = AuthorityRegistry::default();
+        registry
+            .register(AuthorityProfile {
+                profile_id: "typed-profile".into(),
+                actor_id: "actor-1".into(),
+                scopes: vec!["repo:1-agent*".into()],
+                max_strength: MandateStrength::Write,
+                allowed_tools: vec!["code_propose_change".into()],
+                denied_tools: Vec::new(),
+                allowed_action_types: vec!["code.propose_change".into()],
+                allowed_object_types: vec!["Change".into()],
+                max_risk: RiskLevel::Medium,
+                expires_ms: None,
+            })
+            .unwrap();
+        registry.bind("actor-1", "typed-profile").unwrap();
+        let mut typed = request();
+        typed.action = PolicyAction::Write;
+        typed.strength = MandateStrength::Write;
+        typed.tool = Some("code_propose_change".into());
+        typed.action_type = Some("code.propose_change".into());
+        typed.object_types = vec!["Change".into()];
+        assert_eq!(
+            registry.evaluate(&typed, 10).outcome,
+            PolicyOutcome::RequireApproval
+        );
+        let mut wrong_action = typed.clone();
+        wrong_action.action_type = Some("code.merge_change".into());
+        assert_eq!(
+            registry.evaluate(&wrong_action, 10).outcome,
+            PolicyOutcome::Deny
+        );
+        let mut wrong_object = typed.clone();
+        wrong_object.object_types = vec!["Release".into()];
+        assert_eq!(
+            registry.evaluate(&wrong_object, 10).outcome,
+            PolicyOutcome::Deny
+        );
+    }
+
+    #[test]
     fn write_requires_approval_but_approve_is_a_control_action() {
         let registry = registry();
         let mut write = request();
@@ -463,6 +555,8 @@ mod tests {
                 max_strength: MandateStrength::Network,
                 allowed_tools: vec!["*".into()],
                 denied_tools: Vec::new(),
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::High,
                 expires_ms: None,
             })

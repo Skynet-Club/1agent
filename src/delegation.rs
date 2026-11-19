@@ -310,6 +310,8 @@ impl DelegationRegistry {
                 scope: request.domain.into(),
                 strength: request.strength,
                 tool: request.tool.map(str::to_string),
+                action_type: None,
+                object_types: Vec::new(),
                 risk: request.risk,
             },
             now_ms,
@@ -436,6 +438,9 @@ mod tests {
                 max_strength: MandateStrength::Write,
                 allowed_tools: vec!["write_file".into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: None,
             })

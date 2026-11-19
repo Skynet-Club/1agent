@@ -726,6 +726,8 @@ impl GovernedTaskGraph {
             scope: check.scope.into(),
             strength: check.strength,
             tool: check.tool.map(str::to_string),
+            action_type: None,
+            object_types: Vec::new(),
             risk: check.risk,
         };
         match self.authority.evaluate(&request, check.now_ms).outcome {
@@ -769,6 +771,8 @@ impl GovernedTaskGraph {
             scope: mandate.scope.clone(),
             strength: mandate.strength,
             tool: None,
+            action_type: None,
+            object_types: Vec::new(),
             risk: RiskLevel::Medium,
         };
         if self.standing.authorize(&request, now_ms).is_none() {
@@ -845,6 +849,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: Vec::new(),
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: None,
             })
@@ -858,6 +865,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: Vec::new(),
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: None,
             })
@@ -877,6 +887,9 @@ mod tests {
                     max_strength: MandateStrength::Write,
                     allowed_tools: Vec::new(),
                     denied_tools: Vec::new(),
+
+                    allowed_action_types: Vec::new(),
+                    allowed_object_types: Vec::new(),
                     max_risk: RiskLevel::Medium,
                     expires_ms: None,
                 })
@@ -997,6 +1010,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: Vec::new(),
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: None,
             })
@@ -1065,6 +1081,9 @@ mod tests {
                 max_strength: MandateStrength::ReadOnly,
                 allowed_tools: Vec::new(),
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Medium,
                 expires_ms: Some(5),
             })

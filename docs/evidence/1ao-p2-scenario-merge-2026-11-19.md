@@ -31,7 +31,8 @@ worktree payloads and a visual review UI are not implemented.
 ## Security hardening (review pass)
 
 - `.1a` and `.git` components are rejected as staged targets at propose,
-  check and merge time, so an approved proposal cannot forge approval/check
+  check and merge time; canonical target/parent paths resolving into either
+  control area are rejected too, so a symlink alias cannot forge approval/check
   artifacts or repository hooks.
 - `.1a` control directories are created/verified component-by-component as
   real directories (no symlinked ledger), and proposal/approval/check/merge
@@ -50,11 +51,11 @@ worktree payloads and a visual review UI are not implemented.
 
 | Check | Result |
 |---|---|
-| `cargo test --offline --lib tools::action::tests` | 21 passed |
-| `cargo test --offline --lib` | 1230 passed, 0 failed, 4 ignored |
+| `cargo test --offline --lib tools::action::tests` | 23 passed |
+| `cargo test --offline --lib` | 1234 passed, 0 failed, 4 ignored |
 | `cargo test --offline --test ontology_cli --test tools_e2e` | 30 passed |
-| `./scripts/verify.sh` | **1685 passed, 0 failed, 13 ignored** |
-| claims | 270 (246 verified / 16 partial / 8 no evidence) |
+| `./scripts/verify.sh` | **1689 passed, 0 failed, 13 ignored** |
+| claims | 271 (247 verified / 16 partial / 8 no evidence) |
 
 Negative/atomicity tests: missing approval, target drift after checks,
 change path absent from `paths`, read-only merge, control-directory/symlink

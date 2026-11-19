@@ -677,6 +677,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   approved card exactly once. Changed arguments, another run, denial, expiry
   or reuse requires a new card. Authority remains the only allow/deny source;
   the card only satisfies an approval requirement it already produced.
+- Authority profiles can add `allowed_action_types` and `allowed_object_types`.
+  `ExecutionGate` derives the typed action id and object types from the
+  `ActionType` registry and denies before execution when either is outside the
+  profile. Ordinary tools are unaffected; this is coarse action/object-type
+  scope, not object-instance or property/cell security.
 - Read access is disabled without configured roots.
 - Canonicalized file paths must remain below a configured read root.
 - Write authority is true by default for local CLI/TUI; `--read-only` disables it.

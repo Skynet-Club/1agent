@@ -4298,6 +4298,9 @@ mod tests {
                 max_strength: crate::task_graph::MandateStrength::ReadOnly,
                 allowed_tools: vec![allowed_tool.into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Low,
                 expires_ms: None,
             })
@@ -4513,6 +4516,9 @@ mod tests {
                 max_strength: crate::task_graph::MandateStrength::Write,
                 allowed_tools: vec!["write_probe".into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::High,
                 expires_ms: None,
             })
@@ -4603,6 +4609,9 @@ mod tests {
                 max_strength: crate::task_graph::MandateStrength::ReadOnly,
                 allowed_tools: vec!["echo".into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Low,
                 expires_ms: None,
             })
@@ -4659,6 +4668,9 @@ mod tests {
                 max_strength: crate::task_graph::MandateStrength::Write,
                 allowed_tools: vec!["write_probe".into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::High,
                 expires_ms: None,
             })
@@ -6667,8 +6679,10 @@ mod tests {
             requests.clone(),
         ));
         let runtime = scripted_runtime(workspace.path(), provider, default_registry());
-        let mut request =
-            TaskRequest::from_objective("merge the approved change", workspace.path().into());
+        let mut request = TaskRequest::from_objective(
+            "merge the approved change proposal",
+            workspace.path().into(),
+        );
         request.permissions.allow_write = true;
         runtime
             .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
@@ -6765,6 +6779,9 @@ mod tests {
                 max_strength: MandateStrength::Write,
                 allowed_tools: vec!["read_one".into()],
                 denied_tools: Vec::new(),
+
+                allowed_action_types: Vec::new(),
+                allowed_object_types: Vec::new(),
                 max_risk: RiskLevel::Low,
                 expires_ms: None,
             })

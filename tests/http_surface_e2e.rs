@@ -43,6 +43,9 @@ fn setup() -> (SurfaceService, String, tempfile::TempDir) {
             max_strength: first_principles_agent::MandateStrength::ReadOnly,
             allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
+
+            allowed_action_types: Vec::new(),
+            allowed_object_types: Vec::new(),
             max_risk: first_principles_agent::RiskLevel::Medium,
             expires_ms: None,
         })

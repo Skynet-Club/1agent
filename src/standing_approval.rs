@@ -211,6 +211,8 @@ mod tests {
             scope: "repo:1-agent/src".into(),
             strength: MandateStrength::Write,
             tool: Some("echo".into()),
+            action_type: None,
+            object_types: Vec::new(),
             risk: RiskLevel::Medium,
         }
     }
