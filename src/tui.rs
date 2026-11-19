@@ -1109,13 +1109,11 @@ impl TuiState {
     }
 
     pub fn assistant_body(&mut self, text: impl Into<String>) {
-        self.push_entry(
-            TranscriptKind::Assistant,
-            TuiTone::Body,
-            None,
-            TuiTone::Body,
-            text.into(),
-        );
+        self.assistant_body_styled(text, TuiTone::Body);
+    }
+
+    pub fn assistant_body_styled(&mut self, text: impl Into<String>, tone: TuiTone) {
+        self.push_entry(TranscriptKind::Assistant, tone, None, tone, text.into());
     }
 
     pub fn assistant_conclusion_start(&mut self, label: impl Into<String>) {
@@ -3847,30 +3845,40 @@ impl TuiState {
                         background: None,
                     });
                     for text_line in entry.text.lines() {
-                        for wrapped in wrap_display(
-                            text_line,
-                            usize::from(width)
-                                .saturating_sub(value_prefix.width())
-                                .max(1),
-                        ) {
-                            let syntax_ranges = link_ranges(
-                                &wrapped,
-                                value_prefix.len(),
-                                TuiTone::Link,
-                                TuiTone::LocalFile,
-                            );
-                            lines.push(TranscriptVisualLine {
-                                kind: TranscriptKind::Item,
-                                tone: entry.tone,
-                                text: format!("{value_prefix}{wrapped}"),
-                                prompt_text: None,
-                                prefix_len: value_prefix.len(),
-                                prefix_tone: entry.tone,
-                                label_range: None,
-                                label_tone: entry.tone,
-                                syntax_ranges,
-                                background: None,
-                            });
+                        let segments = {
+                            let segments = prose_segments(text_line);
+                            if segments.is_empty() {
+                                vec![text_line.to_string()]
+                            } else {
+                                segments
+                            }
+                        };
+                        for segment in segments {
+                            for wrapped in wrap_display(
+                                &segment,
+                                usize::from(width)
+                                    .saturating_sub(value_prefix.width())
+                                    .max(1),
+                            ) {
+                                let syntax_ranges = link_ranges(
+                                    &wrapped,
+                                    value_prefix.len(),
+                                    TuiTone::Link,
+                                    TuiTone::LocalFile,
+                                );
+                                lines.push(TranscriptVisualLine {
+                                    kind: TranscriptKind::Item,
+                                    tone: entry.tone,
+                                    text: format!("{value_prefix}{wrapped}"),
+                                    prompt_text: None,
+                                    prefix_len: value_prefix.len(),
+                                    prefix_tone: entry.tone,
+                                    label_range: None,
+                                    label_tone: entry.tone,
+                                    syntax_ranges,
+                                    background: None,
+                                });
+                            }
                         }
                     }
                     continue;
@@ -3939,7 +3947,7 @@ impl TuiState {
                     };
                     lines.push(TranscriptVisualLine {
                         kind: entry.kind,
-                        tone: if in_answer {
+                        tone: if in_answer && entry.tone != TuiTone::Strong {
                             TuiTone::White
                         } else {
                             entry.tone
@@ -3950,7 +3958,7 @@ impl TuiState {
                         prefix_len: prefix.len(),
                         prefix_tone,
                         label_range,
-                        label_tone: if in_answer {
+                        label_tone: if in_answer && entry.label_tone != TuiTone::Strong {
                             TuiTone::White
                         } else {
                             entry.label_tone
@@ -5510,7 +5518,26 @@ impl TuiState {
 
     fn flush_markdown_prose(&mut self, prose: &mut Vec<String>) {
         if let Some(text) = compact_markdown_prose(prose) {
-            self.assistant_body(strip_bold_markers(&text));
+            let text = strip_bold_markers(&text);
+            for line in text.lines() {
+                if line.trim().is_empty() {
+                    self.assistant_body("");
+                    continue;
+                }
+                let mut segments = prose_segments(line);
+                if segments.is_empty() {
+                    self.assistant_body(line);
+                    continue;
+                }
+                for (index, segment) in segments.drain(..).enumerate() {
+                    let tone = if index == 0 {
+                        TuiTone::Strong
+                    } else {
+                        TuiTone::Body
+                    };
+                    self.assistant_body_styled(segment, tone);
+                }
+            }
         }
         prose.clear();
     }
@@ -5620,6 +5647,26 @@ fn markdown_rule(line: &str) -> bool {
         && (line.chars().all(|character| character == '-')
             || line.chars().all(|character| character == '*')
             || line.chars().all(|character| character == '_'))
+}
+
+fn prose_segments(line: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut start = 0;
+    for (index, character) in line.char_indices() {
+        if matches!(character, '。' | '！' | '？' | '；' | ';') {
+            let end = index + character.len_utf8();
+            let segment = line[start..end].trim();
+            if !segment.is_empty() {
+                segments.push(segment.to_string());
+            }
+            start = end;
+        }
+    }
+    let rest = line[start..].trim();
+    if !rest.is_empty() {
+        segments.push(rest.to_string());
+    }
+    segments
 }
 
 fn split_colon_label(text: &str) -> Option<(&str, &str)> {
@@ -8853,7 +8900,10 @@ mod tests {
             .position(|line| line.text.contains("不用启动"))
             .expect("answer body");
         assert!(state.transcript_lines[body].text.starts_with("   不用启动"));
-        assert_eq!(state.transcript_lines[body].tone, TuiTone::White);
+        assert!(matches!(
+            state.transcript_lines[body].tone,
+            TuiTone::Strong | TuiTone::White
+        ));
         assert!(state.transcript_lines[body - 1].text.is_empty());
         assert!(state.transcript_lines[body + 1].text.is_empty());
 
@@ -8884,6 +8934,26 @@ mod tests {
                 "机制（区别于普通对话模型的核心）",
                 "与其他 agent 的差别",
                 "如实披露的不足"
+            ]
+        );
+    }
+
+    #[test]
+    fn long_prose_is_split_at_sentence_boundaries() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown("第一句。第二句；第三句");
+        let bodies = state
+            .transcript
+            .iter()
+            .filter(|entry| entry.kind == TranscriptKind::Assistant)
+            .map(|entry| (entry.text.as_str(), entry.tone))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bodies,
+            vec![
+                ("第一句。", TuiTone::Strong),
+                ("第二句；", TuiTone::Body),
+                ("第三句", TuiTone::Body)
             ]
         );
     }

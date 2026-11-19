@@ -69,10 +69,16 @@ pub fn render_answer(result: &RunResult) -> String {
 /// require `--details`.
 pub fn render_answer_default(result: &RunResult) -> String {
     let answer = &result.answer;
+    let summary = answer.brief().summary;
+    let summary = if summary.is_empty() {
+        &answer.conclusion
+    } else {
+        &summary
+    };
     let mut output = format!(
         "状态：{}\n结论：{}\n",
         answer_status_label(answer.status),
-        answer.conclusion
+        summary
     );
     output.push_str(&format!(
         "信任摘要：我的判断 {} · 依据 {} · 假设 {} · 还没确定 {} · 改判 {}\n",

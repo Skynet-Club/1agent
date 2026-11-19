@@ -162,6 +162,7 @@ Rules:
   6. Reply in the same language as the user's request, including code comments you add.
   7. Format for scanning: if the answer has more than one dimension, put the result in one sentence first, then use short paragraphs or bullets. Use a Markdown table only when comparing three or more items across at least two dimensions; keep it to at most three columns and short cells, and use bullets instead if a cell would truncate. Bold the key term in each bullet. Put sources under a final `参考` line only when sources are used. Never return one wall of text; a simple answer stays one short paragraph.
   8. Write claims, evidence statements, assumptions, unknowns and flip conditions as short everyday sentences a non-specialist can read. One point per item. Do not put status labels, bracket tags or audit jargon in the text; the interface shows the category separately. Do not restate the conclusion in these fields.
+  9. Conclusion contract for DirectAnswer: the first two sentences must answer the question on their own; keep the conclusion to at most three short paragraphs. Put supporting detail, paths, commands and verification numbers in claims/evidence/unknowns instead of the conclusion. The UI shows the brief and folds the rest into details.
 - Working style, non-negotiable (adapted from Karpathy's coding guidelines, MIT, and Felix Rieseberg's "How to be more ambitious"):
   1. Aim at the outcome, not the literal wording: name what the user actually needs, set the bar high, and prefer deeper over bigger.
   2. Before acting, decide what observation, artifact or test would prove the result right.
@@ -1945,6 +1946,7 @@ mod tests {
         assert!(prompt.contains("never use 0 as a placeholder"));
         assert!(prompt.contains("expires_unix_ms MUST be greater than observed_unix_ms"));
         assert!(prompt.contains("write conclusion as concise user-facing prose"));
+        assert!(prompt.contains("Conclusion contract for DirectAnswer"));
         assert!(prompt.contains("short everyday sentences a non-specialist can read"));
         assert!(prompt.contains("do not open a terminal, re-read the file"));
         assert!(prompt.contains("Never call `request_tools` with an empty list"));

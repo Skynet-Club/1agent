@@ -26664,12 +26664,23 @@ fn looks_like_structured_tool_output(content: &str) -> bool {
 }
 
 fn record_direct_answer(state: &mut TuiState, answer: &first_principles_agent::AgentAnswer) {
-    // Direct mode is conversation-first: the conclusion is the answer. Its
-    // headings and lists are structured by the markdown renderer; long lines
-    // are capped and the full text remains in /details.
+    // Direct mode is conversation-first: a two-sentence brief is the answer.
+    // The remaining sentences are capped and kept in /details.
+    let brief = answer.brief();
+    let summary = if brief.summary.is_empty() {
+        brief_direct_answer(&answer.conclusion)
+    } else {
+        brief.summary
+    };
     state.assistant_conclusion_start(conclusion_label(answer));
-    state.assistant_markdown(&brief_direct_answer(&answer.conclusion));
+    state.assistant_markdown(&summary);
     state.assistant_conclusion_end();
+    if !brief.details.is_empty() {
+        state.assistant_heading("更多要点", TuiTone::SectionText);
+        for detail in brief.details.iter().take(3) {
+            state.assistant_item("", TuiTone::Body, brief_direct_answer(detail));
+        }
+    }
 }
 
 fn brief_direct_answer(text: &str) -> String {

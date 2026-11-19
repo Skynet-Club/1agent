@@ -510,7 +510,50 @@ pub struct AgentAnswer {
     pub task_need: Option<TaskNeed>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnswerBrief {
+    pub summary: String,
+    pub details: Vec<String>,
+}
+
 impl AgentAnswer {
+    /// Backward-compatible answer contract: the first two sentences are the
+    /// brief; the rest stays available in details. No new required JSON field,
+    /// so existing journals and 1.0 callers keep parsing.
+    pub fn brief(&self) -> AnswerBrief {
+        let mut sentences = answer_sentences(&self.conclusion);
+        if sentences.is_empty() {
+            return AnswerBrief {
+                summary: String::new(),
+                details: Vec::new(),
+            };
+        }
+        let mut summary = String::new();
+        let mut consumed = 0;
+        for sentence in &sentences {
+            if consumed >= 2 || summary.chars().count() + sentence.chars().count() > 280 {
+                break;
+            }
+            if !summary.is_empty() {
+                summary.push(' ');
+            }
+            summary.push_str(sentence);
+            consumed += 1;
+        }
+        if summary.is_empty() {
+            summary = sentences[0].chars().take(280).collect::<String>();
+            if sentences[0].chars().count() > 280 {
+                summary.push('…');
+            }
+            consumed = 1;
+        }
+        let details = sentences.split_off(consumed.min(sentences.len()));
+        AnswerBrief {
+            summary,
+            details: details.into_iter().take(8).collect(),
+        }
+    }
+
     pub fn validate(&self, request: &TaskRequest) -> Result<(), AnswerValidationError> {
         if !matches!(
             self.schema_version,
@@ -911,6 +954,26 @@ pub enum AnswerValidationError {
     MissingEvidenceTimestamp(String),
     #[error("evidence '{0}' exceeds the task freshness limit")]
     StaleEvidenceForPolicy(String),
+}
+
+fn answer_sentences(text: &str) -> Vec<String> {
+    let mut sentences = Vec::new();
+    let mut start = 0;
+    for (index, character) in text.char_indices() {
+        if matches!(character, '。' | '！' | '？' | '；' | ';' | '!' | '?') {
+            let end = index + character.len_utf8();
+            let sentence = text[start..end].trim();
+            if !sentence.is_empty() {
+                sentences.push(sentence.to_string());
+            }
+            start = end;
+        }
+    }
+    let rest = text[start..].trim();
+    if !rest.is_empty() {
+        sentences.push(rest.to_string());
+    }
+    sentences
 }
 
 fn default_answer_schema_version() -> u32 {
@@ -1977,6 +2040,19 @@ mod tests {
                 serde_json::Value::String(mode.as_str().into())
             );
         }
+    }
+
+    #[test]
+    fn brief_keeps_two_sentences_and_folds_the_rest() {
+        let answer: AgentAnswer = serde_json::from_value(serde_json::json!({
+            "schema_version": ANSWER_SCHEMA_VERSION,
+            "status": "completed",
+            "conclusion": "第一句。第二句；第三句！第四句",
+        }))
+        .unwrap();
+        let brief = answer.brief();
+        assert_eq!(brief.summary, "第一句。 第二句；");
+        assert_eq!(brief.details, vec!["第三句！", "第四句"]);
     }
 
     #[test]
