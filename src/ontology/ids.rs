@@ -55,6 +55,14 @@ pub fn answer_id(run: &str) -> String {
     format!("urn:1agent:answer:{}", encode_segment(run))
 }
 
+pub fn decision_id(run: &str) -> String {
+    format!("urn:1agent:decision:{}:main", encode_segment(run))
+}
+
+pub fn outcome_id(run: &str) -> String {
+    format!("urn:1agent:outcome:{}", encode_segment(run))
+}
+
 pub fn claim_id(run: &str, claim: &str) -> String {
     format!(
         "urn:1agent:claim:{}:{}",
@@ -151,6 +159,8 @@ mod tests {
             "urn:1agent:observation:run-1:call-1"
         );
         assert_eq!(answer_id("run-1"), "urn:1agent:answer:run-1");
+        assert_eq!(decision_id("run-1"), "urn:1agent:decision:run-1:main");
+        assert_eq!(outcome_id("run-1"), "urn:1agent:outcome:run-1");
         assert_eq!(claim_id("run-1", "c1"), "urn:1agent:claim:run-1:c1");
         assert_eq!(
             evidence_id("run-1", 12, 0),

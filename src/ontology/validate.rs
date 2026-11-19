@@ -21,6 +21,8 @@ const KNOWN_TYPES: &[&str] = &[
     "ToolInvocation",
     "Observation",
     "Answer",
+    "Decision",
+    "Outcome",
     "Claim",
     "Evidence",
     "Artifact",
@@ -39,6 +41,10 @@ const REFERENCE_FIELDS: &[&str] = &[
     "hasRun",
     "hasTask",
     "generated",
+    "hasDecision",
+    "hasAnswer",
+    "hasOutcomeRecord",
+    "forDecision",
     "used",
     "wasGeneratedBy",
     "wasDerivedFrom",
@@ -254,6 +260,33 @@ pub fn validate_document(document: &Value) -> ValidationReport {
                     &mut schema_failures,
                 );
                 require_string(id, object, "conclusion", &mut errors, &mut schema_failures);
+            }
+            Some("Decision") => {
+                require_status(
+                    id,
+                    object,
+                    "status",
+                    ANSWER_STATUSES,
+                    &mut errors,
+                    &mut schema_failures,
+                );
+                require_string(
+                    id,
+                    object,
+                    "questionSha256",
+                    &mut errors,
+                    &mut schema_failures,
+                );
+            }
+            Some("Outcome") => {
+                require_status(
+                    id,
+                    object,
+                    "status",
+                    STOP_REASONS,
+                    &mut errors,
+                    &mut schema_failures,
+                );
             }
             Some("Claim") => {
                 require_string(id, object, "claimText", &mut errors, &mut schema_failures);

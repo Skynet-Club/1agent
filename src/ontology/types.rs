@@ -437,13 +437,15 @@ fn invalid(context: &str, message: impl Into<String>) -> OntologyError {
 mod tests {
     use super::*;
 
-    const CORE_TYPE_IDS: [&str; 17] = [
+    const CORE_TYPE_IDS: [&str; 19] = [
         "Session",
         "Run",
         "Task",
         "ToolInvocation",
         "Observation",
         "Answer",
+        "Decision",
+        "Outcome",
         "Claim",
         "Evidence",
         "Artifact",

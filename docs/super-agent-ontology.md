@@ -408,6 +408,9 @@ Bitemporal 字段（`observedAt`/`recordedAt`/`validFrom`/`validTo`）先由导�
 
 #### P1.1 决策/动作层（新增，1.2 候选）
 
+状态：**P0 第一切片已落地（2026-11-19）**，导出 `Decision` 与 `Outcome` 节点；
+`Option`/`Criterion`/`Scenario` 和独立 ActionType 注册表仍待实现。
+
 P1.1 把 1AO 从“审计投影”推进到“可执行决策层”，但不改变 journal 的事实源地位：
 
 1. **类型**：`Decision`、`Option`、`Criterion`、`Outcome`、`ActionType`、`ActionInvocation`、`PolicyDecision`、`Approval`、`Scenario`。

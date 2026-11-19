@@ -745,6 +745,74 @@ fn build_run(
         nodes.insert(answer_iri, Value::Object(object));
     }
 
+    let mut decision_iri = None;
+    if let (Some((answer, seq, timestamp)), Some(request)) = (answer, request) {
+        let decision = ids::decision_id(&run_segment);
+        let outcome = ids::outcome_id(&run_segment);
+        let answer_iri = ids::answer_id(&run_segment);
+        let claim_iris = answer
+            .claims
+            .iter()
+            .map(|claim| ids::claim_id(&run_segment, &claim.id))
+            .collect::<BTreeSet<_>>();
+        let evidence_iris = answer
+            .evidence
+            .iter()
+            .enumerate()
+            .map(|(index, _)| ids::evidence_id(&run_segment, seq, index))
+            .collect::<BTreeSet<_>>();
+
+        let mut decision_object = Map::new();
+        decision_object.insert("@id".into(), Value::String(decision.clone()));
+        decision_object.insert("@type".into(), Value::String("Decision".into()));
+        decision_object.insert(
+            "questionSha256".into(),
+            Value::String(super::sha256_hex(request.objective.as_bytes())),
+        );
+        decision_object.insert(
+            "questionChars".into(),
+            Value::from(request.objective.chars().count() as u64),
+        );
+        decision_object.insert(
+            "status".into(),
+            Value::String(answer_status_text(answer.status).into()),
+        );
+        decision_object.insert("decidedAtUnixMs".into(), unix_ms_value(timestamp));
+        decision_object.insert("partOfRun".into(), ref_iri(&run_iri));
+        decision_object.insert("hasAnswer".into(), ref_iri(&answer_iri));
+        if !claim_iris.is_empty() {
+            decision_object.insert("hasClaim".into(), refs_array(claim_iris));
+        }
+        if !evidence_iris.is_empty() {
+            decision_object.insert("hasEvidence".into(), refs_array(evidence_iris));
+        }
+        decision_object.insert("hasOutcomeRecord".into(), ref_iri(&outcome));
+        nodes.insert(decision.clone(), Value::Object(decision_object));
+
+        let mut outcome_object = Map::new();
+        outcome_object.insert("@id".into(), Value::String(outcome.clone()));
+        outcome_object.insert("@type".into(), Value::String("Outcome".into()));
+        outcome_object.insert(
+            "status".into(),
+            Value::String(
+                stop_reason
+                    .map(stop_reason_text)
+                    .unwrap_or_else(|| answer_status_text(answer.status))
+                    .into(),
+            ),
+        );
+        outcome_object.insert(
+            "recordedAtUnixMs".into(),
+            unix_ms_value(stopped_at.unwrap_or(timestamp)),
+        );
+        outcome_object.insert("forDecision".into(), ref_iri(&decision));
+        if !artifacts.is_empty() {
+            outcome_object.insert("hasArtifact".into(), refs_array(artifacts.keys().cloned()));
+        }
+        nodes.insert(outcome, Value::Object(outcome_object));
+        decision_iri = Some(decision);
+    }
+
     let mut run_object = Map::new();
     run_object.insert("@id".into(), Value::String(run_iri.clone()));
     run_object.insert("@type".into(), Value::String("Run".into()));
@@ -768,6 +836,9 @@ fn build_run(
     }
     if !action_iris.is_empty() {
         run_object.insert("hasActionInvocation".into(), refs_array(action_iris));
+    }
+    if let Some(decision) = &decision_iri {
+        run_object.insert("hasDecision".into(), ref_iri(decision));
     }
     if answer.is_some() {
         run_object.insert("generated".into(), ref_iri(&ids::answer_id(&run_segment)));
@@ -1196,6 +1267,8 @@ mod tests {
             format!("urn:1agent:tool-call:{run}:call-1"),
             format!("urn:1agent:observation:{run}:call-1"),
             format!("urn:1agent:answer:{run}"),
+            format!("urn:1agent:decision:{run}:main"),
+            format!("urn:1agent:outcome:{run}"),
             format!("urn:1agent:claim:{run}:c1"),
             format!("urn:1agent:evidence:{run}:3:0"),
             format!("urn:1agent:artifact:sha256:{}", "ab".repeat(32)),
@@ -1214,6 +1287,24 @@ mod tests {
         assert_eq!(claim["cites"][0]["@id"], evidence["@id"]);
         let run_node = node(&first.value, &format!("urn:1agent:run:{run}"));
         assert_eq!(run_node["hasOutcome"], "completed");
+        let decision = node(&first.value, &format!("urn:1agent:decision:{run}:main"));
+        assert_eq!(decision["@type"], "Decision");
+        assert_eq!(decision["status"], "completed");
+        assert_eq!(
+            decision["questionSha256"],
+            super::super::sha256_hex("Investigate A".as_bytes())
+        );
+        assert_eq!(
+            run_node["hasDecision"]["@id"],
+            format!("urn:1agent:decision:{run}:main")
+        );
+        let outcome = node(&first.value, &format!("urn:1agent:outcome:{run}"));
+        assert_eq!(outcome["@type"], "Outcome");
+        assert_eq!(outcome["status"], "completed");
+        assert_eq!(
+            outcome["forDecision"]["@id"],
+            format!("urn:1agent:decision:{run}:main")
+        );
         let goal = node(&first.value, &format!("urn:1agent:goal:{mission_id}"));
         assert_eq!(goal["hasRun"][0]["@id"], format!("urn:1agent:run:{run}"));
 

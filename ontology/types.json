@@ -46,6 +46,20 @@
       "required": ["status", "conclusion"]
     },
     {
+      "id": "Decision",
+      "kind": "object",
+      "owner": "runtime",
+      "version": "1",
+      "required": ["questionSha256", "status"]
+    },
+    {
+      "id": "Outcome",
+      "kind": "object",
+      "owner": "runtime",
+      "version": "1",
+      "required": ["status"]
+    },
+    {
       "id": "Claim",
       "kind": "object",
       "owner": "runtime",

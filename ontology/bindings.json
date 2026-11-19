@@ -84,6 +84,31 @@
       "required": true
     },
     {
+      "type": "one:Decision",
+      "property": "one:questionSha256",
+      "source": "journal#RunStarted.request.objective",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true,
+      "mapping": "question text is hashed; only the hash and character count are exported"
+    },
+    {
+      "type": "one:Decision",
+      "property": "one:status",
+      "source": "journal#AnswerProduced.answer.status",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Outcome",
+      "property": "one:status",
+      "source": "journal#RunStopped.reason",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
       "type": "one:Claim",
       "property": "one:claimText",
       "source": "journal#AnswerProduced.answer.claims[].text",

@@ -592,6 +592,8 @@ fn ontology_types_and_bindings_are_non_empty_valid_json() {
         "ToolInvocation",
         "Observation",
         "Answer",
+        "Decision",
+        "Outcome",
         "Claim",
         "Evidence",
         "Artifact",
@@ -798,7 +800,7 @@ fn session_export_includes_session_run_task_goal_and_validates() {
             "session export must link every run back to the session"
         );
         let task_id = run["hasTask"]["@id"].as_str().unwrap().to_string();
-        let task = node_with_suffix(&document, task_id.rsplit(':').next().unwrap());
+        let task = node_with_suffix(&document, &task_id);
         assert_eq!(task["@type"], "Task");
         assert_eq!(
             task["objectiveSha256"].as_str().unwrap().len(),
