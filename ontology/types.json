@@ -60,6 +60,20 @@
       "required": ["status"]
     },
     {
+      "id": "Option",
+      "kind": "object",
+      "owner": "runtime",
+      "version": "1",
+      "required": ["optionIndex", "status"]
+    },
+    {
+      "id": "Criterion",
+      "kind": "object",
+      "owner": "runtime",
+      "version": "1",
+      "required": ["criterionKey", "satisfied"]
+    },
+    {
       "id": "Claim",
       "kind": "object",
       "owner": "runtime",

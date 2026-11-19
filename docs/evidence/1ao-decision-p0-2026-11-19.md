@@ -14,33 +14,36 @@ runtime behavior changed.
   - status from `RunStopped.reason` (fallback: answer status);
   - link to the Decision and generated artifacts.
 - `Run.hasDecision` reference.
-- Type-registry entries for `Decision` and `Outcome`; data bindings for
-  question digest, decision status and outcome status.
-- Validator knows both types and their status fields; unknown references and
-  malformed statuses still fail closed.
+- `Option` nodes from `ReframeProposed` options, with selected/rejected/proposed
+  status and hashed option text; `Decision.hasOption` and `chosenOption`.
+- `Criterion` nodes from the reframe stop rule (verifiable, deliverable,
+  better-substitute), with source asserted/derived; `Decision.hasCriterion`.
+- Type-registry entries for `Decision`, `Outcome`, `Option`, `Criterion`; data
+  bindings for question digest, statuses, option index and stop-rule criteria.
+- Validator knows all four types and their status/field rules; unknown
+  references and malformed statuses still fail closed.
 
 ## Verification
 
 | Check | Result |
 |---|---|
-| `./scripts/verify.sh` | **pass**; 1652 total, 0 failed, 13 ignored |
-| ontology unit tests | 30 passed |
+| `./scripts/verify.sh` | **pass**; 1653 total, 0 failed, 13 ignored |
+| ontology unit tests | 31 passed |
 | ontology CLI tests | 27 passed |
 | real journal smoke | Decision + Outcome nodes exported and validated |
 | claims | 264 (240/16/8) |
 
-Raw: `verify-1ao-decision-p0.log`.
+Raw: `verify-1ao-decision-p0.log`, `verify-1ao-option-criterion.log`.
 
 ## Not in this slice
 
-- `Option` / `Criterion` / `Scenario` nodes.
+- `Scenario` nodes.
 - Standalone `ActionType` registry and generated typed tools.
 - Scenario staging / atomic merge.
 - Object/action-level policy and Ontology MCP.
 
 ## Next
 
-1. Add `Option` and `Criterion` derivation from clarify/plan/answer data where
-   available; mark missing values `Unknown`.
-2. Add decision/action competency questions and golden tests.
-3. Start the code-change/release ActionType registry (P1, 1.2).
+1. Add decision/action competency questions and golden tests.
+2. Add `Scenario` staging semantics (P2) and the code-change/release
+   ActionType registry (P1, 1.2).

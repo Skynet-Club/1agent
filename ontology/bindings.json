@@ -109,6 +109,39 @@
       "required": true
     },
     {
+      "type": "one:Option",
+      "property": "one:optionIndex",
+      "source": "journal#ReframeProposed.proposal.options[]",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true,
+      "mapping": "array index; option text is hashed, not exported"
+    },
+    {
+      "type": "one:Option",
+      "property": "one:status",
+      "source": "journal#ReframeDecided.choice",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Criterion",
+      "property": "one:criterionKey",
+      "source": "journal#ReframeProposed.proposal.stop_rule",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
+      "type": "one:Criterion",
+      "property": "one:satisfied",
+      "source": "journal#ReframeProposed.proposal.stop_rule",
+      "owner": "runtime",
+      "mappingVersion": "2",
+      "required": true
+    },
+    {
       "type": "one:Claim",
       "property": "one:claimText",
       "source": "journal#AnswerProduced.answer.claims[].text",

@@ -301,6 +301,8 @@ OWL 不负责状态迁移；迁移合法性由 runtime + SHACL/audit 规则校�
 | `InterfaceType` / `ValueType` | 可复用接口/值类型 | 现有枚举/结构 | 对应 Palantir interfaces/value types |
 | `ActionType` | 动作的可逆性、风险、权限、副作用 | `CuaAction`、`ActionCard` | 本体必须包含“能做什么”，不只“有什么” |
 | `ActionInvocation` | 一次动作执行 | `ToolCalled`/`ToolObserved`、action log | 与 ToolInvocation 区分：工具调用可无副作用 |
+| `Decision` / `Outcome` | 决策问题与运行结果 | `AnswerProduced`、`RunStopped` | P0 已从 journal 派生；无独立运行时字段 |
+| `Option` / `Criterion` | 选项与判断标准 | `ReframeProposed`/`ReframeDecided` | P0 已导出；无 reframe 数据时为空，不伪造 |
 | `DataBinding` / `DataSource` | 类型/属性 ↔ 具体数据源 | 无 | 必需；否则本体只是文档 |
 | `AccessPolicy` / `Purpose` | 对象/动作级访问与目的约束 | `AuthorityProfile`、`PermissionSet` | 导出必须 permission-aware |
 | `Commitment` / `Delegation` | 任务分配、接受、拒绝、完成承诺 | `spawn_agent`、master assign | Super-Agent 的一等实体 |
@@ -408,8 +410,8 @@ Bitemporal 字段（`observedAt`/`recordedAt`/`validFrom`/`validTo`）先由导�
 
 #### P1.1 决策/动作层（新增，1.2 候选）
 
-状态：**P0 第一切片已落地（2026-11-19）**，导出 `Decision` 与 `Outcome` 节点；
-`Option`/`Criterion`/`Scenario` 和独立 ActionType 注册表仍待实现。
+状态：**P0 第一切片已落地（2026-11-19）**，导出 `Decision`、`Outcome`、
+`Option`、`Criterion` 节点；`Scenario` 和独立 ActionType 注册表仍待实现。
 
 P1.1 把 1AO 从“审计投影”推进到“可执行决策层”，但不改变 journal 的事实源地位：
 

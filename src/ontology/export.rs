@@ -15,6 +15,7 @@ use crate::domain::{
 };
 use crate::goal::{CommitmentStatus, GoalEvent, GoalGraph, GoalStatus};
 use crate::journal::{JournalEvent, JournalEventKind, read_events};
+use crate::reframe::{ReframeChoice, ReframeProposal};
 use crate::tui_session::{SessionMission, TuiSession};
 
 use super::{ExportDocument, OntologyError, ids};
@@ -286,6 +287,8 @@ fn build_run(
     let mut checkpoint_seq: Option<u64> = None;
     let mut resumed_from_checkpoint: Option<u64> = None;
     let mut resumed_from_run: Option<String> = None;
+    let mut reframe_proposal: Option<(&ReframeProposal, u128)> = None;
+    let mut reframe_choice: Option<(&ReframeChoice, u128)> = None;
 
     for event in events {
         match &event.event {
@@ -347,6 +350,12 @@ fn build_run(
             }
             JournalEventKind::AnswerProduced { answer: produced } => {
                 answer = Some((produced, event.seq, event.timestamp_unix_ms));
+            }
+            JournalEventKind::ReframeProposed { proposal, .. } => {
+                reframe_proposal = Some((proposal, event.timestamp_unix_ms));
+            }
+            JournalEventKind::ReframeDecided { choice, .. } => {
+                reframe_choice = Some((choice, event.timestamp_unix_ms));
             }
             JournalEventKind::RunStopped { reason } => {
                 stop_reason = Some(reason);
@@ -745,6 +754,70 @@ fn build_run(
         nodes.insert(answer_iri, Value::Object(object));
     }
 
+    let mut option_iris = BTreeSet::new();
+    let mut chosen_option = None;
+    let mut criterion_iris = BTreeSet::new();
+    if let Some((proposal, recorded_at)) = reframe_proposal {
+        let selected_index = match reframe_choice {
+            Some((ReframeChoice::Accepted { option_index, .. }, _)) => Some(*option_index),
+            _ => None,
+        };
+        let decided = matches!(
+            reframe_choice,
+            Some((ReframeChoice::Accepted { .. }, _)) | Some((ReframeChoice::Rejected { .. }, _))
+        );
+        for (index, option) in proposal.options.iter().enumerate() {
+            let option_iri = ids::option_id(&run_segment, index);
+            let status = if selected_index == Some(index) {
+                chosen_option = Some(option_iri.clone());
+                "selected"
+            } else if decided {
+                "rejected"
+            } else {
+                "proposed"
+            };
+            let mut object = Map::new();
+            object.insert("@id".into(), Value::String(option_iri.clone()));
+            object.insert("@type".into(), Value::String("Option".into()));
+            object.insert("optionIndex".into(), Value::from(index as u64));
+            object.insert(
+                "textSha256".into(),
+                Value::String(super::sha256_hex(option.as_bytes())),
+            );
+            object.insert(
+                "textChars".into(),
+                Value::from(option.chars().count() as u64),
+            );
+            object.insert("status".into(), Value::String(status.into()));
+            object.insert("proposedAtUnixMs".into(), unix_ms_value(recorded_at));
+            object.insert("partOfRun".into(), ref_iri(&run_iri));
+            nodes.insert(option_iri.clone(), Value::Object(object));
+            option_iris.insert(option_iri);
+        }
+        for (key, satisfied) in [
+            ("verifiable", proposal.stop_rule.verifiable),
+            ("deliverable", proposal.stop_rule.deliverable),
+            (
+                "better_substitute_exists",
+                proposal.stop_rule.better_substitute_exists,
+            ),
+        ] {
+            let criterion_iri = ids::criterion_id(&run_segment, key);
+            let mut object = Map::new();
+            object.insert("@id".into(), Value::String(criterion_iri.clone()));
+            object.insert("@type".into(), Value::String("Criterion".into()));
+            object.insert("criterionKey".into(), Value::String(key.into()));
+            object.insert("satisfied".into(), Value::Bool(satisfied));
+            object.insert(
+                "source".into(),
+                Value::String(format!("{:?}", proposal.stop_rule_source).to_lowercase()),
+            );
+            object.insert("partOfRun".into(), ref_iri(&run_iri));
+            nodes.insert(criterion_iri.clone(), Value::Object(object));
+            criterion_iris.insert(criterion_iri);
+        }
+    }
+
     let mut decision_iri = None;
     if let (Some((answer, seq, timestamp)), Some(request)) = (answer, request) {
         let decision = ids::decision_id(&run_segment);
@@ -785,6 +858,15 @@ fn build_run(
         }
         if !evidence_iris.is_empty() {
             decision_object.insert("hasEvidence".into(), refs_array(evidence_iris));
+        }
+        if !option_iris.is_empty() {
+            decision_object.insert("hasOption".into(), refs_array(option_iris.clone()));
+        }
+        if let Some(chosen) = &chosen_option {
+            decision_object.insert("chosenOption".into(), ref_iri(chosen));
+        }
+        if !criterion_iris.is_empty() {
+            decision_object.insert("hasCriterion".into(), refs_array(criterion_iris.clone()));
         }
         decision_object.insert("hasOutcomeRecord".into(), ref_iri(&outcome));
         nodes.insert(decision.clone(), Value::Object(decision_object));
@@ -1121,6 +1203,10 @@ mod tests {
     };
     use crate::journal::Journal;
     use crate::ontology::validate::validate_document;
+    use crate::reframe::{
+        REFRAME_SCHEMA_VERSION, ReframeChoice, ReframeProposal, RequestRole, StopRule,
+        StopRuleSource,
+    };
     use crate::tui_session::TuiSession;
 
     use super::{export_goal_log, export_journal, export_session};
@@ -1765,6 +1851,111 @@ mod tests {
         let again = export_journal(&journal_path).unwrap();
         assert_eq!(export.sha256, again.sha256);
         assert!(validate_document(&export.value).ok);
+    }
+
+    #[test]
+    fn reframe_options_and_stop_rule_criteria_are_exported() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_path = workspace.path().join("reframe.jsonl");
+        let run_id = Uuid::new_v4();
+        let run = run_id.to_string();
+        let mut journal = Journal::create(&journal_path, run_id).unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective(
+                    "Choose the next step",
+                    workspace.path().to_path_buf(),
+                ),
+                mode: CognitiveMode::DecisionAnalysis,
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::ReframeProposed {
+                proposal: ReframeProposal {
+                    schema_version: REFRAME_SCHEMA_VERSION,
+                    stated_request: "make it better".into(),
+                    classification: RequestRole::Means,
+                    confidence_bps: None,
+                    question: Some("Which option?".into()),
+                    options: vec!["Option A".into(), "Option B".into()],
+                    added_costs: BTreeMap::new(),
+                    hypotheses: Vec::new(),
+                    substitutes: Vec::new(),
+                    stop_rule: StopRule {
+                        verifiable: true,
+                        deliverable: true,
+                        better_substitute_exists: false,
+                    },
+                    stop_rule_source: StopRuleSource::Asserted,
+                },
+                provider_id: "mock".into(),
+                model: "mock-v1".into(),
+                prompt_sha256: "00".repeat(32),
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::ReframeDecided {
+                choice: ReframeChoice::Accepted {
+                    option_index: 0,
+                    substitute_index: None,
+                },
+                actor: "owner".into(),
+                decided_at_unix_ms: 1,
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::AnswerProduced {
+                answer: AgentAnswer {
+                    schema_version: 2,
+                    status: AnswerStatus::Completed,
+                    conclusion: "Chose option A".into(),
+                    claims: Vec::new(),
+                    evidence: Vec::new(),
+                    assumptions: Vec::new(),
+                    constraints: Vec::new(),
+                    unknowns: Vec::new(),
+                    conflicts: Vec::new(),
+                    flip_conditions: Vec::new(),
+                    action_receipts: Vec::new(),
+                    task_need: None,
+                },
+            })
+            .unwrap();
+        journal
+            .append(crate::journal::JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        drop(journal);
+
+        let export = export_journal(&journal_path).unwrap();
+        let decision = node(&export.value, &format!("urn:1agent:decision:{run}:main"));
+        assert_eq!(decision["hasOption"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            decision["chosenOption"]["@id"],
+            format!("urn:1agent:option:{run}:0")
+        );
+        assert_eq!(decision["hasCriterion"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            node(&export.value, &format!("urn:1agent:option:{run}:0"))["status"],
+            "selected"
+        );
+        assert_eq!(
+            node(&export.value, &format!("urn:1agent:option:{run}:1"))["status"],
+            "rejected"
+        );
+        assert_eq!(
+            node(
+                &export.value,
+                &format!("urn:1agent:criterion:{run}:verifiable")
+            )["satisfied"],
+            true
+        );
+        assert!(
+            validate_document(&export.value).ok,
+            "{:?}",
+            validate_document(&export.value).errors
+        );
     }
 
     #[test]
