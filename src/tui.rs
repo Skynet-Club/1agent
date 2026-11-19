@@ -1283,7 +1283,9 @@ impl TuiState {
                 } else {
                     item
                 };
-                if let Some((label, rest)) = split_bold_label(&item) {
+                if let Some((label, rest)) =
+                    split_bold_label(&item).or_else(|| split_colon_label(&item))
+                {
                     self.assistant_item(label, TuiTone::Strong, strip_bold_markers(rest));
                 } else {
                     self.assistant_item("", TuiTone::White, item);
@@ -3828,6 +3830,57 @@ impl TuiState {
                 }
                 continue;
             }
+            if entry.kind == TranscriptKind::Item {
+                let item_prefix = format!("{indent}  • ");
+                let first_prefix = if label.is_empty() {
+                    item_prefix.clone()
+                } else {
+                    format!("{item_prefix}{label}  ")
+                };
+                let continuation_prefix = format!("{indent}    ");
+                let first_width = usize::from(width)
+                    .saturating_sub(first_prefix.width())
+                    .max(1);
+                let continuation_width = usize::from(width)
+                    .saturating_sub(continuation_prefix.width())
+                    .max(1);
+                let mut first = true;
+                for text_line in entry.text.lines() {
+                    let wrapped = if first {
+                        wrap_first_then_rest(text_line, first_width, continuation_width)
+                    } else {
+                        wrap_display(text_line, continuation_width)
+                    };
+                    for wrapped in wrapped {
+                        let line_prefix = if first {
+                            first_prefix.as_str()
+                        } else {
+                            continuation_prefix.as_str()
+                        };
+                        let syntax_ranges = link_ranges(
+                            &wrapped,
+                            line_prefix.len(),
+                            TuiTone::Link,
+                            TuiTone::LocalFile,
+                        );
+                        lines.push(TranscriptVisualLine {
+                            kind: TranscriptKind::Item,
+                            tone: entry.tone,
+                            text: format!("{line_prefix}{wrapped}"),
+                            prompt_text: None,
+                            prefix_len: item_prefix.len(),
+                            prefix_tone: entry.tone,
+                            label_range: (first && !label.is_empty())
+                                .then_some(item_prefix.len()..item_prefix.len() + label.len()),
+                            label_tone: entry.label_tone,
+                            syntax_ranges,
+                            background: None,
+                        });
+                        first = false;
+                    }
+                }
+                continue;
+            }
             let first_prefix = if label.is_empty() {
                 prefix.to_string()
             } else {
@@ -5502,7 +5555,8 @@ fn plain_section_heading(lines: &[&str], index: usize) -> Option<String> {
     let label_like = line.ends_with('：')
         || line.ends_with(':')
         || (line.chars().count() <= 24 && !line.contains('。'));
-    (next_is_item && label_like).then(|| strip_bold_markers(line))
+    (label_like && (next_is_item || line.ends_with('：') || line.ends_with(':')))
+        .then(|| strip_bold_markers(line))
 }
 
 fn markdown_bullet(line: &str) -> Option<&str> {
@@ -5545,6 +5599,21 @@ fn markdown_rule(line: &str) -> bool {
         && (line.chars().all(|character| character == '-')
             || line.chars().all(|character| character == '*')
             || line.chars().all(|character| character == '_'))
+}
+
+fn split_colon_label(text: &str) -> Option<(&str, &str)> {
+    let (label, rest) = text.split_once('：').or_else(|| text.split_once(':'))?;
+    let label = label.trim();
+    let rest = rest.trim();
+    if label.is_empty()
+        || rest.is_empty()
+        || label.chars().count() > 24
+        || label.contains("//")
+        || label.contains('/')
+    {
+        return None;
+    }
+    Some((label, rest))
 }
 
 fn split_bold_label(text: &str) -> Option<(&str, &str)> {
@@ -8771,6 +8840,26 @@ mod tests {
                 "如实披露的不足"
             ]
         );
+    }
+
+    #[test]
+    fn colon_bullets_split_label_and_value() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown("止血：\n- 清空剪贴板：wl-copy --clear 后验证 wl-paste\n");
+        let headings = state
+            .transcript
+            .iter()
+            .filter(|entry| entry.kind == TranscriptKind::Heading)
+            .map(|entry| entry.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(headings, vec!["止血："]);
+        let item = state
+            .transcript
+            .iter()
+            .find(|entry| entry.kind == TranscriptKind::Item)
+            .expect("item");
+        assert_eq!(item.label.as_deref(), Some("清空剪贴板"));
+        assert_eq!(item.text, "wl-copy --clear 后验证 wl-paste");
     }
 
     #[test]
