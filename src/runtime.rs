@@ -55,6 +55,10 @@ const MAX_INLINE_TOOL_CONTENT_CHARS: usize = 32_000;
 /// collect the acceptance receipt for the fixed bytes.
 const VERIFICATION_RESERVE: usize = 3;
 
+/// A failed browser audit can unlock a few repair calls over the tool budget
+/// so the run can fix a measurable defect and re-audit instead of shipping it.
+const REPAIR_RESERVE: usize = 5;
+
 /// Unknown ids used when the runtime downgrades a delivery.
 const ACCEPTANCE_UNKNOWN_ID: &str = "completion-acceptance";
 const UNFINISHED_ARTIFACT_UNKNOWN_ID: &str = "completion-artifact-unfinished";
@@ -554,6 +558,10 @@ fn is_verification_tool(call: &ToolCall) -> bool {
         }
         _ => false,
     }
+}
+
+fn is_repair_or_verification_tool(call: &ToolCall) -> bool {
+    is_verification_tool(call) || matches!(call.name.as_str(), "write_file" | "edit_file")
 }
 
 fn audit_failure_nudge(observation: &ToolObservation) -> Option<String> {
@@ -2763,8 +2771,10 @@ impl AgentRuntime {
         let mut audit_repair_nudges = 0usize;
         let mut audit_recheck_nudges = 0usize;
         let mut verification_reserve_used = 0usize;
+        let mut repair_reserve_used = 0usize;
         let mut verification_budget_nudged = false;
         let mut last_audit_all_passed = false;
+        let mut pending_audit_failure = false;
         let mut write_since_audit = false;
         let mut last_turn: Option<(ModelRequest, String, String)> = None;
         let mut completion_gate = CompletionGate::new(looks_like_page_task(
@@ -3600,7 +3610,11 @@ impl AgentRuntime {
                         && calls.iter().all(is_verification_tool)
                         && verification_reserve_used.saturating_add(calls.len())
                             <= VERIFICATION_RESERVE;
-                    if over_tool_budget && !verification_reserve_ok {
+                    let repair_reserve_ok = over_tool_budget
+                        && pending_audit_failure
+                        && calls.iter().all(is_repair_or_verification_tool)
+                        && repair_reserve_used.saturating_add(calls.len()) <= REPAIR_RESERVE;
+                    if over_tool_budget && !verification_reserve_ok && !repair_reserve_ok {
                         let answer = self
                             .answer_at_budget(
                                 &mut journal,
@@ -3647,6 +3661,8 @@ impl AgentRuntime {
                     if verification_reserve_ok {
                         verification_reserve_used =
                             verification_reserve_used.saturating_add(calls.len());
+                    } else if repair_reserve_ok {
+                        repair_reserve_used = repair_reserve_used.saturating_add(calls.len());
                     }
                     tool_calls = tool_calls.saturating_add(calls.len());
                     // A gate in the same model turn cannot have seen this
@@ -3794,11 +3810,16 @@ impl AgentRuntime {
                             if observation.tool == "browser"
                                 && observation.metadata.get("action").map(String::as_str)
                                     == Some("audit")
-                                && observation.metadata.get("all_pass").map(String::as_str)
-                                    == Some("true")
                             {
-                                last_audit_all_passed = true;
-                                write_since_audit = false;
+                                match observation.metadata.get("all_pass").map(String::as_str) {
+                                    Some("true") => {
+                                        last_audit_all_passed = true;
+                                        pending_audit_failure = false;
+                                        write_since_audit = false;
+                                    }
+                                    Some("false") => pending_audit_failure = true,
+                                    _ => {}
+                                }
                             }
                             completion_gate.observe(
                                 call,
@@ -4360,7 +4381,7 @@ fn page_delivery_checklist(request: &TaskRequest) -> Option<&'static str> {
         return None;
     }
     Some(
-        "PAGE DELIVERY CHECKLIST\n1. Write the HTML with write_file.\n2. Preview it with preview_file and confirm HTTP 200 + matching sha256.\n3. Open the preview URL with browser {\"action\":\"open\",\"allow_loopback\":true}.\n4. Audit it with browser {\"action\":\"audit\",\"widths\":[390,768,1440]}.\n5. If all_pass=false, fix the artifact and re-audit. Do not answer completed while overflow, placeholders or small tap targets remain.\n6. Run acceptance_gate and require an accepted receipt before completed.\nIf a tool is unavailable or the step/tool budget is exhausted, return conditional with the exact missing evidence; do not claim the audit passed.",
+        "PAGE DELIVERY CHECKLIST\n1. Write the HTML with write_file.\n2. Preview it with preview_file and confirm HTTP 200 + matching sha256.\n3. Open the preview URL with browser {\"action\":\"open\",\"allow_loopback\":true}.\n4. Audit it with browser {\"action\":\"audit\",\"widths\":[390,768,1440]}.\n5. If all_pass=false, fix the artifact and re-audit. Do not answer completed while overflow, placeholders or small tap targets remain.\n6. Run acceptance_gate and require an accepted receipt before completed. The contract must explicitly name 390/768/1440, horizontal scroll, placeholders, tap targets, brief, primary CTA, and design review/unslop evidence; otherwise the design gate will downgrade it.\nIf a tool is unavailable or the step/tool budget is exhausted, return conditional with the exact missing evidence; do not claim the audit passed.",
     )
 }
 
@@ -4913,6 +4934,19 @@ mod tests {
         };
         assert!(!is_verification_tool(&open));
         assert!(!is_verification_tool(&tool_call("call-6", "write_file")));
+        assert!(is_repair_or_verification_tool(&tool_call(
+            "call-7",
+            "write_file"
+        )));
+        assert!(is_repair_or_verification_tool(&tool_call(
+            "call-8",
+            "edit_file"
+        )));
+        assert!(is_repair_or_verification_tool(&audit));
+        assert!(!is_repair_or_verification_tool(&tool_call(
+            "call-9",
+            "terminal_exec"
+        )));
     }
 
     #[test]
@@ -4933,6 +4967,8 @@ mod tests {
         assert!(checklist.contains("browser"));
         assert!(checklist.contains("audit"));
         assert!(checklist.contains("acceptance_gate"));
+        assert!(checklist.contains("390/768/1440"));
+        assert!(checklist.contains("design review"));
         assert!(checklist.contains("conditional"));
     }
 
