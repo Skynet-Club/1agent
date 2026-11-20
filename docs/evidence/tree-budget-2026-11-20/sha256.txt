@@ -1,0 +1,7 @@
+1b1778a28781b5708837b5986b0ee93c39ddc501177dbf64700de949d78c32b9  src/tools/subagent_budget.rs
+c740917bd66b8aab0d09927c9a2741cdfce517878038f0765d3ea8333302a3e7  src/tools/subagent.rs
+242ca8aca5b662484487ccf1d02b4631bb2aff45621d4e7a17ca5288229b6900  src/tools/mod.rs
+ad7e3cc0cb1957d639ef7c6b9596849bf3d80f5cbc409c977b1d39820a33d020  docs/1.2-multi-agent-hardening-plan.md
+cc02a25965cdd1f8425f8c040e1707a81980e1130e51978453e73768eb482aa5  docs/evidence/tree-budget-2026-11-20/README.md
+7b5065a9679d1cdc0950603c41effeda9473f53699c9344ebb77541d71598976  docs/evidence/tree-budget-2026-11-20/gate.txt
+9f0b94682c8b806d6ca4f2575ca3a638fe47d3e3ec47642bc91695c585b7e68c  docs/evidence/tree-budget-2026-11-20/tree-budget-tests.txt

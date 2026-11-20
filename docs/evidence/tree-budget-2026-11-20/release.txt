@@ -1,0 +1,8 @@
+date: 2026-11-20
+feature_commit: ebdef98
+release_binary_sha256: 951650c48312d9a4fdc65d4c6e4a7eb263a79fb993d980326a17b9bca0fe4ae3
+installed: ~/.local/bin/1agent
+backup: ~/.local/bin/1agent-pre-tree-budget-2026-11-20
+backup_sha256: 4f96acbefb1e7ea4ae94bbbc79fa7ae1332a0eec6f6707aa3837368913232a70
+version: 1agent 1.0.0-rc.12
+installed_smoke: "1agent --version" and "1agent run --help" exit 0
