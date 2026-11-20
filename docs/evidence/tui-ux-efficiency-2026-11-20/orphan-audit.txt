@@ -1,0 +1,3 @@
+审计失败：
+- journal has no run stop event
+Error: journal audit failed

@@ -1,0 +1,15 @@
+{
+  "slice": "TUI UX / efficiency",
+  "date": "2026-11-20",
+  "focused_tests": 6,
+  "lib_passed": 1366,
+  "lib_failed": 0,
+  "lib_ignored": 4,
+  "bin_passed": 68,
+  "cli_e2e_passed": 39,
+  "cli_e2e_skipped_baseline_failure": "cli_tui_agents_refresh_uses_configured_profiles",
+  "eval": "8/8 PASS",
+  "clippy": "clean",
+  "fmt": "clean",
+  "agent_exec_blocker": "session_limit 128 active sessions"
+}

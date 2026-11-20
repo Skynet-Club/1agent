@@ -1,0 +1,60 @@
+$ cargo test --offline --lib transcript_history_keeps_more_than_the_old_200_entries
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tui::tests::transcript_history_keeps_more_than_the_old_200_entries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1369 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --lib short_code_blocks_show_line_numbers_and_the_closing_fence
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tui::tests::short_code_blocks_show_line_numbers_and_the_closing_fence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1369 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --lib code_fences_inside_structured_items_still_render_as_code
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tui::tests::code_fences_inside_structured_items_still_render_as_code ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1369 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --lib code_fence_uses_the_dark_military_green_palette
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tui::tests::code_fence_uses_the_dark_military_green_palette ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1369 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --lib system_prompt_carries_delivery_efficiency
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test provider::tests::system_prompt_carries_delivery_efficiency ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1369 filtered out; finished in 0.00s
+
+
+$ cargo test --offline --lib efficiency_nudges_fire_at_the_checkpoint_steps
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test runtime::tests::efficiency_nudges_fire_at_the_checkpoint_steps ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1369 filtered out; finished in 0.00s
+
+

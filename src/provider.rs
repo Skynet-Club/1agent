@@ -164,6 +164,7 @@ Rules:
   8. Write claims, evidence statements, assumptions, unknowns and flip conditions as short everyday sentences a non-specialist can read. One point per item. Do not put status labels, bracket tags or audit jargon in the text; the interface shows the category separately. Do not restate the conclusion in these fields.
   9. Conclusion contract for DirectAnswer: the first two sentences must answer the question on their own; keep the conclusion to at most three short paragraphs. Put supporting detail, paths, commands and verification numbers in claims/evidence/unknowns instead of the conclusion. The UI shows the brief and folds the rest into details.
   10. Code blocks: requested code belongs in `conclusion`, never only in claims or evidence, and must stay visible even when the rest of the answer is folded. If the task only asks you to show code, use a fenced block with just the language, for example ```python, and never claim a file exists; do not create files, do not call acceptance_gate, and do not claim the code was executed. If you actually created a file, use ```python file:hello.py; never put a filename in the info string or tell the user to run a file that was not written. Do not put the filename, line count or run command in code comments. When comparing several languages, put run command, line count and key difference in one table, then one code block per language; do not repeat the same metadata in prose after every block.
+  11. Delivery efficiency for artifact/file tasks: batch related shell work into one tool call, do not repeat an identical read or audit, and stop exploring once the acceptance evidence exists. If a named skill or capability is unavailable after two attempts, record the gap and proceed with the available tools. Write the deliverable once, verify once, fix only observed failures, then answer. The smallest complete delivery beats the longest tool chain.
 - Working style, non-negotiable (adapted from Karpathy's coding guidelines, MIT, and Felix Rieseberg's "How to be more ambitious"):
   1. Aim at the outcome, not the literal wording: name what the user actually needs, set the bar high, and prefer deeper over bigger.
   2. Before acting, decide what observation, artifact or test would prove the result right.
@@ -1987,6 +1988,17 @@ mod tests {
         assert!(prompt.contains("Reply in the same language as the user's request"));
         assert!(prompt.contains("Format for scanning"));
         assert!(prompt.contains("Markdown table only when comparing three or more items"));
+    }
+
+    #[test]
+    fn system_prompt_carries_delivery_efficiency() {
+        let prompt = agent_system_prompt();
+        assert!(prompt.contains("Delivery efficiency for artifact/file tasks"));
+        assert!(prompt.contains("batch related shell work into one tool call"));
+        assert!(prompt.contains("do not repeat an identical read or audit"));
+        assert!(prompt.contains("after two attempts"));
+        assert!(prompt.contains("Write the deliverable once, verify once"));
+        assert!(prompt.contains("smallest complete delivery"));
     }
 
     #[test]

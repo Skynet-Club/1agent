@@ -1,0 +1,11 @@
+$ cargo fmt --check
+fmt clean
+$ cargo clippy --offline --all-targets -- -D warnings
+$ cargo test --offline -- --skip cli_tui_agents_refresh_uses_configured_profiles
+running 1370 tests
+test result: ok. 1366 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 2.74s
+running 68 tests
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+$ cargo run --offline --quiet -- eval --suite evals/core.json
+评测：core-v3（ContractFixture），通过 8/8，硬门禁失败 0，rubric 6/6
+clippy exit 0 (cargo clippy --offline --all-targets -- -D warnings)

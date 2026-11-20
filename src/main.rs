@@ -18371,7 +18371,10 @@ async fn run_tui_line_mode(
                     spec.name,
                     "unavailable while a run is active",
                 );
-                state.info(format!("{} 无法在运行中执行。", spec.name));
+                state.info(format!(
+                    "当前任务运行中：{} 将在任务结束后可用；消息可先按 Enter 入队。",
+                    spec.name
+                ));
                 continue;
             }
             TuiInputResolution::UnknownCommand(name) => {
@@ -25070,7 +25073,10 @@ async fn run_tui_interactive(
                             spec.name,
                             "unavailable while a run is active",
                         );
-                        state.info(format!("{} 无法在运行中执行。", spec.name));
+                        state.info(format!(
+                            "当前任务运行中：{} 将在任务结束后可用；消息可先按 Enter 入队。",
+                            spec.name
+                        ));
                     }
                     TuiInputResolution::UnknownCommand(name) => {
                         record_rejected_command(&mut state, &mut session, name, "unknown command");
@@ -25419,7 +25425,9 @@ async fn run_tui_task(
                         | SessionPickerAction::Switch(_)
                         | SessionPickerAction::Rename { .. }
                         | SessionPickerAction::Archive(_) => {
-                            state.info("运行中不能切换或修改会话；请先暂停或中断。");
+                            state.info(
+                                "当前任务运行中；会话切换/新建将在结束后可用。消息可先按 Enter 入队。",
+                            );
                         }
                     }
                     sync_session_picker_preview(&mut *state, session);

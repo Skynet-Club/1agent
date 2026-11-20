@@ -65,6 +65,9 @@ const CONCLUSION_BORDER: Color = PANEL_GREEN;
 const MEMORY_TONE: Color = Color::Rgb(0x7e, 0xc8, 0xa8);
 const LOCAL_FILE_GREEN: Color = MIL_GREEN;
 const MAX_CODE_LINES: usize = 20;
+/// Keep enough history for a long multi-agent run; 200 dropped the first ~26
+/// steps of a 59-step session.
+const MAX_TRANSCRIPT_ENTRIES: usize = 2_000;
 
 /// One row of the Ctrl+Tab mode menu. `None` means automatic inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1328,12 +1331,19 @@ impl TuiState {
         text: impl Into<String>,
         text_tone: TuiTone,
     ) {
+        let label = label.into();
+        let text = text.into();
+        if crate::domain::has_fenced_code(&text) {
+            self.assistant_heading(label, label_tone);
+            self.assistant_markdown(&text);
+            return;
+        }
         self.push_entry(
             TranscriptKind::Item,
             text_tone,
-            Some(label.into()),
+            Some(label),
             label_tone,
-            text.into(),
+            text,
         );
     }
 
@@ -2672,7 +2682,7 @@ impl TuiState {
                 indent,
             },
         );
-        if self.transcript.len() > 200 {
+        if self.transcript.len() > MAX_TRANSCRIPT_ENTRIES {
             self.transcript.remove(0);
         }
         self.transcript_revision = self.transcript_revision.wrapping_add(1);
@@ -3646,7 +3656,7 @@ impl TuiState {
                         let line = line.trim_start();
                         line.starts_with("@@") || line.starts_with("+++") || line.starts_with("---")
                     });
-                let show_numbers = line_count > 3 && !diff_block;
+                let show_numbers = !diff_block;
                 let number_width = line_count.to_string().len();
                 let header_prefix = "  ╭─ ";
                 let right = "╮";
@@ -4129,6 +4139,14 @@ impl TuiState {
                 && (previous_tone != tone || run_selected != selected || index == line.text.len())
             {
                 let mut style = tone_style(previous_tone);
+                if line.kind == TranscriptKind::Code
+                    && !line.text.starts_with("  ╭")
+                    && !line.text.starts_with("  ╰")
+                {
+                    // Code content and its syntax colors stay unweighted; the
+                    // fence border may remain bold.
+                    style = style.remove_modifier(Modifier::BOLD);
+                }
                 if run_selected {
                     style = style.add_modifier(Modifier::REVERSED);
                 }
@@ -5557,7 +5575,7 @@ impl TuiState {
             call_id: None,
             indent,
         });
-        if self.transcript.len() > 200 {
+        if self.transcript.len() > MAX_TRANSCRIPT_ENTRIES {
             self.transcript.remove(0);
         }
         self.transcript_revision = self.transcript_revision.wrapping_add(1);
@@ -10104,6 +10122,17 @@ mod tests {
                 .fg,
             MIL_GREEN_BRIGHT
         );
+        let body_prefix = state.transcript_lines[body_row].prefix_len as u16;
+        assert!(
+            !terminal
+                .backend()
+                .buffer()
+                .cell((area.x + body_prefix + 1, row_y(body_row)))
+                .unwrap()
+                .modifier
+                .contains(Modifier::BOLD),
+            "code content must not be bold"
+        );
         assert_eq!(
             terminal
                 .backend()
@@ -10185,6 +10214,64 @@ mod tests {
             .expect("code header");
         assert!(header.text.contains("示例"));
         assert!(!header.text.contains("99乘法表.py"));
+    }
+
+    #[test]
+    fn transcript_history_keeps_more_than_the_old_200_entries() {
+        let mut state = TuiState::new("mock", 6, 120);
+        for index in 0..300 {
+            state.assistant_body(format!("history line {index}"));
+        }
+        assert!(state.transcript.len() > 200);
+        assert!(
+            state
+                .transcript
+                .iter()
+                .any(|entry| entry.text.contains("history line 0")),
+            "the first entry must survive a long run"
+        );
+    }
+
+    #[test]
+    fn short_code_blocks_show_line_numbers_and_the_closing_fence() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_markdown("```python\nprint(1)\n```");
+        let lines = state.build_transcript_lines(60);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.kind == TranscriptKind::Code && line.text.contains("│ 1 ")),
+            "short code must still show line numbers"
+        );
+        assert!(
+            lines.iter().any(|line| line.kind == TranscriptKind::Code
+                && line.text.starts_with("  ╰")
+                && line.text.ends_with('╯')),
+            "code block must close with a fence"
+        );
+    }
+
+    #[test]
+    fn code_fences_inside_structured_items_still_render_as_code() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.assistant_item_styled(
+            "Claim",
+            TuiTone::Body,
+            "before\n```python\nprint(1)\n```\nafter",
+            TuiTone::Body,
+        );
+        let lines = state.build_transcript_lines(80);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.kind == TranscriptKind::Code && line.text.contains("print(1)")),
+            "fenced code inside an item must not be flattened to prose"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.kind == TranscriptKind::Code && line.text.starts_with("  ╭"))
+        );
     }
 
     #[test]

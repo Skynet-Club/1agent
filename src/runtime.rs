@@ -16,9 +16,10 @@ use crate::authority::PolicyOutcome;
 use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, ConflictStatus, FlipCondition, ImpactLevel,
-    InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse,
-    ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta,
-    StopReason, TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
+    InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, MessageRole, ModelMessage, ModelRequest,
+    ModelResponse, ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint,
+    RuntimeCheckpointDelta, StopReason, TaskRequest, ToolCall, ToolObservation, ToolSpec,
+    ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
@@ -2556,8 +2557,19 @@ impl AgentRuntime {
                 .budget
                 .auto_compact_tokens
                 .min(request.budget.max_context_tokens);
-            let (model_messages, context_compaction) =
+            let (mut model_messages, context_compaction) =
                 compact_messages_at_tokens(&messages, trigger_tokens, 4);
+            if let Some(nudge) = efficiency_nudge(step) {
+                if let Some(system) = model_messages
+                    .iter_mut()
+                    .find(|message| matches!(message.role, MessageRole::System))
+                {
+                    system.content.push_str("\n\n");
+                    system.content.push_str(nudge);
+                } else {
+                    model_messages.insert(0, ModelMessage::system(nudge));
+                }
+            }
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
@@ -3907,6 +3919,20 @@ fn plain_text_evidence_answer(
     })
 }
 
+/// One transient efficiency nudge, injected into the system message for a
+/// single request. It is not appended to the durable conversation messages.
+fn efficiency_nudge(step: usize) -> Option<&'static str> {
+    match step {
+        30 => Some(
+            "Efficiency checkpoint: 30 steps. Stop exploring; finish the deliverable with the tools you already have, run one verification, and answer. Do not repeat an audit or a failed source lookup.",
+        ),
+        40 => Some(
+            "Final efficiency checkpoint: 40 steps. Complete the artifact, verify once, and answer; if blocked, return conditional with the exact blocker.",
+        ),
+        _ => None,
+    }
+}
+
 fn remaining_budget(
     started_at: Instant,
     timeout_ms: u64,
@@ -4199,6 +4225,14 @@ mod tests {
     use crate::tools::{EchoTool, ToolRegistry, default_registry};
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn efficiency_nudges_fire_at_the_checkpoint_steps() {
+        assert!(efficiency_nudge(29).is_none());
+        assert!(efficiency_nudge(30).unwrap().contains("30 steps"));
+        assert!(efficiency_nudge(40).unwrap().contains("40 steps"));
+        assert!(efficiency_nudge(41).is_none());
+    }
 
     struct ReframeStub;
 
