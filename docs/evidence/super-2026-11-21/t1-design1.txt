@@ -1,0 +1,14 @@
+状态：有条件完成
+结论：页面已交付到 /tmp/1agent-t1-design1/index.html，技术验收通过（accepted，contract_digest 9b75187c8d743e5812a09fe407dc1f56a3a22440ddb540b2c042d5b8b465dabd），但设计合同还差两项证据，所以这次只算 conditional，不能算 completed。 缺的两项是：brief 完整性检查（谁在看、主 CTA、品牌素材、约束逐条核对）和独立的设计评审证据（我没有跑独立的 unslop 评审，只是自己对着清单逐条比对）。
+信任摘要：我的判断 8 · 依据 7 · 假设 2 · 还没确定 3 · 改判 3
+依据：
+- [/tmp/1agent-t1-design1/index.html] verify_artifact 返回 exists=true、media_type=text/html、schema_ok=true、preview_ok=true，sha256 与预期一致
+- [http://127.0.0.1:40825/?v=3] browser audit 三视口：390→390/390，768→753/753，1440→1425/1425；horizontal_overflow=false，placeholder_hits=0，small_tap_targets=0，all_pass=true
+- [/home/skynet/work/join-us/source.md] 文档 JSON：document_id Higbd259domECKx3XuZcinYWnEg，revision_id 990，含 job 方向、wangxudong@szchenqi.com、15810555856 与三处校区地址
+什么情况会改变结论：
+- 若 补跑 acceptance_gate，合同里写明 brief 字段核对与独立 unslop 评审发现，并返回 accepted，则 状态可以升为 completed
+- 若 lark-cli 重新导出显示 revision_id 不是 990，或岗位与联系方式有变化，则 c4 的时效性失效，页面正文需要按新版本更新并重新审计
+- 若 真机打开发现字体回退或底部常驻按钮遮挡内容，则 c2、c3 的结论只覆盖浏览器模拟视口，需要按真机结果修布局
+使用 --details 查看完整字段与路由轨迹
+
+运行日志：/tmp/1agent-t1-design1/.journal/c2495935-88a6-4088-91fd-483db5e180d9.jsonl

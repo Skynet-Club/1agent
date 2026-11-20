@@ -8,7 +8,8 @@
     "5fc7830",
     "c067b46",
     "48137f5",
-    "2ad5669"
+    "2ad5669",
+    "d336b3b"
   ],
   "baseline": {
     "journal": "~/.1a/journals/d990ae4b-923a-4c3f-bb15-19084b2b9823.jsonl",
@@ -185,7 +186,7 @@
     "fmt": "clean",
     "clippy": "clean",
     "lib": {
-      "passed": 1388,
+      "passed": 1389,
       "failed": 0,
       "ignored": 4
     },
@@ -194,7 +195,7 @@
       "failed": 0
     },
     "all_tests_with_known_skip": {
-      "passed": 1858,
+      "passed": 1859,
       "failed": 0,
       "ignored": 13
     },
@@ -240,5 +241,27 @@
     "completed": "1/3",
     "acceptance_gate_accepted": "1/3",
     "honest_conclusion": "speed robust; quality not yet reliable; next slice is completion reliability"
+  },
+  "t1_design1": {
+    "binary_sha256": "4b8eb4d9746958963abe6c1a20fb60634b3bd278d29d947e1362525553407b96",
+    "journal": "/tmp/1agent-t1-design1/.journal/c2495935-88a6-4088-91fd-483db5e180d9.jsonl",
+    "wall_s": 174.5,
+    "loop_steps": 31,
+    "tool_calls": 42,
+    "input_tokens": 1529949,
+    "audits": [
+      "false",
+      "false",
+      "false",
+      "true"
+    ],
+    "acceptance_gate": [
+      "accepted"
+    ],
+    "final_status": "conditional",
+    "conditional_reason": "accepted receipt still lacks brief completeness and independent design-review evidence; both gaps named",
+    "artifact_bytes": 36405,
+    "artifact_sha256": "b1f1040acfdbecf4bc3ed45d33d1233105d5f8b81f02525b3fa4da9ffbc15f82",
+    "note": "post-nudge smoke only; primary T1 n=3 was measured on 60c3"
   }
 }

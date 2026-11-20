@@ -8,7 +8,8 @@ Feature commits: `1d0b164` (task profiles, step metrics, tool cache),
 `c0b0db3` (multi-tool page classification, page checklist, audit repair),
 `5fc7830` (verification reserve, audit recheck, page acceptance re-plan),
 `c067b46` (verification-budget warning), `48137f5` (deep-task NOTES ledger
-guidance) and `2ad5669` (repair reserve + explicit acceptance contract).
+guidance), `2ad5669` (repair reserve + explicit acceptance contract) and
+`d336b3b` (design-gap nudge).
 
 ## What changed
 
@@ -166,6 +167,20 @@ sha256 `a94671f0…`; screenshots `t1-rerun-mobile.png` /
 `t1-rerun-desktop.png`; notes `t1-rerun-notes.md`. Full n=3 metrics:
 `t1-n3.json`; completed-run details: `t1-rerun.json`.
 
+### Post-nudge smoke (final binary `4b8e`)
+
+The final binary adds a design-gap nudge: if an accepted receipt still lacks
+design evidence, ask once for the exact missing items and a new acceptance
+call. One smoke run: 174.5s / 31 steps / 42 tools; audit false→false→false→true;
+`acceptance_gate` accepted; final **conditional** because the accepted receipt
+still lacked brief completeness and independent design-review evidence. The
+run **named both gaps** instead of claiming completed. This is an
+honesty/precision improvement, not a completion-rate improvement; the primary
+T1 n=3 above was measured on binary `60c3`, not this binary.
+
+Artifacts: `t1-design1.html` (36,405 bytes, sha256 `b1f1040a…`),
+`t1-design1-notes.md`, `t1-design1-mobile.png`; metrics `t1-design1.json`.
+
 ### What made the rerun both faster and not dumber
 
 1. The original task was initially misclassified as **fast** because it ends in
@@ -216,10 +231,10 @@ not a model-quality claim.
 
 - `cargo fmt --check`: clean.
 - `cargo clippy --offline --all-targets -- -D warnings`: clean.
-- `cargo test --lib`: **1,388 passed / 0 failed / 4 ignored**.
+- `cargo test --lib`: **1,389 passed / 0 failed / 4 ignored**.
 - `cargo test --bins`: **68 passed / 0 failed**.
 - Full test suite with the known CLI-session test skipped:
-  **1,858 passed / 0 failed / 13 ignored**.
+  **1,859 passed / 0 failed / 13 ignored**.
 - Eval `evals/core.json`: **8/8 PASS**, hard-gate failures 0, rubric 6/6.
 - `scripts/verify-claims.sh`: **290 checked / 266 verified / 16 partial /
   8 no evidence**, structure only.

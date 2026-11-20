@@ -1,0 +1,27 @@
+{
+  "task": "original lark-cli wiki -> mobile interactive HTML page, post-design-nudge smoke",
+  "binary_sha256": "4b8eb4d9746958963abe6c1a20fb60634b3bd278d29d947e1362525553407b96",
+  "journal": "/tmp/1agent-t1-design1/.journal/c2495935-88a6-4088-91fd-483db5e180d9.jsonl",
+  "wall_s": 174.5,
+  "profile": "deep",
+  "model_responses": 32,
+  "loop_steps": 31,
+  "tool_calls": 42,
+  "input_tokens": 1529949,
+  "average_input_tokens": 47811,
+  "max_input_tokens": 71961,
+  "cache_hit_percent": 88.86,
+  "model_ms": 158370,
+  "tool_ms": 6565,
+  "context_max_tokens": 48951,
+  "audits": ["false", "false", "false", "true"],
+  "acceptance_gate": ["accepted"],
+  "final_status": "conditional",
+  "conditional_reason": "accepted receipt still lacks brief completeness and independent design-review evidence; the run names both gaps instead of claiming completed",
+  "artifact": {
+    "path": "/tmp/1agent-t1-design1/index.html",
+    "bytes": 36405,
+    "sha256": "b1f1040acfdbecf4bc3ed45d33d1233105d5f8b81f02525b3fa4da9ffbc15f82"
+  },
+  "note": "post-nudge smoke only; the primary T1 n=3 in t1-n3.json was measured on binary 60c3, not this binary"
+}
