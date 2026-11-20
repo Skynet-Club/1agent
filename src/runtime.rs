@@ -2746,6 +2746,7 @@ impl AgentRuntime {
             let (mut model_messages, context_compaction) =
                 compact_messages_at_tokens(&messages, trigger_tokens, 4);
             apply_efficiency_nudge(&mut model_messages, task_profile.profile, step);
+            apply_goal_recitation(&mut model_messages, &request, task_profile.profile, step);
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
@@ -2759,6 +2760,7 @@ impl AgentRuntime {
                         path: journal_path.clone(),
                         source,
                     })?;
+                apply_compaction_recitation(&mut model_messages, &compaction);
             }
             let model_request = ModelRequest {
                 run_id,
@@ -2771,7 +2773,8 @@ impl AgentRuntime {
                 .duration_since(step_started)
                 .as_millis()
                 .min(u128::from(u64::MAX)) as u64;
-            let context_tokens = model_request_context_tokens(&model_request);
+            let context_breakdown = model_request_context_breakdown(&model_request);
+            let context_tokens = context_breakdown.total();
             let mut response = None;
             let mut response_ttft_ms = None;
             let mut last_retryable_error = None;
@@ -3153,6 +3156,11 @@ impl AgentRuntime {
                         cache_miss_tokens: response.usage.cache_miss_tokens,
                         cost_micros: response.usage.cost_micros,
                         context_tokens,
+                        system_tokens: context_breakdown.system,
+                        user_tokens: context_breakdown.user,
+                        assistant_tokens: context_breakdown.assistant,
+                        tool_tokens: context_breakdown.tool,
+                        tool_schema_tokens: context_breakdown.tool_schema,
                         max_steps,
                         tool_calls_requested,
                     },
@@ -4184,20 +4192,44 @@ fn plain_text_evidence_answer(
     })
 }
 
-fn model_request_context_tokens(request: &ModelRequest) -> usize {
-    let messages = request
-        .messages
-        .iter()
-        .map(|message| estimate_tokens(&message.content))
-        .sum::<usize>();
-    let tools = request
+#[derive(Default, Clone, Copy)]
+struct ContextTokenBreakdown {
+    system: usize,
+    user: usize,
+    assistant: usize,
+    tool: usize,
+    tool_schema: usize,
+}
+
+impl ContextTokenBreakdown {
+    fn total(self) -> usize {
+        self.system
+            .saturating_add(self.user)
+            .saturating_add(self.assistant)
+            .saturating_add(self.tool)
+            .saturating_add(self.tool_schema)
+    }
+}
+
+fn model_request_context_breakdown(request: &ModelRequest) -> ContextTokenBreakdown {
+    let mut breakdown = ContextTokenBreakdown::default();
+    for message in &request.messages {
+        let tokens = estimate_tokens(&message.content);
+        match message.role {
+            crate::domain::MessageRole::System => breakdown.system += tokens,
+            crate::domain::MessageRole::User => breakdown.user += tokens,
+            crate::domain::MessageRole::Assistant => breakdown.assistant += tokens,
+            crate::domain::MessageRole::Tool => breakdown.tool += tokens,
+        }
+    }
+    breakdown.tool_schema = request
         .tools
         .iter()
         .map(|tool| {
             estimate_tokens(&tool.description) + estimate_tokens(&tool.parameters.to_string())
         })
-        .sum::<usize>();
-    messages.saturating_add(tools)
+        .sum();
+    breakdown
 }
 
 fn environment_manifest(request: &TaskRequest) -> Option<String> {
@@ -4262,6 +4294,65 @@ fn apply_efficiency_nudge(messages: &mut Vec<ModelMessage>, profile: TaskProfile
             "Runtime efficiency checkpoint (internal, not a user request): {nudge}"
         )));
     }
+}
+
+fn apply_goal_recitation(
+    messages: &mut Vec<ModelMessage>,
+    request: &TaskRequest,
+    profile: TaskProfile,
+    step: usize,
+) {
+    if let Some(recitation) = goal_recitation(request, profile, step) {
+        messages.push(ModelMessage::user(recitation));
+    }
+}
+
+fn apply_compaction_recitation(
+    messages: &mut Vec<ModelMessage>,
+    compaction: &crate::context::ContextCompaction,
+) {
+    messages.push(ModelMessage::user(format!(
+        "Context was compacted from {} to {} tokens ({} tool results cleared). Before acting, name the next step and the evidence, path or decision it depends on. If a needed pointer was dropped, re-read it instead of guessing.",
+        compaction.before_tokens,
+        compaction.after_tokens,
+        compaction.compacted_tool_results
+    )));
+}
+
+fn goal_recitation(request: &TaskRequest, profile: TaskProfile, step: usize) -> Option<String> {
+    let due = match profile {
+        TaskProfile::Fast => matches!(step, 8 | 16),
+        TaskProfile::Standard => matches!(step, 12 | 24 | 36),
+        TaskProfile::Deep => matches!(step, 24 | 48),
+    };
+    if !due {
+        return None;
+    }
+    let objective = request.objective.trim();
+    if objective.is_empty() {
+        return None;
+    }
+    let objective = objective.chars().take(400).collect::<String>();
+    let mut text = format!(
+        "Goal recitation (internal, not a new user request). Keep the original goal in view:\n{objective}"
+    );
+    if let Some(deliverable) = request
+        .deliverable
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        text.push_str("\nDeliverable: ");
+        text.push_str(deliverable.trim());
+    }
+    if !request.constraints.is_empty() {
+        text.push_str("\nConstraints: ");
+        text.push_str(&request.constraints.join("; "));
+    }
+    if !request.success_criteria.is_empty() {
+        text.push_str("\nAcceptance: ");
+        text.push_str(&request.success_criteria.join("; "));
+    }
+    Some(text)
 }
 
 fn efficiency_nudge_for(profile: TaskProfile, step: usize) -> Option<&'static str> {
@@ -4625,6 +4716,75 @@ mod tests {
         assert!(efficiency_nudge_for(TaskProfile::Deep, 49).is_none());
         assert!(efficiency_nudge_for(TaskProfile::Deep, 50).is_some());
         assert!(efficiency_nudge_for(TaskProfile::Deep, 65).is_some());
+    }
+
+    #[test]
+    fn goal_recitation_is_tail_only_and_preserves_acceptance() {
+        let mut request =
+            TaskRequest::from_objective("Build a mobile HTML page", std::path::PathBuf::from("."));
+        request.deliverable = Some("index.html".into());
+        request.constraints = vec!["mobile first".into()];
+        request.success_criteria = vec!["page opens".into()];
+        let mut messages = vec![ModelMessage::system("stable system prefix")];
+        apply_goal_recitation(&mut messages, &request, TaskProfile::Fast, 8);
+        assert_eq!(messages[0].content, "stable system prefix");
+        let recitation = &messages.last().unwrap().content;
+        assert!(recitation.contains("Build a mobile HTML page"));
+        assert!(recitation.contains("index.html"));
+        assert!(recitation.contains("mobile first"));
+        assert!(recitation.contains("page opens"));
+        assert!(goal_recitation(&request, TaskProfile::Fast, 9).is_none());
+    }
+
+    #[test]
+    fn compaction_recitation_lands_at_tail_without_touching_the_prefix() {
+        let mut messages = vec![ModelMessage::system("stable system prefix")];
+        let compaction = crate::context::ContextCompaction {
+            before_tokens: 100_000,
+            after_tokens: 40_000,
+            before_chars: 400_000,
+            after_chars: 160_000,
+            compacted_tool_results: 7,
+        };
+        apply_compaction_recitation(&mut messages, &compaction);
+        assert_eq!(messages[0].content, "stable system prefix");
+        let recitation = &messages.last().unwrap().content;
+        assert!(recitation.contains("100000 to 40000"));
+        assert!(recitation.contains("7 tool results"));
+        assert!(recitation.contains("re-read it instead of guessing"));
+    }
+
+    #[test]
+    fn context_breakdown_separates_system_user_assistant_and_tool_tokens() {
+        let request = ModelRequest {
+            run_id: Uuid::new_v4(),
+            mode: CognitiveMode::Execute,
+            messages: vec![
+                ModelMessage::system("system text"),
+                ModelMessage::user("user text"),
+                ModelMessage::assistant("assistant text", Vec::new()),
+                ModelMessage::tool("call-1", "tool text"),
+            ],
+            tools: vec![ToolSpec {
+                name: "read_file".into(),
+                description: "read a file".into(),
+                parameters: serde_json::json!({"type": "object"}),
+            }],
+        };
+        let breakdown = model_request_context_breakdown(&request);
+        assert!(breakdown.system > 0);
+        assert!(breakdown.user > 0);
+        assert!(breakdown.assistant > 0);
+        assert!(breakdown.tool > 0);
+        assert!(breakdown.tool_schema > 0);
+        assert_eq!(
+            breakdown.total(),
+            breakdown.system
+                + breakdown.user
+                + breakdown.assistant
+                + breakdown.tool
+                + breakdown.tool_schema
+        );
     }
 
     struct ReframeStub;

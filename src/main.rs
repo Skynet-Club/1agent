@@ -169,8 +169,8 @@ enum Command {
         max_steps: usize,
         #[arg(long, default_value_t = 8)]
         max_tool_calls: usize,
-        #[arg(long, default_value_t = 8)]
-        max_provider_attempts: usize,
+        #[arg(long)]
+        max_provider_attempts: Option<usize>,
         #[arg(long, default_value_t = 50)]
         provider_retry_backoff_ms: u64,
         #[arg(long, default_value_t = 120)]
@@ -7058,7 +7058,10 @@ async fn main() -> Result<()> {
             request.budget = RunBudget {
                 max_steps,
                 max_tool_calls,
-                max_provider_attempts,
+                max_provider_attempts: tui_provider_attempt_budget(
+                    max_provider_attempts,
+                    max_steps,
+                ),
                 provider_retry_backoff_ms,
                 timeout_ms: timeout_seconds.saturating_mul(1_000),
                 max_context_tokens,

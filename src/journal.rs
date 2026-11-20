@@ -271,6 +271,16 @@ pub struct StepModelMetrics {
     pub cache_miss_tokens: u64,
     pub cost_micros: u64,
     pub context_tokens: usize,
+    #[serde(default)]
+    pub system_tokens: usize,
+    #[serde(default)]
+    pub user_tokens: usize,
+    #[serde(default)]
+    pub assistant_tokens: usize,
+    #[serde(default)]
+    pub tool_tokens: usize,
+    #[serde(default)]
+    pub tool_schema_tokens: usize,
     pub max_steps: usize,
     pub tool_calls_requested: usize,
 }
