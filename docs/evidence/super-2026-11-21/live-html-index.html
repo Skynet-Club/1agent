@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1Agent — Three Tracks</title>
+<meta name="description" content="How 1Agent moves a task along three tracks: faster, cleaner, smarter.">
+<style>
+:root{
+  --bg:#0f1115;--panel:#171a21;--text:#eef1f6;--muted:#a6afbf;
+  --line:#272c37;--fast:#4cc2ff;--clean:#5bd6a2;--smart:#f2b35e;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:inherit}
+.wrap{max-width:980px;margin:0 auto;padding:22px 18px 56px}
+header{padding:26px 0 6px}
+.eyebrow{color:var(--muted);font-size:12px;letter-spacing:.16em;text-transform:uppercase;margin:0 0 10px}
+h1{font-size:clamp(26px,7vw,40px);line-height:1.14;margin:0 0 12px;letter-spacing:-.02em}
+.lede{color:var(--muted);font-size:clamp(15px,4vw,18px);margin:0 0 22px;max-width:46ch}
+nav{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 26px}
+nav a{flex:1 1 100px;min-height:44px;display:flex;align-items:center;justify-content:center;
+  padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  text-decoration:none;font-weight:600;font-size:15px}
+nav a:active{background:#1e222b}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:20px 18px;margin:0 0 14px;scroll-margin-top:16px}
+.card h2{display:flex;align-items:center;gap:10px;font-size:20px;margin:0 0 6px;letter-spacing:-.01em}
+.dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+.fast .dot{background:var(--fast)}
+.clean .dot{background:var(--clean)}
+.smart .dot{background:var(--smart)}
+.tag{margin:0 0 12px;color:var(--muted);font-size:14px}
+ul{margin:0;padding-left:20px}
+li{margin:0 0 8px}
+li:last-child{margin-bottom:0}
+footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+@media(min-width:760px){
+  .wrap{padding:34px 24px 72px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid .card{margin:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <p class="eyebrow">1Agent</p>
+  <h1>Three tracks: faster, cleaner, smarter</h1>
+  <p class="lede">Every task runs along the same three tracks. Each one removes a different kind of waste, so the useful part of the work arrives sooner and holds up better.</p>
+</header>
+
+<nav aria-label="Jump to a track">
+  <a href="#faster">Faster</a>
+  <a href="#cleaner">Cleaner</a>
+  <a href="#smarter">Smarter</a>
+</nav>
+
+<main class="grid">
+  <section class="card fast" id="faster">
+    <h2><span class="dot" aria-hidden="true"></span>Faster</h2>
+    <p class="tag">Cut the waiting, not the checks.</p>
+    <ul>
+      <li>Steps that do not depend on each other are taken together, not one after another.</li>
+      <li>Work stops as soon as the proof exists, instead of exploring past the answer.</li>
+      <li>Short answers when nothing needs your decision.</li>
+    </ul>
+  </section>
+
+  <section class="card clean" id="cleaner">
+    <h2><span class="dot" aria-hidden="true"></span>Cleaner</h2>
+    <p class="tag">Say one thing, once.</p>
+    <ul>
+      <li>The result comes first; reasons and details sit underneath it.</li>
+      <li>No filler openings and no summary that repeats the answer.</li>
+      <li>Every claim, gap and open risk is stated instead of buried.</li>
+    </ul>
+  </section>
+
+  <section class="card smart" id="smarter">
+    <h2><span class="dot" aria-hidden="true"></span>Smarter</h2>
+    <p class="tag">Decide from evidence, not from habit.</p>
+    <ul>
+      <li>What would prove the result right is chosen before the work starts.</li>
+      <li>An outside check beats self-assessment whenever one can be run.</li>
+      <li>Unknowns and conditions that would change the answer are named, not smoothed over.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <p>Single-file page, built as an HTML delivery check for 1Agent. No performance figures are claimed here.</p>
+</footer>
+</div>
+</body>
+</html>

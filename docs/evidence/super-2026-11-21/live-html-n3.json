@@ -1,0 +1,85 @@
+{
+  "task": "single-file mobile-friendly HTML page explaining faster/cleaner/smarter",
+  "note": "T1-like artifact delivery, not the original lark-docs task",
+  "binary_sha256": "010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f",
+  "max_steps": 20,
+  "max_tool_calls": 12,
+  "runs": [
+    {
+      "run": 1,
+      "status": "completed",
+      "journal": "/tmp/1agent-html-fix1/.journal/2b6dd646-888a-4d2d-8b76-959fb21d4313.jsonl",
+      "wall_s": 35.139,
+      "model_responses": 6,
+      "step_model_metrics": 6,
+      "tool_calls": 5,
+      "model_ms": 33283,
+      "tool_ms": 1845,
+      "context_max": 13431,
+      "cache_hit_tokens": 86528,
+      "cache_miss_tokens": 6906,
+      "cache_hit_percent": 92.6,
+      "duplicate_calls": 0,
+      "artifact_bytes": 4533,
+      "artifact_sha256": "ffe088430a7743229a59449e7c7e26c4ced3ae94ceff43682727294c5e68a4d3"
+    },
+    {
+      "run": 2,
+      "status": "conditional",
+      "journal": "/tmp/1agent-html-fix2/.journal/6ae05f2d-c097-48c0-b2df-79be9506ff70.jsonl",
+      "wall_s": 44.102,
+      "model_responses": 9,
+      "step_model_metrics": 9,
+      "tool_calls": 8,
+      "model_ms": 42249,
+      "tool_ms": 1838,
+      "context_max": 15548,
+      "cache_hit_tokens": 141056,
+      "cache_miss_tokens": 18218,
+      "cache_hit_percent": 88.6,
+      "duplicate_calls": 0,
+      "artifact_bytes": 4362,
+      "artifact_sha256": "51dd17557a9eed9225e0d9294f5418db4b6a3ebbf5caf586b725f4cc1f4ec1a3"
+    },
+    {
+      "run": 3,
+      "status": "completed",
+      "journal": "/tmp/1agent-html-fix3/.journal/32278bfc-287d-41d9-8cc7-78f2ec0363ad.jsonl",
+      "wall_s": 29.296,
+      "model_responses": 7,
+      "step_model_metrics": 6,
+      "tool_calls": 6,
+      "model_ms": 20217,
+      "tool_ms": 1872,
+      "context_max": 13513,
+      "cache_hit_tokens": 91136,
+      "cache_miss_tokens": 13417,
+      "cache_hit_percent": 87.2,
+      "duplicate_calls": 0,
+      "artifact_bytes": 3490,
+      "artifact_sha256": "ededd3918fbc8774b0452a8b52f268dfc20bfc5a32cc51bf468085583a444f14"
+    }
+  ],
+  "median": {
+    "wall_s": 35.139,
+    "steps": 6,
+    "tool_calls": 6,
+    "model_ms": 33283,
+    "context_max": 13513,
+    "cache_hit_percent": 88.6
+  },
+  "range": {
+    "wall_s": [29.296, 44.102],
+    "steps": [6, 9],
+    "tool_calls": [5, 8],
+    "context_max": [13431, 15548]
+  },
+  "artifact": {
+    "rep1": {
+      "path": "/tmp/1agent-html-fix1/index.html",
+      "bytes": 4533,
+      "sha256": "ffe088430a7743229a59449e7c7e26c4ced3ae94ceff43682727294c5e68a4d3",
+      "render": "Chrome headless 390x844, exit 0; screenshot live-html-n3-rep1-mobile.png"
+    }
+  }
+}

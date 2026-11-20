@@ -1,0 +1,51 @@
+{
+  "task": "single-file mobile-friendly HTML page explaining faster/cleaner/smarter",
+  "journal": "/tmp/1agent-html-smoke/.journal/f71c4252-d06a-42b5-aeae-ae7642134220.jsonl",
+  "wall_s": 45.85,
+  "status": "conditional (accepted artifact, final answer conditional)",
+  "profile": "fast",
+  "profile_confidence": 75,
+  "model_responses": 8,
+  "step_model_metrics": 7,
+  "tool_calls": 6,
+  "step_tool_metrics": 6,
+  "tool_names": {
+    "write_file": 1,
+    "preview_file": 1,
+    "browser": 3,
+    "acceptance_gate": 1
+  },
+  "model_ms": 35601,
+  "tool_ms": 1832,
+  "context_tokens": [11390, 11826, 12017, 12370, 12881, 13389, 13456],
+  "last_context_breakdown": {
+    "system_tokens": 5340,
+    "user_tokens": 381,
+    "assistant_tokens": 0,
+    "tool_tokens": 2066,
+    "tool_schema_tokens": 5669
+  },
+  "input_tokens": 134561,
+  "output_tokens": 10079,
+  "cache_hit_tokens": 118656,
+  "cache_miss_tokens": 15905,
+  "cache_hit_percent": 88.2,
+  "duplicate_calls": 0,
+  "cache_hits": 0,
+  "circuit_open": 0,
+  "artifact": {
+    "path": "/tmp/1agent-html-smoke/index.html",
+    "bytes": 4119,
+    "sha256": "cf12c2ab99b1f20f91640776903fb2e111aed3f5f95947df764454d0dfe0ae23",
+    "preview": "HTTP 200, 4119 bytes, matching sha256",
+    "browser_audit": "all_pass=true, overflow=0, placeholders=0, small_tap_targets=0 at 390/768/1440",
+    "acceptance_gate": "accepted, public_passed=true, hidden_passed=true, zero failures"
+  },
+  "independent_render": {
+    "chrome_headless": "mobile 390x844 and desktop 1440x900 screenshots, exit 0",
+    "screenshots": [
+      "live-html-mobile.png",
+      "live-html-desktop.png"
+    ]
+  }
+}

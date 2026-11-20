@@ -3,7 +3,8 @@
 Status: **landed; profile guidance, environment manifest, step metrics, cache-safe
 nudges, read cache/coalescing/circuit breaker, and large-payload receipts**
 
-Feature commit: `1d0b164` (`feat(1.2): add task profiles, step metrics and tool cache`).
+Feature commits: `1d0b164` (task profiles, step metrics, tool cache) and
+`fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix).
 
 ## What changed
 
@@ -34,8 +35,10 @@ Feature commit: `1d0b164` (`feat(1.2): add task profiles, step metrics and tool 
    - Any write/ordered tool clears the cache, so a stale read cannot survive a
      mutation.
    - Repeated identical failures return a cached failure once, then a
-     `circuit_open` observation. This directly targets the 3 repeated browser
-     audits and repeated missing-skill searches in the 59-step baseline.
+     `circuit_open` observation.
+   - This targets repeated **read-only** calls when the workspace has not
+     changed. The 59-step baseline's browser audits followed page edits, so
+     they were legitimate re-verification and must stay ordered/uncached.
    - `skill_search`, `skill_list`, `memory_recall`, `memory_why` and
      `session_search` are now parallel-safe so they can be cached/coalesced.
 6. **Large payload receipts**
@@ -70,10 +73,12 @@ The baseline says the loop is **model-round-trip bound**, not tool-bound:
 59 model responses account for about 80% of wall clock. The repeated audit and
 the 38-tool schema load are real waste, but they are secondary to turn count.
 
-## Live smoke on the installed rc.13
+## Live smoke on the first rc.13 build
 
-Release binary SHA-256:
+Release binary SHA-256 of this smoke:
 `5e1b38216eb5a0c809d30605e108096f70a152e6a4438e74c5c7ba6a8884c976`
+Final installed rc.13 (context breakdown, recitation, CLI budget fix):
+`010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f`
 
 Journal: `/tmp/1agent-release-smoke/ca45d775-8e16-47eb-aed4-696d812679d0.jsonl`
 
@@ -96,14 +101,71 @@ timings, and the release binary all work against the live provider. It did not
 exercise the read cache because the model chose two different reads; the cache
 and circuit breaker are covered by deterministic unit tests.
 
+## Live artifact delivery (T1-like, not the same lark task)
+
+Run: `target/release/first-principles-agent` (rc.13 + context breakdown/recitation),
+single-file HTML page, max 20 steps.
+
+| Metric | Value |
+|---|---:|
+| Wall clock | **45.85s** |
+| Loop steps / model responses | 7 / 8 (1 repair) |
+| Tool calls | 6 |
+| Model time / tool time | 35,601ms / 1,832ms |
+| Context tokens | 11.4k → 13.5k |
+| Input / output tokens | 134,561 / 10,079 |
+| Cache hit rate | 88.2% |
+| Duplicate calls | 0 |
+| Artifact | 4,119 bytes, sha256 `cf12c2ab…` |
+| Verification | preview HTTP 200; browser audit all_pass; acceptance accepted |
+
+Independent render: Google Chrome headless at 390×844 and 1440×900, exit 0.
+Screenshots: `live-html-mobile.png`, `live-html-desktop.png`.
+
+This is **not** the original 59-step lark task; it is a smaller artifact task.
+It shows the harness can deliver a verified page in 7 loop steps with no
+duplicate calls, but the real T1 rerun is still required before claiming a
+specific speedup on the original task.
+
+### Three-repeat consistency (n=3)
+
+After fixing the CLI provider-attempt default (see below), the same task ran
+three times with the installed rc.13 binary:
+
+| Metric | Median | Range |
+|---|---:|---:|
+| Wall clock | **35.1s** | 29.3–44.1s |
+| Loop steps | **6** | 6–9 |
+| Tool calls | **6** | 5–8 |
+| Model time | 33.3s | 20.2–42.2s |
+| Tool time | 1.85s | 1.84–1.87s |
+| Max context tokens | 13.5k | 13.4k–15.5k |
+| Cache hit rate | 88.6% | 87.2–92.6% |
+| Duplicate calls | **0** | 0 |
+
+All three runs produced an accepted artifact (2 `completed`, 1 `conditional`);
+none exhausted the provider-attempt budget. Artifact sizes 3.5–4.5KB.
+Details: `live-html-n3.json`; rep1 artifact/screenshot/output in
+`live-html-n3-rep1.*`.
+
+### Provider-attempt bug found by the repeats
+
+The first n=3 attempt (before the fix) produced one `needs_evidence` run with
+`provider attempt budget exhausted`. Root cause: `1agent run` defaulted
+`--max-provider-attempts` to 8, and that counter increments for **successful**
+model calls too, so `--max-steps 20` was silently capped at 8 model calls.
+The TUI already derived the provider-attempt budget from `max_steps`; the CLI
+now does the same (`tui_provider_attempt_budget`). This is a real harness fix,
+not a model-quality claim.
+
 ## Gates
 
 - `cargo fmt --check`: clean.
 - `cargo clippy --offline --all-targets -- -D warnings`: clean.
-- `cargo test --lib`: **1,376 passed / 0 failed / 4 ignored**.
+- `cargo test --lib`: **1,379 passed / 0 failed / 4 ignored**.
 - `cargo test --bins`: **68 passed / 0 failed**.
 - Full test suite with the known CLI-session test skipped:
-  **1,846 passed / 0 failed / 13 ignored**.
+  **1,849 passed / 0 failed / 13 ignored**.
 - Eval `evals/core.json`: **8/8 PASS**, hard-gate failures 0, rubric 6/6.
 - `scripts/verify-claims.sh`: **290 checked / 266 verified / 16 partial /
   8 no evidence**, structure only.
@@ -121,7 +183,8 @@ code regression; the full gate log stops there. See
   are still recorded in `ModelResponded` but not in `StepModelMetrics`, so
   model-time totals can undercount by one repair call.
 - The read cache is per-run and side-effect-free only; writes clear it. There is
-  no cross-run cache.
+  no cross-run cache. It would **not** have removed the baseline's browser
+  audits, because the page changed between audits and `browser` is ordered.
 - The circuit breaker only covers parallel-safe tools; ordered tools still
   execute each time.
 - Large-payload receipts change the model-visible content to a JSON receipt;

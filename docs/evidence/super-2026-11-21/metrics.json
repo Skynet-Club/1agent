@@ -1,7 +1,7 @@
 {
   "slice": "super-slice1",
   "date": "2026-11-21",
-  "feature_commit": "1d0b164",
+  "feature_commits": ["1d0b164", "fd84da3"],
   "baseline": {
     "journal": "~/.1a/journals/d990ae4b-923a-4c3f-bb15-19084b2b9823.jsonl",
     "wall_s": 365.0,
@@ -53,12 +53,57 @@
     "tool_ms": 0,
     "repair_calls_not_in_step_metrics": 1
   },
+  "live_html": {
+    "journal": "/tmp/1agent-html-smoke/.journal/f71c4252-d06a-42b5-aeae-ae7642134220.jsonl",
+    "wall_s": 45.85,
+    "profile": "fast",
+    "model_responses": 8,
+    "loop_steps": 7,
+    "tool_calls": 6,
+    "model_ms": 35601,
+    "tool_ms": 1832,
+    "context_tokens": [11390, 11826, 12017, 12370, 12881, 13389, 13456],
+    "input_tokens": 134561,
+    "output_tokens": 10079,
+    "cache_hit_tokens": 118656,
+    "cache_miss_tokens": 15905,
+    "cache_hit_percent": 88.2,
+    "duplicate_calls": 0,
+    "artifact_sha256": "cf12c2ab99b1f20f91640776903fb2e111aed3f5f95947df764454d0dfe0ae23",
+    "artifact_bytes": 4119,
+    "acceptance": "accepted",
+    "browser_audit": "all_pass=true, overflow=0, placeholders=0, small_tap_targets=0 at 390/768/1440",
+    "independent_render": "Chrome headless 390x844 and 1440x900, exit 0"
+  },
+  "live_html_n3": {
+    "note": "T1-like artifact delivery, not the original lark-docs task",
+    "binary_sha256": "010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f",
+    "runs": 3,
+    "accepted_artifacts": 3,
+    "statuses": ["completed", "conditional", "completed"],
+    "median_wall_s": 35.139,
+    "wall_range_s": [29.296, 44.102],
+    "median_steps": 6,
+    "steps_range": [6, 9],
+    "median_tool_calls": 6,
+    "tool_calls_range": [5, 8],
+    "median_context_max": 13513,
+    "context_range": [13431, 15548],
+    "median_cache_hit_percent": 88.6,
+    "cache_hit_range_percent": [87.2, 92.6],
+    "duplicate_calls": 0
+  },
+  "harness_fix": {
+    "issue": "CLI max-provider-attempts default 8 capped a 20-step run at 8 successful model calls",
+    "fix": "CLI derives the provider-attempt budget from max_steps, matching the TUI",
+    "evidence": "first n=3 run had one provider-budget-exhausted result; post-fix n=3 had none"
+  },
   "gates": {
     "fmt": "clean",
     "clippy": "clean",
-    "lib": { "passed": 1376, "failed": 0, "ignored": 4 },
+    "lib": { "passed": 1379, "failed": 0, "ignored": 4 },
     "bins": { "passed": 68, "failed": 0 },
-    "all_tests_with_known_skip": { "passed": 1846, "failed": 0, "ignored": 13 },
+    "all_tests_with_known_skip": { "passed": 1849, "failed": 0, "ignored": 13 },
     "eval": "8/8 PASS",
     "claims": { "checked": 290, "verified": 266, "partial": 16, "no_evidence": 8 },
     "known_cli_failure": "cli_tui_agents_refresh_uses_configured_profiles (pre-existing skynet-term session limit)"

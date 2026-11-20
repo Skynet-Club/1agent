@@ -1,11 +1,13 @@
 date: 2026-11-21
 version: 1agent 1.0.0-rc.13
-feature_commit: 1d0b164
+feature_commits: 1d0b164, fd84da3
 release_binary: target/release/first-principles-agent
-release_binary_sha256: 5e1b38216eb5a0c809d30605e108096f70a152e6a4438e74c5c7ba6a8884c976
+release_binary_sha256: 010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f
 installed: ~/.local/bin/1agent
+installed_sha256: 010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f
 backup: ~/.local/bin/1agent-pre-super-2026-11-21
 installed_smoke:
   - "1agent --version" -> 1agent 1.0.0-rc.13
   - "1agent run --help" -> exit 0
-  - live read task -> completed; journal /tmp/1agent-release-smoke/ca45d775-8e16-47eb-aed4-696d812679d0.jsonl
+  - read task -> completed; journal /tmp/1agent-release-smoke/ca45d775-8e16-47eb-aed4-696d812679d0.jsonl
+  - 3x HTML artifact task -> 3 accepted artifacts, median 35.1s, 6 loop steps, 0 duplicate calls
