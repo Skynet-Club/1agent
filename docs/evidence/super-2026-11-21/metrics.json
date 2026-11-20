@@ -1,7 +1,7 @@
 {
   "slice": "super-slice1",
   "date": "2026-11-21",
-  "feature_commits": ["1d0b164", "fd84da3"],
+  "feature_commits": ["1d0b164", "fd84da3", "c0b0db3"],
   "baseline": {
     "journal": "~/.1a/journals/d990ae4b-923a-4c3f-bb15-19084b2b9823.jsonl",
     "wall_s": 365.0,
@@ -93,6 +93,47 @@
     "cache_hit_range_percent": [87.2, 92.6],
     "duplicate_calls": 0
   },
+  "t1_rerun": {
+    "note": "same core lark task; isolated output path; original /home/skynet/work/join-us untouched",
+    "baseline": {
+      "wall_s": 365.04,
+      "model_responses": 59,
+      "tool_calls": 68,
+      "input_tokens": 4946706,
+      "average_input_tokens": 83842,
+      "max_input_tokens": 133893,
+      "final_status": "conditional",
+      "browser_audit_all_pass": true
+    },
+    "rerun": {
+      "binary_sha256": "58dacab0dbda06a59760812ac5bffecfe29d771f4512546c9c548034c8c2dff4",
+      "journal": "/tmp/1agent-t1-rerun4/.journal/869d6cf5-12d6-4fd5-9d79-342ccf92ea79.jsonl",
+      "wall_s": 177.62,
+      "profile": "deep",
+      "model_responses": 28,
+      "loop_steps": 26,
+      "tool_calls": 37,
+      "input_tokens": 1287351,
+      "average_input_tokens": 45977,
+      "max_input_tokens": 69072,
+      "cache_hit_percent": 87.4,
+      "model_ms": 142203,
+      "tool_ms": 7382,
+      "context_max_tokens": 49352,
+      "final_status": "conditional",
+      "browser_audit_all_pass": true,
+      "artifact_bytes": 23543,
+      "artifact_sha256": "3e53ecafb74e4c60225b6f2ba3ee7c214e8a03eaf19b7babda655d80b8d02fa9"
+    },
+    "comparison": {
+      "wall_reduction_percent": 51.3,
+      "wall_speedup": 2.06,
+      "step_reduction_percent": 55.9,
+      "tool_call_reduction_percent": 45.6,
+      "input_token_reduction_percent": 74.0,
+      "quality": "both conditional; both browser audits all_pass=true"
+    }
+  },
   "harness_fix": {
     "issue": "CLI max-provider-attempts default 8 capped a 20-step run at 8 successful model calls",
     "fix": "CLI derives the provider-attempt budget from max_steps, matching the TUI",
@@ -101,9 +142,9 @@
   "gates": {
     "fmt": "clean",
     "clippy": "clean",
-    "lib": { "passed": 1379, "failed": 0, "ignored": 4 },
+    "lib": { "passed": 1383, "failed": 0, "ignored": 4 },
     "bins": { "passed": 68, "failed": 0 },
-    "all_tests_with_known_skip": { "passed": 1849, "failed": 0, "ignored": 13 },
+    "all_tests_with_known_skip": { "passed": 1853, "failed": 0, "ignored": 13 },
     "eval": "8/8 PASS",
     "claims": { "checked": 290, "verified": 266, "partial": 16, "no_evidence": 8 },
     "known_cli_failure": "cli_tui_agents_refresh_uses_configured_profiles (pre-existing skynet-term session limit)"

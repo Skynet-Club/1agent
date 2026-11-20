@@ -3,8 +3,9 @@
 Status: **landed; profile guidance, environment manifest, step metrics, cache-safe
 nudges, read cache/coalescing/circuit breaker, and large-payload receipts**
 
-Feature commits: `1d0b164` (task profiles, step metrics, tool cache) and
-`fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix).
+Feature commits: `1d0b164` (task profiles, step metrics, tool cache),
+`fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix) and
+`c0b0db3` (multi-tool page classification, page checklist, audit repair).
 
 ## What changed
 
@@ -127,6 +128,48 @@ It shows the harness can deliver a verified page in 7 loop steps with no
 duplicate calls, but the real T1 rerun is still required before claiming a
 specific speedup on the original task.
 
+## Original T1 rerun (same core task, isolated output path)
+
+The original 59-step task was rerun with the final rc.13 harness and an
+isolated output path (`/tmp/1agent-t1-rerun4/index.html`; the original
+`/home/skynet/work/join-us` was not modified).
+
+| Metric | Baseline | Rerun | Change |
+|---|---:|---:|---:|
+| Wall clock | 365.0s | **177.6s** | **−51.3% (2.06×)** |
+| Model responses | 59 | **28** | −52.5% |
+| Loop steps | 59 | **26** | −55.9% |
+| Tool calls | 68 | **37** | −45.6% |
+| Input tokens | 4,946,706 | **1,287,351** | −74.0% |
+| Avg input tokens | 83,842 | **45,977** | −45.1% |
+| Max input tokens | 133,893 | **69,072** | −48.4% |
+| Tool time | 71.6s | 7.4s | −89.7% |
+| Final status | conditional | conditional | parity |
+| Browser audit | all_pass=true | all_pass=true | parity |
+
+The rerun found 6 small tap targets on its first two audits, fixed them, and
+re-audited to `all_pass=true`. This is the **quality-parity** result; the
+earlier fast-profile attempt stopped at 112s with 6 unfixed tap targets and was
+not counted as a win.
+
+Artifact: 23,543 bytes, sha256 `3e53ecaf…`; screenshots `t1-rerun-mobile.png`
+and `t1-rerun-desktop.png`; full metrics `t1-rerun.json`.
+
+### What made the rerun both faster and not dumber
+
+1. The original task was initially misclassified as **fast** because it ends in
+   a page. The classifier now treats `lark-cli`, a URL plus an installed skill,
+   `深度思考`, `验收`/`质检` as multi-step signals; the task is **deep**. This is
+   the anti-降智 guard: a page-shaped artifact does not make a multi-tool task
+   simple.
+2. A page-delivery checklist is injected once for page tasks: write →
+   preview → browser open → audit at 390/768/1440 → fix and re-audit →
+   acceptance gate.
+3. A failed browser audit now adds a repair checkpoint instead of letting the
+   model answer conditional with fixable defects.
+4. The CLI provider-attempt budget is derived from `max_steps` (see below), so
+   a 40-step run is not silently capped at 8 successful model calls.
+
 ### Three-repeat consistency (n=3)
 
 After fixing the CLI provider-attempt default (see below), the same task ran
@@ -162,10 +205,10 @@ not a model-quality claim.
 
 - `cargo fmt --check`: clean.
 - `cargo clippy --offline --all-targets -- -D warnings`: clean.
-- `cargo test --lib`: **1,379 passed / 0 failed / 4 ignored**.
+- `cargo test --lib`: **1,383 passed / 0 failed / 4 ignored**.
 - `cargo test --bins`: **68 passed / 0 failed**.
 - Full test suite with the known CLI-session test skipped:
-  **1,849 passed / 0 failed / 13 ignored**.
+  **1,853 passed / 0 failed / 13 ignored**.
 - Eval `evals/core.json`: **8/8 PASS**, hard-gate failures 0, rubric 6/6.
 - `scripts/verify-claims.sh`: **290 checked / 266 verified / 16 partial /
   8 no evidence**, structure only.
@@ -177,8 +220,9 @@ code regression; the full gate log stops there. See
 
 ## What this slice does not prove
 
-- T1–T12 fixed tasks do not exist yet. The profile is a hint, not a hard budget;
-  no live 59-step rerun was done.
+- The T1 rerun is **n=1** and uses an isolated output path. The full T1–T12
+  suite and repeat protocol do not exist yet; the profile is guidance, not a
+  hard budget.
 - `StepModelMetrics` covers the main loop. Repair and budget-finalization calls
   are still recorded in `ModelResponded` but not in `StepModelMetrics`, so
   model-time totals can undercount by one repair call.

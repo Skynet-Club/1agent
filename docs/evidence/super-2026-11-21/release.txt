@@ -1,13 +1,14 @@
 date: 2026-11-21
 version: 1agent 1.0.0-rc.13
-feature_commits: 1d0b164, fd84da3
+feature_commits: 1d0b164, fd84da3, c0b0db3
 release_binary: target/release/first-principles-agent
-release_binary_sha256: 010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f
+release_binary_sha256: 58dacab0dbda06a59760812ac5bffecfe29d771f4512546c9c548034c8c2dff4
 installed: ~/.local/bin/1agent
-installed_sha256: 010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f
+installed_sha256: 58dacab0dbda06a59760812ac5bffecfe29d771f4512546c9c548034c8c2dff4
 backup: ~/.local/bin/1agent-pre-super-2026-11-21
 installed_smoke:
   - "1agent --version" -> 1agent 1.0.0-rc.13
   - "1agent run --help" -> exit 0
   - read task -> completed; journal /tmp/1agent-release-smoke/ca45d775-8e16-47eb-aed4-696d812679d0.jsonl
   - 3x HTML artifact task -> 3 accepted artifacts, median 35.1s, 6 loop steps, 0 duplicate calls
+  - original T1 rerun -> conditional, browser audit all_pass=true, 177.6s vs 365.0s baseline

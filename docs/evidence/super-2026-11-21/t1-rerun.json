@@ -1,0 +1,72 @@
+{
+  "task": "original lark-cli wiki -> mobile interactive HTML page, with ui-ux-pro-max and unslop quality acceptance",
+  "note": "same core task as the 59-step baseline; rerun adds an isolated output path (/tmp/1agent-t1-rerun4/index.html) and forbids modifying /home/skynet/work/join-us",
+  "baseline": {
+    "journal": "~/.1a/journals/d990ae4b-923a-4c3f-bb15-19084b2b9823.jsonl",
+    "wall_s": 365.04,
+    "model_responses": 59,
+    "tool_calls": 68,
+    "input_tokens": 4946706,
+    "average_input_tokens": 83842,
+    "max_input_tokens": 133893,
+    "output_tokens": 51116,
+    "cache_hit_percent": 98.26,
+    "tool_duration_ms": 71636,
+    "model_time_estimate_s": 293.4,
+    "final_status": "conditional",
+    "browser_audit_all_pass": true
+  },
+  "rerun": {
+    "journal": "/tmp/1agent-t1-rerun4/.journal/869d6cf5-12d6-4fd5-9d79-342ccf92ea79.jsonl",
+    "binary_sha256": "58dacab0dbda06a59760812ac5bffecfe29d771f4512546c9c548034c8c2dff4",
+    "wall_s": 177.62,
+    "profile": "deep",
+    "model_responses": 28,
+    "loop_steps": 26,
+    "tool_calls": 37,
+    "input_tokens": 1287351,
+    "average_input_tokens": 45977,
+    "max_input_tokens": 69072,
+    "output_tokens": 36041,
+    "cache_hit_tokens": 1125120,
+    "cache_miss_tokens": 162231,
+    "cache_hit_percent": 87.4,
+    "model_ms": 142203,
+    "tool_ms": 7382,
+    "context_max_tokens": 49352,
+    "final_status": "conditional",
+    "browser_audit_all_pass": true,
+    "audit_sequence": [
+      "open",
+      "audit all_pass=false small_tap_targets=6",
+      "open",
+      "audit all_pass=false small_tap_targets=6",
+      "close",
+      "open",
+      "audit all_pass=true small_tap_targets=0",
+      "open",
+      "verify_artifact verified",
+      "audit all_pass=true small_tap_targets=0"
+    ],
+    "artifact": {
+      "path": "/tmp/1agent-t1-rerun4/index.html",
+      "bytes": 23543,
+      "sha256": "3e53ecafb74e4c60225b6f2ba3ee7c214e8a03eaf19b7babda655d80b8d02fa9"
+    }
+  },
+  "comparison": {
+    "wall_reduction_percent": 51.3,
+    "wall_speedup": 2.06,
+    "step_reduction_percent": 55.9,
+    "model_response_reduction_percent": 52.5,
+    "tool_call_reduction_percent": 45.6,
+    "input_token_reduction_percent": 74.0,
+    "average_input_reduction_percent": 45.1,
+    "max_input_reduction_percent": 48.4,
+    "quality": "both final statuses conditional; both browser audits all_pass=true"
+  },
+  "independent_render": {
+    "chrome_headless": "mobile 390x844 and desktop 1440x900, exit 0",
+    "screenshots": ["t1-rerun-mobile.png", "t1-rerun-desktop.png"]
+  }
+}
