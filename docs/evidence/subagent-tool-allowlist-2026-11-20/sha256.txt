@@ -1,0 +1,9 @@
+f7e006170d938836381f936b1bfaf8989113feface38bd906e31fd230a0431fc  src/tools/mod.rs
+a374cfd322b8e30970e8b479e71722ff60312a8ab08ef4ce155073486dd8db9e  src/tools/subagent.rs
+2e909445d2b20f6fb841adf86b1f9bc6dd071eab4d447dde21c3a6e35429393b  src/runtime.rs
+a474df70c7b201417965b4e8247d8f8ef7c489e735d28add6da64f409a661cda  src/main.rs
+85bc7d3c2174098470ab551609f7d6274a1410fda1b951c869d508ddf9dc964e  tests/cli_e2e.rs
+b90ef7c245ed53b02cf4154e1ad848d950e8cb557a82c87a17e4f8eed259fc7a  docs/evidence/subagent-tool-allowlist-2026-11-20/allowlist-tests.txt
+7d150970d83ce36b3ffebaca1f8b442cb7be511b41bec4e4e3078bf717efce0c  docs/evidence/subagent-tool-allowlist-2026-11-20/cli-test.txt
+f97cf77038edb5956643e78dce4ce954699a31f2f5cc7bfce2e2417699d75d0c  docs/evidence/subagent-tool-allowlist-2026-11-20/README.md
+9bb8bd85a830d7f92fcf1fcb494a23656fc00fc8664a1980acca4a44a3287ff7  docs/evidence/subagent-tool-allowlist-2026-11-20/metrics.json

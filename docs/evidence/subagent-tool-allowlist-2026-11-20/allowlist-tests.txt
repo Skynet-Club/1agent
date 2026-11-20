@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 8 tests
+test tools::browser::tests::network_off_ignores_model_supplied_allowlist ... ok
+test browser::egress::tests::allowlist_supports_exact_and_wildcard_entries ... ok
+test tools::subagent::tests::invalid_child_allowlist_is_rejected_before_spawn ... ok
+test tools::tests::tool_allowlist_hides_and_rejects_unlisted_tools ... ok
+test tools::subagent::tests::empty_child_allowlist_denies_all_tools ... ok
+test tools::subagent::tests::child_tool_allowlist_is_intersected_with_the_parent ... ok
+test tools::subagent::tests::omitted_child_allowlist_inherits_the_parent_allowlist ... ok
+test runtime::tests::runtime_advertises_only_tools_allowed_by_the_registry_allowlist ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1334 filtered out; finished in 0.01s
+

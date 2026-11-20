@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,6 +24,9 @@ pub struct RunContext {
     pub goal_id: Option<String>,
     /// Master/Workshop work item this run is serving, when known.
     pub work_item_id: Option<String>,
+    /// Tool allowlist of this run; `None` means unrestricted. A child inherits
+    /// and can only narrow it.
+    pub allowed_tools: Option<BTreeSet<String>>,
 }
 
 tokio::task_local! {
@@ -285,6 +288,7 @@ pub trait AgentTool: Send + Sync {
 #[derive(Default, Clone)]
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn AgentTool>>,
+    allowed: Option<BTreeSet<String>>,
 }
 
 impl ToolRegistry {
@@ -292,8 +296,49 @@ impl ToolRegistry {
         self.tools.insert(tool.spec().name, tool);
     }
 
+    /// Restrict the registry to exact tool names. Unknown names are rejected so
+    /// a typo cannot silently produce a child with no tools. The allowlist can
+    /// only narrow the registry; it never adds a tool.
+    pub fn restrict_to(
+        &mut self,
+        allowed: impl IntoIterator<Item = String>,
+    ) -> Result<(), Vec<String>> {
+        let allowed = allowed.into_iter().collect::<BTreeSet<_>>();
+        let unknown = allowed
+            .iter()
+            .filter(|name| {
+                !self.tools.contains_key(*name) && !crate::dynamic_tools::is_virtual(name)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unknown.is_empty() {
+            return Err(unknown);
+        }
+        self.allowed = Some(allowed);
+        Ok(())
+    }
+
+    pub fn allow_none(&mut self) {
+        self.allowed = Some(BTreeSet::new());
+    }
+
+    pub fn allowed_tools(&self) -> Option<&BTreeSet<String>> {
+        self.allowed.as_ref()
+    }
+
+    fn is_allowed(&self, name: &str) -> bool {
+        self.allowed
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(name))
+    }
+
     pub fn specs(&self) -> Vec<ToolSpec> {
-        let mut specs: Vec<_> = self.tools.values().map(|tool| tool.spec()).collect();
+        let mut specs: Vec<_> = self
+            .tools
+            .values()
+            .filter(|tool| self.is_allowed(&tool.spec().name))
+            .map(|tool| tool.spec())
+            .collect();
         specs.sort_by(|left, right| left.name.cmp(&right.name));
         specs
     }
@@ -306,6 +351,7 @@ impl ToolRegistry {
         let mut specs: Vec<_> = self
             .tools
             .values()
+            .filter(|tool| self.is_allowed(&tool.spec().name))
             .filter(|tool| permissions.allow_write || !tool.requires_write())
             .map(|tool| tool.spec())
             .collect();
@@ -315,32 +361,39 @@ impl ToolRegistry {
 
     /// Whether the tool may run concurrently with other tools in one batch.
     pub fn parallel_safe(&self, name: &str) -> bool {
-        self.tools
-            .get(name)
-            .is_some_and(|tool| tool.parallel_safe())
+        self.is_allowed(name)
+            && self
+                .tools
+                .get(name)
+                .is_some_and(|tool| tool.parallel_safe())
     }
 
-    /// Whether the named tool can write. Unknown tools return false; the
-    /// executor reports the unknown tool separately.
+    /// Whether the named tool can write. Unknown or hidden tools return false;
+    /// the executor reports the hidden/unknown tool separately.
     pub fn requires_write(&self, name: &str) -> bool {
-        self.tools
-            .get(name)
-            .is_some_and(|tool| tool.requires_write())
+        self.is_allowed(name)
+            && self
+                .tools
+                .get(name)
+                .is_some_and(|tool| tool.requires_write())
     }
 
-    /// Unknown tools are treated as irreversible.
+    /// Unknown or hidden tools are treated as irreversible.
     pub fn reversible(&self, name: &str) -> bool {
-        self.tools.get(name).is_some_and(|tool| tool.reversible())
+        self.is_allowed(name) && self.tools.get(name).is_some_and(|tool| tool.reversible())
     }
 
     pub fn risk(&self, name: &str) -> Option<RiskLevel> {
-        self.tools.get(name).map(|tool| tool.risk())
+        self.is_allowed(name)
+            .then(|| self.tools.get(name).map(|tool| tool.risk()))
+            .flatten()
     }
 
     pub fn capabilities(&self) -> Vec<ToolCapability> {
         let mut capabilities = self
             .tools
             .values()
+            .filter(|tool| self.is_allowed(&tool.spec().name))
             .map(|tool| {
                 let spec = tool.spec();
                 ToolCapability {
@@ -387,6 +440,15 @@ impl ToolRegistry {
         cancellation: &CancellationToken,
     ) -> ToolObservation {
         let started = Instant::now();
+        if !self.is_allowed(&call.name) {
+            return failure_observation(
+                call,
+                ToolStatus::PermissionDenied,
+                "tool_not_allowed",
+                format!("tool '{}' is not in this run's allowlist", call.name),
+                started,
+            );
+        }
         let Some(tool) = self.tools.get(&call.name).cloned() else {
             return failure_observation(
                 call,
@@ -1918,6 +1980,67 @@ mod tests {
             ..PermissionSet::default()
         });
         assert!(writable.iter().any(|spec| spec.name == "terminal_create"));
+    }
+
+    #[tokio::test]
+    async fn tool_allowlist_hides_and_rejects_unlisted_tools() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        registry.register(Arc::new(TerminalCreateTool::new("unused")));
+        registry
+            .restrict_to(["echo".to_string()])
+            .expect("echo is registered");
+        let writable = PermissionSet {
+            allow_write: true,
+            ..PermissionSet::default()
+        };
+        assert_eq!(
+            registry
+                .specs_for(&writable)
+                .into_iter()
+                .map(|spec| spec.name)
+                .collect::<Vec<_>>(),
+            vec!["echo"]
+        );
+        assert!(
+            registry
+                .capabilities()
+                .iter()
+                .all(|capability| capability.name == "echo")
+        );
+        assert_eq!(
+            registry.allowed_tools().map(|allowed| allowed.len()),
+            Some(1)
+        );
+
+        let denied = registry
+            .execute(
+                &ToolCall {
+                    id: "denied-call".into(),
+                    name: "terminal_create".into(),
+                    arguments: serde_json::json!({}),
+                },
+                &writable,
+                &CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(denied.status, ToolStatus::PermissionDenied);
+        assert_eq!(denied.error_code.as_deref(), Some("tool_not_allowed"));
+
+        assert!(
+            registry
+                .restrict_to([
+                    "echo".to_string(),
+                    crate::dynamic_tools::DESCRIBE_SELF.into()
+                ])
+                .is_ok()
+        );
+        assert_eq!(
+            registry.restrict_to(["missing".to_string()]),
+            Err(vec!["missing".to_string()])
+        );
+        registry.allow_none();
+        assert!(registry.specs_for(&writable).is_empty());
     }
 
     #[test]

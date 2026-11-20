@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-20",
+  "feature": "MA-007 subagent tool allowlist (tool slice)",
+  "allowlist": {
+    "argument": "spawn_agent.allowed_tools",
+    "inheritance": "parent runtime allowlist is inherited; child list is intersected",
+    "empty_array": "deny all tools",
+    "unknown_names": "fail before spawn",
+    "child_cli": ["--allowed-tools", "--deny-all-tools"],
+    "registry": "specs/capabilities filtered; hidden execute -> tool_not_allowed"
+  },
+  "tests": {
+    "allowlist_focused_passed": 8,
+    "cli_allowlist_passed": 1,
+    "lib_passed": 1338,
+    "lib_failed": 0,
+    "bin_passed": 67,
+    "mast_fault_injection_passed": 7,
+    "cli_e2e_passed_isolated_home": 40,
+    "clippy_all_targets_deny_warnings": "clean"
+  },
+  "not_enforced": "required_capabilities remains Work Item assignment metadata"
+}

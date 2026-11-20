@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
@@ -31,6 +31,8 @@ const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_MAX_STEPS: usize = 8;
 const MAX_MAX_STEPS: usize = 20;
+const MAX_ALLOWED_TOOLS: usize = 32;
+const MAX_TOOL_NAME_CHARS: usize = 64;
 
 fn nonempty_env(name: &str) -> Option<String> {
     std::env::var(name)
@@ -67,6 +69,53 @@ fn validate_task(value: &str) -> Result<(), ToolError> {
         ));
     }
     Ok(())
+}
+
+fn parse_allowed_tools(value: Option<&Value>) -> Result<Option<BTreeSet<String>>, ToolError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let array = value.as_array().ok_or_else(|| {
+        ToolError::InvalidArguments("allowed_tools must be an array of tool names".into())
+    })?;
+    if array.len() > MAX_ALLOWED_TOOLS {
+        return Err(ToolError::InvalidArguments(format!(
+            "allowed_tools must contain at most {MAX_ALLOWED_TOOLS} names"
+        )));
+    }
+    let mut tools = BTreeSet::new();
+    for item in array {
+        let name = item.as_str().ok_or_else(|| {
+            ToolError::InvalidArguments("allowed_tools entries must be strings".into())
+        })?;
+        let valid_start = name
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+        if !valid_start
+            || name.chars().count() > MAX_TOOL_NAME_CHARS
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        {
+            return Err(ToolError::InvalidArguments(format!(
+                "invalid tool name '{name}'"
+            )));
+        }
+        tools.insert(name.to_string());
+    }
+    Ok(Some(tools))
+}
+
+fn child_allowed_tools(
+    parent: Option<&BTreeSet<String>>,
+    requested: Option<BTreeSet<String>>,
+) -> Option<BTreeSet<String>> {
+    match (parent, requested) {
+        (Some(parent), Some(requested)) => Some(parent.intersection(&requested).cloned().collect()),
+        (Some(parent), None) => Some(parent.clone()),
+        (None, requested) => requested,
+    }
 }
 
 async fn resolve_workspace(
@@ -199,6 +248,12 @@ impl AgentTool for SpawnAgentTool {
                     "allow_network": {
                         "type": "boolean",
                         "description": "Intersected with the parent's network permission; false denies child network access."
+                    },
+                    "allowed_tools": {
+                        "type": "array",
+                        "maxItems": MAX_ALLOWED_TOOLS,
+                        "items": {"type": "string", "minLength": 1, "maxLength": MAX_TOOL_NAME_CHARS},
+                        "description": "Exact child tool allowlist. Intersected with the parent's allowlist; an empty array denies all tools. Omit to inherit the parent's allowlist or allow the default set."
                     }
                 }
             }),
@@ -253,6 +308,7 @@ impl AgentTool for SpawnAgentTool {
             .and_then(Value::as_u64)
             .unwrap_or(DEFAULT_TIMEOUT_SECS)
             .clamp(10, MAX_TIMEOUT_SECS);
+        let requested_allowed_tools = parse_allowed_tools(arguments.get("allowed_tools"))?;
         let workspace = resolve_workspace(&arguments, permissions).await?;
         let journal_dir = workspace.join(".1agent-subagent-journal");
         let child_write = permissions.allow_write
@@ -301,6 +357,12 @@ impl AgentTool for SpawnAgentTool {
             (Some(run_id), Some(call_id)) => Some(format!("{run_id}:{call_id}")),
             _ => None,
         };
+        let allowed_tools = child_allowed_tools(
+            run_context
+                .as_ref()
+                .and_then(|context| context.allowed_tools.as_ref()),
+            requested_allowed_tools,
+        );
         let mut registry = RegistryGuard::start(record);
 
         let mut args = vec![
@@ -326,6 +388,16 @@ impl AgentTool for SpawnAgentTool {
         }
         if child_network {
             args.push("--allow-network".into());
+        }
+        match &allowed_tools {
+            Some(tools) if tools.is_empty() => args.push("--deny-all-tools".into()),
+            Some(tools) => {
+                for tool in tools {
+                    args.push("--allowed-tools".into());
+                    args.push(tool.clone());
+                }
+            }
+            None => {}
         }
         match provider_arguments() {
             Ok(arguments) => args.extend(arguments),
@@ -813,6 +885,43 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         }
     }
 
+    fn run_context(allowed_tools: Option<&[&str]>) -> crate::tools::RunContext {
+        crate::tools::RunContext {
+            run_id: format!("run-{}", Uuid::new_v4()),
+            session_id: None,
+            goal_id: None,
+            work_item_id: None,
+            allowed_tools: allowed_tools
+                .map(|tools| tools.iter().map(|tool| tool.to_string()).collect()),
+        }
+    }
+
+    async fn spawn_with_allowlist(
+        dir: &Path,
+        program: &Path,
+        workspace: &Path,
+        context: crate::tools::RunContext,
+        allowed_tools: Value,
+    ) -> Result<ToolOutcome, ToolError> {
+        let tool = SpawnAgentTool::new(program.to_path_buf())
+            .with_depth(0)
+            .allow_missing_journal();
+        crate::tools::RUN_CONTEXT
+            .scope(context, async {
+                tool.execute(
+                    json!({
+                        "task": "child task",
+                        "workspace": workspace,
+                        "allowed_tools": allowed_tools,
+                    }),
+                    &permissions(dir, true),
+                    &CancellationToken::new(),
+                )
+                .await
+            })
+            .await
+    }
+
     #[tokio::test]
     async fn spawns_a_read_only_child_and_returns_its_conclusion() {
         let dir = tempfile::tempdir().unwrap();
@@ -839,6 +948,107 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
     }
 
     #[tokio::test]
+    async fn child_tool_allowlist_is_intersected_with_the_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let outcome = spawn_with_allowlist(
+            dir.path(),
+            &program,
+            &workspace,
+            run_context(Some(&["read_file", "echo"])),
+            json!(["read_file", "write_file"]),
+        )
+        .await
+        .unwrap();
+        assert!(outcome.content.contains("child done"));
+        let args = std::fs::read_to_string(format!("{}.args", program.display())).unwrap();
+        let args = args.lines().collect::<Vec<_>>();
+        assert!(args.contains(&"--allowed-tools"));
+        assert!(args.contains(&"read_file"));
+        assert!(!args.contains(&"write_file"));
+        assert!(!args.contains(&"echo"));
+        assert!(!args.contains(&"--deny-all-tools"));
+    }
+
+    #[tokio::test]
+    async fn omitted_child_allowlist_inherits_the_parent_allowlist() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
+        crate::tools::RUN_CONTEXT
+            .scope(run_context(Some(&["read_file"])), async {
+                tool.execute(
+                    json!({"task": "child task", "workspace": workspace}),
+                    &permissions(dir.path(), true),
+                    &CancellationToken::new(),
+                )
+                .await
+            })
+            .await
+            .unwrap();
+        let args = std::fs::read_to_string(format!("{}.args", program.display())).unwrap();
+        assert!(args.lines().any(|arg| arg == "read_file"));
+        assert!(!args.contains("write_file"));
+    }
+
+    #[tokio::test]
+    async fn empty_child_allowlist_denies_all_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        spawn_with_allowlist(
+            dir.path(),
+            &program,
+            &workspace,
+            run_context(None),
+            json!([]),
+        )
+        .await
+        .unwrap();
+        let args = std::fs::read_to_string(format!("{}.args", program.display())).unwrap();
+        assert!(args.lines().any(|arg| arg == "--deny-all-tools"));
+        assert!(!args.contains("--allowed-tools"));
+    }
+
+    #[tokio::test]
+    async fn invalid_child_allowlist_is_rejected_before_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
+        for invalid in [
+            json!(["bad tool"]),
+            json!([""]),
+            json!(["ok", 3]),
+            json!(["--allow-write"]),
+        ] {
+            let error = tool
+                .execute(
+                    json!({
+                        "task": "child task",
+                        "workspace": workspace.display().to_string(),
+                        "allowed_tools": invalid,
+                    }),
+                    &permissions(dir.path(), true),
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
+            assert!(matches!(error, ToolError::InvalidArguments(_)));
+        }
+    }
+
+    #[tokio::test]
     async fn registry_records_parent_session_run_and_spawn_call_lineage() {
         let dir = tempfile::tempdir().unwrap();
         let program = fake_program(dir.path());
@@ -856,6 +1066,7 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             session_id: Some(format!("ses-{}", Uuid::new_v4())),
             goal_id: Some("goal-lineage".into()),
             work_item_id: Some("wi-lineage".into()),
+            allowed_tools: None,
         };
         let observation = crate::tools::RUN_CONTEXT
             .scope(context.clone(), async {
@@ -943,12 +1154,14 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             session_id: Some(format!("ses-a-{}", Uuid::new_v4())),
             goal_id: None,
             work_item_id: None,
+            allowed_tools: None,
         };
         let context_b = crate::tools::RunContext {
             run_id: format!("run-b-{}", Uuid::new_v4()),
             session_id: Some(format!("ses-b-{}", Uuid::new_v4())),
             goal_id: None,
             work_item_id: None,
+            allowed_tools: None,
         };
 
         let future_a = crate::tools::RUN_CONTEXT.scope(
@@ -1179,6 +1392,7 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             session_id: Some(format!("ses-fail-{}", Uuid::new_v4())),
             goal_id: None,
             work_item_id: None,
+            allowed_tools: None,
         };
         let observation = crate::tools::RUN_CONTEXT
             .scope(context.clone(), async {
@@ -1257,6 +1471,7 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             session_id: Some(format!("ses-cancel-{}", Uuid::new_v4())),
             goal_id: None,
             work_item_id: None,
+            allowed_tools: None,
         };
         let (result, _) = tokio::join!(
             crate::tools::RUN_CONTEXT.scope(
@@ -1319,6 +1534,7 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             session_id: Some(session_id.clone()),
             goal_id: None,
             work_item_id: None,
+            allowed_tools: None,
         };
         let observation = crate::tools::RUN_CONTEXT
             .scope(context.clone(), async {

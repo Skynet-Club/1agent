@@ -195,6 +195,12 @@ enum Command {
         /// Limit advertised tools to search hits plus always-on tools.
         #[arg(long)]
         tool_query: Option<String>,
+        /// Restrict tools advertised and executable in this run (repeatable).
+        #[arg(long = "allowed-tools", value_name = "TOOL")]
+        allowed_tools: Vec<String>,
+        /// Hide every tool for this run.
+        #[arg(long, conflicts_with = "allowed_tools")]
+        deny_all_tools: bool,
         #[arg(long)]
         authority: Option<PathBuf>,
         #[arg(long, default_value = "operator")]
@@ -6996,6 +7002,8 @@ async fn main() -> Result<()> {
             route_objective,
             voice_mode,
             tool_query,
+            allowed_tools,
+            deny_all_tools,
             authority,
             actor_id,
             authority_scope,
@@ -7111,6 +7119,13 @@ async fn main() -> Result<()> {
             tools.register(Arc::new(first_principles_agent::SessionSearchTool::new(
                 journal_dir.clone(),
             )));
+            if deny_all_tools {
+                tools.allow_none();
+            } else if !allowed_tools.is_empty()
+                && let Err(unknown) = tools.restrict_to(allowed_tools.iter().cloned())
+            {
+                bail!("unknown tool(s) in --allowed-tools: {}", unknown.join(", "));
+            }
             let (objective, objective_source) =
                 resolve_route_objective(route_objective.as_deref())?;
             let mut action_journal = None;

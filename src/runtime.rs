@@ -2029,6 +2029,7 @@ impl AgentRuntime {
             session_id: self.session_id.clone(),
             goal_id: std::env::var("ONEAGENT_GOAL_ID").ok(),
             work_item_id: std::env::var("ONEAGENT_WORK_ITEM_ID").ok(),
+            allowed_tools: self.tools.allowed_tools().cloned(),
         };
         let journal_path = self.journal_dir.join(format!("{run_id}.jsonl"));
         let mut journal =
@@ -4422,6 +4423,7 @@ mod tests {
                     session_id: Some("ses-allow".into()),
                     goal_id: None,
                     work_item_id: None,
+                    allowed_tools: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -4487,6 +4489,7 @@ mod tests {
                     session_id: None,
                     goal_id: None,
                     work_item_id: None,
+                    allowed_tools: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -4557,6 +4560,7 @@ mod tests {
                     session_id: Some("ses-approval".into()),
                     goal_id: None,
                     work_item_id: None,
+                    allowed_tools: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -4716,6 +4720,7 @@ mod tests {
                     session_id: Some("ses-approval".into()),
                     goal_id: None,
                     work_item_id: None,
+                    allowed_tools: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -7977,6 +7982,40 @@ mod tests {
         assert_eq!(value["provider"], "scripted");
         assert_eq!(value["model"], "scripted-v1");
         assert!(value["budgets"]["max_steps"].is_number());
+    }
+
+    #[tokio::test]
+    async fn runtime_advertises_only_tools_allowed_by_the_registry_allowlist() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("ok"),
+            }],
+            requests.clone(),
+        ));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(EchoTool));
+        registry.register(Arc::new(crate::tools::ReadFileTool));
+        registry
+            .restrict_to(["echo".to_string()])
+            .expect("echo is registered");
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+        runtime
+            .run(
+                TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        let names = requests[0]
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"echo"), "{names:?}");
+        assert!(!names.contains(&"read_file"), "{names:?}");
     }
 
     #[tokio::test]

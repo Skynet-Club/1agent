@@ -34,6 +34,32 @@ fn short_and_upper_v_print_the_version() {
 }
 
 #[test]
+fn cli_rejects_unknown_allowed_tool_before_running() {
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .args([
+            "run",
+            "--task",
+            "say hello",
+            "--provider",
+            "mock",
+            "--journal-dir",
+            &workspace.path().join("journal").display().to_string(),
+            "--allowed-tools",
+            "no_such_tool",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown tool(s) in --allowed-tools"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn cli_run_audit_and_replay_form_a_complete_flywheel() {
     let workspace = tempfile::tempdir().unwrap();
     let evidence_dir = workspace.path().join("evidence dir");

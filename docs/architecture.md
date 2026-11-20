@@ -824,9 +824,18 @@ Rejected outcomes; Verified outcomes are not surfaced.
   after a parent `SIGKILL` remains open as MA-011 in
   `1.2-multi-agent-hardening-plan.md`. The spawn itself is classified
   as write-capable, so read-only mode, the kill switch and write-level
-  Authority checks run before any child starts. Each run scopes a task-local
-  `RunContext {run_id, session_id, goal_id, work_item_id}` around tool
-  execution, so a successful spawn writes `parent_run_id`,
+  Authority checks run before any child starts. `allowed_tools` is an optional
+  exact child tool allowlist: the parent's runtime allowlist is inherited, a
+  child list is intersected with it, and an empty array denies every tool. The
+  child receives `--allowed-tools`/`--deny-all-tools`; its `ToolRegistry`
+  filters specs and capabilities and returns `tool_not_allowed` if a hidden
+  tool is called anyway. Unknown names fail closed. Virtual meta-tools
+  (`describe_self`, `request_tools`) stay visible but cannot reveal or activate
+  a tool outside the allowlist. `required_capabilities` remains Work Item
+  assignment metadata; there is no runtime capability-to-tool mapping yet.
+  Each run scopes a task-local
+  `RunContext {run_id, session_id, goal_id, work_item_id, allowed_tools}`
+  around tool execution, so a successful spawn writes `parent_run_id`,
   `parent_session_id`, `spawn_call_id`, `child_run_id`, `goal_id`,
   `work_item_id` and `delegation_id` to the subagent registry and the same
   parent/child ids to the spawn observation metadata. Runs outside a TUI
