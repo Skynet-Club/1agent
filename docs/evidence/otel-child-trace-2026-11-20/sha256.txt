@@ -1,0 +1,5 @@
+ef51563c3c6b19f081fef2bbae4fc657c43f978f3fda4f3a6239d1083b468324  src/otel.rs
+461314aea475043bf48020dcb066892ab4edd3559731f39fa1868a86a582874a  docs/1.2-multi-agent-hardening-plan.md
+3fe15f1966218c279ada71f5fdf357a14ddd3db81ac433a6bdfb014b8670ab14  docs/evidence/otel-child-trace-2026-11-20/README.md
+b5a1a74e61444409bf46050e21c9468928b918205d47141db6e08ca3ef52047d  docs/evidence/otel-child-trace-2026-11-20/gate.txt
+64fed1f285d7363a395b72ef3661ea8b4961b955fec2d101ce5d780373b62915  docs/evidence/otel-child-trace-2026-11-20/otel-tests.txt

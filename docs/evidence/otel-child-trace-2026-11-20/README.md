@@ -62,5 +62,8 @@ Full gates (`gate.txt`, `eval.txt`):
 
 ## Release provenance
 
-Feature commit and release binary are recorded in the follow-up provenance
-commit (`release.txt`, `sha256.txt`).
+Feature commit `5b26da8`; release binary `70033348…` installed as
+`~/.local/bin/1agent`; previous MA-011 build `811df54a…` backed up as
+`1agent-pre-otel-child-trace-2026-11-20`. Installed smoke: `1agent --version`
+and `1agent otel --help` exit 0. Details in `release.txt`; source and evidence
+digests in `sha256.txt`.
