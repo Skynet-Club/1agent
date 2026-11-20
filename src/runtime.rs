@@ -564,6 +564,13 @@ fn is_repair_or_verification_tool(call: &ToolCall) -> bool {
     is_verification_tool(call) || matches!(call.name.as_str(), "write_file" | "edit_file")
 }
 
+fn design_gap_nudge(gaps: &[String]) -> String {
+    format!(
+        "Runtime design-acceptance checkpoint (internal, not a user request): the acceptance receipt is accepted, but the page design contract still lacks: {}. Re-run acceptance_gate with a contract that explicitly names these criteria and the evidence for them, then answer. Do not claim completed while the design gate lists gaps.",
+        gaps.join(", ")
+    )
+}
+
 fn audit_failure_nudge(observation: &ToolObservation) -> Option<String> {
     let metadata = &observation.metadata;
     if observation.tool != "browser"
@@ -2768,6 +2775,7 @@ impl AgentRuntime {
         let mut spent_tokens = 0u64;
         let mut evidence_replans = 0usize;
         let mut acceptance_replans = 0usize;
+        let mut design_replans = 0usize;
         let mut audit_repair_nudges = 0usize;
         let mut audit_recheck_nudges = 0usize;
         let mut verification_reserve_used = 0usize;
@@ -3431,6 +3439,26 @@ impl AgentRuntime {
                                 .to_string(),
                         ));
                         continue;
+                    }
+                    if design_replans < 1
+                        && completion_gate.design_task
+                        && let Some(receipt) = &completion_gate.accepted_receipt
+                    {
+                        let gaps = design_contract_gaps(receipt);
+                        if !gaps.is_empty() {
+                            design_replans += 1;
+                            let draft = serde_json::to_string(&answer).map_err(|error| {
+                                RuntimeError::InvalidOutput {
+                                    path: journal_path.clone(),
+                                    message: format!(
+                                        "cannot serialize answer draft for design re-plan: {error}"
+                                    ),
+                                }
+                            })?;
+                            messages.push(ModelMessage::assistant(draft, Vec::new()));
+                            messages.push(ModelMessage::user(design_gap_nudge(&gaps)));
+                            continue;
+                        }
                     }
                     let stop_reason = stop_reason_for_answer(answer.status);
                     return finish_with_answer(
@@ -4956,6 +4984,15 @@ mod tests {
         assert!(text.contains("acceptance_gate"));
         assert!(text.contains("browser audit"));
         assert!(text.contains("conditional"));
+    }
+
+    #[test]
+    fn design_gap_nudge_names_the_missing_contract_parts() {
+        let text = design_gap_nudge(&["390 宽度证据".into(), "设计评审证据".into()]);
+        assert!(text.contains("390 宽度证据"));
+        assert!(text.contains("设计评审证据"));
+        assert!(text.contains("acceptance_gate"));
+        assert!(text.contains("Do not claim completed"));
     }
 
     #[test]
@@ -9977,6 +10014,9 @@ mod tests {
                 },
                 ModelTurn::Final {
                     answer: completed_answer("made the page"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("made the page, still without the contract"),
                 },
             ],
             Arc::new(Mutex::new(Vec::new())),
