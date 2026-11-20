@@ -132,6 +132,7 @@ pub fn classify(request: &TaskRequest) -> TaskProfileDecision {
         "规划",
         "复现",
         "根因",
+        "深度思考",
     ];
     let deep_hits: Vec<&str> = deep_markers
         .into_iter()
@@ -168,6 +169,40 @@ pub fn classify(request: &TaskRequest) -> TaskProfileDecision {
     if ambiguous {
         reasons.push("ambiguous success criteria".into());
         return decision(TaskProfile::Standard, 60, reasons, true);
+    }
+
+    // A delivery verb plus an external source, installed skill, or formal
+    // acceptance is not a small one-shot task even when it ends in a page.
+    let multi_step_markers = [
+        "lark-cli", "https://", "http://", "skill", "browser", "audit", "验收", "质检", "文档",
+        "wiki",
+    ];
+    let multi_step_hits: Vec<&str> = multi_step_markers
+        .into_iter()
+        .filter(|marker| lower.contains(marker))
+        .collect();
+    let has_skill = lower.contains("skill");
+    if !multi_step_hits.is_empty() && (chars > 200 || has_skill) {
+        let formal_acceptance = ["验收", "质检"]
+            .into_iter()
+            .any(|marker| lower.contains(marker));
+        let strong = lower.contains("lark-cli")
+            || (formal_acceptance && lower.contains("skill"))
+            || lower.contains("深度思考");
+        reasons.push(format!(
+            "multi-step/tool signals: {}",
+            multi_step_hits.join(", ")
+        ));
+        return decision(
+            if strong {
+                TaskProfile::Deep
+            } else {
+                TaskProfile::Standard
+            },
+            if strong { 80 } else { 65 },
+            reasons,
+            false,
+        );
     }
 
     let fast_markers = [
@@ -229,6 +264,20 @@ mod tests {
             "Refactor the authentication module and migrate the database schema",
         ));
         assert_eq!(decision.profile, TaskProfile::Deep);
+    }
+
+    #[test]
+    fn lark_skill_page_is_deep_not_fast() {
+        let decision = classify(&request(
+            "使用lark-cli 阅读理解，https://example.feishu.cn/wiki/abc 并且深度思考后 使用ui-ux-pro-max skill 制作成手机网页，并得到unslop skill 的质检验收",
+        ));
+        assert_eq!(decision.profile, TaskProfile::Deep);
+    }
+
+    #[test]
+    fn short_skill_task_is_at_least_standard() {
+        let decision = classify(&request("Use the ui-ux skill to make this page"));
+        assert_eq!(decision.profile, TaskProfile::Standard);
     }
 
     #[test]

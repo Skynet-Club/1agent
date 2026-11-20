@@ -362,6 +362,7 @@ fn looks_like_page_task(objective: &str, deliverable: Option<&str>) -> bool {
     [
         "网站",
         "网页",
+        "html",
         "页面",
         "落地页",
         "主页",
@@ -529,6 +530,31 @@ pub(crate) fn action_status_for(observation: &ToolObservation) -> ActionStatus {
         }
         ToolStatus::Failed => ActionStatus::Failed,
     }
+}
+
+fn audit_failure_nudge(observation: &ToolObservation) -> Option<String> {
+    let metadata = &observation.metadata;
+    if observation.tool != "browser"
+        || metadata.get("action").map(String::as_str) != Some("audit")
+        || metadata.get("all_pass").map(String::as_str) != Some("false")
+    {
+        return None;
+    }
+    let small_tap_targets = metadata
+        .get("small_tap_targets")
+        .map(String::as_str)
+        .unwrap_or("0");
+    let overflow = metadata.get("overflow").map(String::as_str).unwrap_or("0");
+    let placeholders = metadata
+        .get("placeholders")
+        .map(String::as_str)
+        .unwrap_or("0");
+    if small_tap_targets == "0" && overflow == "0" && placeholders == "0" {
+        return None;
+    }
+    Some(format!(
+        "Runtime verification checkpoint (internal, not a user request): the browser audit failed (small_tap_targets={small_tap_targets}, overflow={overflow}, placeholders={placeholders}). Fix the artifact and re-run the audit before answering. If the defect is out of scope or cannot be fixed, return conditional with the exact blocker and evidence."
+    ))
 }
 
 fn safe_tool_name(name: &str) -> String {
@@ -2566,6 +2592,9 @@ impl AgentRuntime {
                 if let Some(manifest) = environment_manifest(&request) {
                     initial_messages.push(ModelMessage::system(manifest));
                 }
+                if let Some(checklist) = page_delivery_checklist(&request) {
+                    initial_messages.push(ModelMessage::system(checklist));
+                }
             }
             if fast_chat {
                 initial_messages.push(ModelMessage::user(format!(
@@ -2706,6 +2735,7 @@ impl AgentRuntime {
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
         let mut evidence_replans = 0usize;
+        let mut audit_repair_nudges = 0usize;
         let mut last_turn: Option<(ModelRequest, String, String)> = None;
         let mut completion_gate = CompletionGate::new(looks_like_page_task(
             &request.objective,
@@ -3644,6 +3674,7 @@ impl AgentRuntime {
                                     .await,
                             ]
                         };
+                        let mut audit_repair = None;
                         for (call, observation) in group.iter().zip(observations) {
                             match observation.status {
                                 ToolStatus::Ok => tool_ok += 1,
@@ -3661,6 +3692,9 @@ impl AgentRuntime {
                             }
                             if observation.error_code.as_deref() == Some("circuit_open") {
                                 tool_circuit_open += 1;
+                            }
+                            if audit_repair.is_none() {
+                                audit_repair = audit_failure_nudge(&observation);
                             }
                             completion_gate.observe(
                                 call,
@@ -3680,6 +3714,12 @@ impl AgentRuntime {
                                 call.id.clone(),
                                 observation.model_content(),
                             ));
+                        }
+                        if let Some(nudge) = audit_repair
+                            && audit_repair_nudges < 2
+                        {
+                            messages.push(ModelMessage::user(nudge));
+                            audit_repair_nudges += 1;
                         }
                     }
                     journal
@@ -4211,6 +4251,15 @@ impl ContextTokenBreakdown {
     }
 }
 
+fn page_delivery_checklist(request: &TaskRequest) -> Option<&'static str> {
+    if !looks_like_page_task(&request.objective, request.deliverable.as_deref()) {
+        return None;
+    }
+    Some(
+        "PAGE DELIVERY CHECKLIST\n1. Write the HTML with write_file.\n2. Preview it with preview_file and confirm HTTP 200 + matching sha256.\n3. Open the preview URL with browser {\"action\":\"open\",\"allow_loopback\":true}.\n4. Audit it with browser {\"action\":\"audit\",\"widths\":[390,768,1440]}.\n5. If all_pass=false, fix the artifact and re-audit. Do not answer completed while overflow, placeholders or small tap targets remain.\n6. Run acceptance_gate and require an accepted receipt before completed.\nIf a tool is unavailable or the step/tool budget is exhausted, return conditional with the exact missing evidence; do not claim the audit passed.",
+    )
+}
+
 fn model_request_context_breakdown(request: &ModelRequest) -> ContextTokenBreakdown {
     let mut breakdown = ContextTokenBreakdown::default();
     for message in &request.messages {
@@ -4734,6 +4783,18 @@ mod tests {
         assert!(recitation.contains("mobile first"));
         assert!(recitation.contains("page opens"));
         assert!(goal_recitation(&request, TaskProfile::Fast, 9).is_none());
+    }
+
+    #[test]
+    fn page_checklist_requires_preview_audit_and_acceptance() {
+        let request =
+            TaskRequest::from_objective("Make a mobile HTML page", std::path::PathBuf::from("."));
+        let checklist = page_delivery_checklist(&request).expect("page checklist");
+        assert!(checklist.contains("preview_file"));
+        assert!(checklist.contains("browser"));
+        assert!(checklist.contains("audit"));
+        assert!(checklist.contains("acceptance_gate"));
+        assert!(checklist.contains("conditional"));
     }
 
     #[test]
@@ -6853,6 +6914,84 @@ mod tests {
         let stored = std::fs::read_to_string(path).unwrap();
         assert_eq!(stored.chars().count(), MAX_INLINE_TOOL_CONTENT_CHARS + 1);
         assert!(observation.content.contains("\"content_offloaded\":true"));
+    }
+
+    struct FailedAuditTool;
+
+    #[async_trait]
+    impl crate::tools::AgentTool for FailedAuditTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "browser".into(),
+                description: "test browser audit with a fixable defect".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": true
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            let mut metadata = BTreeMap::new();
+            metadata.insert("action".into(), "audit".into());
+            metadata.insert("all_pass".into(), "false".into());
+            metadata.insert("small_tap_targets".into(), "6".into());
+            metadata.insert("overflow".into(), "0".into());
+            metadata.insert("placeholders".into(), "0".into());
+            Ok(crate::tools::ToolOutcome {
+                summary: "audit found six small tap targets".into(),
+                content: "audit".into(),
+                metadata,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_browser_audit_adds_a_repair_checkpoint() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(FailedAuditTool));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "audit-1".into(),
+                        name: "browser".into(),
+                        arguments: serde_json::json!({"action": "audit"}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("fixed"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+
+        runtime
+            .run(
+                TaskRequest::from_objective("read two things", workspace.path().into()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(requests[1].messages.iter().any(|message| {
+            message.role == crate::domain::MessageRole::User
+                && message.content.contains("browser audit failed")
+                && message.content.contains("small_tap_targets=6")
+        }));
     }
 
     #[tokio::test]
