@@ -16,5 +16,12 @@
     "master_coordination_tests": 20,
     "reaper_wiring_test": "expired_master_lease_is_reaped_and_journaled",
     "acceptance_regression_test": "master_verify_rejects_false_success_missing_criteria_and_sha_drift"
+  },
+  "release": {
+    "commit": "c01bdc4",
+    "binary_sha256": "c88525b9a1a988d798d4f6790cffdbd729f246c4f849a3e0c6db7781a977578a",
+    "installed_path": "/home/skynet/.local/bin/1agent",
+    "backup_path": "/home/skynet/.local/bin/1agent-pre-lease-reaper-2026-11-20",
+    "backup_sha256": "045bccdde32c9922b8a119a549a822106bd4e20b4028e34400e7f6a58229bbf0"
   }
 }

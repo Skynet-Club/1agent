@@ -85,6 +85,14 @@ returns an error to the CLI. The existing
 `master_verify_rejects_false_success_missing_criteria_and_sha_drift` test now
 passes.
 
+## Release provenance
+
+Commit `c01bdc4`; release binary `c88525b9…` installed as
+`~/.local/bin/1agent`; previous clarification build `045bccdd…` backed up as
+`1agent-pre-lease-reaper-2026-11-20`. `1agent --version` and
+`1agent master poll --help` pass. No live Workshop process kill was performed;
+the real-store/journal reaper path is covered by the wiring test.
+
 ## What this does not prove
 
 - No live Workshop process was killed in this step. The failure path uses a
@@ -106,4 +114,5 @@ passes.
 - `wiring-test.txt` — real-store/journal reaper test.
 - `acceptance-regression.txt` — existing verification rejection test.
 - `metrics.json` — counts and policy.
+- `release.txt` — commit, installed/backup binary hashes, smoke.
 - `sha256.txt` — source and evidence digests.

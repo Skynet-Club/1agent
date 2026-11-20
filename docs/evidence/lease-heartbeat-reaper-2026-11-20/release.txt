@@ -1,0 +1,9 @@
+commit: c01bdc4
+release_binary_sha256: c88525b9a1a988d798d4f6790cffdbd729f246c4f849a3e0c6db7781a977578a
+installed_path: /home/skynet/.local/bin/1agent
+backup_path: /home/skynet/.local/bin/1agent-pre-lease-reaper-2026-11-20
+backup_sha256: 045bccdde32c9922b8a119a549a822106bd4e20b4028e34400e7f6a58229bbf0
+version: 1.0.0-rc.12
+installed_smoke: 1agent --version; 1agent master poll --help
+note: no live Workshop process kill was performed; the real MasterStore/journal
+      reaper path is covered by expired_master_lease_is_reaped_and_journaled.

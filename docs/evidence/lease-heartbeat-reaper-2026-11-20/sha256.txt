@@ -2,8 +2,8 @@ cc9f9d94f78ef4fb6b440e95f801e63a2518b7136157142b576c0191df21636d  src/master_coo
 2c31097deab0b0f2e5af81abdcae260d47b90939f260f8523b0f701ecd44a693  src/master.rs
 283d861ad068fa01267dcb6f6cfccb423650df95bbfb74e8b7d63bca246eecd6  src/main.rs
 95a50098b50d4b1a6e14d6e5efa3ba4acf10b121c7189a0373cbf5819d553e3a  docs/evidence/lease-heartbeat-reaper-2026-11-20/acceptance-regression.txt
-403b9171a12c1f3ebb5b6ba43b8d24ce2f5032ba23a4daf9688c27a682630e96  docs/evidence/lease-heartbeat-reaper-2026-11-20/sha256.txt
+a6b6c8e5de83b1fe56505a8345a252c2e10d61eb0fdc0bcae2ea558d44be2e60  docs/evidence/lease-heartbeat-reaper-2026-11-20/release.txt
 6888af9e8f58b679d11e55cc5785690eceaec0ec39af74b9bc20e66787e7fe45  docs/evidence/lease-heartbeat-reaper-2026-11-20/unit-tests.txt
 3f32254035ae7d8768e904e7ed852df5d0b8e920246b280eb9e58f758bcf795c  docs/evidence/lease-heartbeat-reaper-2026-11-20/wiring-test.txt
-ae4e045441bec40813cf43036d967fd65879dfeb42e47b4731e05d0d0b6c9724  docs/evidence/lease-heartbeat-reaper-2026-11-20/README.md
-fe7adbeba5dd607b1a769d5ebbd54554f2db73b17fd4cf504a7cf9ec08e62d83  docs/evidence/lease-heartbeat-reaper-2026-11-20/metrics.json
+5cf0c9851d0eeedcb868a5d86f28a6795b37dcd4b468913474176a3bd998e4ff  docs/evidence/lease-heartbeat-reaper-2026-11-20/README.md
+e05abdd800191da5e0d1b1eb5c4f96c829581ba8d56b4646afda9cf6a7ccec7a  docs/evidence/lease-heartbeat-reaper-2026-11-20/metrics.json
