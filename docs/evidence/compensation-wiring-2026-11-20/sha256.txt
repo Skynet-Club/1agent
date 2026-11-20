@@ -1,0 +1,7 @@
+5b0f2fbef99225d231687553b3d0f41a5269baa5a1aa463f30e686b43996f80c  src/master_coordination.rs
+8ab7934157c9e85ecbaa6f72fcbda152e04b9681c33dd7bc286b6764ee4635e7  src/main.rs
+eb1cf4f2a7d9812e7a16422749554b04cdf48ac45f8330a50363af15192c82ee  tests/cli_e2e.rs
+66e00e27eb903a5b6808de1b0a35c1da31862e36340718e7e0e6d43ea81984e0  docs/1.2-multi-agent-hardening-plan.md
+dda89e25cd82b35bbd54c0b7edaf28580e5afe3f72a4fbf1c422c27d4dc46e84  docs/evidence/compensation-wiring-2026-11-20/README.md
+f86fc5f4395c3987fe3dc57f93a3b347baee1178deebdfb3f76a51663ca10878  docs/evidence/compensation-wiring-2026-11-20/gate.txt
+3cfe6d62ea4dac63f230954a380e66f3cf770612378b4578b1a3cf21c4a669c5  docs/evidence/compensation-wiring-2026-11-20/compensation-tests.txt
