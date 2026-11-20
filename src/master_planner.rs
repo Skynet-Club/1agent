@@ -684,6 +684,7 @@ impl PlanGenerator for ModelPlanGenerator {
                 ModelTurn::Final { answer } => {
                     let plan = parse_plan_from_answer(&answer, context)?;
                     ensure_sources_read(&context.goal, &context.sources, &read_urls, &read_paths)?;
+                    ensure_task_contract(&plan)?;
                     return Ok(plan);
                 }
                 ModelTurn::InvalidFinal { content, error } => {
@@ -694,6 +695,7 @@ impl PlanGenerator for ModelPlanGenerator {
                             &read_urls,
                             &read_paths,
                         )?;
+                        ensure_task_contract(&plan)?;
                         return Ok(plan);
                     }
                     if step == MAX_PLANNER_TOOL_STEPS {
@@ -917,6 +919,14 @@ fn expand_source_path(source: &str) -> Result<PathBuf, MasterPlannerError> {
     }
 }
 
+fn ensure_task_contract(plan: &PlanProposal) -> Result<(), MasterPlannerError> {
+    if plan.task_contract.is_some() {
+        Ok(())
+    } else {
+        Err(MasterPlannerError::MissingTaskContract)
+    }
+}
+
 fn collect_source_urls(value: &serde_json::Value, urls: &mut BTreeSet<String>) {
     match value {
         serde_json::Value::String(text) => urls.extend(source_urls(text)),
@@ -1047,6 +1057,7 @@ Rules:
 - Use only the context's plan_id and goal_id; set approved=false.
 - Produce 1..max_work_items Work Items. Prefer the fewest items that preserve real dependencies and independent verification.
 - Every Work Item must include required_capabilities, required_tools, acceptance_criteria and expected_artifacts.
+- Include task_contract. Every deliverable must have at least one acceptance criterion and at least one work_item_id; every Work Item must belong to exactly one deliverable.
 - Every expected_artifact must be a relative file path inside the Work Item workspace, never a prose result.
 - Use only Agent capabilities visible in context. Never select a brand by reputation.
 - Keep sessions, panes and jobs out of the plan; they are execution containers assigned later.
@@ -1065,6 +1076,19 @@ PlanProposal shape:
   "goal_id": "context goal_id",
   "version": 1,
   "summary": "short user-facing plan summary",
+  "task_contract": {
+    "objective": "context goal in one sentence",
+    "deliverables": [{
+      "id": "safe-deliverable-id",
+      "statement": "observable deliverable",
+      "acceptance": ["measurable acceptance criterion"],
+      "work_item_ids": ["work-item-id"]
+    }],
+    "constraints": ["bounded constraint"],
+    "non_goals": ["explicit non-goal"],
+    "sources": ["URL or local path actually read"],
+    "acceptance": ["goal-level acceptance criterion"]
+  },
   "work_items": [{
     "id": "safe-id",
     "title": "short title",
@@ -1385,6 +1409,8 @@ pub enum MasterPlannerError {
     Trace(String),
     #[error("provider did not return a valid PlanProposal JSON object: {0}")]
     InvalidPlanJson(String),
+    #[error("plan is missing task_contract")]
+    MissingTaskContract,
     #[error("provider changed the deterministic plan or goal identity")]
     IdentityMismatch,
     #[error("provider attempted to self-approve the plan")]
@@ -1407,7 +1433,9 @@ pub enum MasterPlannerError {
 mod tests {
     use super::*;
     use crate::domain::{AnswerStatus, MessageRole, ModelResponse, ToolCall, Usage};
-    use crate::master::{MASTER_PLAN_SCHEMA_VERSION, WorkBudget, WorkItem, WorkItemStatus};
+    use crate::master::{
+        Deliverable, MASTER_PLAN_SCHEMA_VERSION, TaskContract, WorkBudget, WorkItem, WorkItemStatus,
+    };
     use crate::production_line::{GoalContract, KeyResult, PRODUCTION_LINE_SCHEMA_VERSION};
     use crate::provider::ProviderError;
     use std::sync::Mutex;
@@ -1437,6 +1465,7 @@ mod tests {
             goal_id: context.goal_id.clone(),
             version: 1,
             summary: "Read requirements, then implement".into(),
+            task_contract: Some(sample_contract()),
             work_items: vec![WorkItem {
                 id: "implement".into(),
                 title: "Implement".into(),
@@ -1459,6 +1488,22 @@ mod tests {
             }],
             max_parallel: 1,
             approved: false,
+        }
+    }
+
+    fn sample_contract() -> TaskContract {
+        TaskContract {
+            objective: "Read requirements, then implement".into(),
+            deliverables: vec![Deliverable {
+                id: "deliver-implement".into(),
+                statement: "Implement the requested change".into(),
+                acceptance: vec!["cargo test passes".into()],
+                work_item_ids: vec!["implement".into()],
+            }],
+            constraints: Vec::new(),
+            non_goals: Vec::new(),
+            sources: Vec::new(),
+            acceptance: vec!["cargo test passes".into()],
         }
     }
 
@@ -1514,6 +1559,7 @@ mod tests {
             goal_id: context.goal_id.clone(),
             version: 1,
             summary: "Plan".into(),
+            task_contract: None,
             work_items: vec![WorkItem {
                 id: "implement".into(),
                 title: "Implement".into(),
@@ -1672,6 +1718,7 @@ mod tests {
             goal_id: context.goal_id.clone(),
             version: 1,
             summary: "Implement and verify".into(),
+            task_contract: Some(sample_contract()),
             work_items: vec![WorkItem {
                 id: "implement".into(),
                 title: "Implement".into(),
@@ -1978,6 +2025,20 @@ mod tests {
                 usage: Usage::default(),
             })
         }
+    }
+
+    #[tokio::test]
+    async fn planner_rejects_a_plan_without_task_contract() {
+        let context = context();
+        let mut plan = sample_plan(&context);
+        plan.task_contract = None;
+        let tools = Arc::new(Mutex::new(Vec::new()));
+        let generator = ModelPlanGenerator::new(Arc::new(ToolSpecCaptureProvider { plan, tools }));
+        let error = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, MasterPlannerError::MissingTaskContract));
     }
 
     #[tokio::test]
@@ -2380,6 +2441,7 @@ mod tests {
                 goal_id: context.planning.goal_id.clone(),
                 version: 1,
                 summary: "Implement and verify".into(),
+                task_contract: None,
                 work_items: vec![
                     WorkItem {
                         id: "implement".into(),
@@ -2510,6 +2572,7 @@ mod tests {
             goal_id: context.goal_id.clone(),
             version: 1,
             summary: "Implement and verify".into(),
+            task_contract: Some(sample_contract()),
             work_items: vec![WorkItem {
                 id: "implement".into(),
                 title: "Implement".into(),
@@ -2588,6 +2651,7 @@ mod tests {
             goal_id: context.goal_id.clone(),
             version: 1,
             summary: "Plan".into(),
+            task_contract: Some(sample_contract()),
             work_items: vec![item.clone()],
             max_parallel: 1,
             approved: false,

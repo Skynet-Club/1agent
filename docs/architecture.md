@@ -203,8 +203,9 @@ the runtime selects the backend (Lark/Feishu URL -> `lark-cli`, public HTTPS ->
 `fetch_url`, local file -> `read_document`, local directory/knowledge base ->
 `search_files`). Plan parsing is provider-agnostic: a bare `PlanProposal` or an
 `AgentAnswer` with a string/object `conclusion` is accepted; code-owned IDs/version
-and absolute workspace artifact paths are normalized. Content, permission and risk
-validation remains strict. With `--allow-network` and `~/.1a/skill-exec.json`, the planner may
+and absolute workspace artifact paths are normalized. The CLI planner requires a
+`task_contract` whose deliverables map to Work Items; every Work Item must belong
+to exactly one deliverable. Content, permission and risk validation remains strict. With `--allow-network` and `~/.1a/skill-exec.json`, the planner may
 also use `skill_exec` to run operator-allowlisted read-only commands from an external
 skill CLI. The limits are twelve tool steps and twenty-four
 tool calls per plan. `read_document` covers text/markup, PDF, OOXML/ODF/EPUB, RTF, archives

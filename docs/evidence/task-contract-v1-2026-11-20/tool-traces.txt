@@ -1,0 +1,20 @@
+# TaskContract v1 traces (2026-11-20)
+# Installed binary: ~/.local/bin/1agent sha256 3781e67b…
+
+## DeepSeek + Feishu (6 requests, 5 tool calls, 52.7 s, 71,072 / 9,473 tokens)
+step  tool          call                                                         status
+0     read_source   source=https://…/docx/… max_chars=64000                     ok
+1     search_files  path=/home/skynet/1-agent max_depth=2                         ok
+2     read_document  docs/product-manual.md max_chars=3000                         ok
+3     read_file     docs/acceptance-gate-plan.md max_bytes=2000                   ok
+4     read_source   source=docs/io-contracts.md query=configure                    ok
+5     (final)       PlanProposal + task_contract                                  ok
+Deliverables: skyget-positioning-deliverable → skyget-positioning-readme;
+skyget-metrics-deliverable → skyget-metrics-and-gates;
+skyget-commercial-deliverable → skyget-licensing-ci-spec.
+
+## Local qwen3-8b-16k + Feishu (2 requests, 1 tool call, 93.1 s, 10,633 / 2,419 tokens)
+step  tool          call                                                         status
+0     read_source   source=https://…/docx/… max_chars=1000000                  ok (clamped)
+1     (final)       PlanProposal + task_contract                                  ok
+Deliverables: d1 → wi1; d2 → wi2, wi3; d3 → wi4.

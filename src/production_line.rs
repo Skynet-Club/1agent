@@ -501,6 +501,7 @@ mod tests {
                 goal_id: "goal-1".into(),
                 version: 1,
                 summary: "交付计划".into(),
+                task_contract: None,
                 work_items,
                 max_parallel: 2,
                 approved: false,

@@ -2022,6 +2022,7 @@ mod tests {
             goal_id: "goal-1".into(),
             version: 1,
             summary: "Test".into(),
+            task_contract: None,
             work_items: vec![item("a", &[]), item("b", &["a"])],
             max_parallel: 2,
             approved: false,

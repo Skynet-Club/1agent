@@ -1,0 +1,33 @@
+{
+  "plan_id": "plan-05a25fe7-b524-4130-9839-1b97d9b409e8",
+  "goal_id": "goal-caa74355-151c-4fd5-a5bd-604fd7b33006",
+  "approved": false,
+  "deliverables": [
+    {
+      "id": "d1",
+      "work_item_ids": [
+        "wi1"
+      ]
+    },
+    {
+      "id": "d2",
+      "work_item_ids": [
+        "wi2",
+        "wi3"
+      ]
+    },
+    {
+      "id": "d3",
+      "work_item_ids": [
+        "wi4"
+      ]
+    }
+  ],
+  "work_items": [
+    "wi1",
+    "wi2",
+    "wi3",
+    "wi4"
+  ],
+  "note": "Full plan stays local; summary and hashes are committed."
+}

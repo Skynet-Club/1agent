@@ -1178,6 +1178,7 @@ mod tests {
                 goal_id: "goal-1".into(),
                 version: 1,
                 summary: "Deliver verified output".into(),
+                task_contract: None,
                 work_items: vec![WorkItem {
                     id: "deliver".into(),
                     title: "Deliver".into(),

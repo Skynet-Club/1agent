@@ -1,0 +1,31 @@
+{
+  "plan_id": "plan-535b935f-1541-4f9e-8add-dd7b76038042",
+  "goal_id": "goal-88b5fcb4-c4ff-4773-8e2d-fbc319b2c8cc",
+  "approved": false,
+  "deliverables": [
+    {
+      "id": "skyget-positioning-deliverable",
+      "work_item_ids": [
+        "skyget-positioning-readme"
+      ]
+    },
+    {
+      "id": "skyget-metrics-deliverable",
+      "work_item_ids": [
+        "skyget-metrics-and-gates"
+      ]
+    },
+    {
+      "id": "skyget-commercial-deliverable",
+      "work_item_ids": [
+        "skyget-licensing-ci-spec"
+      ]
+    }
+  ],
+  "work_items": [
+    "skyget-positioning-readme",
+    "skyget-metrics-and-gates",
+    "skyget-licensing-ci-spec"
+  ],
+  "note": "Full plan stays local; summary and hashes are committed."
+}

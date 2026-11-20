@@ -7,6 +7,7 @@ use crate::domain::{PermissionSet, RiskLevel};
 
 pub const MASTER_PLAN_SCHEMA_VERSION: u32 = 1;
 pub const MAX_WORK_ITEMS: usize = 8;
+pub const MAX_DELIVERABLES: usize = 8;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +118,38 @@ pub struct WorkItem {
     pub status: WorkItemStatus,
 }
 
+/// Task understanding and decomposition contract.
+///
+/// The model owns the content; code owns identity, limits and acceptance.
+/// A deliverable maps to one or more Work Items, and every Work Item must be
+/// assigned to exactly one deliverable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskContract {
+    pub objective: String,
+    #[serde(default)]
+    pub deliverables: Vec<Deliverable>,
+    #[serde(default)]
+    pub constraints: Vec<String>,
+    #[serde(default)]
+    pub non_goals: Vec<String>,
+    #[serde(default)]
+    pub sources: Vec<String>,
+    #[serde(default)]
+    pub acceptance: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Deliverable {
+    pub id: String,
+    pub statement: String,
+    #[serde(default)]
+    pub acceptance: Vec<String>,
+    #[serde(default)]
+    pub work_item_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PlanProposal {
@@ -127,6 +160,8 @@ pub struct PlanProposal {
     #[serde(default = "default_plan_version")]
     pub version: u32,
     pub summary: String,
+    #[serde(default)]
+    pub task_contract: Option<TaskContract>,
     pub work_items: Vec<WorkItem>,
     #[serde(default = "default_max_parallel")]
     pub max_parallel: usize,
@@ -192,6 +227,18 @@ pub enum MasterPlanError {
     InvalidBudget,
     #[error("max_parallel must be greater than zero")]
     InvalidParallelism,
+    #[error("task contract is invalid: {0}")]
+    InvalidTaskContract(&'static str),
+    #[error("deliverable id '{0}' is empty, duplicated or unsafe")]
+    InvalidDeliverableId(String),
+    #[error("deliverable '{0}' is missing a statement, acceptance or work item")]
+    InvalidDeliverable(String),
+    #[error("deliverable '{0}' references unknown work item '{1}'")]
+    UnknownDeliverableWorkItem(String, String),
+    #[error("work item '{0}' is not assigned to any deliverable")]
+    UnassignedWorkItem(String),
+    #[error("work item '{0}' is assigned to more than one deliverable")]
+    DuplicateWorkItemAssignment(String),
     #[error("Agent profile set is empty or exceeds the bounded assignment limit")]
     InvalidAgentCount,
     #[error("assignment exceeds the three-runtime V1 limit")]
@@ -334,6 +381,9 @@ impl PlanProposal {
                 }
             }
         }
+        if let Some(contract) = &self.task_contract {
+            validate_task_contract(contract, &ids)?;
+        }
         self.topological_order().map(|_| ())
     }
 
@@ -438,6 +488,96 @@ fn validate_artifact_spec(task: &str, spec: &str) -> Result<(), MasterPlanError>
             spec: spec.into(),
             reason: "SHA-256 must contain exactly 64 hexadecimal characters".into(),
         });
+    }
+    Ok(())
+}
+
+fn validate_task_contract(
+    contract: &TaskContract,
+    work_item_ids: &BTreeSet<&str>,
+) -> Result<(), MasterPlanError> {
+    if contract.objective.trim().is_empty()
+        || contract.objective.chars().count() > 2_000
+        || contract.objective.chars().any(char::is_control)
+    {
+        return Err(MasterPlanError::InvalidTaskContract("objective"));
+    }
+    if contract.deliverables.is_empty() || contract.deliverables.len() > MAX_DELIVERABLES {
+        return Err(MasterPlanError::InvalidTaskContract("deliverable count"));
+    }
+    for list in [
+        &contract.constraints,
+        &contract.non_goals,
+        &contract.sources,
+        &contract.acceptance,
+    ] {
+        if list.len() > 32
+            || list.iter().any(|value| {
+                value.trim().is_empty()
+                    || value.chars().count() > 2_000
+                    || value.chars().any(char::is_control)
+            })
+        {
+            return Err(MasterPlanError::InvalidTaskContract("contract list"));
+        }
+    }
+    let mut deliverable_ids = BTreeSet::new();
+    let mut assigned = BTreeMap::<&str, &str>::new();
+    for deliverable in &contract.deliverables {
+        if deliverable.id.is_empty()
+            || deliverable.id.len() > 128
+            || !deliverable
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+            || !deliverable_ids.insert(deliverable.id.as_str())
+        {
+            return Err(MasterPlanError::InvalidDeliverableId(
+                deliverable.id.clone(),
+            ));
+        }
+        if deliverable.statement.trim().is_empty()
+            || deliverable.statement.chars().count() > 2_000
+            || deliverable.statement.chars().any(char::is_control)
+            || deliverable.acceptance.is_empty()
+            || deliverable.acceptance.len() > 32
+            || deliverable.acceptance.iter().any(|value| {
+                value.trim().is_empty()
+                    || value.chars().count() > 2_000
+                    || value.chars().any(char::is_control)
+            })
+            || deliverable.work_item_ids.is_empty()
+            || deliverable.work_item_ids.len() > MAX_WORK_ITEMS
+        {
+            return Err(MasterPlanError::InvalidDeliverable(deliverable.id.clone()));
+        }
+        let mut local_ids = BTreeSet::new();
+        for work_item_id in &deliverable.work_item_ids {
+            if !local_ids.insert(work_item_id.as_str()) {
+                return Err(MasterPlanError::InvalidDeliverable(deliverable.id.clone()));
+            }
+            if !work_item_ids.contains(work_item_id.as_str()) {
+                return Err(MasterPlanError::UnknownDeliverableWorkItem(
+                    deliverable.id.clone(),
+                    work_item_id.clone(),
+                ));
+            }
+            if assigned
+                .insert(work_item_id.as_str(), deliverable.id.as_str())
+                .is_some()
+            {
+                return Err(MasterPlanError::DuplicateWorkItemAssignment(
+                    work_item_id.clone(),
+                ));
+            }
+        }
+    }
+    for work_item_id in work_item_ids {
+        if !assigned.contains_key(work_item_id) {
+            return Err(MasterPlanError::UnassignedWorkItem(
+                (*work_item_id).to_string(),
+            ));
+        }
     }
     Ok(())
 }
@@ -705,6 +845,7 @@ mod tests {
             goal_id: "goal-1".into(),
             version: 1,
             summary: "Test plan".into(),
+            task_contract: None,
             work_items: items,
             max_parallel: 2,
             approved: false,
@@ -733,6 +874,72 @@ mod tests {
         assert_eq!(
             plan(vec![first]).validate(),
             Err(MasterPlanError::MissingAcceptanceCriterion("a".into()))
+        );
+    }
+
+    fn contract(work_item_ids: Vec<&str>) -> TaskContract {
+        TaskContract {
+            objective: "ship the change".into(),
+            deliverables: vec![Deliverable {
+                id: "d1".into(),
+                statement: "build and test the change".into(),
+                acceptance: vec!["cargo test passes".into()],
+                work_item_ids: work_item_ids.into_iter().map(str::to_string).collect(),
+            }],
+            constraints: Vec::new(),
+            non_goals: Vec::new(),
+            sources: Vec::new(),
+            acceptance: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn task_contract_must_cover_every_work_item_exactly_once() {
+        let mut full = plan(vec![item("build", &[]), item("test", &["build"])]);
+        full.task_contract = Some(contract(vec!["build", "test"]));
+        full.validate().unwrap();
+
+        let mut missing = full.clone();
+        missing.task_contract.as_mut().unwrap().deliverables[0].work_item_ids =
+            vec!["build".into()];
+        assert_eq!(
+            missing.validate(),
+            Err(MasterPlanError::UnassignedWorkItem("test".into()))
+        );
+
+        let mut unknown = full.clone();
+        unknown.task_contract.as_mut().unwrap().deliverables[0]
+            .work_item_ids
+            .push("ghost".into());
+        assert_eq!(
+            unknown.validate(),
+            Err(MasterPlanError::UnknownDeliverableWorkItem(
+                "d1".into(),
+                "ghost".into()
+            ))
+        );
+
+        let mut duplicate = full.clone();
+        let mut second = contract(vec!["build"]);
+        second.deliverables[0].id = "d2".into();
+        duplicate
+            .task_contract
+            .as_mut()
+            .unwrap()
+            .deliverables
+            .push(second.deliverables.remove(0));
+        assert_eq!(
+            duplicate.validate(),
+            Err(MasterPlanError::DuplicateWorkItemAssignment("build".into()))
+        );
+
+        let mut no_acceptance = full;
+        no_acceptance.task_contract.as_mut().unwrap().deliverables[0]
+            .acceptance
+            .clear();
+        assert_eq!(
+            no_acceptance.validate(),
+            Err(MasterPlanError::InvalidDeliverable("d1".into()))
         );
     }
 
