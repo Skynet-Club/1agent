@@ -65,6 +65,7 @@ mod skill_exec;
 mod skill_search;
 mod skills;
 mod subagent;
+mod subagent_budget;
 mod terminal;
 mod web;
 pub use acceptance::*;

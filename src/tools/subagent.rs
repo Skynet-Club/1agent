@@ -14,12 +14,16 @@ use uuid::Uuid;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+use super::subagent_budget::TreeLimits;
+use super::subagent_budget::{TREE_FILE_ENV, TreeBudget};
 use super::{AgentTool, ToolError, ToolOutcome};
 use crate::domain::{PermissionSet, RiskLevel, ToolSpec};
 use crate::subagent_registry::{
     RegistryGuard, SUBAGENT_PARENT_RUN_ENV, SUBAGENT_PARENT_SESSION_ENV, SUBAGENT_ROOT_PID_ENV,
     SUBAGENT_SPAWN_CALL_ENV, SubagentRecord, SubagentStatus,
 };
+use crate::usage_ledger::{UsageTotals, summarize_usage};
 
 const MAX_TASK_CHARS: usize = 8 * 1024;
 const MAX_DEPTH: u8 = 2;
@@ -182,6 +186,10 @@ pub struct SpawnAgentTool {
     spawned: AtomicUsize,
     /// A completed child must leave a readable journal the parent can audit.
     require_journal: bool,
+    /// Identifies this tool when no root run id is available.
+    instance_id: Uuid,
+    #[cfg(test)]
+    tree_override: Option<(PathBuf, TreeLimits)>,
 }
 
 impl SpawnAgentTool {
@@ -191,6 +199,9 @@ impl SpawnAgentTool {
             depth: depth_from_env(),
             spawned: AtomicUsize::new(0),
             require_journal: true,
+            instance_id: Uuid::new_v4(),
+            #[cfg(test)]
+            tree_override: None,
         }
     }
 
@@ -200,12 +211,26 @@ impl SpawnAgentTool {
         self
     }
 
+    #[cfg(test)]
+    pub fn with_tree_budget(mut self, path: PathBuf, limits: TreeLimits) -> Self {
+        self.tree_override = Some((path, limits));
+        self
+    }
+
     /// Legacy fake programs in tests report no journal. Production keeps the
     /// fail-closed default.
     #[cfg(test)]
     pub fn allow_missing_journal(mut self) -> Self {
         self.require_journal = false;
         self
+    }
+
+    fn tree_budget(&self, run_id: Option<&str>) -> Result<TreeBudget, String> {
+        #[cfg(test)]
+        if let Some((path, limits)) = &self.tree_override {
+            return Ok(TreeBudget::at(path.clone(), *limits));
+        }
+        TreeBudget::resolve(self.instance_id, run_id, &cache_root())
     }
 }
 
@@ -363,6 +388,15 @@ impl AgentTool for SpawnAgentTool {
                 .and_then(|context| context.allowed_tools.as_ref()),
             requested_allowed_tools,
         );
+        let tree = self
+            .tree_budget(run_context.as_ref().map(|context| context.run_id.as_str()))
+            .map_err(|error| ToolError::Failed(format!("tree budget: {error}")))?;
+        let reservation_id = spawn_call_id
+            .clone()
+            .unwrap_or_else(|| format!("spawn-{}", Uuid::new_v4()));
+        let mut reservation = tree
+            .reserve(reservation_id)
+            .map_err(|error| ToolError::Failed(format!("tree budget: {error}")))?;
         let mut registry = RegistryGuard::start(record);
 
         let mut args = vec![
@@ -423,6 +457,7 @@ impl AgentTool for SpawnAgentTool {
             .current_dir(&workspace)
             .env(DEPTH_ENV, (self.depth + 1).to_string())
             .env(SUBAGENT_ROOT_PID_ENV, root_pid.to_string())
+            .env(TREE_FILE_ENV, tree.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -458,6 +493,7 @@ impl AgentTool for SpawnAgentTool {
         };
         if let Some(child_pid) = child.id() {
             registry.running(child_pid);
+            reservation.set_child_pid(child_pid);
         }
         let waited = tokio::select! {
             _ = cancellation.cancelled() => {
@@ -577,6 +613,20 @@ impl AgentTool for SpawnAgentTool {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        // Read once: usage feeds the tree budget, and the same events feed the
+        // completed-child audit below.
+        let journal_events = if child_journal.is_empty() {
+            None
+        } else {
+            let path = std::path::Path::new(&child_journal);
+            path.is_file().then(|| read_child_journal(path))
+        };
+        let child_usage = journal_events
+            .as_ref()
+            .and_then(|events| events.as_ref().ok())
+            .map(|events| summarize_usage(events).totals)
+            .unwrap_or_default();
+        reservation.finish(&child_usage);
         let answer_value = value.get("answer").cloned();
         let child_answer = bounded_child_answer(answer_value.as_ref(), &conclusion);
         let answer_truncated = child_answer
@@ -600,6 +650,7 @@ impl AgentTool for SpawnAgentTool {
                 child_run_id.as_deref(),
             );
             metadata.insert("stop_reason".into(), stop_reason.clone());
+            insert_usage_metadata(&mut metadata, &child_usage);
             return Err(ToolError::FailedWithMetadata {
                 message: format!(
                     "subagent stopped with {stop_reason}: {}",
@@ -624,54 +675,31 @@ impl AgentTool for SpawnAgentTool {
                 child_run_id.as_deref(),
             ));
         }
-        if !child_journal.is_empty() {
-            let path = std::path::Path::new(&child_journal);
-            if path.is_file() {
-                let metadata = std::fs::metadata(path).map_err(|error| {
-                    spawn_journal_error(
-                        &error.to_string(),
-                        run_context.as_ref(),
-                        spawn_call_id.as_deref(),
-                        &workspace,
-                        &journal_dir,
-                        child_run_id.as_deref(),
-                    )
-                })?;
-                if metadata.len() > MAX_CHILD_JOURNAL_BYTES {
-                    return Err(spawn_journal_error(
-                        &format!("exceeds {MAX_CHILD_JOURNAL_BYTES} bytes"),
-                        run_context.as_ref(),
-                        spawn_call_id.as_deref(),
-                        &workspace,
-                        &journal_dir,
-                        child_run_id.as_deref(),
-                    ));
-                }
-                let events = crate::journal::read_events(path).map_err(|error| {
-                    spawn_journal_error(
-                        &error.to_string(),
-                        run_context.as_ref(),
-                        spawn_call_id.as_deref(),
-                        &workspace,
-                        &journal_dir,
-                        child_run_id.as_deref(),
-                    )
-                })?;
-                let audit = crate::journal::audit_events(&events);
-                if !audit.ok {
-                    registry.finish(
-                        SubagentStatus::Failed,
-                        Some("subagent journal audit failed".into()),
-                    );
-                    return Err(spawn_journal_error(
-                        &format!("audit failed: {}", audit.issues.join("; ")),
-                        run_context.as_ref(),
-                        spawn_call_id.as_deref(),
-                        &workspace,
-                        &journal_dir,
-                        child_run_id.as_deref(),
-                    ));
-                }
+        if let Some(events) = &journal_events {
+            let events = events.as_ref().map_err(|error| {
+                spawn_journal_error(
+                    error,
+                    run_context.as_ref(),
+                    spawn_call_id.as_deref(),
+                    &workspace,
+                    &journal_dir,
+                    child_run_id.as_deref(),
+                )
+            })?;
+            let audit = crate::journal::audit_events(events);
+            if !audit.ok {
+                registry.finish(
+                    SubagentStatus::Failed,
+                    Some("subagent journal audit failed".into()),
+                );
+                return Err(spawn_journal_error(
+                    &format!("audit failed: {}", audit.issues.join("; ")),
+                    run_context.as_ref(),
+                    spawn_call_id.as_deref(),
+                    &workspace,
+                    &journal_dir,
+                    child_run_id.as_deref(),
+                ));
             }
         }
         let content = json!({
@@ -680,6 +708,12 @@ impl AgentTool for SpawnAgentTool {
             "conclusion": conclusion,
             "answer": child_answer,
             "answer_truncated": answer_truncated,
+            "usage": {
+                "model_calls": child_usage.calls,
+                "input_tokens": child_usage.input_tokens,
+                "output_tokens": child_usage.output_tokens,
+                "cost_micros": child_usage.cost_micros
+            },
             "workspace": workspace.display().to_string(),
             "journal_path": child_journal,
             "depth": self.depth + 1,
@@ -708,6 +742,7 @@ impl AgentTool for SpawnAgentTool {
         metadata.insert("evidence_count".into(), evidence_count.to_string());
         metadata.insert("conflicts_count".into(), conflicts_count.to_string());
         metadata.insert("answer_truncated".into(), answer_truncated.to_string());
+        insert_usage_metadata(&mut metadata, &child_usage);
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
         }
@@ -776,6 +811,24 @@ fn spawn_journal_error(
     }
 }
 
+fn read_child_journal(path: &std::path::Path) -> Result<Vec<crate::journal::JournalEvent>, String> {
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_CHILD_JOURNAL_BYTES {
+        return Err(format!("exceeds {MAX_CHILD_JOURNAL_BYTES} bytes"));
+    }
+    crate::journal::read_events(path).map_err(|error| error.to_string())
+}
+
+fn insert_usage_metadata(metadata: &mut BTreeMap<String, String>, usage: &UsageTotals) {
+    metadata.insert("usage_model_calls".into(), usage.calls.to_string());
+    metadata.insert("usage_input_tokens".into(), usage.input_tokens.to_string());
+    metadata.insert(
+        "usage_output_tokens".into(),
+        usage.output_tokens.to_string(),
+    );
+    metadata.insert("usage_cost_micros".into(), usage.cost_micros.to_string());
+}
+
 fn answer_array_len(answer: Option<&Value>, key: &str) -> usize {
     answer
         .and_then(|answer| answer.get(key))
@@ -822,7 +875,7 @@ mod tests {
     use super::*;
     use crate::domain::{
         ANSWER_SCHEMA_VERSION, AgentAnswer, AnswerStatus, Claim, ClaimStatus, CognitiveMode,
-        StopReason, TaskRequest, ToolStatus,
+        ModelResponse, ModelTurn, StopReason, TaskRequest, ToolStatus, Usage,
     };
     use crate::journal::{Journal, JournalEventKind};
     use crate::tools::ToolRegistry;
@@ -871,7 +924,7 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
             dir,
             "fake-env",
             r#"#!/bin/sh
-printf '%s\n' "$ONEAGENT_PARENT_RUN_ID" "$ONEAGENT_PARENT_SESSION_ID" "$ONEAGENT_SPAWN_CALL_ID" > "$0.env"
+printf '%s\n' "$ONEAGENT_PARENT_RUN_ID" "$ONEAGENT_PARENT_SESSION_ID" "$ONEAGENT_SPAWN_CALL_ID" "$ONEAGENT_SUBAGENT_TREE_FILE" > "$0.env"
 printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"env child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed"}\n'
 "#,
         )
@@ -1521,11 +1574,13 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program_dumping_env(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
+        let tree_path = dir.path().join("tree.json");
         let mut registry = ToolRegistry::default();
         registry.register(std::sync::Arc::new(
             SpawnAgentTool::new(program.clone())
                 .with_depth(0)
-                .allow_missing_journal(),
+                .allow_missing_journal()
+                .with_tree_budget(tree_path.clone(), TreeLimits::default()),
         ));
         let call_id = format!("spawn-env-{}", Uuid::new_v4());
         let session_id = format!("ses-env-{}", Uuid::new_v4());
@@ -1559,7 +1614,8 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             [
                 context.run_id.as_str(),
                 session_id.as_str(),
-                call_id.as_str()
+                call_id.as_str(),
+                tree_path.to_str().unwrap()
             ]
         );
     }
@@ -1632,6 +1688,21 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
                 mode: CognitiveMode::DirectAnswer,
             })
             .unwrap();
+        journal
+            .append(JournalEventKind::ModelResponded {
+                response: ModelResponse {
+                    provider_id: "fake-provider".into(),
+                    model: "fake-model".into(),
+                    turn: ModelTurn::ToolCalls { calls: Vec::new() },
+                    usage: Usage {
+                        input_tokens: 100,
+                        output_tokens: 50,
+                        cost_micros: 7,
+                        ..Usage::default()
+                    },
+                },
+            })
+            .unwrap();
         let answer = AgentAnswer {
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
@@ -1680,7 +1751,10 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             ),
         );
 
-        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let tree_path = dir.path().join("tree.json");
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .with_tree_budget(tree_path.clone(), TreeLimits::default());
         let outcome = tool
             .execute(
                 json!({"task": "child task", "workspace": workspace}),
@@ -1699,6 +1773,7 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             "{}",
             outcome.content
         );
+        assert!(outcome.content.contains("\"usage\""), "{}", outcome.content);
         assert_eq!(
             outcome.metadata.get("claims_count").map(String::as_str),
             Some("1")
@@ -1706,6 +1781,113 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         assert_eq!(
             outcome.metadata.get("child_status").map(String::as_str),
             Some("completed")
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_input_tokens")
+                .map(String::as_str),
+            Some("100")
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_output_tokens")
+                .map(String::as_str),
+            Some("50")
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_cost_micros")
+                .map(String::as_str),
+            Some("7")
+        );
+        let state: Value =
+            serde_json::from_str(&std::fs::read_to_string(&tree_path).unwrap()).unwrap();
+        assert_eq!(state["spent_cost_micros"], 7);
+        assert_eq!(state["spent_tokens"], 150);
+        assert_eq!(state["active"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn tree_budget_rejects_spawn_when_concurrency_is_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tree_path = dir.path().join("tree.json");
+        let limits = TreeLimits {
+            max_agents: 1,
+            max_cost_micros: None,
+            max_tokens: None,
+        };
+        let budget = crate::tools::subagent_budget::TreeBudget::at(tree_path.clone(), limits);
+        std::mem::forget(budget.reserve("held".into()).unwrap());
+
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal()
+            .with_tree_budget(tree_path, limits);
+        let error = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ToolError::Failed(ref message)
+                    if message.contains("tree budget") && message.contains("concurrency")
+            ),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tree_budget_rejects_spawn_after_cost_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tree_path = dir.path().join("tree.json");
+        let limits = TreeLimits {
+            max_agents: 4,
+            max_cost_micros: Some(10),
+            max_tokens: None,
+        };
+        let budget = crate::tools::subagent_budget::TreeBudget::at(tree_path.clone(), limits);
+        let mut first = budget.reserve("first".into()).unwrap();
+        first.finish(&UsageTotals {
+            calls: 1,
+            input_tokens: 5,
+            output_tokens: 5,
+            cost_micros: 10,
+            zero_cost_calls: 0,
+        });
+
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal()
+            .with_tree_budget(tree_path, limits);
+        let error = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ToolError::Failed(ref message)
+                    if message.contains("tree budget") && message.contains("cost budget")
+            ),
+            "unexpected error: {error:?}"
         );
     }
 

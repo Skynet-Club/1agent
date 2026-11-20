@@ -1,0 +1,18 @@
+{
+  "ma": "MA-008",
+  "date": "2026-11-20",
+  "focused_tests": 28,
+  "lib_passed": 1347,
+  "lib_failed": 0,
+  "lib_ignored": 4,
+  "bin_passed": 67,
+  "mast_passed": 7,
+  "eval": "all scenarios PASS",
+  "clippy": "clean",
+  "fmt": "clean",
+  "cli_e2e_passed": 39,
+  "cli_e2e_failed": 1,
+  "cli_e2e_failed_test": "cli_tui_agents_refresh_uses_configured_profiles",
+  "cli_e2e_failure_is_baseline": true,
+  "baseline_head": "264fa34"
+}

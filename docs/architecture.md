@@ -833,6 +833,18 @@ Rejected outcomes; Verified outcomes are not surfaced.
   (`describe_self`, `request_tools`) stay visible but cannot reveal or activate
   a tool outside the allowlist. `required_capabilities` remains Work Item
   assignment metadata; there is no runtime capability-to-tool mapping yet.
+  A spawn tree shares a file-backed budget (`ONEAGENT_SUBAGENT_TREE_FILE`)
+  guarded by an exclusive file lock: each spawn reserves one concurrency slot
+  atomically, and a spawn is rejected once the tree reaches its concurrency,
+  cost or token limit. The root fixes the limits when it creates the file from
+  `ONEAGENT_SUBAGENT_TREE_MAX_AGENTS` (default 16),
+  `ONEAGENT_SUBAGENT_TREE_MAX_COST_MICROS` and
+  `ONEAGENT_SUBAGENT_TREE_MAX_TOKENS`; children inherit the path and cannot
+  widen them. After a child exits, its journal `ModelResponded` usage is
+  summarized, charged to the tree, and returned in the tool result as
+  `usage` (model calls, input/output tokens, cost) plus matching observation
+  metadata. A child that dies before its journal is read is not charged; the
+  file is an overspend guard for cooperating agents, not a sandbox boundary.
   Each run scopes a task-local
   `RunContext {run_id, session_id, goal_id, work_item_id, allowed_tools}`
   around tool execution, so a successful spawn writes `parent_run_id`,
