@@ -81,7 +81,9 @@ Release binary `target/release/first-principles-agent` sha256 `045bccdd…` was
 installed as `~/.local/bin/1agent`; the previous `aa6c9c8a…` build is backed up
 as `1agent-pre-clarification-2026-11-20`. The same ambiguous task on an empty
 workspace returned `needs_clarification` with 3 questions through the installed
-binary, exit 0. See `release-response.json`.
+binary, exit 0. Re-running the installed binary with the three answers produced
+1 Work Item / 3 expected artifacts, unapproved, exit 0. See
+`release-response.json` and `release-answered-plan.json`.
 
 ## What this does not prove
 
@@ -114,5 +116,6 @@ Then re-run with three `--clarification "..."` answers.
 - `clarification-response.json` — first-run stdout (questions, status).
 - `answered-plan.json` — re-run plan produced with the answers.
 - `release-response.json` — installed release binary first-run stdout.
+- `release-answered-plan.json` — installed release binary re-run plan.
 - `metrics.json` — counts and hashes.
 - `sha256.txt` — response, plan, journals and binary digests.
