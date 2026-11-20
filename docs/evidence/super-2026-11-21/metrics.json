@@ -7,7 +7,8 @@
     "c0b0db3",
     "5fc7830",
     "c067b46",
-    "48137f5"
+    "48137f5",
+    "2ad5669"
   ],
   "baseline": {
     "journal": "~/.1a/journals/d990ae4b-923a-4c3f-bb15-19084b2b9823.jsonl",
@@ -144,36 +145,35 @@
       "browser_audit_all_pass": true
     },
     "rerun": {
-      "binary_sha256": "992aef764e351f253ba853eee6666a304eb7b7df5b5703f7615c619444d7b03b",
-      "journal": "/tmp/1agent-t1-rerun10/.journal/7d39a98f-8b4d-477b-90b4-6b48a12c245e.jsonl",
-      "wall_s": 171.57,
+      "binary_sha256": "60c3df61857474e8eb5b410bae27b30b146da601ca38f7958a1100b662b44c3a",
+      "journal": "/tmp/1agent-t1-final3/.journal/7a59f271-5625-4170-aba2-25830200d0ce.jsonl",
+      "wall_s": 189.06,
       "profile": "deep",
-      "model_responses": 28,
-      "loop_steps": 26,
-      "tool_calls": 39,
-      "input_tokens": 1295928,
-      "average_input_tokens": 46283,
-      "max_input_tokens": 79613,
-      "cache_hit_percent": 87.64,
-      "model_ms": 139503,
-      "tool_ms": 6281,
-      "context_max_tokens": 45610,
-      "final_status": "conditional",
+      "model_responses": 29,
+      "loop_steps": 27,
+      "tool_calls": 40,
+      "input_tokens": 1444025,
+      "average_input_tokens": 49794,
+      "max_input_tokens": 77462,
+      "cache_hit_percent": 88.28,
+      "model_ms": 158051,
+      "tool_ms": 4550,
+      "context_max_tokens": 51381,
+      "final_status": "completed",
       "browser_audit_all_pass": true,
       "acceptance_gate_attempted": true,
-      "acceptance_gate_decision": "conditional",
-      "conditional_reason": "ui-ux-pro-max not installed; shell unavailable; interaction not click-smoke-tested",
-      "notes_artifact": "/tmp/1agent-t1-rerun10/NOTES.md",
-      "artifact_bytes": 28461,
-      "artifact_sha256": "ddffcd282e98d28683ab3df261771334f87af944f8a5c4274f4bc3b0f8dfd24e"
+      "acceptance_gate_decision": "accepted",
+      "notes_artifact": "/tmp/1agent-t1-final3/NOTES.md",
+      "artifact_bytes": 30861,
+      "artifact_sha256": "a94671f015ad761e5ccac5a65a9ade33fe6e2e11bb6e41cbdbf84528f17e600f"
     },
     "comparison": {
-      "wall_reduction_percent": 53.0,
-      "wall_speedup": 2.13,
-      "step_reduction_percent": 55.9,
-      "tool_call_reduction_percent": 42.6,
-      "input_token_reduction_percent": 73.8,
-      "quality": "both conditional; both browser audits all_pass=true; rerun wrote NOTES.md, attempted acceptance_gate and reported the missing-skill/tooling blockers"
+      "wall_reduction_percent": 48.2,
+      "wall_speedup": 1.93,
+      "step_reduction_percent": 54.2,
+      "tool_call_reduction_percent": 41.2,
+      "input_token_reduction_percent": 70.8,
+      "quality": "rerun completed vs baseline conditional; audit pass both; rerun has accepted acceptance_gate receipt and NOTES.md"
     }
   },
   "harness_fix": {

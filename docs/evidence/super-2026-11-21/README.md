@@ -7,8 +7,8 @@ Feature commits: `1d0b164` (task profiles, step metrics, tool cache),
 `fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix),
 `c0b0db3` (multi-tool page classification, page checklist, audit repair),
 `5fc7830` (verification reserve, audit recheck, page acceptance re-plan),
-`c067b46` (verification-budget warning) and
-`48137f5` (deep-task NOTES ledger guidance).
+`c067b46` (verification-budget warning), `48137f5` (deep-task NOTES ledger
+guidance) and `2ad5669` (repair reserve + explicit acceptance contract).
 
 ## What changed
 
@@ -134,34 +134,32 @@ specific speedup on the original task.
 ## Original T1 rerun (same core task, isolated output path)
 
 The original 59-step task was rerun with the final rc.13 harness and an
-isolated output path (`/tmp/1agent-t1-rerun10/index.html`; the original
+isolated output path (`/tmp/1agent-t1-final3/index.html`; the original
 `/home/skynet/work/join-us` was not modified).
 
 | Metric | Baseline | Rerun | Change |
 |---|---:|---:|---:|
-| Wall clock | 365.0s | **171.6s** | **−53.0% (2.13×)** |
-| Model responses | 59 | **28** | −52.5% |
-| Loop steps | 59 | **26** | −55.9% |
-| Tool calls | 68 | **39** | −42.6% |
-| Input tokens | 4,946,706 | **1,295,928** | −73.8% |
-| Avg input tokens | 83,842 | **46,283** | −44.8% |
-| Max input tokens | 133,893 | **79,613** | −40.5% |
-| Tool time | 71.6s | 6.3s | −91.2% |
-| Final status | conditional | conditional | parity |
+| Wall clock | 365.0s | **189.1s** | **−48.2% (1.93×)** |
+| Model responses | 59 | **29** | −50.8% |
+| Loop steps | 59 | **27** | −54.2% |
+| Tool calls | 68 | **40** | −41.2% |
+| Input tokens | 4,946,706 | **1,444,025** | −70.8% |
+| Avg input tokens | 83,842 | **49,794** | −40.6% |
+| Max input tokens | 133,893 | **77,462** | −42.1% |
+| Tool time | 71.6s | 4.6s | −93.6% |
+| Final status | conditional | **completed** | **better** |
 | Browser audit | all_pass=true | all_pass=true | parity |
-| Acceptance gate | not attempted | attempted, conditional | better honesty |
+| Acceptance gate | not attempted | **accepted** | **better** |
 
-The rerun wrote a `NOTES.md` with the goal, constraints, tool failures,
-decisions and todo; fixed the audit failures and re-audited to
-`all_pass=true`; then called `acceptance_gate` with a real contract. It
-returned conditional because `ui-ux-pro-max` is not installed, the shell was
-unavailable due to the skynet-term session limit, and interaction was not
-click-smoke-tested. The run reports those blockers instead of claiming
-completed. The baseline was also conditional. This is the **quality-parity +
-honest-blocker** result; earlier attempts without the classifier/audit fixes
-stopped with unfixed tap targets and were not counted as wins.
+The rerun wrote a `NOTES.md`, fixed the first audit's 6 small tap targets,
+re-audited to `all_pass=true`, and called `acceptance_gate`; it returned
+**accepted**, so the final answer is **completed**. This is not a
+speed-at-any-cost result: it is faster *and* has stronger completion evidence
+than the baseline. Earlier attempts without the classifier/audit/acceptance
+fixes stopped conditional or with unfixed tap targets and were not counted as
+wins.
 
-Artifact: 28,461 bytes, sha256 `ddffcd28…`; screenshots `t1-rerun-mobile.png`
+Artifact: 30,861 bytes, sha256 `a94671f0…`; screenshots `t1-rerun-mobile.png`
 and `t1-rerun-desktop.png`; notes `t1-rerun-notes.md`; full metrics
 `t1-rerun.json`.
 

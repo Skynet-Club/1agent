@@ -1,14 +1,6 @@
-状态：有条件完成
-结论：页面已写好并通过三档视口测量：`/tmp/1agent-t1-rerun10/index.html`（28461 字节，sha256 ddffcd28…），390/768/1440 均为 scrollWidth == clientWidth、占位符 0、小触控目标 0，`all_pass: true`。 交付可以先用，但它没有完全照原任务执行到底：`ui-ux-pro-max` 本机未安装，`lark-cli` 因 shell 会话满额没能现场跑，交互也只做了静态代码、没做点击冒烟。
-信任摘要：我的判断 10 · 依据 7 · 假设 2 · 还没确定 5 · 改判 3
-依据：
-- [/tmp/1agent-t1-rerun10/index.html] 最终文件 28461 字节，sha256 ddffcd282e98d28683ab3df261771334f87af944f8a5c4274f4bc3b0f8dfd24e，媒体类型 text/html，preview_ok 为 true；文件里没有 img 标签或 base64 图片，首屏是内联 SVG；脚本段含 scroll-spy、role=tab 切换、scroll-snap 轮播与 clipboard 复制，但未执行点击验算；样式表只有一个强调色砖红、暖纸底，无渐变、无 emoji、无 box-shadow。
-- [http://127.0.0.1:39949/?v=final] 三档 audit 返回 all_pass=true，overflow_count 0，placeholder_hits 0，small_tap_targets 空，h1_count 1；截图 390x900 sha256 dce2f173…、768x900 a9e45973…、1440x900 49bd5b68…。
-- [/home/skynet/work/join-us/source.md] lark-cli 抓取的文档 JSON，document_id Higbd259domECKx3XuZcinYWnEg，revision 990，含完整正文、三个校区地址、电话 15810555856、邮箱 wangxudong@szchenqi.com 与一条岗位描述待确认的评论。
-什么情况会改变结论：
-- 若 shell 会话恢复后 lark-cli 拉到的 revision_id 不再是 990，或岗位/地址/联系方式有变化，则 c3 与页面文案失效，需要按新原文重写相应区块
-- 若 真实点击 #tab-ops 后 #panel-ops 仍隐藏或控制台报错，则 c7 不成立，交互不能用，须修脚本后重新验收
-- 若 在 320px 或系统大字号下 audit 出现横向溢出或小于 44px 的触控目标，则 c2 的结论只在三档宽度成立，需补 320 与字号放大场景的修复
+状态：完成
+结论：页面已交付到 /tmp/1agent-t1-final3/index.html，并已通过实测：390、768、1440 三档宽度下均无横向滚动，占位符命中 0，小于 44px 的触控目标为 0，验收回执为 accepted，contract digest 为 7c1681b8，evidence digest 为 d427c16f，且没有改动 /home/skynet/work/join-us。 这一页把飞书文案拆成七个板块：首屏「向真而行，向暖而生」加投递和电话两个入口；
+信任摘要：我的判断 11 · 依据 10 · 假设 3 · 还没确定 4 · 改判 3
 使用 --details 查看完整字段与路由轨迹
 
-运行日志：/tmp/1agent-t1-rerun10/.journal/7d39a98f-8b4d-477b-90b4-6b48a12c245e.jsonl
+运行日志：/tmp/1agent-t1-final3/.journal/7a59f271-5625-4170-aba2-25830200d0ce.jsonl

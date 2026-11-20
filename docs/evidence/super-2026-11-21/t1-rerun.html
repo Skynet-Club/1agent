@@ -1,621 +1,574 @@
-<!doctype html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html lang="zh-CN" class="no-js">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>加入宋庄晨启教育｜在艺术小镇做教育</title>
-<meta name="description" content="宋庄晨启教育招聘校区教学岗与运营岗。校区在社区里，也在美术馆和花田旁边。电话 15810555856。">
+<meta name="color-scheme" content="light">
+<title>加入我们 · 宋庄晨启教育</title>
+<meta name="description" content="宋庄晨启教育招聘：校区教学岗与校区运营岗，工作地点在北京通州宋庄，三处校区，所有岗位均接受应届生与往届生。">
 <meta name="theme-color" content="#FBF8F1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231A5578'/%3E%3Cpath d='M7 21h18M10 21V13l6 5 6-5v8' stroke='%23FBF8F1' stroke-width='2' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root{
     --paper:#FBF8F1;
     --card:#FFFFFF;
-    --panel:#F4EEE1;
-    --panel-2:#EDE4D2;
-    --line:#E2D8C6;
-    --ink:#182028;
-    --ink-2:#4C5761;
-    --ink-3:#6B757C;
-    --accent:#9C3B2E;
-    --accent-2:#8A3226;
-    --sun:#C98F2B;
-    --ch1:#9C3B2E;
-    --ch2:#B25343;
-    --ch3:#C16F58;
-    --ch4:#7E3A31;
-    --serif:"Songti SC","STSong","Noto Serif CJK SC","Source Han Serif SC","SimSun",serif;
-    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
-    --wrap:664px;
+    --sand:#F2EAD9;
+    --ink:#17242B;
+    --ink-2:#4B5960;
+    --ink-3:#6B777E;
+    --accent:#1A5578;
+    --accent-hover:#14425E;
+    --line:rgba(23,36,43,.13);
+    --line-soft:rgba(23,36,43,.07);
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei",sans-serif;
+    --serif:"Songti SC",STSong,"Noto Serif CJK SC","Source Han Serif SC","Source Han Serif CN",SimSun,serif;
+    --r-sm:8px;
+    --r-md:12px;
+    --r-lg:16px;
+    --r-xl:20px;
+    --dur-fast:120ms;
+    --dur-base:200ms;
+    --ease:cubic-bezier(.2,.7,.3,1);
   }
-  *,*::before,*::after{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
   body{
     margin:0;
     background:var(--paper);
     color:var(--ink);
-    font:400 16px/1.75 var(--sans);
-    letter-spacing:0;
-    overflow-x:hidden;
-    padding-bottom:calc(76px + env(safe-area-inset-bottom));
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.75;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:96px;
   }
-  img,svg{max-width:100%}
-  a{color:inherit}
-  .wrap{max-width:var(--wrap);margin:0 auto;padding:0 20px}
-  .skip{
-    position:absolute;left:-9999px;top:0;background:var(--ink);color:#fff;
-    padding:12px 16px;z-index:60;border-radius:0 0 8px 0;
-  }
-  .skip:focus{left:0}
-  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  img,svg{display:block;max-width:100%}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{color:var(--accent-hover)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+  h1,h2,h3{font-family:var(--serif);font-weight:500;letter-spacing:.01em;margin:0}
+  p{margin:0}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .skip{position:absolute;left:16px;top:-56px;z-index:20;padding:12px 16px;background:var(--ink);color:var(--paper);border-radius:var(--r-sm)}
+  .skip:focus{top:12px;color:var(--paper)}
 
-  /* ---- top bar ---- */
-  .topbar{
-    position:sticky;top:0;z-index:40;
-    background:rgba(251,248,241,.94);
-    border-bottom:1px solid var(--line);
-    backdrop-filter:saturate(1.1) blur(6px);
-  }
-  .topbar__in{display:flex;align-items:center;justify-content:space-between;gap:8px;height:56px}
-  .brandmark{font:500 15px/1 var(--serif);letter-spacing:.02em;white-space:nowrap}
-  .brandmark small{font:400 12px/1 var(--sans);color:var(--ink-3);margin-left:6px;letter-spacing:.02em}
-  .chapters{display:flex;align-items:center;gap:2px;overflow-x:auto;scrollbar-width:none}
-  .chapters::-webkit-scrollbar{display:none}
-  .chapters a{
-    display:inline-flex;align-items:center;justify-content:center;
-    min-height:44px;padding:0 10px;border-radius:8px;
-    font:400 14px/1 var(--sans);color:var(--ink-2);text-decoration:none;
-    white-space:nowrap;
-  }
-  .chapters a.is-on{color:var(--accent-2);font-weight:500;background:var(--panel)}
-  .chapters a:hover{color:var(--accent-2)}
-
-  /* ---- hero ---- */
-  .hero{padding:36px 0 8px}
-  .eyebrow{
-    display:flex;align-items:center;gap:8px;
-    margin:0 0 16px;font:400 13px/1.5 var(--sans);color:var(--ink-3);
-  }
-  .eyebrow::before{content:"";width:16px;height:2px;background:var(--accent);flex:none}
-  h1{
-    margin:0 0 16px;
-    font:500 clamp(30px,8.2vw,46px)/1.32 var(--serif);
-    letter-spacing:.01em;
-  }
-  .lede{margin:0 0 20px;font-size:16px;color:var(--ink-2);max-width:34em}
-  .facts{
-    display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px;padding:0;list-style:none;
-  }
-  .facts li{
-    font:400 13px/1.4 var(--sans);color:var(--ink-2);
-    background:var(--panel);border:1px solid var(--line);border-radius:8px;
-    padding:6px 10px;
-  }
-  .cta-row{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 28px}
-  .btn{
-    display:inline-flex;align-items:center;justify-content:center;gap:8px;
-    min-height:48px;padding:0 20px;border-radius:10px;border:1px solid transparent;
-    font:500 15px/1 var(--sans);text-decoration:none;cursor:pointer;
-    background:var(--accent);color:#fff;
-  }
-  .btn:hover{background:var(--accent-2)}
-  .btn--ghost{background:var(--card);color:var(--ink);border-color:var(--line)}
-  .btn--ghost:hover{background:var(--panel);color:var(--ink)}
-  .icon{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6}
-
-  .horizon{margin:0 0 4px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--panel)}
-  .horizon svg{display:block;width:100%;height:auto}
-  .horizon figcaption{
-    padding:10px 14px 12px;font:400 13px/1.6 var(--sans);color:var(--ink-3);
-    background:var(--card);border-top:1px solid var(--line);
+  .wrap{width:100%;max-width:760px;margin:0 auto;padding:0 20px}
+  @media (min-width:860px){
+    body{font-size:17px;padding-bottom:0}
+    .wrap{max-width:1080px;padding:0 40px}
   }
 
-  /* ---- sections ---- */
-  section{padding:52px 0 4px;scroll-margin-top:72px}
-  .sec-head{display:flex;align-items:flex-start;gap:12px;margin:0 0 20px}
-  .chip{
-    flex:none;width:28px;height:28px;border-radius:6px;
-    display:flex;align-items:center;justify-content:center;
-    color:#fff;font:500 13px/1 var(--sans);
-    margin-top:6px;
+  /* 顶部 */
+  .site-head{border-bottom:1px solid var(--line-soft)}
+  .head-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px}
+  .brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);min-height:44px}
+  .brand-mark{width:28px;height:28px;flex:none;border-radius:7px;background:var(--accent)}
+  .brand-name{font-family:var(--serif);font-size:17px;line-height:1.2}
+  .brand-sub{display:block;font-family:var(--sans);font-size:12px;color:var(--ink-3);letter-spacing:.04em}
+  .head-nav{display:none;align-items:center;gap:4px}
+  .head-nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;font-size:14px;color:var(--ink-2)}
+  .head-nav a:hover{color:var(--ink)}
+  .head-cta{display:none;align-items:center;min-height:44px;margin-left:8px}
+  @media (min-width:860px){
+    .head-nav,.head-cta{display:inline-flex}
   }
-  .chip--1{background:var(--ch1)}
-  .chip--2{background:var(--ch2)}
-  .chip--3{background:var(--ch3)}
-  .chip--4{background:var(--ch4)}
-  h2{margin:0;font:500 clamp(22px,5.6vw,28px)/1.4 var(--serif)}
-  .sec-head p{margin:8px 0 0;color:var(--ink-2);font-size:15px}
 
-  .mission{
-    margin:0;padding:20px;border-left:3px solid var(--accent);
-    background:var(--card);border-radius:0 10px 10px 0;
-    font:400 17px/1.8 var(--serif);color:var(--ink);
-  }
-  .mission em{font-style:normal;font-weight:500}
+  /* 按钮 */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border-radius:10px;border:1px solid transparent;font-family:var(--sans);font-size:15px;font-weight:500;line-height:1;cursor:pointer;transition:background-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease)}
+  .btn-primary{background:var(--accent);color:#FCFAF5}
+  .btn-primary:hover{background:var(--accent-hover);color:#FCFAF5}
+  .btn-primary:active{background:#103448}
+  .btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+  .btn-ghost:hover{background:var(--sand);color:var(--ink)}
+  .btn-quiet{background:transparent;color:var(--accent);border-color:transparent;padding:0 4px;min-height:44px}
+  .btn-quiet:hover{color:var(--accent-hover)}
 
-  .pillars{list-style:none;margin:24px 0 0;padding:0;display:grid;gap:16px}
-  .pillar{
-    background:var(--card);border:1px solid var(--line);border-radius:12px;
-    padding:20px;
+  /* 首屏 */
+  .hero{padding:32px 0 0}
+  .eyebrow{font-size:13px;color:var(--ink-3);letter-spacing:.04em}
+  .hero h1{margin-top:12px;font-size:clamp(34px,8.4vw,56px);line-height:1.22}
+  .hero h1 span{display:block;color:var(--ink-2)}
+  .lede{margin-top:20px;max-width:34em;color:var(--ink-2);font-size:16px}
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+  .cta-row .btn{flex:1 1 180px}
+  .hero-figure{margin:36px 0 0}
+  .horizon{width:100%;height:auto;border-radius:var(--r-xl);background:var(--sand)}
+  @media (min-width:860px){
+    .hero{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);gap:56px;align-items:center;padding:56px 0 40px}
+    .hero-figure{margin:0}
+    .cta-row .btn{flex:0 0 auto}
   }
-  .pillar h3{
-    margin:0 0 8px;font:500 17px/1.5 var(--sans);
-    display:flex;align-items:center;gap:8px;
-  }
-  .pillar h3::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ch2);flex:none}
-  .pillar p{margin:0;color:var(--ink-2);font-size:15px}
-  .pillar p + p{margin-top:8px}
 
-  .band{
-    margin:32px 0 0;padding:24px 20px;background:var(--panel);
-    border-radius:12px;border:1px solid var(--line);
-  }
-  .band p{margin:0;font:400 17px/1.9 var(--serif)}
-  .band p + p{margin-top:12px;color:var(--ink-2);font-family:var(--sans);font-size:15px;line-height:1.8}
+  /* 版块通用 */
+  .section{padding:56px 0 0}
+  .section:last-of-type{padding-bottom:0}
+  @media (min-width:860px){.section{padding-top:88px}}
+  .sec-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .sec-head h2{font-size:clamp(24px,5.4vw,32px);line-height:1.3}
+  .rule{display:inline-flex;align-items:center;gap:6px;flex:1 1 80px;min-width:64px}
+  .rule::before{content:"";display:block;height:1px;flex:1;background:var(--line)}
+  .rule::after{content:"";display:block;width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.85}
+  .sec-lede{margin-top:16px;color:var(--ink-2);max-width:38em}
 
-  /* ---- voices ---- */
-  .voices__head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:24px 0 12px}
-  .voices__count{font:400 13px/1 var(--sans);color:var(--ink-3);font-variant-numeric:tabular-nums}
-  .track{
-    display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
-    scrollbar-width:none;-webkit-overflow-scrolling:touch;
-    margin:0 -20px;padding:0 20px 4px;
+  /* 三个标签 */
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 0;padding:0;list-style:none}
+  .chips li{font-size:13px;color:var(--ink-2);background:var(--card);border:1px solid var(--line-soft);border-radius:999px;padding:6px 14px}
+
+  /* 生活清单 */
+  .life{margin:32px 0 0;padding:0;list-style:none;border-top:1px solid var(--line-soft)}
+  .life li{display:grid;grid-template-columns:32px minmax(0,1fr);gap:0 12px;padding:24px 0;border-bottom:1px solid var(--line-soft)}
+  .life .num{font-family:var(--serif);font-size:14px;color:var(--ink-3);padding-top:3px;font-variant-numeric:tabular-nums}
+  .life h3{font-size:19px;line-height:1.4}
+  .life p{margin-top:8px;color:var(--ink-2);font-size:15px;line-height:1.8}
+  @media (min-width:860px){
+    .life{display:grid;grid-template-columns:1fr 1fr;gap:0 48px;border-top:0}
+    .life li{border-top:1px solid var(--line-soft);padding:28px 0}
   }
+
+  /* 引言 */
+  .quote-band{margin:56px 0 0;padding:40px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--card)}
+  @media (min-width:860px){.quote-band{margin-top:88px;padding:64px 0}}
+  .quote-band blockquote{margin:0;font-family:var(--serif);font-size:clamp(20px,4.6vw,27px);line-height:1.6;color:var(--ink)}
+  .quote-band blockquote span{display:block}
+  .quote-band blockquote span + span{margin-top:4px}
+  .quote-band figcaption{margin-top:20px;font-size:13px;color:var(--ink-3)}
+
+  /* 晨启人说 */
+  .carousel{margin-top:32px}
+  .track{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding-bottom:4px}
   .track::-webkit-scrollbar{display:none}
-  .voice{
-    flex:0 0 100%;scroll-snap-align:start;
-    background:var(--card);border:1px solid var(--line);border-radius:12px;
-    padding:20px;
+  .voice{flex:0 0 100%;scroll-snap-align:start;background:var(--card);border:1px solid var(--line-soft);border-radius:var(--r-lg);padding:24px;display:flex;flex-direction:column}
+  .voice .role{font-size:13px;color:var(--accent);font-family:var(--sans)}
+  .voice h3{margin-top:8px;font-size:20px;line-height:1.45}
+  .voice blockquote{margin:16px 0 0;color:var(--ink-2);font-size:15px;line-height:1.85}
+  .carousel-ctl{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px;min-height:44px}
+  .dots{display:flex;align-items:center;gap:4px}
+  .dot{width:44px;height:44px;background:none;border:0;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+  .dot::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ink-3);opacity:.35;transition:opacity var(--dur-fast) var(--ease),transform var(--dur-fast) var(--ease)}
+  .dot[aria-current="true"]::before{opacity:1;background:var(--accent);transform:scale(1.15)}
+  .nav-btns{display:flex;gap:4px}
+  .nav-btns button{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--line);border-radius:10px;color:var(--ink);cursor:pointer;transition:background-color var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease)}
+  .nav-btns button:hover{background:var(--sand)}
+  .nav-btns svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  @media (min-width:860px){
+    .track{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;gap:20px}
+    .carousel-ctl{display:none}
   }
-  .voice h3{margin:0 0 4px;font:500 15px/1.6 var(--sans)}
-  .voice .role{margin:0 0 12px;font:400 13px/1.5 var(--sans);color:var(--ink-3)}
-  .voice blockquote{
-    margin:0;font:400 16px/1.85 var(--serif);color:var(--ink);
-  }
-  .dots{display:flex;gap:4px;justify-content:center;margin:4px 0 0}
-  .dot{
-    width:44px;height:44px;padding:0;border:0;background:none;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;
-  }
-  .dot span{display:block;width:8px;height:8px;border-radius:50%;background:var(--line);transition:background-color .18s ease,width .18s ease}
-  .dot[aria-current="true"] span{width:20px;border-radius:4px;background:var(--accent)}
 
-  /* ---- jobs ---- */
-  .tabs{display:flex;gap:4px;padding:4px;background:var(--panel);border-radius:12px;border:1px solid var(--line)}
-  .tabs [role="tab"]{
-    flex:1 1 0;min-height:48px;padding:0 8px;border:1px solid transparent;border-radius:9px;
-    background:none;color:var(--ink-2);font:500 15px/1 var(--sans);cursor:pointer;
-  }
-  .tabs [role="tab"][aria-selected="true"]{background:var(--card);border-color:var(--line);color:var(--accent-2)}
-  .panel{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+  /* 岗位 */
+  .tabs{display:flex;gap:4px;margin-top:28px;border-bottom:1px solid var(--line-soft)}
+  .tabs [role="tab"]{flex:1;min-height:48px;padding:0 8px;background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;font-family:var(--sans);font-size:15px;color:var(--ink-3);cursor:pointer;transition:color var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease)}
+  .tabs [role="tab"]:hover{color:var(--ink)}
+  .tabs [role="tab"][aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+  .panel{padding-top:28px}
   .panel[hidden]{display:none}
-  .roles{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;padding:0;list-style:none}
-  .roles li{
-    font:400 13px/1.4 var(--sans);color:var(--accent-2);
-    background:#F7EDE9;border:1px solid #EAD9D2;border-radius:8px;padding:5px 10px;
-  }
-  .field{margin:0}
-  .field dt{font:500 13px/1.5 var(--sans);color:var(--ink-3);margin:0 0 4px}
-  .field dd{margin:0;color:var(--ink-2);font-size:15px}
-  .field + .field{margin-top:16px}
-  .note{margin:16px 0 0;font:400 14px/1.7 var(--sans);color:var(--ink-2);display:flex;gap:8px;align-items:flex-start}
-  .note::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--sun);flex:none;margin-top:8px}
+  .panel .directions{font-family:var(--serif);font-size:clamp(20px,4.6vw,26px);line-height:1.5}
+  .spec{margin:24px 0 0;display:grid;gap:20px}
+  .spec div{display:grid;gap:6px}
+  .spec dt{font-size:13px;color:var(--ink-3)}
+  .spec dd{margin:0;color:var(--ink-2);font-size:15px;line-height:1.85}
+  @media (min-width:860px){.spec{grid-template-columns:1fr 1fr;gap:32px}}
+  .note{margin-top:24px;font-size:14px;color:var(--ink-2);background:var(--sand);border-radius:var(--r-md);padding:14px 16px}
+  html.no-js .tabs{display:none}
+  html.no-js .panel[hidden]{display:block}
+  html.no-js .panel{margin-top:32px;padding-top:24px;border-top:1px solid var(--line-soft)}
 
-  /* ---- apply ---- */
-  .cards{list-style:none;margin:0;padding:0;display:grid;gap:12px}
-  .card{
-    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;
-  }
-  .card h3{margin:0 0 4px;font:500 14px/1.5 var(--sans);color:var(--ink-3);font-weight:400}
-  .card .value{margin:0;font:500 20px/1.5 var(--sans);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-  .card .value a{text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
-  .card .value a:hover{color:var(--accent-2)}
-  .card .hint{margin:8px 0 0;font:400 13px/1.6 var(--sans);color:var(--ink-3)}
-  .btn--sm{min-height:44px;padding:0 16px;font-size:14px;border-radius:9px;margin-top:12px}
+  /* 联系 */
+  .contact-grid{margin-top:28px;display:grid;gap:12px}
+  @media (min-width:860px){.contact-grid{grid-template-columns:1fr 1fr}}
+  .contact-card{background:var(--card);border:1px solid var(--line-soft);border-radius:var(--r-lg);padding:20px;display:flex;flex-direction:column;gap:8px}
+  .contact-card .label{font-size:13px;color:var(--ink-3)}
+  .contact-card .value{font-family:var(--serif);font-size:22px;line-height:1.4;color:var(--ink);word-break:break-all}
+  .contact-card .value a{display:inline-flex;align-items:center;min-height:44px;color:var(--ink)}
+  .contact-card .value a:hover{color:var(--accent)}
+  .contact-card .hint{font-size:13px;color:var(--ink-3)}
+  .copy-btn{align-self:flex-start;margin-top:4px;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink-2);font-family:var(--sans);font-size:14px;cursor:pointer;transition:background-color var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease)}
+  .copy-btn:hover{background:var(--sand);border-color:var(--line)}
+  .places{margin:32px 0 0;padding:0;list-style:none;border-top:1px solid var(--line-soft)}
+  .places li{padding:20px 0;border-bottom:1px solid var(--line-soft)}
+  .places .store{font-family:var(--serif);font-size:17px}
+  .places .addr{margin-top:4px;font-size:15px;color:var(--ink-2)}
+  .places .tag{font-size:13px;color:var(--ink-3)}
 
-  .venues{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:2px;border-top:1px solid var(--line)}
-  .venues li{padding:14px 0;border-bottom:1px solid var(--line);font-size:15px;color:var(--ink-2);overflow-wrap:anywhere}
-  .venues strong{display:block;font:500 15px/1.6 var(--sans);color:var(--ink);margin-bottom:2px}
+  /* 页脚 */
+  .site-foot{margin-top:56px;border-top:1px solid var(--line-soft);padding:28px 0 32px}
+  .site-foot p{font-size:13px;color:var(--ink-3)}
+  .site-foot p + p{margin-top:4px}
+  @media (min-width:860px){.site-foot{margin-top:88px}}
 
-  footer{margin-top:40px;padding:24px 0 8px;border-top:1px solid var(--line);color:var(--ink-3);font-size:13px;line-height:1.8}
-  footer p{margin:0}
+  /* 手机底部操作条 */
+  .actionbar{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:rgba(251,248,241,.96);border-top:1px solid var(--line)}
+  .actionbar .btn{flex:1;min-height:48px;font-size:15px}
+  @media (min-width:860px){.actionbar{display:none}}
 
-  /* ---- action bar ---- */
-  .actionbar{
-    position:fixed;left:0;right:0;bottom:0;z-index:50;
-    display:flex;gap:10px;
-    padding:10px 16px calc(10px + env(safe-area-inset-bottom));
-    background:rgba(251,248,241,.97);border-top:1px solid var(--line);
-    transform:translateY(110%);transition:transform .22s ease;
-  }
-  .actionbar.is-in{transform:translateY(0)}
-  .actionbar .btn{flex:1 1 0;min-height:48px}
-  .actionbar .btn--ghost{background:var(--card)}
-
-  /* ---- toast ---- */
-  .toast{
-    position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
-    transform:translate(-50%,12px);opacity:0;pointer-events:none;
-    background:var(--ink);color:#fff;border-radius:10px;
-    padding:10px 16px;font:400 14px/1.4 var(--sans);z-index:60;
-    max-width:calc(100% - 32px);text-align:center;
-    transition:opacity .18s ease,transform .18s ease;
-  }
+  /* 提示 */
+  .toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,8px);z-index:30;opacity:0;pointer-events:none;background:var(--ink);color:var(--paper);font-size:14px;padding:10px 16px;border-radius:10px;transition:opacity var(--dur-base) var(--ease),transform var(--dur-base) var(--ease)}
   .toast.is-on{opacity:1;transform:translate(-50%,0)}
-
-  @media (min-width:720px){
-    body{padding-bottom:0}
-    section{padding:76px 0 4px}
-    .hero{padding:56px 0 8px}
-    .pillars{grid-template-columns:1fr 1fr;gap:16px}
-    .track{margin:0;padding:0 0 4px}
-    .voice{flex-basis:calc(50% - 6px)}
-    .actionbar{display:none}
-    .cards{grid-template-columns:1fr 1fr}
-  }
   @media (prefers-reduced-motion:reduce){
-    *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+    *{transition-duration:0ms!important;animation-duration:0ms!important}
   }
 </style>
 </head>
 <body>
-<a class="skip" href="#jobs">跳到岗位</a>
+<script>document.documentElement.classList.remove('no-js');</script>
+<a class="skip" href="#main">跳到主要内容</a>
 
-<header class="topbar">
-  <div class="wrap topbar__in">
-    <span class="brandmark">宋庄晨启教育<small>智育颂®悠学城</small></span>
-    <nav class="chapters" aria-label="章节导航">
-      <a href="#life" data-ch="life">生活</a>
-      <a href="#voices" data-ch="voices">晨启人说</a>
-      <a href="#jobs" data-ch="jobs">岗位</a>
-      <a href="#apply" data-ch="apply">联系</a>
+<header class="site-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="#top">
+      <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true" focusable="false">
+        <path d="M5 19.5h18M8.5 19.5V10l5.5 4.5L19.5 10v9.5" fill="none" stroke="#FBF8F1" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">宋庄晨启教育<span class="brand-sub">智育颂®悠学城 · 素养融合空间</span></span>
+    </a>
+    <nav class="head-nav" aria-label="页面导航">
+      <a href="#life">工作环境</a>
+      <a href="#voices">晨启人说</a>
+      <a href="#roles">在招岗位</a>
+      <a href="#contact">联系方式</a>
+      <a class="btn btn-primary head-cta" href="mailto:wangxudong@szchenqi.com?subject=%E5%BA%94%E8%81%98%20%E5%AE%8B%E5%BA%84%E6%99%A8%E5%90%AF%E6%95%99%E8%82%B2">投递简历</a>
     </nav>
   </div>
 </header>
 
-<main>
-  <article class="hero wrap">
-    <p class="eyebrow">2026 招募 · 北京通州宋庄</p>
-    <h1>向真而行，向暖而生<br>向善而长，向远而进</h1>
-    <p class="lede">我们扎根宋庄文化艺术核心区，把艺术、教育与社区生活放在一起。这一页在招两类人：教课的，和把校区运转好的人。</p>
-    <ul class="facts">
-      <li>校区教学岗</li>
-      <li>校区运营岗</li>
-      <li>应届生 / 往届生均可</li>
-    </ul>
-    <div class="cta-row">
-      <a class="btn" href="#jobs">
-        看招什么岗
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
-      </a>
-      <a class="btn btn--ghost" href="tel:15810555856">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h3l2 5-2 1a10 10 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg>
-        15810555856
-      </a>
-    </div>
-
-    <figure class="horizon">
-      <svg viewBox="0 0 360 176" role="img" aria-label="艺术小镇的地平线插画：天光、一轮暖阳、两道田埂和一片花点">
-        <rect width="360" height="176" fill="#F4EEE1"/>
-        <circle cx="286" cy="50" r="16" fill="#C98F2B"/>
-        <path d="M0 92c44 8 78-10 118-6s66 14 104 8 96-12 138-4v86H0z" fill="#E9DDC5"/>
-        <path d="M0 118c52 10 88-6 132-2s74 12 112 6 84-10 116-4v58H0z" fill="#DECDAF"/>
-        <path d="M0 92c44 8 78-10 118-6s66 14 104 8 96-12 138-4" fill="none" stroke="#C9B896" stroke-width="1"/>
-        <g fill="#9C3B2E" opacity=".55">
-          <circle cx="28" cy="140" r="2.6"/><circle cx="52" cy="150" r="2.2"/><circle cx="78" cy="138" r="2.6"/>
-          <circle cx="104" cy="152" r="2.2"/><circle cx="130" cy="142" r="2.6"/><circle cx="156" cy="154" r="2.2"/>
-          <circle cx="182" cy="140" r="2.6"/><circle cx="208" cy="150" r="2.2"/><circle cx="234" cy="138" r="2.6"/>
-          <circle cx="260" cy="152" r="2.2"/><circle cx="290" cy="142" r="2.6"/><circle cx="316" cy="154" r="2.2"/>
-          <circle cx="340" cy="140" r="2.6"/>
-        </g>
-        <g fill="#C98F2B" opacity=".8">
-          <circle cx="40" cy="128" r="2"/><circle cx="118" cy="130" r="2"/><circle cx="196" cy="128" r="2"/>
-          <circle cx="272" cy="130" r="2"/><circle cx="330" cy="128" r="2"/>
-        </g>
-      </svg>
-      <figcaption>校区开在社区里，也开在美术馆旁边。</figcaption>
-    </figure>
-  </article>
-
-  <section class="wrap" id="why" aria-labelledby="why-h">
-    <div class="sec-head">
-      <span class="chip chip--1" aria-hidden="true">01</span>
-      <div>
-        <h2 id="why-h">我们为什么做这件事</h2>
-        <p>一句使命，撑起所有岗位的日常。</p>
+<main id="main">
+  <div class="wrap">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">招聘 · 北京通州宋庄</p>
+        <h1 id="hero-title">向真而行，向暖而生<span>向善而长，向远而进</span></h1>
+        <p class="lede">以全龄陪伴探索教育新可能。我们扎根宋庄文化艺术核心区，把艺术、教育与社区生活放在一起，构建覆盖全龄段、融合多场景的教育生态。</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#roles">查看在招岗位</a>
+          <a class="btn btn-ghost" href="tel:15810555856">电话咨询</a>
+        </div>
       </div>
-    </div>
-    <p class="mission">宋庄晨启教育的使命是「<em>以全龄陪伴探索教育新可能</em>」。扎根宋庄文化艺术核心区，我们致力于将艺术、教育与社区生活深度融合，构建一个覆盖全龄段、融合多场景的教育生态系统。</p>
-  </section>
-
-  <section class="wrap" id="life" aria-labelledby="life-h">
-    <div class="sec-head">
-      <span class="chip chip--2" aria-hidden="true">02</span>
-      <div>
-        <h2 id="life-h">生活在宋庄晨启教育</h2>
-        <p>四件具体的事：有人带你、有路可走、有地方上课、有花田可去。</p>
-      </div>
-    </div>
-
-    <ul class="pillars">
-      <li class="pillar">
-        <h3>专业支撑</h3>
-        <p>我们与本地艺术家长期深度协作；从工作室拜访、共创工作坊，到把创作方法翻译成孩子听得懂的课。</p>
-        <p>与行业前辈、院校老师、非遗手艺人在同一张桌前，讨论直接长成课程与产品。你带走的不只是人脉名单，还有能带回工位、写进方案里的经验。</p>
-      </li>
-      <li class="pillar">
-        <h3>职业成长</h3>
-        <p>不同岗位分层培训，从品牌应用、行业认知、岗位技能到项目带队，每一次的成长都有迹可循。</p>
-        <p>我们希望你在这里的每一天，都在变得更专业。</p>
-      </li>
-      <li class="pillar">
-        <h3>办公环境</h3>
-        <p>校区不在写字楼里，在社区里，在艺术小镇的中心。</p>
-        <p>空间是按「能上课」来设计的：开放工位旁边就是可以试讲的教室，方案改完，转身就能上一遍看看效果。</p>
-      </li>
-      <li class="pillar">
-        <h3>自然环境</h3>
-        <p>推开窗，是一片花海。公司旁就是宋庄花海地平线美术馆，大片花海盛放。</p>
-        <p>午后五分钟走到花田边，在工作之余，你可以享受自然、放松心情。</p>
-      </li>
-    </ul>
-
-    <div class="band">
-      <p>我们把校区开进社区，也开在美术馆旁边；把艺术家请进课堂，也把课堂搬进花田。</p>
-      <p>在这里，教育不是一份差事，而是一件可以慢慢做成的事。</p>
-    </div>
-  </section>
-
-  <section class="wrap" id="voices" aria-labelledby="voices-h">
-    <div class="sec-head">
-      <span class="chip chip--3" aria-hidden="true">03</span>
-      <div>
-        <h2 id="voices-h">晨启人说</h2>
-        <p>三个人，三段第一人称。左右滑动看下一段。</p>
-      </div>
-    </div>
-
-    <div class="voices__head">
-      <span class="voices__count" aria-hidden="true">1 / 3</span>
-    </div>
-
-    <div class="track" tabindex="0" role="region" aria-label="晨启人说，可左右滑动查看三段自述">
-      <figure class="voice">
-        <h3>从照着教案讲，到能自己磨出一门课</h3>
-        <p class="role">美育教师</p>
-        <blockquote>刚来时我最怕被问「这节课为什么这么上」。后来我和团队一起一步步打磨，把一件作品拆成孩子能自主完成的步骤，一节课改了七稿。现在我能独立带课，也开始带新人。在这里，成长不是被夸出来的，是从一节课一节课里磨出来的。</blockquote>
+      <figure class="hero-figure">
+        <svg class="horizon" viewBox="0 0 720 300" preserveAspectRatio="none" role="img" aria-label="宋庄花田与远处校区的插画：浅米色天空、低垂的太阳、三层花田与几株小花">
+          <rect width="720" height="300" fill="#F7EFDD"/>
+          <circle cx="556" cy="86" r="30" fill="#E9BE7A"/>
+          <path d="M0 0h720v150l-90 6-120-14-140 12-150-10L0 152z" fill="#F7EFDD"/>
+          <path d="M0 152l120-12 140 10 150-12 130 14 90-6 90 8v28l-110 8-130-12-160 10-140-10-100 8L0 184z" fill="#CFD2AD"/>
+          <path d="M0 184l100-8 140 10 160-10 130 12 110-8 80 6v36l-120 10-150-14-170 12-140-10-140 12z" fill="#AFB98C"/>
+          <path d="M0 232l140-12 140 10 170-12 150 14 120-10v78H0z" fill="#8C9A66"/>
+          <g stroke="#6E7C4B" stroke-width="2" fill="none" stroke-linecap="round">
+            <path d="M96 300c-3-26 2-44 0-60"/>
+            <path d="M126 300c2-20-2-36 0-52"/>
+            <path d="M300 300c-3-24 1-40 0-56"/>
+            <path d="M332 300c2-18-2-32 0-46"/>
+            <path d="M520 300c-3-26 1-42 0-58"/>
+            <path d="M552 300c2-20-2-34 0-50"/>
+          </g>
+          <g fill="#F3DCA9">
+            <circle cx="96" cy="240" r="5"/>
+            <circle cx="126" cy="248" r="4"/>
+            <circle cx="300" cy="244" r="5"/>
+            <circle cx="332" cy="254" r="4"/>
+            <circle cx="520" cy="242" r="5"/>
+            <circle cx="552" cy="250" r="4"/>
+          </g>
+          <path d="M0 152h720" stroke="#17242B" stroke-opacity=".12" stroke-width="1"/>
+        </svg>
       </figure>
-      <figure class="voice">
-        <h3>在前台的桌子旁，我看见一所学校怎么运转</h3>
-        <p class="role">校区前台</p>
-        <blockquote>前台是家长见到的第一个宋庄晨启人。我做的事很具体：开门、接待、排课、处理临时调课，记住每个孩子的名字和他们的课表。琐碎，可一个校区靠不靠谱，家长常常是从这里判断的。我从前台老师成长为校区的「大管家」，靠的不仅是我自己的努力，更是团队每一个伙伴的协同。</blockquote>
-      </figure>
-      <figure class="voice">
-        <h3>不卖课，帮家长做一次判断</h3>
-        <p class="role">课程顾问</p>
-        <blockquote>课程顾问听着像销售，其实更像「翻译」：把家长的焦虑翻译成具体需求，再把课程翻译成他们听得懂的话。我被打断过、被质疑过，也被家长拉着聊过两个小时。真正让我留下来的，是那些上完一学期又回来的家庭——他们不是因为我说得好，是因为孩子真的变了。在这里做「翻译人」，专业比话术重要。</blockquote>
-      </figure>
-    </div>
+    </section>
 
-    <div class="dots" role="group" aria-label="选择一段自述">
-      <button class="dot" type="button" aria-current="true" aria-label="第 1 段：美育教师"><span></span></button>
-      <button class="dot" type="button" aria-current="false" aria-label="第 2 段：校区前台"><span></span></button>
-      <button class="dot" type="button" aria-current="false" aria-label="第 3 段：课程顾问"><span></span></button>
-    </div>
-  </section>
-
-  <section class="wrap" id="jobs" aria-labelledby="jobs-h">
-    <div class="sec-head">
-      <span class="chip chip--4" aria-hidden="true">04</span>
-      <div>
-        <h2 id="jobs-h">人才招募，寻找优秀的你</h2>
-        <p>两类岗位，同一套期待：专业、耐心、愿意跟家长说清楚。</p>
+    <section class="section" aria-labelledby="mission-title">
+      <div class="sec-head">
+        <h2 id="mission-title">我们在宋庄做的事</h2>
+        <span class="rule" aria-hidden="true"></span>
       </div>
-    </div>
-
-    <div class="tabs" role="tablist" aria-label="岗位类别">
-      <button id="tab-teach" role="tab" type="button" aria-selected="true" aria-controls="panel-teach" tabindex="0">校区教学岗</button>
-      <button id="tab-ops" role="tab" type="button" aria-selected="false" aria-controls="panel-ops" tabindex="-1">校区运营岗</button>
-    </div>
-
-    <div class="panel" id="panel-teach" role="tabpanel" aria-labelledby="tab-teach" tabindex="0">
-      <ul class="roles">
-        <li>少儿美术</li><li>科创编程</li><li>书法</li><li>思维数学</li><li>托管</li>
+      <p class="sec-lede">宋庄晨启教育的使命是「以全龄陪伴探索教育新可能」。扎根宋庄文化艺术核心区，我们将艺术、教育与社区生活深度融合，构建一个覆盖全龄段、融合多场景的教育生态系统。</p>
+      <ul class="chips">
+        <li>全龄段陪伴</li>
+        <li>多场景融合</li>
+        <li>艺术 · 教育 · 社区</li>
       </ul>
-      <dl class="field">
-        <dt>核心职责</dt>
-        <dd>负责相应课程的教学与教研，根据学生情况因材施教，完成教学目标，配合校区做好家长沟通与报名续费工作。</dd>
-      </dl>
-      <dl class="field">
-        <dt>任职要求</dt>
-        <dd>有相关工作经验优先，持有教师资格证；具备扎实的专业功底与课堂组织能力，热爱教育，有责任心，善于与孩子及家长沟通。</dd>
-      </dl>
-    </div>
+    </section>
 
-    <div class="panel" id="panel-ops" role="tabpanel" aria-labelledby="tab-ops" tabindex="0" hidden>
-      <ul class="roles">
-        <li>执行校长</li><li>课程顾问</li><li>市场专员</li><li>前台教务</li>
-      </ul>
-      <dl class="field">
-        <dt>核心职责</dt>
-        <dd>负责家长接待、课程咨询与报名转化；处理学生考勤、请假及班级群维护，协助校区日常教务管理工作。</dd>
-      </dl>
-      <dl class="field">
-        <dt>任职要求</dt>
-        <dd>形象气质佳，亲和力强；具备良好的沟通表达能力与招生意识；熟练使用办公软件，做事细心有条理。</dd>
-      </dl>
-    </div>
-
-    <p class="note">所有岗位均接受应届生 / 往届生。我们期待你的加入。</p>
-  </section>
-
-  <section class="wrap" id="apply" aria-labelledby="apply-h">
-    <div class="sec-head">
-      <span class="chip chip--1" aria-hidden="true">05</span>
-      <div>
-        <h2 id="apply-h">详情可电话或微信咨询</h2>
-        <p>简历投递到邮箱，或者直接打过来问清楚再投。</p>
+    <section class="section" id="life" aria-labelledby="life-title">
+      <div class="sec-head">
+        <h2 id="life-title">生活在宋庄晨启教育</h2>
+        <span class="rule" aria-hidden="true"></span>
       </div>
+      <ol class="life">
+        <li>
+          <span class="num" aria-hidden="true">01</span>
+          <div>
+            <h3>专业支撑</h3>
+            <p>我们与本地艺术家长期深度协作；从工作室拜访、共创工作坊，到把创作方法翻译成孩子听得懂的课。与行业前辈、院校老师、非遗手艺人在同一张桌前，讨论直接长成课程与产品。你带走的不只是人脉名单，还有能带回工位、写进方案里的经验。</p>
+          </div>
+        </li>
+        <li>
+          <span class="num" aria-hidden="true">02</span>
+          <div>
+            <h3>职业成长</h3>
+            <p>不同岗位分层培训，从品牌应用、行业认知、岗位技能到项目带队，每一次的成长都有迹可循。我们希望你在这里的每一天，都在变得更专业。</p>
+          </div>
+        </li>
+        <li>
+          <span class="num" aria-hidden="true">03</span>
+          <div>
+            <h3>办公环境</h3>
+            <p>校区不在写字楼里，在社区里，在艺术小镇的中心。空间是按「能上课」来设计的：开放工位旁边就是可以试讲的教室，方案改完，转身就能上一遍看看效果。</p>
+          </div>
+        </li>
+        <li>
+          <span class="num" aria-hidden="true">04</span>
+          <div>
+            <h3>自然环境</h3>
+            <p>推开窗，是一片花海。公司旁就是宋庄花海地平线美术馆，大片花海盛放。午后五分钟走到花田边，在工作之余，你可以享受自然、放松心情。</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+  </div>
+
+  <figure class="quote-band">
+    <div class="wrap">
+      <blockquote>
+        <span>我们把校区开进社区，也开在美术馆旁边；</span>
+        <span>把艺术家请进课堂，也把课堂搬进花田。</span>
+        <span>在这里，教育不是一份差事，而是一件可以慢慢做成的事。</span>
+      </blockquote>
+      <figcaption>宋庄晨启教育</figcaption>
     </div>
+  </figure>
 
-    <ul class="cards">
-      <li class="card">
-        <h3>电话 / 微信</h3>
-        <p class="value"><a href="tel:15810555856">15810555856</a></p>
-        <p class="hint">工作时段接听。加微信请备注「应聘 + 岗位」。</p>
-      </li>
-      <li class="card">
-        <h3>投递简历</h3>
-        <p class="value">wangxudong@szchenqi.com</p>
-        <button class="btn btn--ghost btn--sm" type="button" id="copyMail" data-mail="wangxudong@szchenqi.com">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h10v10H9zM5 15V5h10"/></svg>
-          复制邮箱
-        </button>
-      </li>
-    </ul>
+  <div class="wrap">
+    <section class="section" id="voices" aria-labelledby="voices-title">
+      <div class="sec-head">
+        <h2 id="voices-title">晨启人说</h2>
+        <span class="rule" aria-hidden="true"></span>
+      </div>
+      <div class="carousel" aria-roledescription="carousel" aria-label="三位晨启人的自述">
+        <div class="track" id="track" tabindex="0" aria-label="自述列表，可横向滚动">
+          <article class="voice">
+            <p class="role">美育教师</p>
+            <h3>从照着教案讲，到能自己磨出一门课</h3>
+            <blockquote>刚来时我最怕被问「这节课为什么这么上」。后来我和团队一起一步步打磨，把一件作品拆成孩子能自主完成的步骤，一节课改了七稿。现在我能独立带课，也开始带新人。在这里，成长不是被夸出来的，是从一节课一节课里磨出来的。</blockquote>
+          </article>
+          <article class="voice">
+            <p class="role">校区前台</p>
+            <h3>在前台的桌子旁，我看见一所学校怎么运转</h3>
+            <blockquote>前台是家长见到的第一个宋庄晨启人。我做的事很具体：开门、接待、排课、处理临时调课，记住每个孩子的名字和他们的课表。琐碎，可一个校区靠不靠谱，家长常常是从这里判断的。我从前台老师成长为校区的「大管家」，靠的不仅是我自己的努力，更是团队每一个伙伴的协同。</blockquote>
+          </article>
+          <article class="voice">
+            <p class="role">课程顾问</p>
+            <h3>不卖课，帮家长做一次判断</h3>
+            <blockquote>课程顾问听着像销售，其实更像「翻译」：把家长的焦虑翻译成具体需求，再把课程翻译成他们听得懂的话。我被打断过、被质疑过，也被家长拉着聊过两个小时。真正让我留下来的，是那些上完一学期又回来的家庭——他们不是因为我说得好，是因为孩子真的变了。在这里做「翻译人」，专业比话术重要。</blockquote>
+          </article>
+        </div>
+        <div class="carousel-ctl">
+          <div class="dots" id="dots" role="group" aria-label="选择自述">
+            <button class="dot" type="button" aria-label="第 1 条：美育教师" aria-current="true" data-index="0"></button>
+            <button class="dot" type="button" aria-label="第 2 条：校区前台" aria-current="false" data-index="1"></button>
+            <button class="dot" type="button" aria-label="第 3 条：课程顾问" aria-current="false" data-index="2"></button>
+          </div>
+          <div class="nav-btns">
+            <button type="button" id="prev" aria-label="上一条自述">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 6l-6 6 6 6"/></svg>
+            </button>
+            <button type="button" id="next" aria-label="下一条自述">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <h3 class="venues-head" style="margin:28px 0 0;font:500 15px/1.6 var(--sans)">工作地点 · 三个校区</h3>
-    <ul class="venues">
-      <li><strong>二区店</strong>智育颂®悠学城・素养融合空间：北京通州区宋庄镇含章园二区 31 号楼底商</li>
-      <li><strong>五区店</strong>智育颂®悠学城・素养融合空间：北京通州区宋庄镇含章园五区 15 号楼底商</li>
-      <li><strong>金地店</strong>智育颂®悠学城・素养融合空间：北京通州区宋庄镇徐宋路 99 号金地壹街区 6 号院商业街</li>
-    </ul>
-  </section>
+    <section class="section" id="roles" aria-labelledby="roles-title">
+      <div class="sec-head">
+        <h2 id="roles-title">在招岗位</h2>
+        <span class="rule" aria-hidden="true"></span>
+      </div>
+      <p class="sec-lede">人才招募，寻找优秀的你。两类校区岗位，同一个校区团队。</p>
 
-  <footer class="wrap">
-    <p>宋庄晨启教育 · 智育颂®悠学城 素养融合空间</p>
-    <p>页面文案取自公司招聘文档原文，未做扩写。</p>
-  </footer>
+      <div class="tabs" role="tablist" aria-label="岗位类别">
+        <button type="button" role="tab" id="tab-teach" aria-controls="panel-teach" aria-selected="true">校区教学岗</button>
+        <button type="button" role="tab" id="tab-ops" aria-controls="panel-ops" aria-selected="false" tabindex="-1">校区运营岗</button>
+      </div>
+
+      <div class="panel" role="tabpanel" id="panel-teach" aria-labelledby="tab-teach" tabindex="0">
+        <p class="directions">少儿美术 · 科创编程 · 书法 · 思维数学 · 托管</p>
+        <dl class="spec">
+          <div>
+            <dt>核心职责</dt>
+            <dd>负责相应课程的教学与教研，根据学生情况因材施教，完成教学目标，配合校区做好家长沟通与报名续费工作。</dd>
+          </div>
+          <div>
+            <dt>任职要求</dt>
+            <dd>有相关工作经验优先，持有教师资格证；具备扎实的专业功底与课堂组织能力，热爱教育，有责任心，善于与孩子及家长沟通。</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="panel" role="tabpanel" id="panel-ops" aria-labelledby="tab-ops" tabindex="0" hidden>
+        <p class="directions">执行校长 · 课程顾问 · 市场专员 · 前台教务</p>
+        <dl class="spec">
+          <div>
+            <dt>核心职责</dt>
+            <dd>负责家长接待、课程咨询与报名转化；处理学生考勤、请假及班级群维护，协助校区日常教务管理工作。</dd>
+          </div>
+          <div>
+            <dt>任职要求</dt>
+            <dd>形象气质佳，亲和力强；具备良好的沟通表达能力与招生意识；熟练使用办公软件，做事细心有条理。</dd>
+          </div>
+        </dl>
+      </div>
+
+      <p class="note">所有岗位均接受应届生 / 往届生；详情可电话或微信咨询。</p>
+    </section>
+
+    <section class="section" id="contact" aria-labelledby="contact-title">
+      <div class="sec-head">
+        <h2 id="contact-title">联系方式</h2>
+        <span class="rule" aria-hidden="true"></span>
+      </div>
+      <div class="contact-grid">
+        <div class="contact-card">
+          <p class="label">电话</p>
+          <p class="value"><a href="tel:15810555856">158 1055 5856</a></p>
+          <p class="hint">详情可电话咨询</p>
+          <button class="copy-btn" type="button" data-copy="15810555856">复制号码</button>
+        </div>
+        <div class="contact-card">
+          <p class="label">投递简历</p>
+          <p class="value"><a href="mailto:wangxudong@szchenqi.com?subject=%E5%BA%94%E8%81%98%20%E5%AE%8B%E5%BA%84%E6%99%A8%E5%90%AF%E6%95%99%E8%82%B2">wangxudong@szchenqi.com</a></p>
+          <p class="hint">投递简历到该邮箱</p>
+          <button class="copy-btn" type="button" data-copy="wangxudong@szchenqi.com">复制邮箱</button>
+        </div>
+      </div>
+
+      <ul class="places">
+        <li>
+          <p class="store">智育颂®悠学城 · 素养融合空间（二区店）</p>
+          <p class="addr">北京通州区宋庄镇含章园二区 31 号楼底商</p>
+        </li>
+        <li>
+          <p class="store">智育颂®悠学城 · 素养融合空间（五区店）</p>
+          <p class="addr">北京通州区宋庄镇含章园五区 15 号楼底商</p>
+        </li>
+        <li>
+          <p class="store">智育颂®悠学城 · 素养融合空间（金地店）</p>
+          <p class="addr">北京通州区宋庄镇徐宋路 99 号金地壹街区 6 号院商业街</p>
+        </li>
+      </ul>
+    </section>
+  </div>
 </main>
 
-<div class="actionbar" id="actionbar">
-  <a class="btn" href="tel:15810555856">
-    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h3l2 5-2 1a10 10 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg>
-    打电话
-  </a>
-  <a class="btn btn--ghost" href="mailto:wangxudong@szchenqi.com">
-    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3z"/><path d="M3 7l9 6 9-6"/></svg>
-    投递简历
-  </a>
-</div>
+<footer class="site-foot">
+  <div class="wrap">
+    <p>宋庄晨启教育 · 智育颂®悠学城 素养融合空间</p>
+    <p>招聘咨询：158 1055 5856 · wangxudong@szchenqi.com</p>
+  </div>
+</footer>
 
-<p class="toast" id="toast" role="status" aria-live="polite"></p>
+<div class="actionbar" role="group" aria-label="快捷联系">
+  <a class="btn btn-ghost" href="tel:15810555856">电话咨询</a>
+  <a class="btn btn-primary" href="mailto:wangxudong@szchenqi.com?subject=%E5%BA%94%E8%81%98%20%E5%AE%8B%E5%BA%84%E6%99%A8%E5%90%AF%E6%95%99%E8%82%B2">投递简历</a>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 (function () {
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  var bar = document.getElementById('actionbar');
-  var hero = document.querySelector('.hero');
-  var threshold = hero ? Math.max(240, hero.offsetHeight * 0.6) : 300;
-  if (bar) {
-    var onScroll = function () {
-      var y = window.pageYOffset || document.documentElement.scrollTop || 0;
-      bar.classList.toggle('is-in', y > threshold);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-  }
-
-  var links = [].slice.call(document.querySelectorAll('.chapters a'));
-  var sections = links.map(function (a) {
-    return document.querySelector(a.getAttribute('href'));
-  }).filter(Boolean);
-  if ('IntersectionObserver' in window && sections.length) {
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (!entry.isIntersecting) return;
-        links.forEach(function (a) {
-          var on = a.getAttribute('href') === '#' + entry.target.id;
-          a.classList.toggle('is-on', on);
-          if (on) { a.setAttribute('aria-current', 'true'); } else { a.removeAttribute('aria-current'); }
-        });
-      });
-    }, { rootMargin: '-45% 0px -50% 0px' });
-    sections.forEach(function (s) { io.observe(s); });
-  }
-
-  var tabs = [].slice.call(document.querySelectorAll('[role="tab"]'));
-  function selectTab(index) {
-    tabs.forEach(function (tab, i) {
-      var on = i === index;
-      tab.setAttribute('aria-selected', on ? 'true' : 'false');
-      tab.tabIndex = on ? 0 : -1;
-      var panel = document.getElementById(tab.getAttribute('aria-controls'));
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function selectTab(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
       if (panel) { panel.hidden = !on; }
     });
+    tab.focus();
   }
-  tabs.forEach(function (tab, i) {
-    tab.addEventListener('click', function () { selectTab(i); });
-    tab.addEventListener('keydown', function (event) {
-      var next = null;
-      if (event.key === 'ArrowRight') { next = (i + 1) % tabs.length; }
-      if (event.key === 'ArrowLeft') { next = (i - 1 + tabs.length) % tabs.length; }
-      if (next !== null) {
-        event.preventDefault();
-        selectTab(next);
-        tabs[next].focus();
-      }
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () { selectTab(tab); });
+    tab.addEventListener('keydown', function (e) {
+      var i = tabs.indexOf(tab), next = null;
+      if (e.key === 'ArrowRight') { next = tabs[(i + 1) % tabs.length]; }
+      if (e.key === 'ArrowLeft') { next = tabs[(i - 1 + tabs.length) % tabs.length]; }
+      if (e.key === 'Home') { next = tabs[0]; }
+      if (e.key === 'End') { next = tabs[tabs.length - 1]; }
+      if (next) { e.preventDefault(); selectTab(next); }
     });
   });
 
-  var track = document.querySelector('.track');
-  var dots = [].slice.call(document.querySelectorAll('.dot'));
-  var counter = document.querySelector('.voices__count');
+  var track = document.getElementById('track');
+  var dots = Array.prototype.slice.call(document.querySelectorAll('.dot'));
+  var prev = document.getElementById('prev');
+  var next = document.getElementById('next');
+  function cardStep() {
+    var card = track && track.querySelector('.voice');
+    if (!card) { return 0; }
+    return card.getBoundingClientRect().width + 16;
+  }
+  function goTo(i) {
+    if (!track) { return; }
+    var step = cardStep();
+    var max = track.scrollWidth - track.clientWidth;
+    track.scrollTo({ left: Math.max(0, Math.min(max, i * step)), behavior: 'smooth' });
+  }
+  function currentIndex() {
+    var step = cardStep();
+    if (!step) { return 0; }
+    return Math.round(track.scrollLeft / step);
+  }
+  function markDots() {
+    var i = currentIndex();
+    dots.forEach(function (d, n) { d.setAttribute('aria-current', n === i ? 'true' : 'false'); });
+  }
   if (track) {
-    var sync = function () {
-      var cardWidth = track.firstElementChild ? track.firstElementChild.getBoundingClientRect().width + 12 : track.clientWidth;
-      var index = Math.min(dots.length - 1, Math.max(0, Math.round(track.scrollLeft / cardWidth)));
-      dots.forEach(function (dot, i) {
-        dot.setAttribute('aria-current', i === index ? 'true' : 'false');
-      });
-      if (counter) { counter.textContent = (index + 1) + ' / ' + dots.length; }
-    };
-    track.addEventListener('scroll', function () { window.requestAnimationFrame(sync); }, { passive: true });
-    dots.forEach(function (dot, i) {
-      dot.addEventListener('click', function () {
-        var card = track.children[i];
-        if (!card) return;
-        var left = card.offsetLeft - track.offsetLeft - parseFloat(getComputedStyle(track).paddingLeft || 0);
-        track.scrollTo({ left: Math.max(0, left), behavior: reduce ? 'auto' : 'smooth' });
-      });
+    track.addEventListener('scroll', function () {
+      window.requestAnimationFrame(markDots);
+    }, { passive: true });
+    track.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight') { e.preventDefault(); goTo(currentIndex() + 1); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(currentIndex() - 1); }
     });
-    sync();
   }
+  if (prev) { prev.addEventListener('click', function () { goTo(currentIndex() - 1); }); }
+  if (next) { next.addEventListener('click', function () { goTo(currentIndex() + 1); }); }
+  dots.forEach(function (d) {
+    d.addEventListener('click', function () { goTo(parseInt(d.getAttribute('data-index'), 10) || 0); });
+  });
 
-  var copyBtn = document.getElementById('copyMail');
-  var toast = document.getElementById('toast');
+  var toastEl = document.getElementById('toast');
   var toastTimer = null;
-  function showToast(message) {
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add('is-on');
-    if (toastTimer) { window.clearTimeout(toastTimer); }
-    toastTimer = window.setTimeout(function () { toast.classList.remove('is-on'); }, 2400);
+  function toast(msg) {
+    if (!toastEl) { return; }
+    toastEl.textContent = msg;
+    toastEl.classList.add('is-on');
+    if (toastTimer) { clearTimeout(toastTimer); }
+    toastTimer = setTimeout(function () { toastEl.classList.remove('is-on'); }, 2200);
   }
-  if (copyBtn) {
-    copyBtn.addEventListener('click', function () {
-      var mail = copyBtn.getAttribute('data-mail');
-      var done = function () { showToast('邮箱已复制：' + mail); };
-      var fallback = function () {
-        var area = document.createElement('textarea');
-        area.value = mail;
-        area.setAttribute('readonly', '');
-        area.style.position = 'fixed';
-        area.style.top = '-1000px';
-        area.style.opacity = '0';
-        document.body.appendChild(area);
-        area.select();
-        try { document.execCommand('copy'); done(); }
-        catch (err) { showToast('请手动复制：' + mail); }
-        document.body.removeChild(area);
-      };
+  function legacyCopy(text) {
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(area);
+    return ok;
+  }
+  Array.prototype.slice.call(document.querySelectorAll('[data-copy]')).forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      var done = function () { toast('已复制 ' + text); };
+      var fail = function () { toast('复制失败，请长按选择'); };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(mail).then(done, fallback);
+        navigator.clipboard.writeText(text).then(done, function () { legacyCopy(text) ? done() : fail(); });
       } else {
-        fallback();
+        legacyCopy(text) ? done() : fail();
       }
     });
-  }
+  });
 })();
 </script>
 </body>
