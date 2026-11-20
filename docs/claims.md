@@ -187,6 +187,7 @@ file: <路径>              → 文件必须存在
 | 规划器输出对所有 provider 统一归一化：接受 `AgentAnswer` 字符串/对象 `conclusion` 或裸 `PlanProposal`；code-owned ID/version/绝对 artifact 归一化；内容/权限/risk 仍严格 | file: docs/evidence/planner-plan-normalize-2026-11-20/README.md | ✅ | 本地 8B 由失败变成功；一次运行；计划质量未测 |
 | `TaskContract v1`：模型产出 objective/deliverables/constraints/non_goals/sources/acceptance；每个 WorkItem 必须恰好归属一个 deliverable | file: docs/evidence/task-contract-v1-2026-11-20/README.md | ✅ | 覆盖校验已测；契约语义质量未测；验收回执已接线 |
 | MA-003：`master verify` 构造 `AcceptanceContract`、重算 artifact、`acceptance::close` 回执；只接受 `Accepted`，receipt 存入 VerificationResult | file: docs/evidence/acceptance-receipt-2026-11-20/README.md | ✅ | verifier ≠ executor；receipt 持久化；隐藏 criteria/自动选 verifier 未做 |
+| MA-006：`TaskRuntimeState.progress` 记录最近动作/stall；相同 Blocked/AwaitingInput 原因重复 3 次 → Replanning + Stalled | file: docs/evidence/progress-ledger-2026-11-20/README.md | ✅ | 只检测重复 blocked/awaiting-input；Running 不推进仍需 MA-005 |
 | 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
 | schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |
 | schedule 支持文件 mtime trigger | test: schedule_trigger_file_runs_once | ✅ | CLI e2e；第二次未变化不重复运行 |

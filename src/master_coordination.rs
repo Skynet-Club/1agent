@@ -125,6 +125,28 @@ pub struct VerificationInput {
     pub verified_at_unix_ms: u128,
 }
 
+pub const STALL_THRESHOLD: u32 = 3;
+
+/// Bounded progress ledger for one Work Item. Repeated no-progress
+/// observations (same blocked/awaiting-input reason) increment `stall_count`;
+/// a different observation or a running heartbeat resets it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ProgressLedger {
+    #[serde(default)]
+    pub last_action: Option<String>,
+    #[serde(default)]
+    pub last_signature: Option<String>,
+    #[serde(default)]
+    pub stall_count: u32,
+    #[serde(default)]
+    pub repeated_actions: u32,
+    #[serde(default)]
+    pub last_progress_unix_ms: Option<u128>,
+    #[serde(default)]
+    pub last_observed_unix_ms: Option<u128>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TaskRuntimeState {
@@ -146,6 +168,8 @@ pub struct TaskRuntimeState {
     pub human_takeover: bool,
     #[serde(default)]
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub progress: ProgressLedger,
 }
 
 impl Default for TaskRuntimeState {
@@ -162,7 +186,51 @@ impl Default for TaskRuntimeState {
             verification: None,
             human_takeover: false,
             last_error: None,
+            progress: ProgressLedger::default(),
         }
+    }
+}
+
+impl TaskRuntimeState {
+    fn note_observation(
+        &mut self,
+        task_id: &str,
+        label: &str,
+        signature: Option<&str>,
+        now_unix_ms: u128,
+    ) -> Result<(), MasterCoordinationError> {
+        self.progress.last_action = Some(label.to_string());
+        self.progress.last_observed_unix_ms = Some(now_unix_ms);
+        let Some(signature) = signature else {
+            self.progress.stall_count = 0;
+            self.progress.last_signature = None;
+            self.progress.last_progress_unix_ms = Some(now_unix_ms);
+            return Ok(());
+        };
+        if self.progress.last_signature.as_deref() == Some(signature) {
+            self.progress.stall_count = self.progress.stall_count.saturating_add(1);
+            self.progress.repeated_actions = self.progress.repeated_actions.saturating_add(1);
+            if self.progress.stall_count >= STALL_THRESHOLD {
+                if self.status.can_transition_to(WorkItemStatus::Replanning) {
+                    self.status = WorkItemStatus::Replanning;
+                } else if self.status.can_transition_to(WorkItemStatus::Blocked) {
+                    self.status = WorkItemStatus::Blocked;
+                    if self.status.can_transition_to(WorkItemStatus::Replanning) {
+                        self.status = WorkItemStatus::Replanning;
+                    }
+                }
+                self.last_error = Some(format!(
+                    "stalled after {} repeated observations: {label}",
+                    self.progress.stall_count
+                ));
+                return Err(MasterCoordinationError::Stalled(task_id.into()));
+            }
+        } else {
+            self.progress.stall_count = 0;
+            self.progress.last_signature = Some(signature.to_string());
+            self.progress.last_progress_unix_ms = Some(now_unix_ms);
+        }
+        Ok(())
     }
 }
 
@@ -259,6 +327,8 @@ pub enum MasterCoordinationError {
     DuplicateReceipt,
     #[error("task '{0}' has no execution receipt")]
     MissingReceipt(String),
+    #[error("task '{0}' is stalled after repeated observations")]
+    Stalled(String),
     #[error("task '{0}' exceeded its automatic retry limit")]
     RetryLimit(String),
     #[error("automatic replanning limit has been reached")]
@@ -731,6 +801,11 @@ impl MasterState {
         ) {
             state.status = WorkItemStatus::Running;
         }
+        let label = format!("finished: {:?}", receipt.status);
+        let signature = format!(
+            "finished:{:?}:{:?}:{:?}:{:?}",
+            receipt.status, receipt.exit_code, receipt.error, receipt.result_digest
+        );
         let next = match receipt.status {
             ExecutionStatus::Completed => WorkItemStatus::ArtifactReady,
             ExecutionStatus::Cancelled => WorkItemStatus::Cancelled,
@@ -741,6 +816,11 @@ impl MasterState {
         state.receipt = Some(receipt);
         state.active_lease = None;
         set_task_status(state, next);
+        state.progress.last_action = Some(label);
+        state.progress.last_signature = Some(signature);
+        state.progress.stall_count = 0;
+        state.progress.last_progress_unix_ms = Some(now_unix_ms);
+        state.progress.last_observed_unix_ms = Some(now_unix_ms);
         self.updated_unix_ms = now_unix_ms;
         Ok(())
     }
@@ -771,6 +851,11 @@ impl MasterState {
         state.execution_target = Some(submission.execution_target);
         state.submitted_unix_ms = Some(submission.submitted_unix_ms);
         state.status = WorkItemStatus::Running;
+        state.progress.last_action = Some("submitted".into());
+        state.progress.last_signature = None;
+        state.progress.stall_count = 0;
+        state.progress.last_progress_unix_ms = Some(now_unix_ms);
+        state.progress.last_observed_unix_ms = Some(now_unix_ms);
         self.updated_unix_ms = now_unix_ms;
         Ok(())
     }
@@ -802,6 +887,7 @@ impl MasterState {
                     });
                 }
                 state.status = WorkItemStatus::Running;
+                state.note_observation(task_id, "running", None, now_unix_ms)?;
                 self.updated_unix_ms = now_unix_ms;
                 Ok(())
             }
@@ -817,8 +903,16 @@ impl MasterState {
                         to: WorkItemStatus::AwaitingInput,
                     });
                 }
+                let signature = format!("awaiting_input:{reason}");
+                let label = format!("awaiting_input: {reason}");
                 state.status = WorkItemStatus::AwaitingInput;
                 state.last_error = Some(reason);
+                if let Err(error) =
+                    state.note_observation(task_id, &label, Some(&signature), now_unix_ms)
+                {
+                    self.updated_unix_ms = now_unix_ms;
+                    return Err(error);
+                }
                 self.updated_unix_ms = now_unix_ms;
                 Ok(())
             }
@@ -826,7 +920,9 @@ impl MasterState {
                 let state = self.task_mut(task_id)?;
                 if !matches!(
                     state.status,
-                    WorkItemStatus::Running | WorkItemStatus::AwaitingInput
+                    WorkItemStatus::Running
+                        | WorkItemStatus::AwaitingInput
+                        | WorkItemStatus::Blocked
                 ) {
                     return Err(MasterCoordinationError::InvalidTransition {
                         task: task_id.into(),
@@ -834,8 +930,16 @@ impl MasterState {
                         to: WorkItemStatus::Blocked,
                     });
                 }
+                let signature = format!("blocked:{reason}");
+                let label = format!("blocked: {reason}");
                 state.status = WorkItemStatus::Blocked;
                 state.last_error = Some(reason);
+                if let Err(error) =
+                    state.note_observation(task_id, &label, Some(&signature), now_unix_ms)
+                {
+                    self.updated_unix_ms = now_unix_ms;
+                    return Err(error);
+                }
                 self.updated_unix_ms = now_unix_ms;
                 Ok(())
             }
@@ -2196,6 +2300,94 @@ mod tests {
                 .and_then(|target| target.session_id.as_deref()),
             Some("term-async")
         );
+    }
+
+    #[test]
+    fn repeated_blocked_observations_replan_after_stall_threshold() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+            .unwrap();
+        state.begin_starting("a", lease.generation, 4).unwrap();
+        state
+            .record_observation("a", ExecutionObservation::Running, 5)
+            .unwrap();
+        for i in 0..=STALL_THRESHOLD {
+            let result = state.record_observation(
+                "a",
+                ExecutionObservation::Blocked {
+                    reason: "waiting".into(),
+                },
+                6 + u128::from(i),
+            );
+            if i < STALL_THRESHOLD {
+                assert!(result.is_ok(), "unexpected stall at {i}: {result:?}");
+            } else {
+                assert!(matches!(result, Err(MasterCoordinationError::Stalled(_))));
+            }
+        }
+        let task = &state.tasks["a"];
+        assert_eq!(task.status, WorkItemStatus::Replanning);
+        assert_eq!(task.progress.stall_count, STALL_THRESHOLD);
+        assert_eq!(task.progress.repeated_actions, STALL_THRESHOLD);
+    }
+
+    #[test]
+    fn changed_blocked_reason_resets_stall_counter() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+            .unwrap();
+        state.begin_starting("a", lease.generation, 4).unwrap();
+        state
+            .record_observation("a", ExecutionObservation::Running, 5)
+            .unwrap();
+        state
+            .record_observation(
+                "a",
+                ExecutionObservation::Blocked {
+                    reason: "one".into(),
+                },
+                6,
+            )
+            .unwrap();
+        state
+            .record_observation(
+                "a",
+                ExecutionObservation::Blocked {
+                    reason: "one".into(),
+                },
+                7,
+            )
+            .unwrap();
+        assert_eq!(state.tasks["a"].progress.stall_count, 1);
+        state
+            .record_observation(
+                "a",
+                ExecutionObservation::Blocked {
+                    reason: "two".into(),
+                },
+                8,
+            )
+            .unwrap();
+        assert_eq!(state.tasks["a"].progress.stall_count, 0);
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::Blocked);
+    }
+
+    #[test]
+    fn repeated_running_heartbeats_do_not_stall() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+            .unwrap();
+        state.begin_starting("a", lease.generation, 4).unwrap();
+        for i in 0u128..10 {
+            state
+                .record_observation("a", ExecutionObservation::Running, 5 + i)
+                .unwrap();
+        }
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::Running);
+        assert_eq!(state.tasks["a"].progress.stall_count, 0);
     }
 
     #[test]

@@ -229,7 +229,10 @@ criterion has independent passing evidence and every expected Artifact exists un
 workspace with optional SHA-256 matching. The CLI `master verify` also builds an
 `AcceptanceContract` from the Work Item, recomputes artifact checks, and requires
 an accepted `CompletionReceipt` from `acceptance::close`; the receipt is stored
-in `VerificationResult` and journaled.
+in `VerificationResult` and journaled. Each `TaskRuntimeState` also carries a
+bounded `ProgressLedger`: repeated identical blocked/awaiting-input observations
+move the task to `Replanning` and return `Stalled`; a changed reason, running
+heartbeat, submission or receipt resets the stall count.
 
 The standalone `verification::verify` contract (ADR-0037) makes the same
 distinction reusable outside Master: a distinct verifier, exactly one result
