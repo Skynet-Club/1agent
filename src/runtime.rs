@@ -16,16 +16,16 @@ use crate::authority::PolicyOutcome;
 use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
     AgentAnswer, AnswerStatus, CognitiveMode, ConflictStatus, FlipCondition, ImpactLevel,
-    InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, MessageRole, ModelMessage, ModelRequest,
-    ModelResponse, ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint,
-    RuntimeCheckpointDelta, StopReason, TaskRequest, ToolCall, ToolObservation, ToolSpec,
-    ToolStatus, UnknownItem,
+    InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse,
+    ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta,
+    StopReason, TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
 use crate::journal::{
     Journal, JournalEventKind, ModelRequestLog, ParentRunLink, ProviderFailure, ResumablePrefix,
-    RetryOutcome, RetryTiming, ToolRequestDenial, find_resumable_prefix, read_events,
+    RetryOutcome, RetryTiming, StepModelMetrics, StepToolMetrics, ToolRequestDenial,
+    find_resumable_prefix, read_events,
 };
 use crate::provider::{
     ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
@@ -37,6 +37,7 @@ use crate::router::{
     RouteRequest, Router,
 };
 use crate::task_graph::MandateStrength;
+use crate::task_profile::{TaskProfile, TaskProfileDecision};
 use crate::tool_approval::{ToolApprovalCard, ToolApprovalError, ToolApprovalStore};
 use crate::tools::{ToolCapability, ToolRegistry};
 use crate::verification::VerificationOutcome;
@@ -44,6 +45,10 @@ use crate::verification::VerificationOutcome;
 /// Bounded evidence re-planning: a completed draft that lacks the evidence its
 /// own task assessment calls for gets at most this many corrections.
 const MAX_EVIDENCE_REPLANS: usize = 2;
+
+/// Tool payloads above this size are written to the journal directory and
+/// replaced with a receipt so the model keeps a small, cache-friendly context.
+const MAX_INLINE_TOOL_CONTENT_CHARS: usize = 32_000;
 
 /// Unknown ids used when the runtime downgrades a delivery.
 const ACCEPTANCE_UNKNOWN_ID: &str = "completion-acceptance";
@@ -526,11 +531,54 @@ pub(crate) fn action_status_for(observation: &ToolObservation) -> ActionStatus {
     }
 }
 
+fn safe_tool_name(name: &str) -> String {
+    name.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn circuit_open_observation(call: &ToolCall, failures: u8) -> ToolObservation {
+    let mut metadata = BTreeMap::new();
+    metadata.insert("cache_hit".into(), "true".into());
+    metadata.insert("circuit_open".into(), "true".into());
+    metadata.insert("failure_count".into(), failures.to_string());
+    ToolObservation {
+        call_id: call.id.clone(),
+        tool: call.name.clone(),
+        status: ToolStatus::Failed,
+        summary: format!(
+            "circuit open after {failures} identical failed calls to {}; change strategy or arguments",
+            call.name
+        ),
+        content: String::new(),
+        error_code: Some("circuit_open".into()),
+        metadata,
+    }
+}
+
+#[derive(Default)]
+struct ToolCallCache {
+    entries: BTreeMap<String, CachedToolObservation>,
+}
+
+#[derive(Clone)]
+struct CachedToolObservation {
+    observation: ToolObservation,
+    failures: u8,
+}
+
 #[derive(Clone)]
 pub struct AgentRuntime {
     providers: Vec<ProviderCandidate>,
     router: Router,
     tools: ToolRegistry,
+    tool_cache: Arc<Mutex<ToolCallCache>>,
     journal_dir: PathBuf,
     session_id: Option<String>,
     parent_run_link: Option<ParentRunLink>,
@@ -587,6 +635,7 @@ impl AgentRuntime {
             providers,
             router,
             tools,
+            tool_cache: Arc::new(Mutex::new(ToolCallCache::default())),
             journal_dir: journal_dir.into(),
             session_id: None,
             parent_run_link: None,
@@ -786,6 +835,106 @@ impl AgentRuntime {
 
     pub fn tool_capabilities(&self) -> Vec<crate::tools::ToolCapability> {
         self.tools.capabilities()
+    }
+
+    fn tool_cache_key(&self, call: &ToolCall) -> Option<String> {
+        if !self.tools.parallel_safe(&call.name) {
+            return None;
+        }
+        let run_id = crate::tools::RUN_CONTEXT
+            .try_with(|c| c.run_id.clone())
+            .ok()?;
+        let arguments = serde_json::to_string(&call.arguments).ok()?;
+        Some(format!("{run_id}\u{0}{}\u{0}{arguments}", call.name))
+    }
+
+    fn cached_tool_observation(&self, key: &str, call: &ToolCall) -> Option<ToolObservation> {
+        let mut cache = self
+            .tool_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = cache.entries.get_mut(key)?;
+        if entry.observation.status == ToolStatus::Ok {
+            let mut observation = entry.observation.clone();
+            observation.call_id = call.id.clone();
+            observation
+                .metadata
+                .insert("cache_hit".into(), "true".into());
+            return Some(observation);
+        }
+        entry.failures = entry.failures.saturating_add(1);
+        if entry.failures >= 2 {
+            return Some(circuit_open_observation(call, entry.failures));
+        }
+        let mut observation = entry.observation.clone();
+        observation.call_id = call.id.clone();
+        observation
+            .metadata
+            .insert("cache_hit".into(), "true".into());
+        observation
+            .metadata
+            .insert("failure_count".into(), entry.failures.to_string());
+        Some(observation)
+    }
+
+    fn remember_tool_observation(&self, key: String, observation: &ToolObservation) {
+        let mut cache = self
+            .tool_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        cache.entries.insert(
+            key,
+            CachedToolObservation {
+                observation: observation.clone(),
+                failures: if observation.status == ToolStatus::Ok {
+                    0
+                } else {
+                    1
+                },
+            },
+        );
+    }
+
+    fn invalidate_tool_cache(&self) {
+        self.tool_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entries
+            .clear();
+    }
+
+    fn offload_large_observation(&self, call: &ToolCall, observation: &mut ToolObservation) {
+        let chars = observation.content.chars().count();
+        if chars <= MAX_INLINE_TOOL_CONTENT_CHARS {
+            return;
+        }
+        let bytes = observation.content.as_bytes();
+        let sha256 = hex::encode(Sha256::digest(bytes));
+        let directory = self.journal_dir.join("tool-results");
+        if std::fs::create_dir_all(&directory).is_err() {
+            return;
+        }
+        let name = format!("{}-{}.txt", safe_tool_name(&call.name), &sha256[..16]);
+        let path = directory.join(name);
+        if std::fs::write(&path, bytes).is_err() {
+            return;
+        }
+        observation.content = serde_json::json!({
+            "content_offloaded": true,
+            "path": path.display().to_string(),
+            "sha256": sha256,
+            "bytes": bytes.len(),
+            "chars": chars,
+            "summary": observation.summary,
+        })
+        .to_string();
+        observation
+            .metadata
+            .insert("content_offloaded".into(), "true".into());
+        observation
+            .metadata
+            .insert("content_path".into(), path.display().to_string());
+        observation.metadata.insert("content_sha256".into(), sha256);
     }
 
     #[cfg(test)]
@@ -1031,7 +1180,23 @@ impl AgentRuntime {
             }
         }
 
-        let mut observation = self.tools.execute(call, permissions, cancellation).await;
+        let cache_key = self.tool_cache_key(call);
+        let mut observation = match &cache_key {
+            Some(key) => match self.cached_tool_observation(key, call) {
+                Some(observation) => observation,
+                None => {
+                    let observation = self.tools.execute(call, permissions, cancellation).await;
+                    self.remember_tool_observation(key.clone(), &observation);
+                    observation
+                }
+            },
+            None => {
+                let observation = self.tools.execute(call, permissions, cancellation).await;
+                // A write/command may change files a cached read observed.
+                self.invalidate_tool_cache();
+                observation
+            }
+        };
         if let (Some(context), Some(mut facts)) = (&self.tool_gate, gate_facts) {
             if let Some(card_id) = observation
                 .metadata
@@ -1062,6 +1227,7 @@ impl AgentRuntime {
             }
             observation.metadata = metadata;
         }
+        self.offload_large_observation(call, &mut observation);
         observation
     }
 
@@ -2045,6 +2211,11 @@ impl AgentRuntime {
             .or(requested_mode)
             .unwrap_or_else(|| crate::domain::infer_mode(&request));
         let fast_chat = fast_chat && resume.is_none();
+        let task_profile = if fast_chat {
+            TaskProfileDecision::direct_chat()
+        } else {
+            crate::task_profile::classify(&request)
+        };
         let mut capability_resolution = None;
         if resume.is_none()
             && !fast_chat
@@ -2138,6 +2309,14 @@ impl AgentRuntime {
                     })?;
             }
         }
+        journal
+            .append(JournalEventKind::TaskProfileSelected {
+                decision: task_profile.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
         if let Some(resolution) = capability_resolution {
             journal
                 .append(JournalEventKind::CapabilityPreflightResolved { resolution })
@@ -2382,6 +2561,12 @@ impl AgentRuntime {
                     crate::attachment::format_attachment_block(&self.attachments),
                 ));
             }
+            if !fast_chat {
+                initial_messages.push(ModelMessage::system(task_profile.guidance()));
+                if let Some(manifest) = environment_manifest(&request) {
+                    initial_messages.push(ModelMessage::system(manifest));
+                }
+            }
             if fast_chat {
                 initial_messages.push(ModelMessage::user(format!(
                     "User message:\n{}",
@@ -2529,6 +2714,7 @@ impl AgentRuntime {
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
+            let step_started = Instant::now();
             if cancellation.is_cancelled() {
                 journal
                     .append(JournalEventKind::RunStopped {
@@ -2559,17 +2745,7 @@ impl AgentRuntime {
                 .min(request.budget.max_context_tokens);
             let (mut model_messages, context_compaction) =
                 compact_messages_at_tokens(&messages, trigger_tokens, 4);
-            if let Some(nudge) = efficiency_nudge(step) {
-                if let Some(system) = model_messages
-                    .iter_mut()
-                    .find(|message| matches!(message.role, MessageRole::System))
-                {
-                    system.content.push_str("\n\n");
-                    system.content.push_str(nudge);
-                } else {
-                    model_messages.insert(0, ModelMessage::system(nudge));
-                }
-            }
+            apply_efficiency_nudge(&mut model_messages, task_profile.profile, step);
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
@@ -2590,7 +2766,14 @@ impl AgentRuntime {
                 messages: model_messages,
                 tools: tool_specs.clone(),
             };
+            let model_started = Instant::now();
+            let prep_ms = model_started
+                .duration_since(step_started)
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64;
+            let context_tokens = model_request_context_tokens(&model_request);
             let mut response = None;
+            let mut response_ttft_ms = None;
             let mut last_retryable_error = None;
             let mut attempt_limit_reached = false;
             for (attempt, route) in routes.iter().enumerate() {
@@ -2606,6 +2789,7 @@ impl AgentRuntime {
                     break;
                 }
                 provider_attempts_used += 1;
+                response_ttft_ms = None;
                 let candidate = self
                     .providers
                     .iter()
@@ -2685,6 +2869,7 @@ impl AgentRuntime {
                 };
                 let first_token_ms = first_token_ms.load(Ordering::Relaxed);
                 if first_token_ms != u64::MAX {
+                    response_ttft_ms = Some(first_token_ms);
                     journal
                         .append(JournalEventKind::StreamFirstToken {
                             provider_id: route.manifest.provider_id.clone(),
@@ -2938,6 +3123,39 @@ impl AgentRuntime {
             journal
                 .append(JournalEventKind::ModelResponded {
                     response: response.clone(),
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            let (turn_kind, tool_calls_requested) = match &response.turn {
+                ModelTurn::Final { .. } => ("final", 0),
+                ModelTurn::InvalidFinal { .. } => ("invalid_final", 0),
+                ModelTurn::ToolCalls { calls } => ("tool_calls", calls.len()),
+            };
+            journal
+                .append(JournalEventKind::StepModelMetrics {
+                    metrics: StepModelMetrics {
+                        step,
+                        profile: task_profile.profile,
+                        provider_id: response.provider_id.clone(),
+                        model: response.model.clone(),
+                        turn_kind: turn_kind.into(),
+                        prep_ms,
+                        model_ms: model_started
+                            .elapsed()
+                            .as_millis()
+                            .min(u128::from(u64::MAX)) as u64,
+                        ttft_ms: response_ttft_ms,
+                        input_tokens: response.usage.input_tokens,
+                        output_tokens: response.usage.output_tokens,
+                        cache_hit_tokens: response.usage.cache_hit_tokens,
+                        cache_miss_tokens: response.usage.cache_miss_tokens,
+                        cost_micros: response.usage.cost_micros,
+                        context_tokens,
+                        max_steps,
+                        tool_calls_requested,
+                    },
                 })
                 .map_err(|source| RuntimeError::Journal {
                     path: journal_path.clone(),
@@ -3310,7 +3528,15 @@ impl AgentRuntime {
                         .any(|call| self.tools.requires_write(&call.name));
                     messages.push(ModelMessage::assistant("", calls.clone()));
 
+                    let tools_started = Instant::now();
+                    let mut tool_groups_count = 0usize;
+                    let mut tool_ok = 0usize;
+                    let mut tool_failed = 0usize;
+                    let mut tool_denied = 0usize;
+                    let mut tool_cache_hits = 0usize;
+                    let mut tool_circuit_open = 0usize;
                     for (start, end) in tool_groups(&calls, &self.tools) {
+                        tool_groups_count += 1;
                         if request.budget.timeout_ms != 0
                             && remaining_budget(
                                 started_at,
@@ -3411,6 +3637,23 @@ impl AgentRuntime {
                             ]
                         };
                         for (call, observation) in group.iter().zip(observations) {
+                            match observation.status {
+                                ToolStatus::Ok => tool_ok += 1,
+                                ToolStatus::PermissionDenied => tool_denied += 1,
+                                ToolStatus::InvalidArguments
+                                | ToolStatus::TimedOut
+                                | ToolStatus::Failed => tool_failed += 1,
+                            }
+                            if observation
+                                .metadata
+                                .get("cache_hit")
+                                .is_some_and(|v| v == "true")
+                            {
+                                tool_cache_hits += 1;
+                            }
+                            if observation.error_code.as_deref() == Some("circuit_open") {
+                                tool_circuit_open += 1;
+                            }
                             completion_gate.observe(
                                 call,
                                 &observation,
@@ -3431,6 +3674,28 @@ impl AgentRuntime {
                             ));
                         }
                     }
+                    journal
+                        .append(JournalEventKind::StepToolMetrics {
+                            metrics: StepToolMetrics {
+                                step,
+                                tool_calls: calls.len(),
+                                tool_ms: tools_started
+                                    .elapsed()
+                                    .as_millis()
+                                    .min(u128::from(u64::MAX))
+                                    as u64,
+                                groups: tool_groups_count,
+                                ok: tool_ok,
+                                failed: tool_failed,
+                                denied: tool_denied,
+                                cache_hits: tool_cache_hits,
+                                circuit_open: tool_circuit_open,
+                            },
+                        })
+                        .map_err(|source| RuntimeError::Journal {
+                            path: journal_path.clone(),
+                            source,
+                        })?;
                     let elapsed_ms = initial_elapsed
                         .saturating_add(started_at.elapsed())
                         .as_millis()
@@ -3919,8 +4184,111 @@ fn plain_text_evidence_answer(
     })
 }
 
-/// One transient efficiency nudge, injected into the system message for a
-/// single request. It is not appended to the durable conversation messages.
+fn model_request_context_tokens(request: &ModelRequest) -> usize {
+    let messages = request
+        .messages
+        .iter()
+        .map(|message| estimate_tokens(&message.content))
+        .sum::<usize>();
+    let tools = request
+        .tools
+        .iter()
+        .map(|tool| {
+            estimate_tokens(&tool.description) + estimate_tokens(&tool.parameters.to_string())
+        })
+        .sum::<usize>();
+    messages.saturating_add(tools)
+}
+
+fn environment_manifest(request: &TaskRequest) -> Option<String> {
+    if std::env::var("ONEAGENT_ENV_MANIFEST").ok().as_deref() == Some("0") {
+        return None;
+    }
+    let cwd = request
+        .permissions
+        .read_roots
+        .first()
+        .cloned()
+        .or_else(|| std::env::current_dir().ok())?;
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "unknown".into());
+    let mut commands = String::new();
+    #[cfg(unix)]
+    {
+        let script = "for c in rg git python3 node npm cargo lark-cli curl jq; do command -v \"$c\" >/dev/null 2>&1 && printf '%s ' \"$c\"; done";
+        if let Ok(output) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .output()
+            && output.status.success()
+        {
+            commands = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+    }
+    if commands.is_empty() {
+        commands = "unknown".into();
+    }
+    let git_root = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(&cwd)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|root| !root.is_empty());
+    let read_roots = request
+        .permissions
+        .read_roots
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "ENVIRONMENT MANIFEST\ncwd: {}\nos: {} {}\nshell: {}\ngit_root: {}\navailable_commands: {}\npermissions: read=[{}], write={}, network={}\nUse this snapshot; do not spend turns rediscovering it. Re-probe only if a command fails.",
+        cwd.display(),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        shell,
+        git_root.as_deref().unwrap_or("not a git worktree"),
+        commands,
+        read_roots,
+        request.permissions.allow_write,
+        request.permissions.allow_network
+    ))
+}
+
+fn apply_efficiency_nudge(messages: &mut Vec<ModelMessage>, profile: TaskProfile, step: usize) {
+    if let Some(nudge) = efficiency_nudge_for(profile, step) {
+        messages.push(ModelMessage::user(format!(
+            "Runtime efficiency checkpoint (internal, not a user request): {nudge}"
+        )));
+    }
+}
+
+fn efficiency_nudge_for(profile: TaskProfile, step: usize) -> Option<&'static str> {
+    match profile {
+        TaskProfile::Fast => match step {
+            12 => Some(
+                "Fast profile checkpoint: 12 steps. Stop exploring; write the deliverable with what you have, verify once, and answer. Do not repeat an audit or a failed lookup.",
+            ),
+            20 => Some(
+                "Fast profile final checkpoint: 20 steps. Complete the artifact, verify once, and answer; if blocked, return conditional with the exact blocker.",
+            ),
+            _ => None,
+        },
+        TaskProfile::Standard => efficiency_nudge(step),
+        TaskProfile::Deep => match step {
+            50 => Some(
+                "Deep profile checkpoint: 50 steps. Keep the plan honest: record what is verified, what is still unknown, and the next concrete step. Drop side quests that do not serve acceptance.",
+            ),
+            65 => Some(
+                "Deep profile final checkpoint: 65 steps. Finish or return conditional with the exact blocker and the evidence you have; do not loop on the same failed action.",
+            ),
+            _ => None,
+        },
+    }
+}
+
+/// The standard-profile nudge. Fast and deep profiles use their own checkpoints.
 fn efficiency_nudge(step: usize) -> Option<&'static str> {
     match step {
         30 => Some(
@@ -4232,6 +4600,31 @@ mod tests {
         assert!(efficiency_nudge(30).unwrap().contains("30 steps"));
         assert!(efficiency_nudge(40).unwrap().contains("40 steps"));
         assert!(efficiency_nudge(41).is_none());
+    }
+
+    #[test]
+    fn efficiency_nudge_is_tail_only_and_keeps_the_system_prefix_stable() {
+        let mut messages = vec![
+            ModelMessage::system("stable system prefix"),
+            ModelMessage::user("task"),
+        ];
+        apply_efficiency_nudge(&mut messages, TaskProfile::Standard, 30);
+        assert_eq!(messages[0].content, "stable system prefix");
+        assert_eq!(
+            messages.last().unwrap().role,
+            crate::domain::MessageRole::User
+        );
+        assert!(messages.last().unwrap().content.contains("30 steps"));
+    }
+
+    #[test]
+    fn fast_profile_nudges_earlier_and_deep_profile_nudges_later() {
+        assert!(efficiency_nudge_for(TaskProfile::Fast, 11).is_none());
+        assert!(efficiency_nudge_for(TaskProfile::Fast, 12).is_some());
+        assert!(efficiency_nudge_for(TaskProfile::Fast, 30).is_none());
+        assert!(efficiency_nudge_for(TaskProfile::Deep, 49).is_none());
+        assert!(efficiency_nudge_for(TaskProfile::Deep, 50).is_some());
+        assert!(efficiency_nudge_for(TaskProfile::Deep, 65).is_some());
     }
 
     struct ReframeStub;
@@ -6164,6 +6557,328 @@ mod tests {
             name: name.into(),
             arguments: serde_json::json!({}),
         }
+    }
+
+    struct CountingCacheTool {
+        calls: Arc<AtomicUsize>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl crate::tools::AgentTool for CountingCacheTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "cached_read".into(),
+                description: "side-effect-free read used to exercise the tool cache".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": true
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn parallel_safe(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail {
+                return Err(crate::tools::ToolError::Failed("same failure".into()));
+            }
+            Ok(crate::tools::ToolOutcome {
+                summary: "cached read".into(),
+                content: "same content".into(),
+                metadata: BTreeMap::new(),
+            })
+        }
+    }
+
+    struct LargeContentTool;
+
+    #[async_trait]
+    impl crate::tools::AgentTool for LargeContentTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "large_content".into(),
+                description: "returns a payload above the inline receipt threshold".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn parallel_safe(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            Ok(crate::tools::ToolOutcome {
+                summary: "large payload".into(),
+                content: "x".repeat(MAX_INLINE_TOOL_CONTENT_CHARS + 1),
+                metadata: BTreeMap::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn large_tool_content_is_offloaded_to_a_receipt() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(LargeContentTool));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-large".into(),
+                        name: "large_content".into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("done"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("read two things", workspace.path().into()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let events = read_events(&result.journal_path).unwrap();
+        let observation = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation),
+                _ => None,
+            })
+            .expect("large observation");
+        assert_eq!(
+            observation
+                .metadata
+                .get("content_offloaded")
+                .map(String::as_str),
+            Some("true")
+        );
+        let path = observation
+            .metadata
+            .get("content_path")
+            .expect("content path");
+        let stored = std::fs::read_to_string(path).unwrap();
+        assert_eq!(stored.chars().count(), MAX_INLINE_TOOL_CONTENT_CHARS + 1);
+        assert!(observation.content.contains("\"content_offloaded\":true"));
+    }
+
+    #[tokio::test]
+    async fn run_injects_profile_and_environment_manifest_once() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("done"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, ToolRegistry::default());
+
+        let result = runtime
+            .run(
+                TaskRequest::from_objective(
+                    "Make a small HTML page from this document",
+                    workspace.path().into(),
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        let systems = requests[0]
+            .messages
+            .iter()
+            .filter(|message| message.role == crate::domain::MessageRole::System)
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            systems
+                .iter()
+                .filter(|content| content.contains("TASK PROFILE:"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            systems
+                .iter()
+                .filter(|content| content.contains("ENVIRONMENT MANIFEST"))
+                .count(),
+            1
+        );
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::TaskProfileSelected { decision }
+                if decision.profile == crate::task_profile::TaskProfile::Fast
+        )));
+    }
+
+    #[tokio::test]
+    async fn repeated_read_is_served_from_cache_and_step_metrics_are_journaled() {
+        let workspace = tempfile::tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(CountingCacheTool {
+            calls: calls.clone(),
+            fail: false,
+        }));
+        let call = |id: &str| ModelTurn::ToolCalls {
+            calls: vec![ToolCall {
+                id: id.into(),
+                name: "cached_read".into(),
+                arguments: serde_json::json!({"query": "same"}),
+            }],
+        };
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                call("call-1"),
+                call("call-2"),
+                ModelTurn::Final {
+                    answer: completed_answer("done"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("read two things", workspace.path().into()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "identical read reran");
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(&event.event, JournalEventKind::TaskProfileSelected { .. }))
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(&event.event, JournalEventKind::StepModelMetrics { .. }))
+                .count(),
+            3
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(&event.event, JournalEventKind::StepToolMetrics { .. }))
+                .count(),
+            2
+        );
+        let observations = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observations.len(), 2);
+        assert!(!observations[0].metadata.contains_key("cache_hit"));
+        assert_eq!(
+            observations[1]
+                .metadata
+                .get("cache_hit")
+                .map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[tokio::test]
+    async fn repeated_identical_failure_opens_the_circuit() {
+        let workspace = tempfile::tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(CountingCacheTool {
+            calls: calls.clone(),
+            fail: true,
+        }));
+        let call = |id: &str| ModelTurn::ToolCalls {
+            calls: vec![ToolCall {
+                id: id.into(),
+                name: "cached_read".into(),
+                arguments: serde_json::json!({"query": "same"}),
+            }],
+        };
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                call("call-1"),
+                call("call-2"),
+                call("call-3"),
+                ModelTurn::Final {
+                    answer: completed_answer("blocked"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+
+        let result = runtime
+            .run(
+                TaskRequest::from_objective("read two things", workspace.path().into()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "failure reran");
+        let events = read_events(&result.journal_path).unwrap();
+        let tool_metrics = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::StepToolMetrics { metrics } => Some(metrics),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(tool_metrics.len(), 3);
+        assert!(tool_metrics.iter().any(|metrics| metrics.circuit_open > 0));
+        let observations = events
+            .iter()
+            .filter_map(|event| match &event.event {
+                JournalEventKind::ToolObserved { observation } => Some(observation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observations.len(), 3);
+        assert_eq!(observations[2].error_code.as_deref(), Some("circuit_open"));
     }
 
     #[test]

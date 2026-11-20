@@ -14,6 +14,7 @@ use crate::domain::{
 use crate::provider::{ProviderError, ProviderErrorCode};
 use crate::reframe::{ReframeChoice, ReframeProposal};
 use crate::router::{RouteObjective, RoutePlan, RoutePolicySources};
+use crate::task_profile::{TaskProfile, TaskProfileDecision};
 use crate::tools::ToolCapabilitySnapshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -111,6 +112,11 @@ pub enum JournalEventKind {
         request: TaskRequest,
         checkpoint: RuntimeCheckpoint,
     },
+    /// The runtime chose a deliberate effort profile before the first model
+    /// call. This is a hint, not a hard budget.
+    TaskProfileSelected {
+        decision: TaskProfileDecision,
+    },
     RouteSelected {
         provider_id: String,
         model: String,
@@ -145,6 +151,10 @@ pub enum JournalEventKind {
     ModelResponded {
         response: ModelResponse,
     },
+    /// Per-model-call timing and token accounting for a single step.
+    StepModelMetrics {
+        metrics: StepModelMetrics,
+    },
     ProviderFailed {
         failure: ProviderFailure,
     },
@@ -170,6 +180,10 @@ pub enum JournalEventKind {
     },
     ToolObserved {
         observation: ToolObservation,
+    },
+    /// Wall-clock and outcome counts for one tool batch in a step.
+    StepToolMetrics {
+        metrics: StepToolMetrics,
     },
     ContextCompacted {
         #[serde(default)]
@@ -235,6 +249,46 @@ pub enum JournalEventKind {
     RunStopped {
         reason: StopReason,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct StepModelMetrics {
+    pub step: usize,
+    pub profile: TaskProfile,
+    pub provider_id: String,
+    pub model: String,
+    pub turn_kind: String,
+    pub prep_ms: u64,
+    pub model_ms: u64,
+    #[serde(default)]
+    pub ttft_ms: Option<u64>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub cache_hit_tokens: u64,
+    #[serde(default)]
+    pub cache_miss_tokens: u64,
+    pub cost_micros: u64,
+    pub context_tokens: usize,
+    pub max_steps: usize,
+    pub tool_calls_requested: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct StepToolMetrics {
+    pub step: usize,
+    pub tool_calls: usize,
+    pub tool_ms: u64,
+    pub groups: usize,
+    pub ok: usize,
+    pub failed: usize,
+    pub denied: usize,
+    #[serde(default)]
+    pub cache_hits: usize,
+    #[serde(default)]
+    pub circuit_open: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1476,11 +1530,14 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::AnswerProduced { answer } => state.answer = Some(answer.clone()),
             JournalEventKind::RunStopped { reason } => state.stop_reason = Some(*reason),
             JournalEventKind::ContextCompacted { .. }
+            | JournalEventKind::TaskProfileSelected { .. }
             | JournalEventKind::CapabilityPreflightResolved { .. }
             | JournalEventKind::ExperienceInjected { .. }
             | JournalEventKind::ModelRequested { .. }
             | JournalEventKind::ModelRequestDelta { .. }
             | JournalEventKind::ModelResponded { .. }
+            | JournalEventKind::StepModelMetrics { .. }
+            | JournalEventKind::StepToolMetrics { .. }
             | JournalEventKind::StreamFirstToken { .. }
             | JournalEventKind::ToolsRequested { .. }
             | JournalEventKind::AnswerVerificationFailed { .. }

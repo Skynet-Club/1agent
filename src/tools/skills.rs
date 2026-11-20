@@ -130,6 +130,10 @@ impl AgentTool for SkillListTool {
         RiskLevel::Low
     }
 
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn timeout(&self) -> Duration {
         Duration::from_secs(15)
     }

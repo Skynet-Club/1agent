@@ -26118,6 +26118,13 @@ fn tui_journal_snapshot(journal_path: &std::path::Path) -> TuiJournalSnapshot {
                 snapshot.activity =
                     Some(TuiActivity::bilingual(TuiActivityKind::Planning, "", step));
             }
+            JournalEventKind::StepModelMetrics { metrics } => {
+                snapshot.metrics.model_ms =
+                    snapshot.metrics.model_ms.saturating_add(metrics.model_ms);
+            }
+            JournalEventKind::StepToolMetrics { metrics } => {
+                snapshot.metrics.tool_ms = snapshot.metrics.tool_ms.saturating_add(metrics.tool_ms);
+            }
             JournalEventKind::ModelResponded { response } => {
                 snapshot.metrics.input_tokens = snapshot
                     .metrics

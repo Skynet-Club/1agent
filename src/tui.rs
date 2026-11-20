@@ -303,6 +303,8 @@ pub struct TuiRunMetrics {
     pub output_tokens: u64,
     pub cache_hit_tokens: u64,
     pub cache_miss_tokens: u64,
+    pub model_ms: u64,
+    pub tool_ms: u64,
     pub elapsed_ms: u128,
     pub usage_seen: bool,
 }
@@ -5540,6 +5542,19 @@ impl TuiState {
         {
             parts.push(format!("缓存 {percent}%"));
         }
+        let duration = |ms: u64| {
+            if ms < 1_000 {
+                format!("{ms}ms")
+            } else {
+                format!("{:.1}s", ms as f64 / 1_000.0)
+            }
+        };
+        if self.run_metrics.model_ms > 0 {
+            parts.push(format!("模型 {}", duration(self.run_metrics.model_ms)));
+        }
+        if self.run_metrics.tool_ms > 0 {
+            parts.push(format!("工具 {}", duration(self.run_metrics.tool_ms)));
+        }
         parts.join(" · ")
     }
 
@@ -8626,6 +8641,8 @@ mod tests {
             output_tokens: 340,
             cache_hit_tokens: 40,
             cache_miss_tokens: 60,
+            model_ms: 1_200,
+            tool_ms: 300,
             elapsed_ms: 0,
             usage_seen: true,
         });

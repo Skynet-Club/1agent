@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0-rc.13 — 2026-11-21
+
+- Slice 1 of the “faster / cleaner / smarter” plan: task-profile selection
+  (fast/standard/deep) with stable prefix guidance and profile-specific
+  checkpoints; an environment manifest injected once at run start; per-step
+  model/tool timing and token metrics; tail-only efficiency nudges that keep
+  the system prefix cacheable; content-addressed read cache, duplicate-call
+  coalescing, negative caching, and a two-failure circuit breaker; large tool
+  payloads are offloaded to receipts; read-only search/memory/skill tools are
+  parallel-safe. TUI run metrics now show model and tool time.
+- The profile is guidance, not a hard cap: the run still respects an explicit
+  `max_steps`, and hard profile budgets remain gated on the T1–T12 baseline.
+
 ## 1.0.0-rc.12 — 2026-11-18
 
 - Preserve verified delivery when the final answer cannot be repaired: if an

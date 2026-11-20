@@ -2055,6 +2055,11 @@ mod tests {
             "fetch_url",
             "web_search",
             "browser_read",
+            "session_search",
+            "memory_recall",
+            "memory_why",
+            "skill_search",
+            "skill_list",
         ] {
             assert!(
                 registry.parallel_safe(name),

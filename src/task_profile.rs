@@ -1,0 +1,246 @@
+use serde::{Deserialize, Serialize};
+
+use crate::domain::TaskRequest;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskProfile {
+    Fast,
+    Standard,
+    Deep,
+}
+
+impl TaskProfile {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Standard => "standard",
+            Self::Deep => "deep",
+        }
+    }
+
+    pub fn recommended_max_steps(self) -> usize {
+        match self {
+            Self::Fast => 24,
+            Self::Standard => 48,
+            Self::Deep => 80,
+        }
+    }
+
+    pub fn recommended_context_tokens(self) -> usize {
+        match self {
+            Self::Fast => 12_000,
+            Self::Standard => 32_000,
+            Self::Deep => 64_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskProfileDecision {
+    pub profile: TaskProfile,
+    pub confidence: u8,
+    pub reasons: Vec<String>,
+    pub recommended_max_steps: usize,
+    pub recommended_context_tokens: usize,
+    pub ambiguous: bool,
+}
+
+impl TaskProfileDecision {
+    pub fn direct_chat() -> Self {
+        Self {
+            profile: TaskProfile::Fast,
+            confidence: 100,
+            reasons: vec!["direct chat does not need the tool loop".into()],
+            recommended_max_steps: 1,
+            recommended_context_tokens: 4_000,
+            ambiguous: false,
+        }
+    }
+
+    /// Stable prefix guidance. It is injected once at run start so prompt
+    /// caching is not invalidated mid-run.
+    pub fn guidance(&self) -> String {
+        let profile = self.profile.as_str();
+        let action = match self.profile {
+            TaskProfile::Fast => {
+                "This is a small delivery task. Probe the environment once, fetch only the needed inputs, write the deliverable once, verify once, then answer. Do not audit the codebase or repeat an identical read/audit. If blocked, return the blocker."
+            }
+            TaskProfile::Standard => {
+                "Use a short plan, gather only the evidence the deliverable needs, verify the artifact once, and answer. Expand the plan only when verification fails."
+            }
+            TaskProfile::Deep => {
+                "This is a complex or high-risk task. Plan before acting, keep decisions and evidence in the working notes, verify each artifact, and re-plan after a failed tool or test. Do not stop early without a concrete blocker."
+            }
+        };
+        format!(
+            "TASK PROFILE: {profile} (confidence {}).\n{action}\nRecommended budget: about {} steps and {} context tokens; this is guidance, not a hard stop.",
+            self.confidence, self.recommended_max_steps, self.recommended_context_tokens
+        )
+    }
+}
+
+pub fn classify(request: &TaskRequest) -> TaskProfileDecision {
+    let mut text = String::new();
+    text.push_str(&request.objective);
+    if let Some(deliverable) = &request.deliverable {
+        text.push('\n');
+        text.push_str(deliverable);
+    }
+    for item in &request.constraints {
+        text.push('\n');
+        text.push_str(item);
+    }
+    for item in &request.success_criteria {
+        text.push('\n');
+        text.push_str(item);
+    }
+    let lower = text.to_lowercase();
+    let chars = text.chars().count();
+    let mut reasons = Vec::new();
+
+    let deep_markers = [
+        "refactor",
+        "migrate",
+        "migration",
+        "architecture",
+        "security",
+        "audit",
+        "multi-file",
+        "debug",
+        "diagnose",
+        "investigate",
+        "research",
+        "compare",
+        "design",
+        "plan",
+        "reproduce",
+        "root cause",
+        "重构",
+        "迁移",
+        "架构",
+        "安全",
+        "审计",
+        "多文件",
+        "排查",
+        "诊断",
+        "调研",
+        "研究",
+        "对比",
+        "设计",
+        "规划",
+        "复现",
+        "根因",
+    ];
+    let deep_hits: Vec<&str> = deep_markers
+        .into_iter()
+        .filter(|marker| lower.contains(marker))
+        .collect();
+    if !deep_hits.is_empty() || chars > 1_200 {
+        reasons.push(if chars > 1_200 {
+            "long, multi-part objective".into()
+        } else {
+            format!("complexity markers: {}", deep_hits.join(", "))
+        });
+        return decision(TaskProfile::Deep, 85, reasons, false);
+    }
+
+    let ambiguous_markers = [
+        "随便",
+        "看着办",
+        "你决定",
+        "合适",
+        "好看",
+        "尽量",
+        "maybe",
+        "whatever",
+        "as you like",
+        "you decide",
+        "look good",
+        "not sure",
+        "unsure",
+        "ambiguous",
+    ];
+    let ambiguous = ambiguous_markers
+        .into_iter()
+        .any(|marker| lower.contains(marker));
+    if ambiguous {
+        reasons.push("ambiguous success criteria".into());
+        return decision(TaskProfile::Standard, 60, reasons, true);
+    }
+
+    let fast_markers = [
+        "html", "webpage", "page", "document", "doc", "report", "summary", "write", "create",
+        "build", "网页", "页面", "文档", "报告", "总结", "写", "生成", "制作",
+    ];
+    let fast_hits: Vec<&str> = fast_markers
+        .into_iter()
+        .filter(|marker| lower.contains(marker))
+        .collect();
+    if !fast_hits.is_empty()
+        && chars <= 600
+        && request.success_criteria.len() <= 2
+        && request.constraints.len() <= 2
+    {
+        reasons.push(format!("small delivery markers: {}", fast_hits.join(", ")));
+        return decision(TaskProfile::Fast, 75, reasons, false);
+    }
+
+    reasons.push("no strong fast or deep signal; use the standard loop".into());
+    decision(TaskProfile::Standard, 60, reasons, false)
+}
+
+fn decision(
+    profile: TaskProfile,
+    confidence: u8,
+    reasons: Vec<String>,
+    ambiguous: bool,
+) -> TaskProfileDecision {
+    TaskProfileDecision {
+        profile,
+        confidence,
+        reasons,
+        recommended_max_steps: profile.recommended_max_steps(),
+        recommended_context_tokens: profile.recommended_context_tokens(),
+        ambiguous,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn request(objective: &str) -> TaskRequest {
+        TaskRequest::from_objective(objective, PathBuf::from("."))
+    }
+
+    #[test]
+    fn small_artifact_is_fast() {
+        let decision = classify(&request("Make a small HTML page from this document"));
+        assert_eq!(decision.profile, TaskProfile::Fast);
+        assert!(!decision.ambiguous);
+    }
+
+    #[test]
+    fn complex_change_is_deep() {
+        let decision = classify(&request(
+            "Refactor the authentication module and migrate the database schema",
+        ));
+        assert_eq!(decision.profile, TaskProfile::Deep);
+    }
+
+    #[test]
+    fn ambiguous_style_request_stays_standard() {
+        let decision = classify(&request("Make the page look good; you decide the style"));
+        assert_eq!(decision.profile, TaskProfile::Standard);
+        assert!(decision.ambiguous);
+    }
+
+    #[test]
+    fn short_plain_request_is_standard() {
+        let decision = classify(&request("What is the current time?"));
+        assert_eq!(decision.profile, TaskProfile::Standard);
+    }
+}

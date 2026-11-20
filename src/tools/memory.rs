@@ -93,6 +93,10 @@ impl AgentTool for MemoryRecallTool {
         RiskLevel::Low
     }
 
+    fn parallel_safe(&self) -> bool {
+        true
+    }
+
     fn timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
@@ -284,6 +288,10 @@ impl AgentTool for MemoryWhyTool {
 
     fn risk(&self) -> RiskLevel {
         RiskLevel::Low
+    }
+
+    fn parallel_safe(&self) -> bool {
+        true
     }
 
     fn timeout(&self) -> Duration {
