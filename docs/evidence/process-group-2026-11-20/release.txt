@@ -1,0 +1,8 @@
+date: 2026-11-20
+feature_commit: a992b44
+release_binary_sha256: 811df54ab281dcec6a9ffc3ed16a5f9c3cb050cafe464c46f0d57925c4fc45fa
+installed: ~/.local/bin/1agent
+backup: ~/.local/bin/1agent-pre-process-group-2026-11-20
+backup_sha256: 72619963d52c603874682e13c82dee7368a3043b4d77a8764a9ff3aa9feb8912
+version: 1agent 1.0.0-rc.12
+installed_smoke: "1agent --version" and "1agent run --help" exit 0

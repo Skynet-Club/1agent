@@ -1,0 +1,8 @@
+1f295ea3f046fdfa06a37eb518a494720bb64653c050735c75ef096978c01f56  src/subagent_registry.rs
+b3b4bd94a6ad7648f57c2c080f119093b916855c94db6140c306bc27cdfcdb06  src/tools/subagent.rs
+eeceb5dbde3f39b40381820d379175a3d1bb25f5e01e7d54a6b91e1936128686  src/tools/subagent_budget.rs
+1b418314c46dfbc8e331cf218839a0122b8dfd039b025104ca3017b80eb86e59  src/tools/spawn_ledger.rs
+a81d194b052f82d14607f8d9c7d234ce939b2a98a93869ed76b7c640df846fb1  docs/1.2-multi-agent-hardening-plan.md
+b09fe295648bd52cdbef78407d1084a100b08086313d9d319cb4547b9118731d  docs/evidence/process-group-2026-11-20/README.md
+20933e14f31d75b140a3b21e771a96bd8656627b4514a5d27a5147eeda4410f9  docs/evidence/process-group-2026-11-20/gate.txt
+656a1c3a649bee6120ba944c553c44117f70a318738ad0af25fdc787562616c9  docs/evidence/process-group-2026-11-20/process-group-tests.txt
