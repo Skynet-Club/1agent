@@ -17060,7 +17060,7 @@ fn verify_master_task(
                     && check
                         .expected_sha256
                         .as_deref()
-                        .map_or(true, |expected| check.sha256.as_deref() == Some(expected)),
+                        .is_none_or(|expected| check.sha256.as_deref() == Some(expected)),
             },
         )
         .collect::<Vec<_>>();
@@ -27388,6 +27388,7 @@ mod tui_rendering_tests {
                     goal_id: context.planning.goal_id.clone(),
                     version: 1,
                     summary: "Test production plan".into(),
+                    task_contract: None,
                     work_items: vec![first_principles_agent::WorkItem {
                         id: "produce".into(),
                         title: "Produce output".into(),
@@ -27804,6 +27805,7 @@ mod tui_rendering_tests {
             goal_id: "goal-supervision".into(),
             version: 1,
             summary: "Supervision test plan".into(),
+            task_contract: None,
             work_items: vec![first_principles_agent::WorkItem {
                 id: task_id.clone(),
                 title: "Produce supervised output".into(),

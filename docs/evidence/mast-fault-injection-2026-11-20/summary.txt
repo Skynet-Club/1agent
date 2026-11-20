@@ -1,0 +1,2 @@
+Test: cargo test --test mast_fault_injection -> 7 passed
+Binary: ~/.local/bin/1agent sha256 aa6c9c8a… (behavior unchanged by test-only edits)
