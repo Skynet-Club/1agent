@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-20",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "binary": "target/debug/first-principles-agent",
+  "binary_sha256": "041fc21ad3237103e4152f318877661d74c4ab8b0e9a520193f72f2375da4c7f",
+  "first_run": {
+    "exit": 0,
+    "status": "needs_clarification",
+    "questions": 3
+  },
+  "rerun_with_answers": {
+    "exit": 0,
+    "status": "plan",
+    "clarifications": 3,
+    "work_items": 1,
+    "deliverables": 1,
+    "expected_artifacts": 2,
+    "approved": false
+  },
+  "tests": {
+    "lib_passed": 1327,
+    "lib_failed": 0,
+    "mast_fault_injection_passed": 7,
+    "clippy_tests": "clean"
+  }
+}

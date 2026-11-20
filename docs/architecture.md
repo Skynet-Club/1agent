@@ -221,6 +221,17 @@ successful read or `search_files` under it. Declared local sources become
 planner read roots; Work Items stay inside the planning workspace. See
 `docs/document-readers.md` and `docs/skill-exec.md`.
 
+Before decomposition the model may stop on a material ambiguity it cannot
+resolve from the sources. It returns an `AgentAnswer` with status
+`needs_authorization` and one to three questions in `unknowns`; both the CLI and
+production plan generators return `NeedsClarification` instead of parsing a
+plan. The runtime only validates and surfaces the questions. The CLI prints
+`{"status":"needs_clarification","questions":[...]}`; `--clarification` is
+repeatable and the answers enter `PlanningContext.clarifications` for the next
+planning run (at most eight answers, 2,000 characters each). A reversible,
+low-risk assumption is not a reason to ask: the model records it and proceeds.
+The source-read gate still applies when a plan is eventually returned.
+
 Default safety limits are eight Work Items, three parallel tasks, one automatic retry per
 task and one automatic replan per run. A plan must be approved before dispatch. A
 nonterminal lease cannot be silently replaced even after expiry; explicit cancel/takeover

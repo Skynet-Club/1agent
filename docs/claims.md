@@ -339,6 +339,7 @@ file: <路径>              → 文件必须存在
 | 1AO Ontology MCP v0：stdio server 暴露只读 type/action registry、journal 对象读取；`--workspace --allow-write` 才增加 typed action 工具，且永不暴露 `code.approve_change`；路径穿越/超大输入失败关闭 | cmd: cargo test --lib ontology::mcp && cargo test --test ontology_cli ontology_mcp_serves_read_only_tools | ✅ | 无远程 OAuth/HTTP/per-client scope；stdin 本地启动用户即信任边界；审批仍 CLI-only |
 | 1ASH v1 四套 JSON Schema（task/run/trace/report）与示例落地；结构测试与 jsonschema 校验通过 | cmd: cargo test --test 1ash_schema && python3 scripts/check-1ash-schemas.py | ✅ | 只是 M0 契约；无 runner/任务集，不是 1ASH 实现 |
 | 1ASH M1 Inspect adapter 可跑 fake/no-op 与真实 1Agent，journal 投影 Trace IR，单题 report v0 可校验 | cmd: ~/.cache/1ash-venv/bin/python harness/1ash/tests/run_m1.py | ✅ | 需要本地 Inspect venv；无 Docker 沙箱；report 是本地证据，不是 benchmark |
+| 规划前澄清门禁：模型可在拆解前返回 `needs_authorization` + ≤3 个问题；运行时只校验/展示，CLI `--clarification` 答案进入上下文重跑；生产规划路径同样拦截；清晰任务不被强制提问 | cmd: cargo test --lib master_planner && cargo test --test mast_fault_injection | ✅ | 模型是否“该问才问”无统计评测；TUI `/plan` 只展示问题，无就地回答重跑 UI；一次 DeepSeek 实机往返 |
 
 ## 覆盖率
 

@@ -21,10 +21,10 @@ use first_principles_agent::{
     ExecutionObservation, ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
     ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
     HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, Journal,
-    JournalCursor, JournalEventKind, MasterJournalEventKind, MasterState, MasterStore,
-    ModelPlanGenerator, ModelProductionPlanGenerator, ModelProvider, ModelRequestChain,
-    OpenAiCompatibleProvider, PermissionPreset, PlanGenerator, PlanProposal, PlanningContext,
-    PolicyValueSource, ProductionPlan, ProductionPlanningContext, ProviderAdapter,
+    JournalCursor, JournalEventKind, MasterJournalEventKind, MasterPlannerError, MasterState,
+    MasterStore, ModelPlanGenerator, ModelProductionPlanGenerator, ModelProvider,
+    ModelRequestChain, OpenAiCompatibleProvider, PermissionPreset, PlanGenerator, PlanProposal,
+    PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext, ProviderAdapter,
     ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT,
     ReasoningEffort, ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason,
     ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
@@ -1813,6 +1813,7 @@ enum ModelCommand {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum MasterCommand {
     #[command(about = "校验主管配置 · Validate master configuration")]
     Validate {
@@ -1883,6 +1884,9 @@ enum MasterCommand {
         /// External source: an http(s) URL or a local file/directory (repeatable).
         #[arg(long = "source", value_name = "URL|PATH")]
         source: Vec<String>,
+        /// Answer to a question from a previous clarification round (repeatable).
+        #[arg(long = "clarification", value_name = "ANSWER")]
+        clarification: Vec<String>,
         #[arg(
             long,
             conflicts_with_all = ["provider", "model", "base_url", "api_key"]
@@ -10925,6 +10929,7 @@ async fn main() -> Result<()> {
             MasterCommand::Plan {
                 task,
                 source,
+                clarification,
                 config,
                 provider,
                 model,
@@ -10945,6 +10950,7 @@ async fn main() -> Result<()> {
                 run_master_plan(
                     task,
                     source,
+                    clarification,
                     config,
                     provider,
                     model,
@@ -16289,6 +16295,7 @@ fn canonical_or_original(path: &PathBuf) -> PathBuf {
 async fn run_master_plan(
     task: String,
     sources: Vec<String>,
+    clarifications: Vec<String>,
     config: Option<PathBuf>,
     provider: String,
     model: Option<String>,
@@ -16334,6 +16341,7 @@ async fn run_master_plan(
     }
     let mut context = PlanningContext::new(task, workspace, &triage)?;
     context.add_sources(&sources)?;
+    context.add_clarifications(&clarifications)?;
     context.risk = if signals.requires_write
         || signals.requires_external_action
         || signals.risk == RiskLevel::High
@@ -16367,7 +16375,29 @@ async fn run_master_plan(
     }
     let generator = generator.with_network(allow_network);
     let cancellation = CancellationToken::new();
-    let plan = generator.generate(&context, &cancellation).await?;
+    let plan = match generator.generate(&context, &cancellation).await {
+        Ok(plan) => plan,
+        Err(MasterPlannerError::NeedsClarification(questions)) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "status": "needs_clarification",
+                        "plan_id": context.plan_id,
+                        "questions": questions,
+                    }))?
+                );
+            } else {
+                println!("需要先澄清以下问题，暂不拆解：");
+                for (index, question) in questions.iter().enumerate() {
+                    println!("{}. {question}", index + 1);
+                }
+                println!("回答后带 --clarification \"你的回答\" 重新运行。");
+            }
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
     if !json {
         println!(
             "规划 Journal：{}",
@@ -21669,6 +21699,10 @@ async fn run_tui_master_plan(
         .await
     {
         Ok(production) => production,
+        Err(MasterPlannerError::NeedsClarification(questions)) => {
+            state.info(format!("规划前需要澄清：\n- {}", questions.join("\n- ")));
+            return;
+        }
         Err(error) => {
             state.info(format!("计划生成失败：{error}"));
             return;

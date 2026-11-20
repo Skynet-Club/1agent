@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-71b67605-68ce-4de1-9f91-55b20669c268",
+  "goal_id": "goal-ecda4fc1-0d2a-4244-9caa-26cbc0c94e3b",
+  "version": 1,
+  "summary": "工作区为空且无销售数据，因此按澄清不读取真实数据：交付一份可直接填充的 2026-07-01 至 2026-09-30（自然季度）管理层销售报告 Markdown 模板，含按区域/产品拆分的同比环比结构、图表清单与数据字段清单，全部数值以占位符表示。",
+  "task_contract": {
+    "objective": "为用户起草一份给管理层/董事会用的上季度（2026-07-01~2026-09-30）销售报告模板，含区域与产品拆分的同比环比板块、图表清单和数据字段清单，不读取真实销售数据。",
+    "deliverables": [
+      {
+        "id": "q3-sales-report-template-pack",
+        "statement": "Markdown 交付物：管理层销售报告模板（本季度 2026-07-01~2026-09-30，按区域与产品拆分，含同比/环比板块与图表清单）+ 数据字段清单。所有数值位置使用 {{placeholder}} 占位，不含任何伪造数字。",
+        "acceptance": [
+          "产出 reports/2026Q3-sales-management-report-template.md，且包含管理层摘要、本季度总览、区域维度、产品维度、同比分析、环比分析、图表清单、数据缺口与后续行动章节",
+          "报告中明确写出三个比较区间：本期 2026-07-01~2026-09-30、同比基期 2025-07-01~2025-09-30、环比基期 2026-04-01~2026-06-30",
+          "同比与环比均给出可计算的公式定义（同比 =(本期-去年同期)/去年同期，环比 =(本期-上季度)/上季度）并标注除零/缺失值处理规则",
+          "图表清单至少 6 项，每项含图表名称、指标、维度拆分、图表类型、数据来源字段、对应报告章节",
+          "产出 reports/2026Q3-sales-data-field-checklist.md，字段清单表格含字段名、业务定义、数据类型、单位、所在表/来源系统、是否必填、覆盖维度（区域/产品/期间），且同比环比所需字段与报告板块一一对应",
+          "两个文件中不出现任何具体销售数值或结论性断言，所有数值以占位符或空白填写槽表示",
+          "文件均为工作区内的相对路径 Markdown，可在无网络访问的情况下离线打开阅读"
+        ],
+        "work_item_ids": [
+          "author-report-template-and-field-checklist"
+        ]
+      }
+    ],
+    "constraints": [
+      "严格仅 1 个 Work Item、max_parallel=1，受 max_work_items 上限约束",
+      "不读取、不索取、不推测真实销售数据；工作区已确认为空（search_files 返回 0 个文件）",
+      "上个季度按自然季度固定为 2026-07-01 至 2026-09-30",
+      "同比基期取 2025-07-01~2025-09-30、环比基期取 2026-04-01~2026-06-30（由自然季度定义推导，作为假设记录）",
+      "交付物为 Markdown 文本文件，输出路径必须在 /tmp/clarification-live/workspace 之下",
+      "不做 Word/PPT/Excel 转换，不发起任何外发（董事会分发不在本次范围）"
+    ],
+    "non_goals": [
+      "不获取、导入或清洗真实销售数据源",
+      "不生成真实图表图片或数据透视结果",
+      "不代替管理层做业务结论或预测承诺",
+      "不对外发送、上传或发布报告"
+    ],
+    "sources": [
+      "/tmp/clarification-live/workspace（search_files 列举结果为 0 个文件，确认工作区为空）"
+    ],
+    "acceptance": [
+      "工作区内存在一份可直接填充的 Q3 管理层销售报告 Markdown 模板与一份数据字段清单",
+      "模板按区域与产品两维度拆分，同比与环比板块的期间、公式、缺失值规则完整可执行",
+      "图表清单与字段清单相互对齐，可直接指导后续数据填报与图表制作",
+      "全程未引入任何未经来源支持的真实数值或伪造成果"
+    ]
+  },
+  "work_items": [
+    {
+      "id": "author-report-template-and-field-checklist",
+      "title": "编写 Q3 管理层销售报告模板与数据字段清单",
+      "objective": "在工作区内创建 reports/2026Q3-sales-management-report-template.md 与 reports/2026Q3-sales-data-field-checklist.md。报告模板固定期间为本季度 2026-07-01~2026-09-30，同比基期 2025-07-01~2025-09-30，环比基期 2026-04-01~2026-06-30；结构为：面向董事会的管理层摘要（Executive Summary，含 3-5 条占位要点的填写指引）、本期总览、区域维度（按区域列出销售额/销量/毛利率/大客户数的占位表格，并标注同比列与环比列）、产品维度（按产品线同结构）、同比分析、环比分析（含驱动因素与需人工核对项）、图表清单、数据缺口与下一步行动。同比/环比必须给出公式定义及除零、缺失、口径变更的处理规则，并提示区域与产品口径需与前两个基期一致。所有数值用 {{...}} 占位符，禁止编造数字或结论。字段清单文件用 Markdown 表格给出字段名、业务定义、数据类型、单位、来源表/系统、是否必填、覆盖维度（期间/区域/产品），并显式列出同比与环比所需的基期数据字段，说明报告每个板块依赖哪些字段。仅写文件，不读取外部数据、不联网。",
+      "dependencies": [],
+      "required_capabilities": [
+        "text_generation",
+        "document_writing"
+      ],
+      "required_tools": [
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/tmp/clarification-live/workspace"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "reports/2026Q3-sales-management-report-template.md 存在且章节包含管理层摘要、本期总览、区域维度、产品维度、同比分析、环比分析、图表清单、数据缺口与下一步行动",
+        "区域维度与产品维度均以表格呈现，且每个表格同时包含本期、同比、环比三组列",
+        "文件中明确写出三个期间节点 2026-07-01~2026-09-30、2025-07-01~2025-09-30、2026-04-01~2026-06-30，并给出同比与环比计算公式",
+        "图表清单含不少于 6 条，每条包含图表名称、指标、拆分维度、图表类型、依赖字段、对应章节",
+        "reports/2026Q3-sales-data-field-checklist.md 存在，字段表包含字段名、业务定义、数据类型、单位、来源、是否必填、覆盖维度七列，并列出同比环比基期字段",
+        "两份文件均不含具体销售数值，全部数值位置为 {{...}} 占位符",
+        "文件位于工作区内且为纯 Markdown，离线可读，无外部链接依赖"
+      ],
+      "expected_artifacts": [
+        "reports/2026Q3-sales-management-report-template.md",
+        "reports/2026Q3-sales-data-field-checklist.md"
+      ],
+      "workspace": "/tmp/clarification-live/workspace",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 180000,
+        "max_tool_calls": 10
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 1,
+  "approved": false
+}

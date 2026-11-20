@@ -9,8 +9,8 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::domain::{
-    AgentAnswer, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, PermissionSet, RiskLevel,
-    ToolStatus,
+    AgentAnswer, AnswerStatus, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, PermissionSet,
+    RiskLevel, ToolStatus,
 };
 use crate::master::{AgentProfile, MasterPlanError, PlanProposal};
 use crate::production_line::{ProductionLineError, ProductionPlan};
@@ -23,6 +23,9 @@ use crate::tools::{
 const MAX_PLANNER_TOOL_STEPS: usize = 12;
 const MAX_PLANNER_TOOL_CALLS: usize = 24;
 const MAX_PLANNER_TOOL_OUTPUT_CHARS: usize = 200_000;
+const MAX_CLARIFICATIONS: usize = 8;
+const MAX_CLARIFICATION_CHARS: usize = 2_000;
+const MAX_CLARIFICATION_QUESTIONS: usize = 3;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -252,6 +255,9 @@ pub struct PlanningContext {
     /// Extra local roots the planner may read for declared path sources.
     #[serde(default)]
     pub read_roots: Vec<PathBuf>,
+    /// User answers to questions from a previous clarification round.
+    #[serde(default)]
+    pub clarifications: Vec<String>,
 }
 
 impl PlanningContext {
@@ -276,7 +282,38 @@ impl PlanningContext {
             agents: Vec::new(),
             sources: Vec::new(),
             read_roots: Vec::new(),
+            clarifications: Vec::new(),
         })
+    }
+
+    /// Add one round of user answers to earlier clarification questions.
+    pub fn add_clarifications(
+        &mut self,
+        clarifications: &[String],
+    ) -> Result<(), MasterPlannerError> {
+        if self
+            .clarifications
+            .len()
+            .saturating_add(clarifications.len())
+            > MAX_CLARIFICATIONS
+        {
+            return Err(MasterPlannerError::InvalidClarification(format!(
+                "at most {MAX_CLARIFICATIONS} answers are allowed"
+            )));
+        }
+        for clarification in clarifications {
+            let clarification = clarification.trim();
+            if clarification.is_empty()
+                || clarification.chars().any(char::is_control)
+                || clarification.chars().count() > MAX_CLARIFICATION_CHARS
+            {
+                return Err(MasterPlannerError::InvalidClarification(
+                    "answer must be non-empty, control-free and bounded".into(),
+                ));
+            }
+            self.clarifications.push(clarification.to_string());
+        }
+        Ok(())
     }
 
     /// Add explicit sources. URLs are tracked as remote sources; local files
@@ -326,6 +363,12 @@ impl PlanningContext {
             .iter()
             .any(|source| source.trim().is_empty() || source.chars().any(char::is_control))
             || self.read_roots.iter().any(|root| !root.is_dir())
+            || self.clarifications.len() > MAX_CLARIFICATIONS
+            || self.clarifications.iter().any(|clarification| {
+                clarification.trim().is_empty()
+                    || clarification.chars().any(char::is_control)
+                    || clarification.chars().count() > MAX_CLARIFICATION_CHARS
+            })
         {
             return Err(MasterPlannerError::InvalidContext);
         }
@@ -469,6 +512,9 @@ impl ModelProductionPlanGenerator {
         )?;
         match response.turn {
             ModelTurn::Final { answer } => {
+                if let Some(questions) = clarification_questions(&answer) {
+                    return Err(MasterPlannerError::NeedsClarification(questions));
+                }
                 return parse_production_plan_from_answer(&answer, context);
             }
             ModelTurn::InvalidFinal { content, error } => {
@@ -514,7 +560,12 @@ impl ModelProductionPlanGenerator {
             serde_json::json!({"attempt": 2, "response": &response}),
         )?;
         match response.turn {
-            ModelTurn::Final { answer } => parse_production_plan_from_answer(&answer, context),
+            ModelTurn::Final { answer } => {
+                if let Some(questions) = clarification_questions(&answer) {
+                    return Err(MasterPlannerError::NeedsClarification(questions));
+                }
+                parse_production_plan_from_answer(&answer, context)
+            }
             ModelTurn::InvalidFinal { content, .. } => {
                 parse_production_plan_text(&content, context)
             }
@@ -682,6 +733,9 @@ impl PlanGenerator for ModelPlanGenerator {
             )?;
             match response.turn {
                 ModelTurn::Final { answer } => {
+                    if let Some(questions) = clarification_questions(&answer) {
+                        return Err(MasterPlannerError::NeedsClarification(questions));
+                    }
                     let plan = parse_plan_from_answer(&answer, context)?;
                     ensure_sources_read(&context.goal, &context.sources, &read_urls, &read_paths)?;
                     ensure_task_contract(&plan)?;
@@ -1067,7 +1121,12 @@ Rules:
 - Work Item workspace and read_roots must be context.workspace or paths below it. Never put an external source path into a Work Item; read sources in planning and put the needed facts in the objective. Never broaden read access to a parent directory.
 - Do not invent evidence or existing artifacts.
 - The Work Item status must be "pending".
-- Return one valid 1-Agent AgentAnswer JSON object with status "completed". Its conclusion must be a JSON string containing only the PlanProposal object. Keep all other AgentAnswer arrays empty.
+- Ask before decomposing only when a material ambiguity remains after reading the sources and context.clarifications: one that would change the goal, a deliverable, a constraint, acceptance, or an external action. Return one valid AgentAnswer JSON object with status "needs_authorization", a short conclusion, and 1..=3 questions in unknowns (schema_version 2, unique id, description is the question, impact "high", reduction_method "user answer"). Do not include a plan. Ask only what the user uniquely knows; never ask for a fact a tool can read. If context.clarifications already answers a question, do not ask it again.
+- A non-material ambiguity with a reversible, low-risk default is not a reason to ask: proceed and record the assumption in task_contract.constraints or the Work Item objective.
+- Otherwise return one valid 1-Agent AgentAnswer JSON object with status "completed". Its conclusion must be a JSON string containing only the PlanProposal object. Keep all other AgentAnswer arrays empty.
+
+Clarification shape when needed:
+{"schema_version":2,"status":"needs_authorization","conclusion":"why planning is blocked","unknowns":[{"id":"q1","description":"question for the user","impact":"high","reduction_method":"user answer"}]}
 
 PlanProposal shape:
 {
@@ -1130,7 +1189,9 @@ Rules:
 - Every Work Item must belong to exactly one Key Result.
 - Each Key Result must include a non-empty baseline, target and measurement method.
 - Risk may not downgrade high-risk write or external actions.
-- Return one valid 1-Agent AgentAnswer JSON object with status "completed". Its conclusion must contain only the ProductionPlan JSON object. Keep all other AgentAnswer arrays empty.
+- Ask before decomposing only when a material ambiguity remains after using the mission goal and context.planning.clarifications: one that would change the goal, a Key Result, a constraint, acceptance, or an external action. Return one valid AgentAnswer JSON object with status "needs_authorization", a short conclusion, and 1..=3 questions in unknowns (schema_version 2, unique id, description is the question, impact "high", reduction_method "user answer"). Do not include a plan. Ask only what the user uniquely knows. If context.planning.clarifications already answers a question, do not ask it again.
+- A non-material ambiguity with a reversible, low-risk default is not a reason to ask: proceed and record the assumption in goal.constraints.
+- Otherwise return one valid 1-Agent AgentAnswer JSON object with status "completed". Its conclusion must contain only the ProductionPlan JSON object. Keep all other AgentAnswer arrays empty.
 
 ProductionPlan shape:
 {
@@ -1230,6 +1291,25 @@ fn validate_parsed_production_plan(
     production.plan = validate_parsed_plan(production.plan, &context.planning)?;
     production.validate()?;
     Ok(production)
+}
+
+/// A planner that cannot resolve a material ambiguity stops before decomposing
+/// and returns its questions; the model decides when to ask.
+fn clarification_questions(answer: &AgentAnswer) -> Option<Vec<String>> {
+    if answer.status != AnswerStatus::NeedsAuthorization {
+        return None;
+    }
+    let mut questions = answer
+        .unknowns
+        .iter()
+        .map(|unknown| unknown.description.trim().to_string())
+        .filter(|question| !question.is_empty())
+        .take(MAX_CLARIFICATION_QUESTIONS)
+        .collect::<Vec<_>>();
+    if questions.is_empty() && !answer.conclusion.trim().is_empty() {
+        questions.push(answer.conclusion.trim().to_string());
+    }
+    (!questions.is_empty()).then_some(questions)
 }
 
 pub fn parse_plan_from_answer(
@@ -1393,6 +1473,10 @@ pub enum MasterPlannerError {
     InvalidContext,
     #[error("planning source is invalid or missing: {0}")]
     InvalidSource(String),
+    #[error("planning clarification answer is invalid: {0}")]
+    InvalidClarification(String),
+    #[error("planner needs clarification before decomposition: {}", .0.join(" | "))]
+    NeedsClarification(Vec<String>),
     #[error("planning context could not be serialized: {0}")]
     InvalidContextJson(String),
     #[error("planning provider failed: {0}")]
@@ -1432,7 +1516,9 @@ pub enum MasterPlannerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{AnswerStatus, MessageRole, ModelResponse, ToolCall, Usage};
+    use crate::domain::{
+        AnswerStatus, ImpactLevel, MessageRole, ModelResponse, ToolCall, UnknownItem, Usage,
+    };
     use crate::master::{
         Deliverable, MASTER_PLAN_SCHEMA_VERSION, TaskContract, WorkBudget, WorkItem, WorkItemStatus,
     };
@@ -1746,6 +1832,135 @@ mod tests {
             .unwrap();
         assert_eq!(generated, plan);
         assert!(!generated.approved);
+    }
+
+    struct ClarifyingPlannerProvider {
+        questions: Vec<String>,
+        seen_context: Arc<Mutex<String>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ClarifyingPlannerProvider {
+        fn id(&self) -> &str {
+            "clarifying-planner"
+        }
+
+        fn model(&self) -> &str {
+            "fake-model"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            if let Some(message) = request
+                .messages
+                .iter()
+                .find(|message| message.role == MessageRole::User)
+            {
+                *self.seen_context.lock().unwrap() = message.content.clone();
+            }
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: 2,
+                        status: AnswerStatus::NeedsAuthorization,
+                        conclusion: "目标平台未定，无法拆解".into(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: self
+                            .questions
+                            .iter()
+                            .enumerate()
+                            .map(|(index, question)| UnknownItem {
+                                id: format!("q{}", index + 1),
+                                description: question.clone(),
+                                impact: ImpactLevel::High,
+                                why_it_matters: None,
+                                reduction_method: Some("user answer".into()),
+                            })
+                            .collect(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_stops_before_decomposition_with_bounded_questions() {
+        let mut context = context();
+        context
+            .add_clarifications(&["目标平台是 Linux".into()])
+            .unwrap();
+        let seen_context = Arc::new(Mutex::new(String::new()));
+        let generator = ModelPlanGenerator::new(Arc::new(ClarifyingPlannerProvider {
+            questions: vec![
+                "发布到哪个平台？".into(),
+                "需要兼容旧版本吗？".into(),
+                "验收由谁执行？".into(),
+                "截止日期是什么时候？".into(),
+            ],
+            seen_context: seen_context.clone(),
+        }));
+        let error = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .expect_err("a clarification answer must not become a plan");
+        match error {
+            MasterPlannerError::NeedsClarification(questions) => {
+                assert_eq!(
+                    questions,
+                    vec!["发布到哪个平台？", "需要兼容旧版本吗？", "验收由谁执行？"]
+                );
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert!(
+            seen_context.lock().unwrap().contains("目标平台是 Linux"),
+            "clarification answers must reach the model"
+        );
+    }
+
+    #[test]
+    fn planning_context_rejects_invalid_clarifications() {
+        let mut context = context();
+        assert!(matches!(
+            context.add_clarifications(&["".into()]),
+            Err(MasterPlannerError::InvalidClarification(_))
+        ));
+        assert!(matches!(
+            context.add_clarifications(&["a\nb".into()]),
+            Err(MasterPlannerError::InvalidClarification(_))
+        ));
+        let too_many = (0..=MAX_CLARIFICATIONS)
+            .map(|index| format!("answer-{index}"))
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            context.add_clarifications(&too_many),
+            Err(MasterPlannerError::InvalidClarification(_))
+        ));
+        context
+            .add_clarifications(&["重新在 Linux 上验收".into()])
+            .unwrap();
+        assert_eq!(context.clarifications.len(), 1);
+    }
+
+    #[test]
+    fn planning_prompt_asks_only_material_questions() {
+        let prompt = master_plan_system_prompt(false);
+        assert!(prompt.contains("needs_authorization"));
+        assert!(prompt.contains("context.clarifications"));
+        assert!(prompt.contains("1..=3 questions"));
     }
 
     struct ReadingPlannerProvider {
@@ -2507,6 +2722,22 @@ mod tests {
                 .generate(&context, &CancellationToken::new())
                 .await,
             Err(MasterPlannerError::PlanSelfApproved)
+        ));
+    }
+
+    #[tokio::test]
+    async fn production_planner_surfaces_clarification_before_decomposition() {
+        let context = ProductionPlanningContext::new(context(), "master-1").unwrap();
+        let generator = ModelProductionPlanGenerator::new(Arc::new(ClarifyingPlannerProvider {
+            questions: vec!["发布到哪个环境？".into()],
+            seen_context: Arc::new(Mutex::new(String::new())),
+        }));
+        assert!(matches!(
+            generator
+                .generate(&context, &CancellationToken::new())
+                .await,
+            Err(MasterPlannerError::NeedsClarification(questions))
+                if questions == vec!["发布到哪个环境？"]
         ));
     }
 
