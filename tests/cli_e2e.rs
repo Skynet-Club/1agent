@@ -767,6 +767,15 @@ printf '%s\n' '{"schema":"skynet.term.agent-run/v1","agent":{"agent_id":"agent-1
     );
     let verify: serde_json::Value = serde_json::from_slice(&verify.stdout).unwrap();
     assert_eq!(verify["verification"]["status"], "verified");
+    assert_eq!(
+        verify["verification"]["acceptance_receipt"]["decision"],
+        "accepted"
+    );
+    assert!(
+        verify["verification"]["acceptance_receipt"]["contract_digest"]
+            .as_str()
+            .is_some_and(|digest| !digest.is_empty())
+    );
 
     let audit = Command::new(binary)
         .args([
@@ -1007,6 +1016,15 @@ fi
     );
     let verify: serde_json::Value = serde_json::from_slice(&verify.stdout).unwrap();
     assert_eq!(verify["verification"]["status"], "verified");
+    assert_eq!(
+        verify["verification"]["acceptance_receipt"]["decision"],
+        "accepted"
+    );
+    assert!(
+        verify["verification"]["acceptance_receipt"]["contract_digest"]
+            .as_str()
+            .is_some_and(|digest| !digest.is_empty())
+    );
 }
 
 #[test]
@@ -1027,6 +1045,7 @@ fn cli_tui_master_supervision_closes_the_human_in_the_loop_path() {
         goal_id: "goal-supervision-cli".into(),
         version: 1,
         summary: "CLI supervision test".into(),
+        task_contract: None,
         work_items: vec![first_principles_agent::WorkItem {
             id: "task-1".into(),
             title: "Supervised task".into(),
@@ -1301,6 +1320,7 @@ fn cli_tui_master_verification_commands_require_independent_artifact_evidence() 
         goal_id: "goal-verification-cli".into(),
         version: 1,
         summary: "CLI verification test".into(),
+        task_contract: None,
         work_items: vec![first_principles_agent::WorkItem {
             id: "task-verify".into(),
             title: "Verified delivery".into(),

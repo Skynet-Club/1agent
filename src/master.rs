@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::acceptance::CompletionReceipt;
 use crate::domain::{PermissionSet, RiskLevel};
 
 pub const MASTER_PLAN_SCHEMA_VERSION: u32 = 1;
@@ -771,6 +772,8 @@ pub struct VerificationResult {
     pub verified_by: String,
     pub verified_at_unix_ms: u128,
     pub failure_reason: Option<String>,
+    #[serde(default)]
+    pub acceptance_receipt: Option<CompletionReceipt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

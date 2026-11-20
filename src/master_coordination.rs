@@ -942,6 +942,7 @@ impl MasterState {
             verified_by: input.verified_by,
             verified_at_unix_ms: input.verified_at_unix_ms,
             failure_reason: (!failures.is_empty()).then(|| failures.join("; ")),
+            acceptance_receipt: None,
         };
         let state = self.task_mut(&task_id)?;
         set_task_status(state, WorkItemStatus::Verifying);

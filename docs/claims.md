@@ -185,7 +185,8 @@ file: <路径>              → 文件必须存在
 | `master plan` 来源门禁：任务 URL 或 `--source` 声明的本地文件/目录未成功读取时拒绝计划 | file: docs/evidence/planner-source-gate-2026-11-20/README.md | ✅ | 只证明成功读过，不证明读懂；Work Item 仍限制在 workspace |
 | 规划器 `read_source` 类型化读取：模型只传 URL/路径，运行时选择 lark-cli/fetch_url/read_document/search_files | file: docs/evidence/planner-read-source-2026-11-20/README.md | ✅ | DeepSeek URL/本地通过；8B 能读取；公网 fetch_url 未实机 |
 | 规划器输出对所有 provider 统一归一化：接受 `AgentAnswer` 字符串/对象 `conclusion` 或裸 `PlanProposal`；code-owned ID/version/绝对 artifact 归一化；内容/权限/risk 仍严格 | file: docs/evidence/planner-plan-normalize-2026-11-20/README.md | ✅ | 本地 8B 由失败变成功；一次运行；计划质量未测 |
-| `TaskContract v1`：模型产出 objective/deliverables/constraints/non_goals/sources/acceptance；每个 WorkItem 必须恰好归属一个 deliverable | file: docs/evidence/task-contract-v1-2026-11-20/README.md | ✅ | 覆盖校验已测；契约语义质量未测；验收回执是下一步 MA-003 |
+| `TaskContract v1`：模型产出 objective/deliverables/constraints/non_goals/sources/acceptance；每个 WorkItem 必须恰好归属一个 deliverable | file: docs/evidence/task-contract-v1-2026-11-20/README.md | ✅ | 覆盖校验已测；契约语义质量未测；验收回执已接线 |
+| MA-003：`master verify` 构造 `AcceptanceContract`、重算 artifact、`acceptance::close` 回执；只接受 `Accepted`，receipt 存入 VerificationResult | file: docs/evidence/acceptance-receipt-2026-11-20/README.md | ✅ | verifier ≠ executor；receipt 持久化；隐藏 criteria/自动选 verifier 未做 |
 | 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
 | schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |
 | schedule 支持文件 mtime trigger | test: schedule_trigger_file_runs_once | ✅ | CLI e2e；第二次未变化不重复运行 |

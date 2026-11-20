@@ -17037,13 +17037,87 @@ fn verify_master_task(
         .tasks
         .get(&submission.task_id)
         .ok_or_else(|| "任务状态缺失。".to_string())?;
+    let generation = task.generation;
     let verified_by = submission.verified_by;
+    let executor_id = assigned_agent.to_string();
     let now = now_unix_ms();
-    let result = state
+    let required_verifier = if verified_by.starts_with("human:") {
+        first_principles_agent::acceptance::VerifierKind::Human
+    } else if verified_by.starts_with("verifier:") || verified_by.starts_with("agent:") {
+        first_principles_agent::acceptance::VerifierKind::Independent
+    } else {
+        first_principles_agent::acceptance::VerifierKind::Automated
+    };
+    let verification_checks = artifact_checks
+        .iter()
+        .map(
+            |check| first_principles_agent::verification::ArtifactCheck {
+                path: check.path.clone(),
+                observed_sha256: check.sha256.clone().unwrap_or_default(),
+                passed: check.exists
+                    && check.regular_file
+                    && check.error.is_none()
+                    && check
+                        .expected_sha256
+                        .as_deref()
+                        .map_or(true, |expected| check.sha256.as_deref() == Some(expected)),
+            },
+        )
+        .collect::<Vec<_>>();
+    let acceptance_criteria_results = submission
+        .criteria_results
+        .iter()
+        .map(
+            |result| first_principles_agent::verification::CriterionResult {
+                criterion: result.criterion.clone(),
+                passed: result.passed,
+                evidence: result.evidence.clone(),
+            },
+        )
+        .collect::<Vec<_>>();
+    let acceptance_expectations = expectations
+        .iter()
+        .map(
+            |expectation| first_principles_agent::verification::ArtifactExpectation {
+                path: expectation.path.clone(),
+                sha256: expectation.expected_sha256.clone(),
+            },
+        )
+        .collect::<Vec<_>>();
+    let acceptance_contract = first_principles_agent::acceptance::AcceptanceContract {
+        task_id: item.id.clone(),
+        objective: item.objective.clone(),
+        acceptance_criteria: item.acceptance_criteria.clone(),
+        hidden_criteria: Vec::new(),
+        expected_artifacts: acceptance_expectations.clone(),
+        risk: item.risk,
+        required_verifier,
+        residual_risks: Vec::new(),
+    };
+    let acceptance_input = first_principles_agent::verification::VerificationInput {
+        executor_id,
+        verifier_id: verified_by.clone(),
+        acceptance_criteria: item.acceptance_criteria.clone(),
+        hidden_criteria: Vec::new(),
+        criteria_results: acceptance_criteria_results,
+        expected_artifacts: acceptance_expectations,
+        artifact_checks: verification_checks,
+    };
+    let receipt =
+        first_principles_agent::acceptance::close(&acceptance_contract, &acceptance_input, now)
+            .map_err(|error| error.to_string())?;
+    if receipt.decision != first_principles_agent::acceptance::AcceptanceDecision::Accepted {
+        return Err(format!(
+            "验收未通过：decision={:?}; failures={}",
+            receipt.decision,
+            receipt.report.failures.join("; ")
+        ));
+    }
+    let mut result = state
         .verify(
             VerificationInput {
                 task_id: submission.task_id.clone(),
-                lease_generation: task.generation,
+                lease_generation: generation,
                 criteria_results: submission.criteria_results,
                 artifact_checks,
                 test_results: submission.test_results,
@@ -17054,6 +17128,12 @@ fn verify_master_task(
             now,
         )
         .map_err(|error| error.to_string())?;
+    result.acceptance_receipt = Some(receipt.clone());
+    if let Some(runtime) = state.tasks.get_mut(&submission.task_id)
+        && let Some(verification) = runtime.verification.as_mut()
+    {
+        verification.acceptance_receipt = Some(receipt.clone());
+    }
     let kind = if result.status == WorkItemStatus::Verified {
         MasterJournalEventKind::Verified
     } else {
@@ -17065,10 +17145,12 @@ fn verify_master_task(
             kind,
             Some(submission.task_id.clone()),
             &verified_by,
-            result
-                .failure_reason
-                .clone()
-                .unwrap_or_else(|| "independent verification passed".into()),
+            result.failure_reason.clone().unwrap_or_else(|| {
+                format!(
+                    "independent verification passed; acceptance receipt {}",
+                    receipt.contract_digest
+                )
+            }),
             now,
         )
         .map_err(|error| error.to_string())?;

@@ -226,7 +226,10 @@ task and one automatic replan per run. A plan must be approved before dispatch. 
 nonterminal lease cannot be silently replaced even after expiry; explicit cancel/takeover
 is required. Verification fails closed unless execution exited zero, every acceptance
 criterion has independent passing evidence and every expected Artifact exists under the
-workspace with optional SHA-256 matching.
+workspace with optional SHA-256 matching. The CLI `master verify` also builds an
+`AcceptanceContract` from the Work Item, recomputes artifact checks, and requires
+an accepted `CompletionReceipt` from `acceptance::close`; the receipt is stored
+in `VerificationResult` and journaled.
 
 The standalone `verification::verify` contract (ADR-0037) makes the same
 distinction reusable outside Master: a distinct verifier, exactly one result
