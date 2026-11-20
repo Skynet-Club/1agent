@@ -1,0 +1,8 @@
+date: 2026-11-20
+feature_commit: 7d83da7
+release_binary_sha256: 9277e48fdb49765b8b2dc43d77c8fedcb031ec207c69c507d7efe51a2495eaf9
+installed: ~/.local/bin/1agent
+backup: ~/.local/bin/1agent-pre-tui-journal-cursor-2026-11-20
+backup_sha256: 700333481866d04ea10427afebb19d3dfaf6773d7011240feecabdef967754a6
+version: 1agent 1.0.0-rc.12
+installed_smoke: "1agent --version" and "1agent run --help" exit 0

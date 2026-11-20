@@ -1,0 +1,7 @@
+e2bfc2abc7da93b7d26bbc466dbf5f456365a40d5047217a71ee24a496a7b219  src/journal.rs
+17bb6bd1f26b52344facf26ab7f9086b3d0970a3ee2f2f009b689b1c7a2b9ed1  src/tui.rs
+1be379cb897ff8c89cd826db0246f47017f2885279641ae3086decda1003d99d  src/main.rs
+18dff38c69e163c8a8d06f5ea6de5cafadd469e447d2105602825d74f4766e5f  docs/1.2-multi-agent-hardening-plan.md
+48ebdbc7435bb9556660ee119f8e3a19de4c3346a28d8cfc32aa176ecd0efcf8  docs/evidence/tui-journal-cursor-2026-11-20/README.md
+5881ac8c060bd007a386b13ff63fa31b20af4fc5077cef73227824e7648c732d  docs/evidence/tui-journal-cursor-2026-11-20/gate.txt
+fe2609398707d0cae899b9b06e15cc471a94749d9aa8b9ac08a986372d93b8ec  docs/evidence/tui-journal-cursor-2026-11-20/cursor-tests.txt

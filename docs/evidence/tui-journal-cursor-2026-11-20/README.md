@@ -66,5 +66,8 @@ Full gates (`gate.txt`, `eval.txt`):
 
 ## Release provenance
 
-Feature commit and release binary are recorded in the follow-up provenance
-commit (`release.txt`, `sha256.txt`).
+Feature commit `7d83da7`; release binary `9277e48f…` installed as
+`~/.local/bin/1agent`; previous MA-012 build `70033348…` backed up as
+`1agent-pre-tui-journal-cursor-2026-11-20`. Installed smoke: `1agent --version`
+and `1agent run --help` exit 0. Details in `release.txt`; source and evidence
+digests in `sha256.txt`.
