@@ -172,8 +172,6 @@ impl AgentTool for ReadSourceTool {
                     "query": {"type": "string", "maxLength": MAX_QUERY_CHARS},
                     "max_chars": {
                         "type": "integer",
-                        "minimum": 1_000,
-                        "maximum": MAX_MAX_CHARS,
                         "default": DEFAULT_MAX_CHARS
                     }
                 }

@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-f4cc592d-d110-4a55-8f9b-8b9f234ad584",
+  "goal_id": "goal-d0cebfa4-1e68-4370-9624-1e817719ff1d",
+  "version": 1,
+  "summary": "基于90天落地方案生成产品化执行计划",
+  "work_items": [
+    {
+      "id": "work-001",
+      "title": "定位句与命名策略",
+      "objective": "将Skyget定位句改为'天网盒子'，更新所有文档入口的首行描述，确保CLI命令/环境变量前缀保持skyget不变",
+      "dependencies": [],
+      "required_capabilities": [
+        "read_source"
+      ],
+      "required_tools": [
+        "read_document"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": false
+      },
+      "acceptance_criteria": [
+        "README.md首行包含定位句",
+        "GitHub description字段更新",
+        "CLI命令帮助文档包含新名称"
+      ],
+      "expected_artifacts": [
+        "README.md",
+        "CHANGELOG.md",
+        "docs/branding.md"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "work-002",
+      "title": "90天执行表落地",
+      "objective": "完成第1-2周陌生人跑通验证，包含安装脚本离线包制作和3人零引导测试",
+      "dependencies": [
+        "work-001"
+      ],
+      "required_capabilities": [
+        "read_source"
+      ],
+      "required_tools": [
+        "read_document"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": false
+      },
+      "acceptance_criteria": [
+        "install.sh支持离线安装",
+        "3份零引导测试记录",
+        "rsync对比表包含失败场景"
+      ],
+      "expected_artifacts": [
+        "install.sh",
+        "docs/compare-rsync.md",
+        "test_records/zero_guidance_*.log"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "work-003",
+      "title": "度量体系搭建",
+      "objective": "建立job_failed.reason事件表，配置埋点采集，确保安装转化率>40%",
+      "dependencies": [
+        "work-002"
+      ],
+      "required_capabilities": [
+        "read_source"
+      ],
+      "required_tools": [
+        "read_document"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": false
+      },
+      "acceptance_criteria": [
+        "事件表包含reason字段",
+        "埋点采集配置文件",
+        "安装转化率监控脚本"
+      ],
+      "expected_artifacts": [
+        "metrics/event_schema.md",
+        "metrics/埋点配置.yaml",
+        "metrics/转化率监控.sh"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 1,
+  "approved": false
+}

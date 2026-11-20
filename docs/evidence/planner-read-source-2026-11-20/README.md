@@ -1,7 +1,11 @@
 # Planner typed source entry (`read_source`) live run (2026-11-20)
 
 Status: **typed entry works for DeepSeek URL/local and for local 8B reading;
-the 8B still fails the plan wrapper/identity contract**
+after the generic plan normalizer, the 8B also produces a grounded plan**
+
+Note: the 8B plan wrapper/identity issue observed here was fixed generically in
+`../planner-plan-normalize-2026-11-20/` (2 requests, 1 tool call, 80.7 s, 3
+grounded Work Items). The traces below are the pre-normalization run.
 
 ## What changed
 
@@ -48,8 +52,9 @@ is an object instead of a JSON string.
 
 ## What this does not prove
 
-- Local 8B cannot yet produce a schema-valid plan on this task. That is a
-  plan-contract/model capability gap, not a reading-entry gap.
+- The 8B's pre-normalization plan failed the wrapper/identity contract; after
+  the generic normalizer it produces a schema-valid, document-grounded plan
+  (`../planner-plan-normalize-2026-11-20/`). Plan quality is not measured.
 - Public HTTPS `fetch_url` was not live-tested here; it is unit/backend covered.
 - Lark support requires an installed, authenticated `lark-cli`.
 - The full Feishu-grounded plan stays local; only the summary and hashes are

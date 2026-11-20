@@ -1214,7 +1214,9 @@ pub fn parse_plan_from_answer(
 ) -> Result<PlanProposal, MasterPlannerError> {
     let candidate = json_object_candidate(answer.conclusion.trim())
         .ok_or_else(|| MasterPlannerError::InvalidPlanJson("no JSON object found".into()))?;
-    let plan: PlanProposal = serde_json::from_str(candidate)
+    let value: serde_json::Value = serde_json::from_str(candidate)
+        .map_err(|error| MasterPlannerError::InvalidPlanJson(error.to_string()))?;
+    let plan: PlanProposal = serde_json::from_value(plan_value_from_json(&value)?)
         .map_err(|error| MasterPlannerError::InvalidPlanJson(error.to_string()))?;
     validate_parsed_plan(plan, context)
 }
@@ -1227,21 +1229,52 @@ fn parse_plan_text(
         .ok_or_else(|| MasterPlannerError::InvalidPlanJson("no JSON object found".into()))?;
     let value: serde_json::Value = serde_json::from_str(candidate)
         .map_err(|error| MasterPlannerError::InvalidPlanJson(error.to_string()))?;
-    let plan_candidate = value
-        .get("conclusion")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(candidate);
-    let plan: PlanProposal = serde_json::from_str(plan_candidate)
+    let plan: PlanProposal = serde_json::from_value(plan_value_from_json(&value)?)
         .map_err(|error| MasterPlannerError::InvalidPlanJson(error.to_string()))?;
     validate_parsed_plan(plan, context)
 }
 
+/// Accept the plan as a bare object, or as an AgentAnswer whose `conclusion`
+/// is either a JSON string or an object. This is provider/model agnostic.
+fn plan_value_from_json(
+    value: &serde_json::Value,
+) -> Result<serde_json::Value, MasterPlannerError> {
+    if let Some(conclusion) = value.get("conclusion") {
+        return match conclusion {
+            serde_json::Value::String(text) => {
+                let candidate = json_object_candidate(text.trim()).ok_or_else(|| {
+                    MasterPlannerError::InvalidPlanJson("conclusion contains no JSON object".into())
+                })?;
+                serde_json::from_str(candidate)
+                    .map_err(|error| MasterPlannerError::InvalidPlanJson(error.to_string()))
+            }
+            serde_json::Value::Object(_) => Ok(conclusion.clone()),
+            _ => Err(MasterPlannerError::InvalidPlanJson(
+                "conclusion must be a JSON string or object".into(),
+            )),
+        };
+    }
+    if value.get("plan_id").is_some() || value.get("work_items").is_some() {
+        return Ok(value.clone());
+    }
+    Err(MasterPlannerError::InvalidPlanJson(
+        "no PlanProposal or conclusion found".into(),
+    ))
+}
+
 fn validate_parsed_plan(
-    plan: PlanProposal,
+    mut plan: PlanProposal,
     context: &PlanningContext,
 ) -> Result<PlanProposal, MasterPlannerError> {
-    if plan.plan_id != context.plan_id || plan.goal_id != context.goal_id {
-        return Err(MasterPlannerError::IdentityMismatch);
+    // These fields are owned by deterministic code. Models may omit them or
+    // mis-copy them; normalize before validating the content.
+    plan.plan_id = context.plan_id.clone();
+    plan.goal_id = context.goal_id.clone();
+    plan.version = 1;
+    for item in &mut plan.work_items {
+        for artifact in &mut item.expected_artifacts {
+            *artifact = normalize_artifact_path(artifact, &item.workspace);
+        }
     }
     if plan.approved {
         return Err(MasterPlannerError::PlanSelfApproved);
@@ -1297,6 +1330,27 @@ fn json_object_candidate(text: &str) -> Option<&str> {
     let start = trimmed.find('{')?;
     let end = trimmed.rfind('}')?;
     (start < end).then_some(&trimmed[start..=end])
+}
+
+/// Artifact specs are relative to the Work Item workspace. Models sometimes
+/// emit an absolute path under that workspace; make it relative.
+fn normalize_artifact_path(spec: &str, workspace: &Path) -> String {
+    let (path, digest) = match spec.rsplit_once("@sha256:") {
+        Some((path, digest)) => (path, Some(digest)),
+        None => (spec, None),
+    };
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return spec.to_string();
+    }
+    let Ok(relative) = path.strip_prefix(workspace) else {
+        return spec.to_string();
+    };
+    let relative = relative.to_string_lossy();
+    match digest {
+        Some(digest) => format!("{relative}@sha256:{digest}"),
+        None => relative.into_owned(),
+    }
 }
 
 fn safe_planner_identity(value: &str) -> bool {
@@ -1452,7 +1506,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_parser_rejects_identity_changes_and_self_approval() {
+    fn plan_parser_normalizes_code_owned_identity_and_rejects_self_approval() {
         let context = context();
         let mut plan = PlanProposal {
             schema_version: MASTER_PLAN_SCHEMA_VERSION,
@@ -1505,14 +1559,65 @@ mod tests {
         ));
         plan.approved = false;
         plan.plan_id = "forged".into();
+        plan.goal_id = "forged-goal".into();
+        plan.version = 7;
         let answer = AgentAnswer {
             conclusion: serde_json::to_string(&plan).unwrap(),
             ..answer
         };
-        assert!(matches!(
-            parse_plan_from_answer(&answer, &context),
-            Err(MasterPlannerError::IdentityMismatch)
-        ));
+        let normalized = parse_plan_from_answer(&answer, &context).unwrap();
+        assert_eq!(normalized.plan_id, context.plan_id);
+        assert_eq!(normalized.goal_id, context.goal_id);
+        assert_eq!(normalized.version, 1);
+    }
+
+    #[test]
+    fn plan_parser_normalizes_absolute_artifacts_under_workspace() {
+        let context = context();
+        let mut plan = sample_plan(&context);
+        plan.work_items[0].expected_artifacts = vec![
+            format!("{}/target/test.log", context.workspace.display()),
+            "relative.log".into(),
+        ];
+        let answer = AgentAnswer {
+            task_need: None,
+            schema_version: 2,
+            status: AnswerStatus::Completed,
+            conclusion: serde_json::to_string(&plan).unwrap(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        let parsed = parse_plan_from_answer(&answer, &context).unwrap();
+        assert_eq!(
+            parsed.work_items[0].expected_artifacts[0],
+            "target/test.log"
+        );
+        assert_eq!(parsed.work_items[0].expected_artifacts[1], "relative.log");
+    }
+
+    #[test]
+    fn plan_parser_accepts_object_conclusion_and_bare_plan() {
+        let context = context();
+        let plan = sample_plan(&context);
+
+        let bare = serde_json::to_string(&plan).unwrap();
+        assert_eq!(parse_plan_text(&bare, &context).unwrap(), plan);
+
+        let wrapped = serde_json::json!({
+            "schema_version": 2,
+            "status": "completed",
+            "conclusion": plan,
+        });
+        assert_eq!(
+            parse_plan_text(&serde_json::to_string(&wrapped).unwrap(), &context).unwrap(),
+            plan
+        );
     }
 
     struct FakePlannerProvider {

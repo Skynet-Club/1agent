@@ -1,0 +1,20 @@
+{
+  "plan_id": "plan-f67e167b-a9a6-4d8f-bebf-7ff6e9bda163",
+  "goal_id": "goal-62a88bd6-90fd-445b-a607-5783bcad9207",
+  "approved": false,
+  "work_items": [
+    {
+      "id": "wi-positioning-and-readme-v2",
+      "title": "定位句锁定 + README v2 首屏（门1 D1–D2）"
+    },
+    {
+      "id": "wi-install-and-metrics",
+      "title": "一键安装（含离线包）+ 埋点事件表与三个指标（门1 D3–D4）"
+    },
+    {
+      "id": "wi-license-and-ci-embedding",
+      "title": "license 配置级开关 + 定价页 + GitHub Action/Docker/CI 文档（门3–门4）"
+    }
+  ],
+  "note": "The full plan quotes private document content and stays local; this summary and the hashes are committed instead."
+}

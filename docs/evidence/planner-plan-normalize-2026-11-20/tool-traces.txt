@@ -1,0 +1,30 @@
+# Generic planner normalization traces (2026-11-20)
+
+## Local qwen3-8b-16k + Feishu URL (binary 5fda7852…)
+step  tool          call                                                         status  observation
+0     read_source   source=https://…/docx/… max_chars=10485760                   ok      read Lark document via lark-cli (clamped)
+1     (final)       bare PlanProposal                                            ok      3 Work Items, approved=false
+                                                                                        normalized plan_id/goal_id/version + relative artifacts
+
+Totals: 2 requests, 1 tool call, 80.7 s, 10,344 input / 2,368 output tokens.
+Artifacts after normalization:
+  work-001: README.md, CHANGELOG.md, docs/branding.md
+  work-002: install.sh, docs/compare-rsync.md, test_records/zero_guidance_*.log
+  work-003: metrics/event_schema.md, metrics/埋点配置.yaml, metrics/转化率监控.sh
+
+## DeepSeek + Feishu URL regression (binary 5fda7852…)
+step  tool          call                                                         status  observation
+0     read_source   source=https://…/docx/…                                     ok      read Lark document via lark-cli
+1     search_files  path=/home/skynet/1-agent query="" max_depth=2                ok      listed files
+2     search_files  path=/home/skynet/1-agent query="" max_depth=1                ok      listed files
+3     read_file     README.md max_bytes=6000                                      ok      5999 bytes
+4     read_source   source=/home/skynet/1-agent/PRIVACY.md max_chars=3000        ok      read local file
+5     (final)       PlanProposal                                                  ok      3 Work Items, approved=false
+
+Totals: 7 requests, 5 tool calls, 77.7 s, 80,957 input / 12,878 output tokens.
+
+## Before normalization (local 8B, binary c14971c8…)
+- Step 1 read_source succeeded after max_chars correction.
+- Steps 3-10: repeated invalid_final: bare PlanProposal with unknown `plan_id`,
+  AgentAnswer `conclusion` object instead of string, absolute artifact paths.
+- 11 requests / 515.6 s; stopped; no plan written.

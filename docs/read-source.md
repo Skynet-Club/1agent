@@ -57,6 +57,19 @@ Obsidian 只是“第三方知识库导出目录”的一个例子；任何目�
 - 来源门禁仍接受 `read_source`：任务 URL 或 `--source` 声明来源被
   `read_source` 成功读取后，计划不会被 `UnreadSource` 拒绝。
 
+## 计划输出归一化（所有模型）
+
+规划器不按模型名或大小分支；所有 provider 共用同一个输出解析器：
+
+- 接受 `AgentAnswer`（`conclusion` 是字符串或对象）或裸 `PlanProposal`。
+- `plan_id` / `goal_id` / `version` 由运行时覆盖，模型只负责内容。
+- `expected_artifact` 若是 workspace 下的绝对路径，转成 workspace 相对路径。
+- 自审批、Work Item 状态、workspace/read-root 限制、risk 降级、artifact
+  规则、schema 和数量上限仍然严格校验。
+
+本地 8B 因此在一次 `read_source` 后产出 3 个有据 Work Item；DeepSeek 无
+回归。证据：`docs/evidence/planner-plan-normalize-2026-11-20/`。
+
 ## 当前限制
 
 - Lark 适配要求本机安装并登录 `lark-cli`；可用 `LARK_CLI_BIN` 指定路径。

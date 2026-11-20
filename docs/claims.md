@@ -183,7 +183,8 @@ file: <路径>              → 文件必须存在
 | `skill_exec` 可运行操作者声明的只读 skill CLI 前缀（如 `lark-cli docs +fetch`）；无 shell、需 `--allow-network` | file: docs/evidence/planner-skill-exec-2026-11-20/README.md | ✅ | 只运行声明前缀；不执行写命令；DeepSeek 一例；计划未执行 |
 | 同一安装二进制下，DeepSeek 能按 `skill_exec` 读飞书文档并产出有据计划；本地 `qwen3-8b-16k` 同任务未读文档、计划为虚构 | file: docs/evidence/planner-skill-exec-cross-model-2026-11-20/README.md | ✅ | 各一次运行；8B 16k context；非等上下文基准，不是模型排名 |
 | `master plan` 来源门禁：任务 URL 或 `--source` 声明的本地文件/目录未成功读取时拒绝计划 | file: docs/evidence/planner-source-gate-2026-11-20/README.md | ✅ | 只证明成功读过，不证明读懂；Work Item 仍限制在 workspace |
-| 规划器 `read_source` 类型化读取：模型只传 URL/路径，运行时选择 lark-cli/fetch_url/read_document/search_files | file: docs/evidence/planner-read-source-2026-11-20/README.md | ✅ | DeepSeek URL/本地通过；8B 能读取但计划包装仍失败；公网 fetch_url 未实机 |
+| 规划器 `read_source` 类型化读取：模型只传 URL/路径，运行时选择 lark-cli/fetch_url/read_document/search_files | file: docs/evidence/planner-read-source-2026-11-20/README.md | ✅ | DeepSeek URL/本地通过；8B 能读取；公网 fetch_url 未实机 |
+| 规划器输出对所有 provider 统一归一化：接受 `AgentAnswer` 字符串/对象 `conclusion` 或裸 `PlanProposal`；code-owned ID/version/绝对 artifact 归一化；内容/权限/risk 仍严格 | file: docs/evidence/planner-plan-normalize-2026-11-20/README.md | ✅ | 本地 8B 由失败变成功；一次运行；计划质量未测 |
 | 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
 | schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |
 | schedule 支持文件 mtime trigger | test: schedule_trigger_file_runs_once | ✅ | CLI e2e；第二次未变化不重复运行 |
