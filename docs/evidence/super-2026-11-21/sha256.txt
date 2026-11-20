@@ -13,12 +13,10 @@ a19093ff42aa96dd2a0ac648cfd5d5dd683cedac5cd583075f36f3ba4012f121  src/tools/sess
 73361fd179c121a1c598c4c59d779d62304c376d23f6c773a8822d8be8fe61a0  src/tools/skill_search.rs
 f083a7bb052f6b3a1c946afbe1097d019d48d9764db3b09715a782d5306e3702  src/tools/skills.rs
 4b8eb4d9746958963abe6c1a20fb60634b3bd278d29d947e1362525553407b96  target/release/first-principles-agent
-af2fea63a686354334ec9149f34357fd1b6f5a6ed3640c4cfeb0f5e21c161567  docs/evidence/super-2026-11-21/README.md
-810aa16534a47769fdb11879333607cfa25000115abcf1d59c4c8df64488e6dc  docs/evidence/super-2026-11-21/metrics.json
-6ca3183608f4ad8bd45ed38523da8a7f77bf7f8fc72a399f1a7f43378fbc42f2  docs/evidence/super-2026-11-21/t1-n3.json
+c1276dfc3bbcf73ab36530f0ea9ed97b0c4011d100fddbc51ce0d45ad277a977  docs/evidence/super-2026-11-21/README.md
+19e4a90875464efcfa5015582ccbbc4fc81bdbcfef827d62fa8c1ff45ad3bf94  docs/evidence/super-2026-11-21/metrics.json
+65273f6524728d89fa3277d2e47150f2e1ddfd3e273fc654e1aaae7c52ad38d9  docs/evidence/super-2026-11-21/t1-n3.json
 41b0b24dba2b3ac0cee3d33e414cce9334b3dd25f3b1bb304c127f9c35b04e69  docs/evidence/super-2026-11-21/t1-design1.json
-ff7ed59ee5f1f77a3bc657c1feb9ba75e7b4d610b4581f4365b30e744f379724  docs/evidence/super-2026-11-21/t1-rerun.json
-a94671f015ad761e5ccac5a65a9ade33fe6e2e11bb6e41cbdbf84528f17e600f  docs/evidence/super-2026-11-21/t1-rerun.html
+b7a6868a7b9d657bec73f110725a1eb716dd5d41f72dff224bfc28bc8d310a15  docs/evidence/super-2026-11-21/t1-rerun.json
+6c0e065218e2c9513b84a9d68f1c5f7e29635887ffb667202dc8294bce5a3b62  docs/evidence/super-2026-11-21/t1-rerun.html
 b1f1040acfdbecf4bc3ed45d33d1233105d5f8b81f02525b3fa4da9ffbc15f82  docs/evidence/super-2026-11-21/t1-design1.html
-d7294eebdebc4402d5e89732638d076532e885e9ce65a7aeff3e8a0b01bc9cbd  docs/evidence/super-2026-11-21/t1-rerun-notes.md
-516efee1bf57a8891d75683b2374edfc86a72fbd4e5c8c0aaa0a9ec9573a05fa  docs/evidence/super-2026-11-21/t1-design1-notes.md

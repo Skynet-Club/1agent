@@ -132,54 +132,40 @@ It shows the harness can deliver a verified page in 7 loop steps with no
 duplicate calls, but the real T1 rerun is still required before claiming a
 specific speedup on the original task.
 
-## Original T1 rerun (same core task, isolated output path)
+## Original T1 rerun (final binary, n=3)
 
-The original 59-step task was rerun **three times** with the final rc.13
-harness and isolated output paths (`/tmp/1agent-t1-final3`,
-`/tmp/1agent-t1-complete2`, `/tmp/1agent-t1-complete3`; the original
+The original 59-step task was rerun **three times** on the final binary
+(`4b8e`) with isolated output paths (`/tmp/1agent-t1-design1`,
+`/tmp/1agent-t1-design2`, `/tmp/1agent-t1-design3`; the original
 `/home/skynet/work/join-us` was not modified).
 
 | Metric | Baseline | Rerun median (n=3) | Change |
 |---|---:|---:|---:|
-| Wall clock | 365.0s | **189.1s** | **−48.2% (1.93×)** |
-| Model responses | 59 | **29** | −50.8% |
-| Loop steps | 59 | **28** | −52.5% |
-| Tool calls | 68 | **40** | −41.2% |
-| Input tokens | 4,946,706 | **1,547,095** | −68.7% |
-| Max context tokens | 84k avg* | **54,680** | lower |
-| Final audit pass | 1/1 | **2/3** | not yet parity |
+| Wall clock | 365.0s | **178.1s** | **−51.2% (2.05×)** |
+| Model responses | 59 | **31** | −47.5% |
+| Loop steps | 59 | **30** | −49.2% |
+| Tool calls | 68 | **41** | −39.7% |
+| Input tokens | 4,946,706 | **1,525,727** | −69.2% |
+| Max context tokens | 84k avg* | **49,632** | lower |
+| Final audit pass | 1/1 | **3/3** | parity |
 | Completed | 0/1 | **1/3** | one real completed run |
-| Acceptance accepted | 0/1 | **1/3** | one real accepted run |
-| Final statuses | conditional | completed / conditional / needs_evidence | variance |
+| Acceptance accepted | 0/1 | **2/3** | two real accepted runs |
+| Final statuses | conditional | conditional / completed / conditional | variance |
 
 *Baseline was a single run; its average input was 83,842 and max 133,893.
 
-**Honest conclusion:** speed is robust across n=3 (median 1.93×), but quality
-is **not yet reliable**. One run completed with `acceptance_gate=accepted`,
-one ended conditional with a failed final audit, and one ended
-`needs_evidence`. The completed run proves the path, not the median. The next
-slice must improve completion reliability, not just speed.
+**Honest conclusion:** speed is robust (median 2.05×), and the final audit
+passes 3/3. Quality is **still not reliable**: only 1/3 runs completed; one
+run ended conditional because it named the missing brief/design-review
+evidence, and one ended conditional without an acceptance receipt. The
+completed run proves the path, not the median. The next slice must improve
+completion reliability, not just speed.
 
-The completed run (run 1) wrote a `NOTES.md`, fixed the first audit's 6 small
-tap targets, re-audited to `all_pass=true`, and called `acceptance_gate`; it
-returned accepted, so the final answer is completed. Artifact: 30,861 bytes,
-sha256 `a94671f0…`; screenshots `t1-rerun-mobile.png` /
-`t1-rerun-desktop.png`; notes `t1-rerun-notes.md`. Full n=3 metrics:
+The completed run (run 2) fixed the first audit, re-audited to
+`all_pass=true`, called `acceptance_gate` (conditional → accepted), and
+finished **completed**. Artifact: 30,558 bytes, sha256 `6c0e0652…`;
+screenshots `t1-rerun-mobile.png` / `t1-rerun-desktop.png`. Full n=3:
 `t1-n3.json`; completed-run details: `t1-rerun.json`.
-
-### Post-nudge smoke (final binary `4b8e`)
-
-The final binary adds a design-gap nudge: if an accepted receipt still lacks
-design evidence, ask once for the exact missing items and a new acceptance
-call. One smoke run: 174.5s / 31 steps / 42 tools; audit false→false→false→true;
-`acceptance_gate` accepted; final **conditional** because the accepted receipt
-still lacked brief completeness and independent design-review evidence. The
-run **named both gaps** instead of claiming completed. This is an
-honesty/precision improvement, not a completion-rate improvement; the primary
-T1 n=3 above was measured on binary `60c3`, not this binary.
-
-Artifacts: `t1-design1.html` (36,405 bytes, sha256 `b1f1040a…`),
-`t1-design1-notes.md`, `t1-design1-mobile.png`; metrics `t1-design1.json`.
 
 ### What made the rerun both faster and not dumber
 

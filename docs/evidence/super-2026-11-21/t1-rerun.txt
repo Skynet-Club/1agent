@@ -1,6 +1,6 @@
 状态：完成
-结论：页面已交付到 /tmp/1agent-t1-final3/index.html，并已通过实测：390、768、1440 三档宽度下均无横向滚动，占位符命中 0，小于 44px 的触控目标为 0，验收回执为 accepted，contract digest 为 7c1681b8，evidence digest 为 d427c16f，且没有改动 /home/skynet/work/join-us。 这一页把飞书文案拆成七个板块：首屏「向真而行，向暖而生」加投递和电话两个入口；
-信任摘要：我的判断 11 · 依据 10 · 假设 3 · 还没确定 4 · 改判 3
+结论：页面已交付到 `/tmp/1agent-t1-design2/index.html`（30558 字节，sha256 `6c0e0652…`），三档真实视口全部通过，验收回执为 `accepted`。 打开地址：http://127.0.0.1:46095/ （预览服务在本进程存活期间可用）。
+信任摘要：我的判断 12 · 依据 6 · 假设 1 · 还没确定 4 · 改判 4
 使用 --details 查看完整字段与路由轨迹
 
-运行日志：/tmp/1agent-t1-final3/.journal/7a59f271-5625-4170-aba2-25830200d0ce.jsonl
+运行日志：/tmp/1agent-t1-design2/.journal/4bc16154-8749-410f-b04d-0a7750ecae30.jsonl
