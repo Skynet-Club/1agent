@@ -60,6 +60,14 @@ Full gates: lib 1,338 passed / 0 failed / 4 ignored; bin 67 passed; MAST 7
 passed; CLI e2e 40 passed with an isolated `ONEAGENT_HOME`; strict
 `cargo clippy --all-targets -- -D warnings` clean.
 
+## Release provenance
+
+Commit `5c5e238`; release binary `4f96acbe…` installed as
+`~/.local/bin/1agent`; previous MA-005 build `c88525b9…` backed up as
+`1agent-pre-tool-allowlist-2026-11-20`. Installed smoke: `--allowed-tools
+read_file` and `--deny-all-tools` exit 0; an unknown tool exits 1 with
+`unknown tool(s) in --allowed-tools`.
+
 ## What this does not prove
 
 - No live-model spawn test. The fake child records its argv; the registry and
@@ -79,3 +87,5 @@ passed; CLI e2e 40 passed with an isolated `ONEAGENT_HOME`; strict
 - `allowlist-tests.txt` — 8 focused tests.
 - `cli-test.txt` — unknown-name CLI rejection.
 - `metrics.json` — counts and policy.
+- `release.txt` — commit, installed/backup hashes, installed smoke.
+- `sha256.txt` — source and evidence digests.
