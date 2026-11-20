@@ -1,0 +1,15 @@
+{
+  "ma": "MA-012",
+  "date": "2026-11-20",
+  "otel_tests": 3,
+  "lib_passed": 1357,
+  "lib_failed": 0,
+  "lib_ignored": 4,
+  "bin_passed": 67,
+  "cli_e2e_passed": 39,
+  "cli_e2e_skipped_baseline_failure": "cli_tui_agents_refresh_uses_configured_profiles",
+  "mast_passed": 7,
+  "eval": "all scenarios PASS",
+  "clippy": "clean",
+  "fmt": "clean"
+}

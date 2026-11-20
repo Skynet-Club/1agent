@@ -988,7 +988,12 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `otel`: `spans_from_events` projects the journal into deterministic
   OTel GenAI-style spans: one `invoke_agent` root, one `chat` span per model
   response with provider/model/token/cost attributes, and one `execute_tool`
-  span per tool observation. `1agent otel` prints the JSON spans. `1agent
+  span per tool observation. A child journal with `ParentRunLinked` uses the
+  parent run's trace id, points its root `parent_span_id` at the parent's
+  deterministic `spawn_agent` span (`sha256(parent_run:call_id)`), derives its
+  own root span id from the child run id, and uses `parent_session_id` as
+  `gen_ai.conversation.id`; a top-level run without a journaled session keeps
+  the run id. `1agent otel` prints the JSON spans. `1agent
   otel-export` wraps them in an OTLP/HTTP JSON `resourceSpans` envelope and
   posts to a collector (HTTPS or loopback, no redirects, env-only bearer
   token). This remains a wire adapter, not an OTel SDK/gRPC/batch-retry layer.

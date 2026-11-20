@@ -1,0 +1,11 @@
+$ cargo test --offline --lib otel
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 3 tests
+test otel::tests::trace_id_is_stable_for_a_run ... ok
+test otel::tests::empty_events_emit_no_spans ... ok
+test otel::tests::child_root_span_joins_the_parent_spawn_span_in_one_trace ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1358 filtered out; finished in 0.00s
+
