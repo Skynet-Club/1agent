@@ -133,7 +133,7 @@
     "duplicate_calls": 0
   },
   "t1_rerun": {
-    "note": "same core lark task; isolated output path; original /home/skynet/work/join-us untouched",
+    "note": "completed case study from the n=3 run; medians and completion rate are in t1_n3",
     "baseline": {
       "wall_s": 365.04,
       "model_responses": 59,
@@ -206,5 +206,39 @@
       "no_evidence": 8
     },
     "known_cli_failure": "cli_tui_agents_refresh_uses_configured_profiles (pre-existing skynet-term session limit)"
+  },
+  "t1_n3": {
+    "binary_sha256": "60c3df61857474e8eb5b410bae27b30b146da601ca38f7958a1100b662b44c3a",
+    "runs": 3,
+    "median_wall_s": 189.06,
+    "wall_range_s": [
+      160.13,
+      205.95
+    ],
+    "median_loop_steps": 28,
+    "steps_range": [
+      27,
+      28
+    ],
+    "median_tool_calls": 40,
+    "tools_range": [
+      40,
+      41
+    ],
+    "median_input_tokens": 1547095,
+    "input_range": [
+      1444025,
+      1760525
+    ],
+    "median_context_max": 54680,
+    "final_statuses": [
+      "completed",
+      "conditional",
+      "needs_evidence"
+    ],
+    "final_audit_pass": "2/3",
+    "completed": "1/3",
+    "acceptance_gate_accepted": "1/3",
+    "honest_conclusion": "speed robust; quality not yet reliable; next slice is completion reliability"
   }
 }

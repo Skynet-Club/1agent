@@ -1,0 +1,107 @@
+{
+  "task": "original lark-cli wiki -> mobile interactive HTML page, with ui-ux-pro-max and unslop quality acceptance",
+  "binary_sha256": "60c3df61857474e8eb5b410bae27b30b146da601ca38f7958a1100b662b44c3a",
+  "budget": { "max_steps": 40, "max_tool_calls": 40, "timeout_seconds": 480 },
+  "note": "n=3 final-binary runs with isolated output paths; the original /home/skynet/work/join-us was not modified",
+  "runs": [
+    {
+      "run": 1,
+      "dir": "/tmp/1agent-t1-final3",
+      "journal": "/tmp/1agent-t1-final3/.journal/7a59f271-5625-4170-aba2-25830200d0ce.jsonl",
+      "wall_s": 189.06,
+      "model_responses": 29,
+      "loop_steps": 27,
+      "tool_calls": 40,
+      "input_tokens": 1444025,
+      "average_input_tokens": 49794,
+      "max_input_tokens": 77462,
+      "cache_hit_percent": 88.28,
+      "model_ms": 158051,
+      "tool_ms": 4550,
+      "context_max_tokens": 51381,
+      "audits": ["false", "true"],
+      "acceptance_gate": ["accepted"],
+      "final_status": "completed",
+      "artifact_bytes": 30861,
+      "artifact_sha256": "a94671f015ad761e5ccac5a65a9ade33fe6e2e11bb6e41cbdbf84528f17e600f"
+    },
+    {
+      "run": 2,
+      "dir": "/tmp/1agent-t1-complete2",
+      "journal": "/tmp/1agent-t1-complete2/.journal/e2c8f53d-fdea-43c1-918e-75d2c9171934.jsonl",
+      "wall_s": 160.13,
+      "model_responses": 29,
+      "loop_steps": 28,
+      "tool_calls": 41,
+      "input_tokens": 1547095,
+      "average_input_tokens": 53348,
+      "max_input_tokens": 80917,
+      "cache_hit_percent": 88.63,
+      "model_ms": 143893,
+      "tool_ms": 6605,
+      "context_max_tokens": 54680,
+      "audits": ["false", "false"],
+      "acceptance_gate": [],
+      "final_status": "conditional",
+      "artifact_bytes": 34345,
+      "artifact_sha256": "b337fedd84cfefd46b6316d9961ccdd1da29c3cbdb0b7e43d2055cb41a3b01e3"
+    },
+    {
+      "run": 3,
+      "dir": "/tmp/1agent-t1-complete3",
+      "journal": "/tmp/1agent-t1-complete3/.journal/08a5a906-318d-4a91-90fd-37db50e06d6e.jsonl",
+      "wall_s": 205.95,
+      "model_responses": 29,
+      "loop_steps": 28,
+      "tool_calls": 40,
+      "input_tokens": 1760525,
+      "average_input_tokens": 60708,
+      "max_input_tokens": 91132,
+      "cache_hit_percent": 88.69,
+      "model_ms": 179052,
+      "tool_ms": 15869,
+      "context_max_tokens": 57085,
+      "audits": ["true", "true", "true"],
+      "acceptance_gate": ["conditional"],
+      "final_status": "needs_evidence",
+      "artifact_bytes": 24578,
+      "artifact_sha256": "e63ec4cff7accdd12b8a9b4757476b812aaa6297369d197d83429033daff5232"
+    }
+  ],
+  "median": {
+    "wall_s": 189.06,
+    "loop_steps": 28,
+    "tool_calls": 40,
+    "input_tokens": 1547095,
+    "context_max_tokens": 54680,
+    "cache_hit_percent": 88.63
+  },
+  "range": {
+    "wall_s": [160.13, 205.95],
+    "loop_steps": [27, 28],
+    "tool_calls": [40, 41],
+    "input_tokens": [1444025, 1760525]
+  },
+  "quality": {
+    "final_audit_pass": "2/3",
+    "completed": "1/3",
+    "acceptance_gate_accepted": "1/3",
+    "all_final_statuses": ["completed", "conditional", "needs_evidence"]
+  },
+  "baseline": {
+    "wall_s": 365.04,
+    "loop_steps": 59,
+    "tool_calls": 68,
+    "input_tokens": 4946706,
+    "final_status": "conditional",
+    "browser_audit_all_pass": true
+  },
+  "comparison": {
+    "median_wall_reduction_percent": 48.2,
+    "median_wall_speedup": 1.93,
+    "median_step_reduction_percent": 52.5,
+    "median_tool_reduction_percent": 41.2,
+    "median_input_reduction_percent": 68.7,
+    "honest_conclusion": "speed is robust across n=3; quality is not yet reliable. One run completed, one ended conditional with a failed final audit, one needed more evidence. The next slice must improve completion reliability, not just speed."
+  }
+}

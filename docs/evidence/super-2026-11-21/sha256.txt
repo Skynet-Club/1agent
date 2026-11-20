@@ -13,8 +13,9 @@ a19093ff42aa96dd2a0ac648cfd5d5dd683cedac5cd583075f36f3ba4012f121  src/tools/sess
 73361fd179c121a1c598c4c59d779d62304c376d23f6c773a8822d8be8fe61a0  src/tools/skill_search.rs
 f083a7bb052f6b3a1c946afbe1097d019d48d9764db3b09715a782d5306e3702  src/tools/skills.rs
 60c3df61857474e8eb5b410bae27b30b146da601ca38f7958a1100b662b44c3a  target/release/first-principles-agent
-0f339f5eef5ef21506cb329bded642b4bcbc9fc7d23ee1764ba5688995ae04a4  docs/evidence/super-2026-11-21/README.md
-067744ea150c5e27b0ef62de73c49ec2eda31d7e542df9dfd299cf9800e06528  docs/evidence/super-2026-11-21/metrics.json
+41c93745dd23107ff9e3e5556cca7ff7dfddc6cbb7109ef9f005ea2be4b18a71  docs/evidence/super-2026-11-21/README.md
+245cee64a8f1099f25c370a8e94e7270df9d8cab3ed0ed2a9f0a60b81d111d57  docs/evidence/super-2026-11-21/metrics.json
+6ca3183608f4ad8bd45ed38523da8a7f77bf7f8fc72a399f1a7f43378fbc42f2  docs/evidence/super-2026-11-21/t1-n3.json
 f157fdf354c50d9a5a8021dd600bf455b4f0d1282f442058bd5801953ca8fd15  docs/evidence/super-2026-11-21/live-html-n3.json
 ff7ed59ee5f1f77a3bc657c1feb9ba75e7b4d610b4581f4365b30e744f379724  docs/evidence/super-2026-11-21/t1-rerun.json
 a94671f015ad761e5ccac5a65a9ade33fe6e2e11bb6e41cbdbf84528f17e600f  docs/evidence/super-2026-11-21/t1-rerun.html

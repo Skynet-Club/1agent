@@ -133,35 +133,38 @@ specific speedup on the original task.
 
 ## Original T1 rerun (same core task, isolated output path)
 
-The original 59-step task was rerun with the final rc.13 harness and an
-isolated output path (`/tmp/1agent-t1-final3/index.html`; the original
+The original 59-step task was rerun **three times** with the final rc.13
+harness and isolated output paths (`/tmp/1agent-t1-final3`,
+`/tmp/1agent-t1-complete2`, `/tmp/1agent-t1-complete3`; the original
 `/home/skynet/work/join-us` was not modified).
 
-| Metric | Baseline | Rerun | Change |
+| Metric | Baseline | Rerun median (n=3) | Change |
 |---|---:|---:|---:|
 | Wall clock | 365.0s | **189.1s** | **−48.2% (1.93×)** |
 | Model responses | 59 | **29** | −50.8% |
-| Loop steps | 59 | **27** | −54.2% |
+| Loop steps | 59 | **28** | −52.5% |
 | Tool calls | 68 | **40** | −41.2% |
-| Input tokens | 4,946,706 | **1,444,025** | −70.8% |
-| Avg input tokens | 83,842 | **49,794** | −40.6% |
-| Max input tokens | 133,893 | **77,462** | −42.1% |
-| Tool time | 71.6s | 4.6s | −93.6% |
-| Final status | conditional | **completed** | **better** |
-| Browser audit | all_pass=true | all_pass=true | parity |
-| Acceptance gate | not attempted | **accepted** | **better** |
+| Input tokens | 4,946,706 | **1,547,095** | −68.7% |
+| Max context tokens | 84k avg* | **54,680** | lower |
+| Final audit pass | 1/1 | **2/3** | not yet parity |
+| Completed | 0/1 | **1/3** | one real completed run |
+| Acceptance accepted | 0/1 | **1/3** | one real accepted run |
+| Final statuses | conditional | completed / conditional / needs_evidence | variance |
 
-The rerun wrote a `NOTES.md`, fixed the first audit's 6 small tap targets,
-re-audited to `all_pass=true`, and called `acceptance_gate`; it returned
-**accepted**, so the final answer is **completed**. This is not a
-speed-at-any-cost result: it is faster *and* has stronger completion evidence
-than the baseline. Earlier attempts without the classifier/audit/acceptance
-fixes stopped conditional or with unfixed tap targets and were not counted as
-wins.
+*Baseline was a single run; its average input was 83,842 and max 133,893.
 
-Artifact: 30,861 bytes, sha256 `a94671f0…`; screenshots `t1-rerun-mobile.png`
-and `t1-rerun-desktop.png`; notes `t1-rerun-notes.md`; full metrics
-`t1-rerun.json`.
+**Honest conclusion:** speed is robust across n=3 (median 1.93×), but quality
+is **not yet reliable**. One run completed with `acceptance_gate=accepted`,
+one ended conditional with a failed final audit, and one ended
+`needs_evidence`. The completed run proves the path, not the median. The next
+slice must improve completion reliability, not just speed.
+
+The completed run (run 1) wrote a `NOTES.md`, fixed the first audit's 6 small
+tap targets, re-audited to `all_pass=true`, and called `acceptance_gate`; it
+returned accepted, so the final answer is completed. Artifact: 30,861 bytes,
+sha256 `a94671f0…`; screenshots `t1-rerun-mobile.png` /
+`t1-rerun-desktop.png`; notes `t1-rerun-notes.md`. Full n=3 metrics:
+`t1-n3.json`; completed-run details: `t1-rerun.json`.
 
 ### What made the rerun both faster and not dumber
 
