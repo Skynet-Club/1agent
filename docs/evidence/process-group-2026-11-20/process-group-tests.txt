@@ -1,0 +1,55 @@
+$ cargo test --offline --lib tools::subagent
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 32 tests
+test tools::subagent::tests::invalid_child_allowlist_is_rejected_before_spawn ... ok
+test tools::subagent_budget::tests::finished_usage_is_charged_to_the_tree ... ok
+test tools::subagent::tests::spawn_is_write_capable_so_read_only_gates_cannot_bypass_it ... ok
+test tools::subagent_budget::tests::concurrency_slot_is_released_on_drop ... ok
+test tools::subagent::tests::tree_budget_rejects_spawn_when_concurrency_is_full ... ok
+test tools::subagent_budget::tests::invalid_limit_text_is_rejected ... ok
+test tools::subagent::tests::oversized_child_answer_is_truncated_with_counts ... ok
+test tools::subagent_budget::tests::limits_are_frozen_when_the_root_creates_the_file ... ok
+test tools::subagent_budget::tests::cost_and_token_limits_reject_new_spawns ... ok
+test tools::subagent_budget::tests::token_limit_rejects_new_spawns ... ok
+test tools::subagent_budget::tests::dead_reservations_are_pruned ... ok
+test tools::subagent::tests::tree_budget_rejects_spawn_after_cost_limit ... ok
+test tools::subagent::tests::rejects_workspace_outside_roots_and_depth_limit ... ok
+test tools::subagent::tests::parent_rejects_a_child_that_did_not_complete ... ok
+test tools::subagent::tests::completed_child_with_valid_journal_preserves_structured_answer ... ok
+test tools::subagent::tests::spawns_a_read_only_child_and_returns_its_conclusion ... ok
+test tools::subagent::tests::completed_child_without_journal_is_rejected ... ok
+test tools::subagent::tests::omitted_child_allowlist_inherits_the_parent_allowlist ... ok
+test tools::subagent::tests::empty_child_allowlist_denies_all_tools ... ok
+test tools::subagent::tests::requested_permissions_only_restrict_the_child ... ok
+test tools::subagent::tests::child_tool_allowlist_is_intersected_with_the_parent ... ok
+test tools::subagent::tests::spawn_outside_a_run_context_keeps_parent_ids_empty ... ok
+test tools::subagent::tests::child_receives_parent_lineage_environment ... ok
+test tools::subagent::tests::deeper_spawn_stays_in_its_ancestor_process_group ... ok
+test tools::subagent::tests::failed_spawn_observation_keeps_parent_lineage ... ok
+test tools::subagent::tests::replaying_the_same_spawn_call_returns_the_cached_child ... ok
+test tools::subagent::tests::root_spawn_starts_a_new_process_group ... ok
+test tools::subagent::tests::registry_records_parent_session_run_and_spawn_call_lineage ... ok
+test tools::subagent::tests::fanout_limit_is_enforced ... ok
+test tools::subagent::tests::cancelled_spawn_is_structured_and_marked_cancelled ... ok
+test tools::subagent::tests::concurrent_spawns_keep_their_parent_context ... ok
+test tools::subagent::tests::cancelling_a_root_spawn_kills_its_descendants ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 1328 filtered out; finished in 0.26s
+
+
+$ cargo test --offline --lib subagent_registry
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 6 tests
+test subagent_registry::tests::legacy_records_without_lineage_fields_remain_readable ... ok
+test subagent_registry::tests::lineage_fields_round_trip_and_child_run_is_backfilled ... ok
+test subagent_registry::tests::guard_finishes_or_marks_a_dropped_run_cancelled ... ok
+test subagent_registry::tests::latest_record_wins_and_root_pid_filters_other_processes ... ok
+test subagent_registry::tests::stale_records_converge_while_live_and_fresh_records_are_kept ... ok
+test subagent_registry::tests::concurrent_appends_keep_one_parseable_record_per_line ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1354 filtered out; finished in 0.01s
+

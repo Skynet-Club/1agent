@@ -23,6 +23,7 @@ pub const SUBAGENT_PARENT_SESSION_ENV: &str = "ONEAGENT_PARENT_SESSION_ID";
 pub const SUBAGENT_SPAWN_CALL_ENV: &str = "ONEAGENT_SPAWN_CALL_ID";
 const MAX_REGISTRY_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_RECORDS: usize = 100;
+const RECONCILE_GRACE_MS: u128 = 2_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -248,7 +249,53 @@ pub fn load_recent(path: &Path, root_pid: u32) -> Vec<SubagentRecord> {
 }
 
 pub fn load_recent_current() -> Vec<SubagentRecord> {
-    load_recent(&registry_path(), std::process::id())
+    let path = registry_path();
+    let root_pid = std::process::id();
+    reconcile_stale_records(&path, root_pid);
+    load_recent(&path, root_pid)
+}
+
+/// Converge active records whose process disappeared without a final record.
+/// A short grace period avoids racing a parent that is still recording a child
+/// that has just exited.
+pub fn reconcile_stale_records(path: &Path, root_pid: u32) -> usize {
+    let now = now_unix_ms();
+    let mut reconciled = 0;
+    for mut record in load_recent(path, root_pid) {
+        if !record.status.is_active()
+            || now.saturating_sub(record.started_unix_ms) < RECONCILE_GRACE_MS
+        {
+            continue;
+        }
+        let observed_pid = record.child_pid.unwrap_or(record.parent_pid);
+        if pid_alive(observed_pid) {
+            continue;
+        }
+        record.status = SubagentStatus::Failed;
+        record.summary = Some(format!(
+            "reconciled: process {observed_pid} is no longer running"
+        ));
+        record.ended_unix_ms = Some(now);
+        if append_record(path, &record).is_ok() {
+            reconciled += 1;
+        }
+    }
+    reconciled
+}
+
+#[cfg(unix)]
+pub(crate) fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: kill(pid, 0) performs no signal delivery; it only checks existence.
+    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn pid_alive(_pid: u32) -> bool {
+    true
 }
 
 /// Writes a final `Failed` record if the owner is dropped without finishing.
@@ -453,6 +500,48 @@ mod tests {
         for line in lines {
             serde_json::from_str::<SubagentRecord>(line).unwrap();
         }
+    }
+
+    #[test]
+    fn stale_records_converge_while_live_and_fresh_records_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let now = now_unix_ms();
+        let old = now.saturating_sub(10_000);
+
+        let mut stale = record("sub-stale", 10, SubagentStatus::Running, 1);
+        stale.child_pid = Some(0);
+        stale.started_unix_ms = old;
+        append_record(&path, &stale).unwrap();
+
+        let mut starting = record("sub-starting", 10, SubagentStatus::Starting, 2);
+        starting.parent_pid = 0;
+        starting.started_unix_ms = old;
+        append_record(&path, &starting).unwrap();
+
+        let mut live = record("sub-live", 10, SubagentStatus::Running, 3);
+        live.child_pid = Some(std::process::id());
+        live.started_unix_ms = old;
+        append_record(&path, &live).unwrap();
+
+        let mut fresh = record("sub-fresh", 10, SubagentStatus::Running, 4);
+        fresh.child_pid = Some(0);
+        fresh.started_unix_ms = now;
+        append_record(&path, &fresh).unwrap();
+
+        assert_eq!(reconcile_stale_records(&path, 10), 2);
+        let records = load_recent(&path, 10);
+        let by_id = |id: &str| records.iter().find(|record| record.id == id).unwrap();
+        assert_eq!(by_id("sub-stale").status, SubagentStatus::Failed);
+        assert!(
+            by_id("sub-stale")
+                .summary
+                .as_deref()
+                .is_some_and(|summary| summary.contains("reconciled"))
+        );
+        assert_eq!(by_id("sub-starting").status, SubagentStatus::Failed);
+        assert_eq!(by_id("sub-live").status, SubagentStatus::Running);
+        assert_eq!(by_id("sub-fresh").status, SubagentStatus::Running);
     }
 
     #[test]

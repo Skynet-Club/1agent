@@ -181,6 +181,46 @@ fn provider_arguments() -> Result<Vec<String>, ToolError> {
     }
 }
 
+#[cfg(unix)]
+fn kill_spawn_tree(child_pid: Option<u32>, depth: u8) {
+    let Some(pid) = child_pid else {
+        return;
+    };
+    // A root spawn puts each direct child in its own process group, so a group
+    // kill also stops depth-2 grandchildren. A depth-2 child is a leaf and is
+    // killed directly by kill_on_drop.
+    if depth == 0 {
+        // SAFETY: a negative pid signals the child's process group, not ours.
+        unsafe {
+            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_spawn_tree(_child_pid: Option<u32>, _depth: u8) {}
+
+#[cfg(all(unix, any(target_os = "linux", target_os = "android")))]
+fn set_parent_death_signal(command: &mut tokio::process::Command) {
+    let parent = std::process::id();
+    // SAFETY: pre_exec runs in the forked child before exec. prctl/getppid are
+    // async-signal-safe and the closure performs no allocation.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::getppid() as u32 != parent {
+                return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(all(unix, any(target_os = "linux", target_os = "android"))))]
+fn set_parent_death_signal(_command: &mut tokio::process::Command) {}
+
 pub struct SpawnAgentTool {
     program: PathBuf,
     depth: u8,
@@ -501,6 +541,11 @@ impl AgentTool for SpawnAgentTool {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(unix)]
+        if self.depth == 0 {
+            command.process_group(0);
+        }
+        set_parent_death_signal(&mut command);
         if let Some(context) = &run_context {
             command.env(SUBAGENT_PARENT_RUN_ENV, &context.run_id);
             if let Some(session_id) = &context.session_id {
@@ -530,12 +575,14 @@ impl AgentTool for SpawnAgentTool {
                 });
             }
         };
-        if let Some(child_pid) = child.id() {
-            registry.running(child_pid);
-            reservation.set_child_pid(child_pid);
+        let child_pid = child.id();
+        if let Some(pid) = child_pid {
+            registry.running(pid);
+            reservation.set_child_pid(pid);
         }
         let waited = tokio::select! {
             _ = cancellation.cancelled() => {
+                kill_spawn_tree(child_pid, self.depth);
                 registry.finish(
                     SubagentStatus::Cancelled,
                     Some("parent cancelled the spawn".into()),
@@ -557,6 +604,7 @@ impl AgentTool for SpawnAgentTool {
         let output = match waited {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => {
+                kill_spawn_tree(child_pid, self.depth);
                 registry.finish(
                     SubagentStatus::Failed,
                     Some(format!("cannot wait for subagent: {error}")),
@@ -574,6 +622,7 @@ impl AgentTool for SpawnAgentTool {
                 });
             }
             Err(_) => {
+                kill_spawn_tree(child_pid, self.depth);
                 registry.finish(SubagentStatus::TimedOut, Some("subagent timed out".into()));
                 return Err(ToolError::TimedOutWithMetadata(spawn_failure_metadata(
                     "timed_out",
@@ -585,6 +634,8 @@ impl AgentTool for SpawnAgentTool {
                 )));
             }
         };
+        // The direct child has exited; stop any descendants it left behind.
+        kill_spawn_tree(child_pid, self.depth);
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             registry.finish(
@@ -952,6 +1003,43 @@ printf 'run\n' >> "$0.count"
 printf '{"run_id":"child-idem","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed"}\n'
 "#,
         )
+    }
+
+    fn fake_program_pgid(dir: &Path) -> PathBuf {
+        write_program(
+            dir,
+            "fake-pgid",
+            r#"#!/bin/sh
+pgid=$(ps -o pgid= -p $$ | tr -d ' ')
+printf '%s' "$pgid" > "$0.pgid"
+printf '{"run_id":"child-pgid","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed"}\n'
+"#,
+        )
+    }
+
+    fn fake_program_spawning_grandchild(dir: &Path) -> PathBuf {
+        write_program(
+            dir,
+            "fake-grandchild",
+            r#"#!/bin/sh
+sh -c 'sleep 60' &
+printf '%s' "$!" > "$0.grandchild"
+wait
+"#,
+        )
+    }
+
+    fn record_for_workspace(workspace: &Path) -> SubagentRecord {
+        let expected = std::fs::canonicalize(workspace)
+            .unwrap()
+            .display()
+            .to_string();
+        let registry = std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        registry
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .rfind(|record| record.workspace == expected)
+            .expect("spawned record")
     }
 
     fn write_program(dir: &Path, name: &str, script: &str) -> PathBuf {
@@ -1864,6 +1952,93 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         assert_eq!(state["spent_cost_micros"], 7);
         assert_eq!(state["spent_tokens"], 150);
         assert_eq!(state["active"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn root_spawn_starts_a_new_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_pgid(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
+        tool.execute(
+            json!({"task": "child task", "workspace": workspace}),
+            &permissions(dir.path(), false),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let pgid = std::fs::read_to_string(format!("{}.pgid", program.display())).unwrap();
+        let record = record_for_workspace(&workspace);
+        assert_eq!(
+            record.child_pid.map(|pid| pid.to_string()),
+            Some(pgid.trim().to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn deeper_spawn_stays_in_its_ancestor_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_pgid(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(1)
+            .allow_missing_journal();
+        tool.execute(
+            json!({"task": "child task", "workspace": workspace}),
+            &permissions(dir.path(), false),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let pgid = std::fs::read_to_string(format!("{}.pgid", program.display())).unwrap();
+        // SAFETY: getpgid(0) reads the test process group; no signal is sent.
+        let expected = unsafe { libc::getpgid(0) };
+        assert_eq!(pgid.trim(), expected.to_string());
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_root_spawn_kills_its_descendants() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_spawning_grandchild(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let child_permissions = permissions(dir.path(), false);
+        let (result, _) = tokio::join!(
+            tool.execute(
+                json!({"task": "spawn a grandchild", "workspace": workspace}),
+                &child_permissions,
+                &cancellation,
+            ),
+            async {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                cancel.cancel();
+            }
+        );
+        assert!(result.is_err(), "cancelled spawn must not report success");
+        let grandchild: u32 = std::fs::read_to_string(format!("{}.grandchild", program.display()))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while crate::subagent_registry::pid_alive(grandchild)
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            !crate::subagent_registry::pid_alive(grandchild),
+            "grandchild {grandchild} survived the process-group kill"
+        );
     }
 
     #[tokio::test]

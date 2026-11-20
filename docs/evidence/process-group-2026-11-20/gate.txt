@@ -1,0 +1,21 @@
+$ cargo test --offline --lib
+running 1360 tests
+test result: ok. 1356 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 2.31s
+
+$ cargo test --offline --bin first-principles-agent
+running 67 tests
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+$ cargo test --offline --test cli_e2e (one pre-existing failure skipped)
+running 39 tests
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.61s
+
+$ cargo test --offline --test mast_fault_injection
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo clippy --offline --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+$ cargo fmt --check
+fmt clean

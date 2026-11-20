@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::subagent_registry::pid_alive;
 use crate::usage_ledger::UsageTotals;
 
 pub const TREE_FILE_ENV: &str = "ONEAGENT_SUBAGENT_TREE_FILE";
@@ -101,21 +102,6 @@ struct ActiveSpawn {
     owner_pid: u32,
     #[serde(default)]
     child_pid: Option<u32>,
-}
-
-#[cfg(unix)]
-fn pid_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    // SAFETY: kill(pid, 0) performs no signal delivery; it only checks existence.
-    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    result == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-#[cfg(not(unix))]
-fn pid_alive(_pid: u32) -> bool {
-    true
 }
 
 /// Budget file for one spawn tree. `path` is either inherited from the parent

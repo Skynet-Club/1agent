@@ -85,6 +85,14 @@ impl SpawnLedger {
     }
 }
 
+impl Drop for SpawnLedger {
+    fn drop(&mut self) {
+        // Release explicitly; a forked child can briefly share the open file
+        // description, and closing our fd alone would not release the lock.
+        let _ = self._lock.unlock();
+    }
+}
+
 /// Hash the request fields that make a spawn unique. A retry with the same call
 /// id but different arguments is a conflict, not a cache hit.
 pub fn fingerprint(value: &serde_json::Value) -> String {

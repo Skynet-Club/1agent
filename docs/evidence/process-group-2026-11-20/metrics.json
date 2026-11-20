@@ -1,0 +1,17 @@
+{
+  "ma": "MA-011",
+  "date": "2026-11-20",
+  "subagent_tests": 32,
+  "registry_tests": 6,
+  "lib_passed": 1356,
+  "lib_failed": 0,
+  "lib_ignored": 4,
+  "bin_passed": 67,
+  "cli_e2e_passed": 39,
+  "cli_e2e_skipped_baseline_failure": "cli_tui_agents_refresh_uses_configured_profiles",
+  "mast_passed": 7,
+  "eval": "all scenarios PASS",
+  "clippy": "clean",
+  "fmt": "clean",
+  "repeat_lib_runs": 10
+}

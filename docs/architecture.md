@@ -827,9 +827,14 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, requested write/network
   permissions are intersected with the parent's (they can only restrict), and
-  the child is killed when the parent cancels or drops it; OS-level cleanup
-  after a parent `SIGKILL` remains open as MA-011 in
-  `1.2-multi-agent-hardening-plan.md`. The spawn itself is classified
+  the child is killed when the parent cancels or drops it. A root spawn starts
+  the child in its own process group, and a depth-0 cancel/timeout/failure kills
+  that group; deeper spawns inherit the group and depth 2 is the leaf. On
+  Linux/Android every child also sets `PR_SET_PDEATHSIG=SIGKILL` with a parent
+  check, so a parent `SIGKILL` cascades through the tree. This is process-group
+  cleanup, not an OS sandbox: a child that calls `setsid` can leave the group.
+  The registry reconciles active records whose process disappeared (2-second
+  grace) when the UI loads them. The spawn itself is classified
   as write-capable, so read-only mode, the kill switch and write-level
   Authority checks run before any child starts. `allowed_tools` is an optional
   exact child tool allowlist: the parent's runtime allowlist is inherited, a
