@@ -1,14 +1,14 @@
 状态：有条件完成
-结论：页面已交付到 /tmp/1agent-t1-rerun8/index.html（单文件、零外部请求），手机端可交互：岗位双 tab、三段「晨启人说」可展开、电话/邮箱一键复制、滚动后底部操作条出现； 浏览器实测 390/768/1440 三档 all_pass=true，横向溢出 0、占位符 0、小于 44px 的触控目标 0。
-信任摘要：我的判断 9 · 依据 7 · 假设 2 · 还没确定 4 · 改判 3
+结论：页面已做好并通过三档视口实测，但指定技能未安装，验收回执只到 conditional，不能报完成。 条件是 ui-ux-pro-max 装好后按它的方法重做设计层并复检；
+信任摘要：我的判断 8 · 依据 7 · 假设 2 · 还没确定 3 · 改判 3
 依据：
-- [/tmp/1agent-t1-rerun8/index.html] 写入后 28568 字节，sha256 8fef293f7f5568fe2e92cfb76072d91b4c92c2e166aff4b1a8170052f6a10a42；verify_artifact 返回 decision=verified、schema_ok=true、preview_ok=true
-- [http://127.0.0.1:8791/?v=2] audit 返回 all_pass=true，overflow_count=0，placeholder_hits=0，small_tap_targets=0；390→390/390，768→753/753，1440→1425/1425，h1_count=1，截图 390x900 sha256 808eaf63…、768x900 adb74498…、1440x900 1fda2670…
-- [/home/skynet/work/join-us/source.md] document_id Higbd259domECKx3XuZcinYWnEg，revision_id 990；含两类岗位方向、职责与要求、三处校区地址、电话 15810555856 与邮箱 wangxudong@szchenqi.com
+- [/tmp/1agent-t1-rerun9/index.html] 最终文件 34520 字节，sha256 cd75b40a0f6cb16c3c438bc2140d29a2c80d92e66bfb4a23d058002b155df469；preview_file 返回 HTTP 200 且哈希一致
+- [http://127.0.0.1:32875/?v=2] audit all_pass=true：overflow_count=0，placeholder_hits=0，small_tap_targets=0；三档 scrollWidth/clientWidth 为 390/390、753/753、1425/1425；截图 sha256 a6865360…、803226cd…、540ce451…
+- [/home/skynet/work/join-us/source.md] lark-cli 导出的 JSON 记录 document_id Higbd259domECKx3XuZcinYWnEg、revision_id 990，正文含本页全部文案与联系信息
 什么情况会改变结论：
-- 若 终端会话能创建，lark-cli docs +fetch 成功且正文与 source.md 不一致，则 c3 与 c7 失效，页面文案需按新版本重写并重新质检
-- 若 点击探针显示 tab 切换或复制不生效，则 u1 升级为缺陷，交互部分需修复后重跑 audit
-- 若 ui-ux-pro-max 随后被安装并运行，则 c5 的缺口关闭，可补一次该技能的设计规则复核
+- 若 安装 ui-ux-pro-max 后按其 SKILL.md 做的一版设计与质检记录，则 u2 消除，conditional 可转为 accepted
+- 若 lark-cli 读到该 wiki 节点 revision_id 仍为 990 且正文一致，则 c3 的时效风险消除，文案落后的顾虑不成立
+- 若 真机上出现横向滚动条或复制按钮无响应，则 c2 的结论只对桌面 Chrome 三档成立，需要修样式或改剪贴板实现
 使用 --details 查看完整字段与路由轨迹
 
-运行日志：/tmp/1agent-t1-rerun8/.journal/b00d6ddb-19c1-42c0-b995-db0ba54affed.jsonl
+运行日志：/tmp/1agent-t1-rerun9/.journal/752e6b30-c234-41e5-b968-034dd2ee17ba.jsonl
