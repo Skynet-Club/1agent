@@ -70,6 +70,14 @@ Full gate (`gate.txt`):
 - The prompt/nudge should reduce step counts, but no live 59-step rerun was done
   in this slice; measure it on the next real session.
 
+## Release provenance
+
+Feature commit `09729be`; release binary `e613bf2b…` installed as
+`~/.local/bin/1agent`; previous MA-014 build `5f93edb7…` backed up as
+`1agent-pre-tui-ux-2026-11-20`. Installed smoke: `1agent --version` and
+`1agent run --help` exit 0. Details in `release.txt`; source and evidence
+digests in `sha256.txt`.
+
 ## Blocker
 
 `agent_exec` still returns

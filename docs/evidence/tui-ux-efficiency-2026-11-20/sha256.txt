@@ -1,0 +1,7 @@
+e732e86c19219b87c01660be65b6552cb644d67832b9381e9fbc284c68be784c  src/main.rs
+062c2f9e336c3803144c5053d76cfb9cbcc8021c9fffae8de7155e18b6eccab7  src/provider.rs
+64c7c3a258387586cc096570fd5da4e2a7a051e3bd1fdd813e242c4483ca6e32  src/runtime.rs
+ba09a99fd2324920598929e3ce12f5d37ed3bbf8c3fda5d69412c7cf46c60bf8  src/tui.rs
+b62898d9c535551fdcd7acf3e19792f4e91cc57f74166e1c08181f1736b10021  docs/evidence/tui-ux-efficiency-2026-11-20/README.md
+1c971ff3edeacafde1c15861c087f8c5e70433bbaf3c2e9d659d9d68f9025fb7  docs/evidence/tui-ux-efficiency-2026-11-20/gate.txt
+2ff88d85ed08196f846b21df8ef96bb17020b46e93c089548fd4ce0f4d127499  docs/evidence/tui-ux-efficiency-2026-11-20/focused-tests.txt
