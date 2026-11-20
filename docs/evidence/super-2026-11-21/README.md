@@ -6,8 +6,9 @@ nudges, read cache/coalescing/circuit breaker, and large-payload receipts**
 Feature commits: `1d0b164` (task profiles, step metrics, tool cache),
 `fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix),
 `c0b0db3` (multi-tool page classification, page checklist, audit repair),
-`5fc7830` (verification reserve, audit recheck, page acceptance re-plan) and
-`c067b46` (verification-budget warning).
+`5fc7830` (verification reserve, audit recheck, page acceptance re-plan),
+`c067b46` (verification-budget warning) and
+`48137f5` (deep-task NOTES ledger guidance).
 
 ## What changed
 
@@ -133,33 +134,36 @@ specific speedup on the original task.
 ## Original T1 rerun (same core task, isolated output path)
 
 The original 59-step task was rerun with the final rc.13 harness and an
-isolated output path (`/tmp/1agent-t1-rerun9/index.html`; the original
+isolated output path (`/tmp/1agent-t1-rerun10/index.html`; the original
 `/home/skynet/work/join-us` was not modified).
 
 | Metric | Baseline | Rerun | Change |
 |---|---:|---:|---:|
-| Wall clock | 365.0s | **187.8s** | **−48.6% (1.94×)** |
-| Model responses | 59 | **30** | −49.2% |
-| Loop steps | 59 | **29** | −50.8% |
-| Tool calls | 68 | **42** | −38.2% |
-| Input tokens | 4,946,706 | **1,801,351** | −63.6% |
-| Avg input tokens | 83,842 | **60,045** | −28.4% |
-| Max input tokens | 133,893 | **93,796** | −29.9% |
-| Tool time | 71.6s | 5.1s | −92.9% |
+| Wall clock | 365.0s | **171.6s** | **−53.0% (2.13×)** |
+| Model responses | 59 | **28** | −52.5% |
+| Loop steps | 59 | **26** | −55.9% |
+| Tool calls | 68 | **39** | −42.6% |
+| Input tokens | 4,946,706 | **1,295,928** | −73.8% |
+| Avg input tokens | 83,842 | **46,283** | −44.8% |
+| Max input tokens | 133,893 | **79,613** | −40.5% |
+| Tool time | 71.6s | 6.3s | −91.2% |
 | Final status | conditional | conditional | parity |
 | Browser audit | all_pass=true | all_pass=true | parity |
 | Acceptance gate | not attempted | attempted, conditional | better honesty |
 
-The rerun found 8 small tap targets, fixed them, re-audited to
-`all_pass=true`, then called `acceptance_gate` twice. It returned conditional
-because the requested `ui-ux-pro-max` skill is not installed; the run reports
-that gap instead of claiming completed. The baseline was also conditional.
-This is the **quality-parity + honest-blocker** result; earlier attempts
-without the classifier/audit fixes stopped with unfixed tap targets and were
-not counted as wins.
+The rerun wrote a `NOTES.md` with the goal, constraints, tool failures,
+decisions and todo; fixed the audit failures and re-audited to
+`all_pass=true`; then called `acceptance_gate` with a real contract. It
+returned conditional because `ui-ux-pro-max` is not installed, the shell was
+unavailable due to the skynet-term session limit, and interaction was not
+click-smoke-tested. The run reports those blockers instead of claiming
+completed. The baseline was also conditional. This is the **quality-parity +
+honest-blocker** result; earlier attempts without the classifier/audit fixes
+stopped with unfixed tap targets and were not counted as wins.
 
-Artifact: 34,520 bytes, sha256 `cd75b40a…`; screenshots `t1-rerun-mobile.png`
-and `t1-rerun-desktop.png`; full metrics `t1-rerun.json`.
+Artifact: 28,461 bytes, sha256 `ddffcd28…`; screenshots `t1-rerun-mobile.png`
+and `t1-rerun-desktop.png`; notes `t1-rerun-notes.md`; full metrics
+`t1-rerun.json`.
 
 ### What made the rerun both faster and not dumber
 
@@ -211,10 +215,10 @@ not a model-quality claim.
 
 - `cargo fmt --check`: clean.
 - `cargo clippy --offline --all-targets -- -D warnings`: clean.
-- `cargo test --lib`: **1,387 passed / 0 failed / 4 ignored**.
+- `cargo test --lib`: **1,388 passed / 0 failed / 4 ignored**.
 - `cargo test --bins`: **68 passed / 0 failed**.
 - Full test suite with the known CLI-session test skipped:
-  **1,857 passed / 0 failed / 13 ignored**.
+  **1,858 passed / 0 failed / 13 ignored**.
 - Eval `evals/core.json`: **8/8 PASS**, hard-gate failures 0, rubric 6/6.
 - `scripts/verify-claims.sh`: **290 checked / 266 verified / 16 partial /
   8 no evidence**, structure only.

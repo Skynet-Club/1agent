@@ -1,7 +1,14 @@
 {
   "slice": "super-slice1",
   "date": "2026-11-21",
-  "feature_commits": ["1d0b164", "fd84da3", "c0b0db3", "5fc7830", "c067b46"],
+  "feature_commits": [
+    "1d0b164",
+    "fd84da3",
+    "c0b0db3",
+    "5fc7830",
+    "c067b46",
+    "48137f5"
+  ],
   "baseline": {
     "journal": "~/.1a/journals/d990ae4b-923a-4c3f-bb15-19084b2b9823.jsonl",
     "wall_s": 365.0,
@@ -43,7 +50,11 @@
     "step_model_metrics": 3,
     "tool_calls": 2,
     "step_tool_metrics": 2,
-    "context_tokens": [11074, 11544, 11852],
+    "context_tokens": [
+      11074,
+      11544,
+      11852
+    ],
     "input_tokens": 37546,
     "output_tokens": 632,
     "cache_hit_tokens": 35584,
@@ -62,7 +73,15 @@
     "tool_calls": 6,
     "model_ms": 35601,
     "tool_ms": 1832,
-    "context_tokens": [11390, 11826, 12017, 12370, 12881, 13389, 13456],
+    "context_tokens": [
+      11390,
+      11826,
+      12017,
+      12370,
+      12881,
+      13389,
+      13456
+    ],
     "input_tokens": 134561,
     "output_tokens": 10079,
     "cache_hit_tokens": 118656,
@@ -80,17 +99,36 @@
     "binary_sha256": "010bb27b84c02c66ec6972b4e3eb8cdd884fe83959e84918fb31d4ac0620887f",
     "runs": 3,
     "accepted_artifacts": 3,
-    "statuses": ["completed", "conditional", "completed"],
+    "statuses": [
+      "completed",
+      "conditional",
+      "completed"
+    ],
     "median_wall_s": 35.139,
-    "wall_range_s": [29.296, 44.102],
+    "wall_range_s": [
+      29.296,
+      44.102
+    ],
     "median_steps": 6,
-    "steps_range": [6, 9],
+    "steps_range": [
+      6,
+      9
+    ],
     "median_tool_calls": 6,
-    "tool_calls_range": [5, 8],
+    "tool_calls_range": [
+      5,
+      8
+    ],
     "median_context_max": 13513,
-    "context_range": [13431, 15548],
+    "context_range": [
+      13431,
+      15548
+    ],
     "median_cache_hit_percent": 88.6,
-    "cache_hit_range_percent": [87.2, 92.6],
+    "cache_hit_range_percent": [
+      87.2,
+      92.6
+    ],
     "duplicate_calls": 0
   },
   "t1_rerun": {
@@ -106,35 +144,36 @@
       "browser_audit_all_pass": true
     },
     "rerun": {
-      "binary_sha256": "f1175ed08ec6cdc07e73353965f5d94d5219eda54d1a87c0b9cf0968bf97c496",
-      "journal": "/tmp/1agent-t1-rerun9/.journal/752e6b30-c234-41e5-b968-034dd2ee17ba.jsonl",
-      "wall_s": 187.79,
+      "binary_sha256": "992aef764e351f253ba853eee6666a304eb7b7df5b5703f7615c619444d7b03b",
+      "journal": "/tmp/1agent-t1-rerun10/.journal/7d39a98f-8b4d-477b-90b4-6b48a12c245e.jsonl",
+      "wall_s": 171.57,
       "profile": "deep",
-      "model_responses": 30,
-      "loop_steps": 29,
-      "tool_calls": 42,
-      "input_tokens": 1801351,
-      "average_input_tokens": 60045,
-      "max_input_tokens": 93796,
-      "cache_hit_percent": 86.87,
-      "model_ms": 172980,
-      "tool_ms": 5092,
-      "context_max_tokens": 64203,
+      "model_responses": 28,
+      "loop_steps": 26,
+      "tool_calls": 39,
+      "input_tokens": 1295928,
+      "average_input_tokens": 46283,
+      "max_input_tokens": 79613,
+      "cache_hit_percent": 87.64,
+      "model_ms": 139503,
+      "tool_ms": 6281,
+      "context_max_tokens": 45610,
       "final_status": "conditional",
       "browser_audit_all_pass": true,
       "acceptance_gate_attempted": true,
       "acceptance_gate_decision": "conditional",
-      "conditional_reason": "ui-ux-pro-max skill not installed",
-      "artifact_bytes": 34520,
-      "artifact_sha256": "cd75b40a0f6cb16c3c438bc2140d29a2c80d92e66bfb4a23d058002b155df469"
+      "conditional_reason": "ui-ux-pro-max not installed; shell unavailable; interaction not click-smoke-tested",
+      "notes_artifact": "/tmp/1agent-t1-rerun10/NOTES.md",
+      "artifact_bytes": 28461,
+      "artifact_sha256": "ddffcd282e98d28683ab3df261771334f87af944f8a5c4274f4bc3b0f8dfd24e"
     },
     "comparison": {
-      "wall_reduction_percent": 48.6,
-      "wall_speedup": 1.94,
-      "step_reduction_percent": 50.8,
-      "tool_call_reduction_percent": 38.2,
-      "input_token_reduction_percent": 63.6,
-      "quality": "both conditional; both browser audits all_pass=true; rerun attempted acceptance_gate and reported the missing-skill blocker"
+      "wall_reduction_percent": 53.0,
+      "wall_speedup": 2.13,
+      "step_reduction_percent": 55.9,
+      "tool_call_reduction_percent": 42.6,
+      "input_token_reduction_percent": 73.8,
+      "quality": "both conditional; both browser audits all_pass=true; rerun wrote NOTES.md, attempted acceptance_gate and reported the missing-skill/tooling blockers"
     }
   },
   "harness_fix": {
@@ -145,11 +184,27 @@
   "gates": {
     "fmt": "clean",
     "clippy": "clean",
-    "lib": { "passed": 1387, "failed": 0, "ignored": 4 },
-    "bins": { "passed": 68, "failed": 0 },
-    "all_tests_with_known_skip": { "passed": 1857, "failed": 0, "ignored": 13 },
+    "lib": {
+      "passed": 1388,
+      "failed": 0,
+      "ignored": 4
+    },
+    "bins": {
+      "passed": 68,
+      "failed": 0
+    },
+    "all_tests_with_known_skip": {
+      "passed": 1858,
+      "failed": 0,
+      "ignored": 13
+    },
     "eval": "8/8 PASS",
-    "claims": { "checked": 290, "verified": 266, "partial": 16, "no_evidence": 8 },
+    "claims": {
+      "checked": 290,
+      "verified": 266,
+      "partial": 16,
+      "no_evidence": 8
+    },
     "known_cli_failure": "cli_tui_agents_refresh_uses_configured_profiles (pre-existing skynet-term session limit)"
   }
 }

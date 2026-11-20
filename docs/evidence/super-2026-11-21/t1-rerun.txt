@@ -1,14 +1,14 @@
 状态：有条件完成
-结论：页面已做好并通过三档视口实测，但指定技能未安装，验收回执只到 conditional，不能报完成。 条件是 ui-ux-pro-max 装好后按它的方法重做设计层并复检；
-信任摘要：我的判断 8 · 依据 7 · 假设 2 · 还没确定 3 · 改判 3
+结论：页面已写好并通过三档视口测量：`/tmp/1agent-t1-rerun10/index.html`（28461 字节，sha256 ddffcd28…），390/768/1440 均为 scrollWidth == clientWidth、占位符 0、小触控目标 0，`all_pass: true`。 交付可以先用，但它没有完全照原任务执行到底：`ui-ux-pro-max` 本机未安装，`lark-cli` 因 shell 会话满额没能现场跑，交互也只做了静态代码、没做点击冒烟。
+信任摘要：我的判断 10 · 依据 7 · 假设 2 · 还没确定 5 · 改判 3
 依据：
-- [/tmp/1agent-t1-rerun9/index.html] 最终文件 34520 字节，sha256 cd75b40a0f6cb16c3c438bc2140d29a2c80d92e66bfb4a23d058002b155df469；preview_file 返回 HTTP 200 且哈希一致
-- [http://127.0.0.1:32875/?v=2] audit all_pass=true：overflow_count=0，placeholder_hits=0，small_tap_targets=0；三档 scrollWidth/clientWidth 为 390/390、753/753、1425/1425；截图 sha256 a6865360…、803226cd…、540ce451…
-- [/home/skynet/work/join-us/source.md] lark-cli 导出的 JSON 记录 document_id Higbd259domECKx3XuZcinYWnEg、revision_id 990，正文含本页全部文案与联系信息
+- [/tmp/1agent-t1-rerun10/index.html] 最终文件 28461 字节，sha256 ddffcd282e98d28683ab3df261771334f87af944f8a5c4274f4bc3b0f8dfd24e，媒体类型 text/html，preview_ok 为 true；文件里没有 img 标签或 base64 图片，首屏是内联 SVG；脚本段含 scroll-spy、role=tab 切换、scroll-snap 轮播与 clipboard 复制，但未执行点击验算；样式表只有一个强调色砖红、暖纸底，无渐变、无 emoji、无 box-shadow。
+- [http://127.0.0.1:39949/?v=final] 三档 audit 返回 all_pass=true，overflow_count 0，placeholder_hits 0，small_tap_targets 空，h1_count 1；截图 390x900 sha256 dce2f173…、768x900 a9e45973…、1440x900 49bd5b68…。
+- [/home/skynet/work/join-us/source.md] lark-cli 抓取的文档 JSON，document_id Higbd259domECKx3XuZcinYWnEg，revision 990，含完整正文、三个校区地址、电话 15810555856、邮箱 wangxudong@szchenqi.com 与一条岗位描述待确认的评论。
 什么情况会改变结论：
-- 若 安装 ui-ux-pro-max 后按其 SKILL.md 做的一版设计与质检记录，则 u2 消除，conditional 可转为 accepted
-- 若 lark-cli 读到该 wiki 节点 revision_id 仍为 990 且正文一致，则 c3 的时效风险消除，文案落后的顾虑不成立
-- 若 真机上出现横向滚动条或复制按钮无响应，则 c2 的结论只对桌面 Chrome 三档成立，需要修样式或改剪贴板实现
+- 若 shell 会话恢复后 lark-cli 拉到的 revision_id 不再是 990，或岗位/地址/联系方式有变化，则 c3 与页面文案失效，需要按新原文重写相应区块
+- 若 真实点击 #tab-ops 后 #panel-ops 仍隐藏或控制台报错，则 c7 不成立，交互不能用，须修脚本后重新验收
+- 若 在 320px 或系统大字号下 audit 出现横向溢出或小于 44px 的触控目标，则 c2 的结论只在三档宽度成立，需补 320 与字号放大场景的修复
 使用 --details 查看完整字段与路由轨迹
 
-运行日志：/tmp/1agent-t1-rerun9/.journal/752e6b30-c234-41e5-b968-034dd2ee17ba.jsonl
+运行日志：/tmp/1agent-t1-rerun10/.journal/7d39a98f-8b4d-477b-90b4-6b48a12c245e.jsonl
