@@ -75,6 +75,14 @@ and field checklist; Markdown + chart list; natural Q3 2026). The second plan:
 The re-run journal contains the three answers in the model-visible context
 (four occurrences including the repair turn).
 
+## Installed release smoke
+
+Release binary `target/release/first-principles-agent` sha256 `045bccdd…` was
+installed as `~/.local/bin/1agent`; the previous `aa6c9c8a…` build is backed up
+as `1agent-pre-clarification-2026-11-20`. The same ambiguous task on an empty
+workspace returned `needs_clarification` with 3 questions through the installed
+binary, exit 0. See `release-response.json`.
+
 ## What this does not prove
 
 - One live sample per model; model judgment varies run to run. This is evidence
@@ -105,5 +113,6 @@ Then re-run with three `--clarification "..."` answers.
 
 - `clarification-response.json` — first-run stdout (questions, status).
 - `answered-plan.json` — re-run plan produced with the answers.
+- `release-response.json` — installed release binary first-run stdout.
 - `metrics.json` — counts and hashes.
 - `sha256.txt` — response, plan, journals and binary digests.

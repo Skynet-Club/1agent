@@ -23,5 +23,14 @@
     "lib_failed": 0,
     "mast_fault_injection_passed": 7,
     "clippy_tests": "clean"
+  },
+  "installed_release_smoke": {
+    "path": "/home/skynet/.local/bin/1agent",
+    "sha256": "045bccdde32c9922b8a119a549a822106bd4e20b4028e34400e7f6a58229bbf0",
+    "backup": "/home/skynet/.local/bin/1agent-pre-clarification-2026-11-20",
+    "backup_sha256": "aa6c9c8ac14f7f6148c67c3250a0d3c8806e74d90e176432f5f8e4654e491e76",
+    "exit": 0,
+    "status": "needs_clarification",
+    "questions": 3
   }
 }

@@ -3,3 +3,6 @@ bb85d974868674ba5200ee74593ed26ad3a9c8a2a863eb6be3c9d2d7969f2a8f  /tmp/clarifica
 539532cb08fa2fa1e066c66d8ce5fdcbbb492d1f6f7f4770b1fcd77148752b09  /tmp/clarification-live/journal/plan-5fc08ee8-3f47-405a-ad11-484bd6690bee.jsonl
 fc9ec4cebcdc4d5c7e009bb154e9d4fba82949c7bc02232a7845fac583603611  /tmp/clarification-live/journal/plan-71b67605-68ce-4de1-9f91-55b20669c268.jsonl
 041fc21ad3237103e4152f318877661d74c4ab8b0e9a520193f72f2375da4c7f  target/debug/first-principles-agent
+4a91023047b1f2f1d7ec9dd3b3fa370c86f39c2991885cac6ae0c5cb715bc16b  /tmp/clarification-release/run.out
+045bccdde32c9922b8a119a549a822106bd4e20b4028e34400e7f6a58229bbf0  /home/skynet/.local/bin/1agent
+d148547f4dcf168e30558d9131210234cda848334aadf7e20d24ec28b35679aa  /tmp/clarification-release/journal/plan-788aa271-8691-442d-bba6-f3cedb3a76f4.jsonl
