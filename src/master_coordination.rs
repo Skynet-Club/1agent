@@ -17,6 +17,7 @@ pub const MASTER_STATE_SCHEMA_VERSION: u32 = 1;
 pub const MASTER_JOURNAL_SCHEMA_VERSION: u32 = 1;
 pub const MAX_AUTOMATIC_RETRIES: u32 = 1;
 pub const MAX_AUTOMATIC_REPLANS: u32 = 1;
+pub const MAX_LEASE_REAPS: u32 = 2;
 const MAX_STATE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_JOURNAL_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
@@ -89,6 +90,7 @@ pub enum DecisionKind {
     TaskTakenOver,
     TakeoverEnded,
     LeaseReclaimed,
+    LeaseReaped,
     GoalAccepted,
     RetryRequested,
     ReplanRequested,
@@ -147,12 +149,21 @@ pub struct ProgressLedger {
     pub last_observed_unix_ms: Option<u128>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpiredLease {
+    pub task_id: String,
+    pub lease: TaskLease,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TaskRuntimeState {
     pub status: WorkItemStatus,
     pub attempts: u32,
     pub retries: u32,
+    /// Automatic lease-expiry recoveries; a human retry resets it.
+    #[serde(default)]
+    pub lease_reaps: u32,
     pub generation: u64,
     #[serde(default)]
     pub active_lease: Option<TaskLease>,
@@ -178,6 +189,7 @@ impl Default for TaskRuntimeState {
             status: WorkItemStatus::Pending,
             attempts: 0,
             retries: 0,
+            lease_reaps: 0,
             generation: 0,
             active_lease: None,
             execution_target: None,
@@ -313,6 +325,8 @@ pub enum MasterCoordinationError {
     NoActiveLease(String),
     #[error("task '{0}' lease has not expired")]
     LeaseNotExpired(String),
+    #[error("task '{0}' lease has expired and cannot be renewed")]
+    LeaseExpired(String),
     #[error("task '{0}' execution is not confirmed terminated")]
     ExecutionNotTerminated(String),
     #[error("task '{0}' has unmet dependencies")]
@@ -653,6 +667,8 @@ impl MasterState {
             idempotency_key: format!("{}:{task_id}:{generation}", self.plan.plan_id),
             expires_unix_ms: now_unix_ms.saturating_add(u128::from(lease_duration_ms)),
             generation,
+            duration_ms: lease_duration_ms,
+            last_heartbeat_unix_ms: Some(now_unix_ms),
         };
         let state = self.task_mut(task_id)?;
         state.generation = generation;
@@ -690,23 +706,123 @@ impl MasterState {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub fn renew_lease(
+    /// Extend a live lease by its original duration. An expired lease cannot be
+    /// resurrected and a stale generation cannot renew a replacement's lease.
+    pub fn heartbeat(
         &mut self,
         task_id: &str,
         generation: u64,
-        expires_unix_ms: u128,
         now_unix_ms: u128,
-    ) -> Result<(), MasterCoordinationError> {
+    ) -> Result<u128, MasterCoordinationError> {
         let state = self.task_mut(task_id)?;
         let lease = state
             .active_lease
             .as_mut()
             .filter(|lease| lease.generation == generation)
             .ok_or(MasterCoordinationError::StaleReceipt)?;
+        if !lease.is_active(now_unix_ms) {
+            return Err(MasterCoordinationError::LeaseExpired(task_id.into()));
+        }
+        let expires_unix_ms = now_unix_ms.saturating_add(u128::from(lease.duration_ms.max(1)));
         lease.expires_unix_ms = expires_unix_ms;
+        lease.last_heartbeat_unix_ms = Some(now_unix_ms);
         self.updated_unix_ms = now_unix_ms;
-        Ok(())
+        Ok(expires_unix_ms)
+    }
+
+    /// Expired leases that are still owned by a stale execution. The caller must
+    /// terminate each old execution before calling `reap_expired_lease`.
+    pub fn expired_leases(&self, now_unix_ms: u128) -> Vec<ExpiredLease> {
+        if self.paused || self.plan_rejected {
+            return Vec::new();
+        }
+        self.tasks
+            .iter()
+            .filter_map(|(task_id, task)| {
+                let lease = task.active_lease.as_ref()?;
+                if task.human_takeover
+                    || lease.is_active(now_unix_ms)
+                    || !matches!(
+                        task.status,
+                        WorkItemStatus::Assigned
+                            | WorkItemStatus::Starting
+                            | WorkItemStatus::Running
+                            | WorkItemStatus::AwaitingInput
+                            | WorkItemStatus::Blocked
+                    )
+                {
+                    return None;
+                }
+                Some(ExpiredLease {
+                    task_id: task_id.clone(),
+                    lease: lease.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Automatically recover an expired lease after its old execution has been
+    /// terminated. Up to `MAX_LEASE_REAPS` reaps return the task to `Retrying`;
+    /// the next one makes it `Blocked` and needs human intervention.
+    pub fn reap_expired_lease(
+        &mut self,
+        task_id: &str,
+        generation: u64,
+        execution_terminated: bool,
+        now_unix_ms: u128,
+    ) -> Result<WorkItemStatus, MasterCoordinationError> {
+        let state = self.task_mut(task_id)?;
+        let lease = state
+            .active_lease
+            .as_ref()
+            .filter(|lease| lease.generation == generation)
+            .ok_or(MasterCoordinationError::StaleReceipt)?;
+        if lease.is_active(now_unix_ms) {
+            return Err(MasterCoordinationError::LeaseNotExpired(task_id.into()));
+        }
+        if !execution_terminated {
+            return Err(MasterCoordinationError::ExecutionNotTerminated(
+                task_id.into(),
+            ));
+        }
+        if !matches!(
+            state.status,
+            WorkItemStatus::Assigned
+                | WorkItemStatus::Starting
+                | WorkItemStatus::Running
+                | WorkItemStatus::AwaitingInput
+                | WorkItemStatus::Blocked
+        ) {
+            return Err(MasterCoordinationError::InvalidTransition {
+                task: task_id.into(),
+                from: state.status,
+                to: WorkItemStatus::Retrying,
+            });
+        }
+        let was_assigned = state.status == WorkItemStatus::Assigned;
+        state.active_lease = None;
+        state.lease_reaps = state.lease_reaps.saturating_add(1);
+        let next = if was_assigned || state.lease_reaps <= MAX_LEASE_REAPS {
+            WorkItemStatus::Retrying
+        } else {
+            WorkItemStatus::Blocked
+        };
+        state.status = next;
+        state.last_error = Some("lease expired without heartbeat".into());
+        state.progress.last_action = Some("lease_reaped".into());
+        state.progress.last_signature = None;
+        state.progress.stall_count = 0;
+        state.progress.last_progress_unix_ms = Some(now_unix_ms);
+        state.progress.last_observed_unix_ms = Some(now_unix_ms);
+        self.record_decision(
+            DecisionKind::LeaseReaped,
+            Some(task_id.into()),
+            "reaper",
+            format!("lease generation {generation} expired without heartbeat"),
+            now_unix_ms,
+        );
+        self.updated_unix_ms = now_unix_ms;
+        Ok(next)
     }
 
     /// Explicitly reclaim an expired lease after the caller has terminated the old
@@ -748,6 +864,7 @@ impl MasterState {
             });
         }
         state.active_lease = None;
+        state.lease_reaps = 0;
         set_task_status(state, WorkItemStatus::Retrying);
         self.record_decision(
             DecisionKind::LeaseReclaimed,
@@ -815,6 +932,7 @@ impl MasterState {
         state.last_error = receipt.error.clone();
         state.receipt = Some(receipt);
         state.active_lease = None;
+        state.lease_reaps = 0;
         set_task_status(state, next);
         state.progress.last_action = Some(label);
         state.progress.last_signature = Some(signature);
@@ -1062,6 +1180,33 @@ impl MasterState {
         Ok(result)
     }
 
+    /// Persist a verifier's rejection even when the raw checks passed. The
+    /// acceptance receipt is the final gate: Conditional/Hacked/Rejected must
+    /// never leave the task Verified.
+    pub fn reject_verification(
+        &mut self,
+        task_id: &str,
+        reason: impl Into<String>,
+        now_unix_ms: u128,
+    ) -> Result<(), MasterCoordinationError> {
+        let reason = reason.into();
+        let state = self.task_mut(task_id)?;
+        if state.status == WorkItemStatus::Verified {
+            state.status = WorkItemStatus::Rejected;
+            state.last_error = Some(reason.clone());
+        } else if state.status == WorkItemStatus::Rejected && state.last_error.is_none() {
+            state.last_error = Some(reason.clone());
+        }
+        if let Some(verification) = state.verification.as_mut()
+            && verification.status == WorkItemStatus::Verified
+        {
+            verification.status = WorkItemStatus::Rejected;
+            verification.failure_reason = state.last_error.clone();
+        }
+        self.updated_unix_ms = now_unix_ms;
+        Ok(())
+    }
+
     pub fn request_retry(
         &mut self,
         task_id: &str,
@@ -1086,6 +1231,7 @@ impl MasterState {
         state.retries = state.retries.saturating_add(1);
         set_task_status(state, WorkItemStatus::Retrying);
         state.active_lease = None;
+        state.lease_reaps = 0;
         self.retry_count = self.retry_count.saturating_add(1);
         let reason = reason.into();
         self.record_decision(
@@ -1647,6 +1793,7 @@ pub enum MasterJournalEventKind {
     TakenOver,
     TakeoverEnded,
     LeaseReclaimed,
+    LeaseReaped,
     GoalAccepted,
     Cancelled,
 }
@@ -2547,10 +2694,14 @@ mod tests {
             Err(MasterCoordinationError::ActiveLease("a".into()))
         );
 
-        // Stale generation cannot renew or finish.
+        // Stale generation cannot renew; an expired lease cannot be revived.
         assert_eq!(
-            state.renew_lease("a", lease.generation + 1, 300, 200),
+            state.heartbeat("a", lease.generation + 1, 200),
             Err(MasterCoordinationError::StaleReceipt)
+        );
+        assert_eq!(
+            state.heartbeat("a", lease.generation, 200),
+            Err(MasterCoordinationError::LeaseExpired("a".into()))
         );
         assert_eq!(
             state.record_receipt(receipt("a", lease.generation, &lease_key("a", 1)), 200),
@@ -2616,6 +2767,152 @@ mod tests {
             .lease_task("a", &agent(), lease_key("a", 2), 100, 201)
             .unwrap();
         assert_eq!(replacement.generation, lease.generation + 1);
+    }
+
+    #[test]
+    fn heartbeat_extends_a_live_lease_and_rejects_stale_generations() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), "term-a".into(), 100, 3)
+            .unwrap();
+        assert_eq!(state.heartbeat("a", lease.generation, 90).unwrap(), 190);
+        let active = state.tasks["a"].active_lease.as_ref().unwrap();
+        assert_eq!(active.expires_unix_ms, 190);
+        assert_eq!(active.last_heartbeat_unix_ms, Some(90));
+        assert_eq!(
+            state.heartbeat("a", lease.generation + 1, 95),
+            Err(MasterCoordinationError::StaleReceipt)
+        );
+        assert_eq!(
+            state.heartbeat("a", lease.generation, 190),
+            Err(MasterCoordinationError::LeaseExpired("a".into()))
+        );
+    }
+
+    #[test]
+    fn expired_lease_is_reaped_after_termination_and_old_receipt_is_fenced() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), "term-a".into(), 100, 3)
+            .unwrap();
+        state.begin_starting("a", lease.generation, 4).unwrap();
+        assert!(state.expired_leases(50).is_empty());
+        let expired = state.expired_leases(200);
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].task_id, "a");
+        assert_eq!(
+            state.reap_expired_lease("a", lease.generation, false, 200),
+            Err(MasterCoordinationError::ExecutionNotTerminated("a".into()))
+        );
+        assert_eq!(
+            state
+                .reap_expired_lease("a", lease.generation, true, 200)
+                .unwrap(),
+            WorkItemStatus::Retrying
+        );
+        assert!(state.tasks["a"].active_lease.is_none());
+        assert_eq!(state.tasks["a"].lease_reaps, 1);
+        assert_eq!(
+            state.record_receipt(receipt("a", lease.generation, &lease_key("a", 1)), 200),
+            Err(MasterCoordinationError::StaleReceipt)
+        );
+
+        let replacement = state
+            .lease_task("a", &agent(), "term-b".into(), 100, 201)
+            .unwrap();
+        assert_eq!(replacement.generation, lease.generation + 1);
+        assert_eq!(
+            state.record_receipt(receipt("a", lease.generation, &lease_key("a", 1)), 202),
+            Err(MasterCoordinationError::StaleReceipt)
+        );
+        state
+            .begin_starting("a", replacement.generation, 203)
+            .unwrap();
+        state
+            .record_receipt(
+                receipt("a", replacement.generation, &replacement.idempotency_key),
+                204,
+            )
+            .unwrap();
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::ArtifactReady);
+        assert_eq!(state.tasks["a"].lease_reaps, 0);
+    }
+
+    #[test]
+    fn repeated_lease_reaps_block_until_a_human_retry() {
+        let mut state = ready_state();
+        let first = state
+            .lease_task("a", &agent(), "term-a".into(), 100, 3)
+            .unwrap();
+        state.begin_starting("a", first.generation, 4).unwrap();
+        assert_eq!(
+            state
+                .reap_expired_lease("a", first.generation, true, 200)
+                .unwrap(),
+            WorkItemStatus::Retrying
+        );
+
+        let second = state
+            .lease_task("a", &agent(), "term-b".into(), 100, 201)
+            .unwrap();
+        state.begin_starting("a", second.generation, 202).unwrap();
+        assert_eq!(
+            state
+                .reap_expired_lease("a", second.generation, true, 400)
+                .unwrap(),
+            WorkItemStatus::Retrying
+        );
+
+        let third = state
+            .lease_task("a", &agent(), "term-c".into(), 100, 401)
+            .unwrap();
+        state.begin_starting("a", third.generation, 402).unwrap();
+        assert_eq!(
+            state
+                .reap_expired_lease("a", third.generation, true, 600)
+                .unwrap(),
+            WorkItemStatus::Blocked
+        );
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::Blocked);
+        assert_eq!(state.tasks["a"].lease_reaps, MAX_LEASE_REAPS + 1);
+
+        state
+            .request_retry("a", "user", "worker host recovered", 601)
+            .unwrap();
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::Retrying);
+        assert_eq!(state.tasks["a"].lease_reaps, 0);
+    }
+
+    #[test]
+    fn lease_reaper_skips_active_and_paused_runs() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), "term-a".into(), 100, 3)
+            .unwrap();
+        state.begin_starting("a", lease.generation, 4).unwrap();
+        assert!(state.expired_leases(50).is_empty());
+        state.set_paused(true, "user", 5).unwrap();
+        assert!(state.expired_leases(200).is_empty());
+        state.set_paused(false, "user", 6).unwrap();
+        assert_eq!(state.expired_leases(200).len(), 1);
+    }
+
+    #[test]
+    fn lease_expired_before_start_is_retried_without_killing_anything() {
+        let mut state = ready_state();
+        let lease = state
+            .lease_task("a", &agent(), "term-a".into(), 100, 3)
+            .unwrap();
+        assert_eq!(state.tasks["a"].status, WorkItemStatus::Assigned);
+        assert_eq!(state.expired_leases(200).len(), 1);
+        assert_eq!(
+            state
+                .reap_expired_lease("a", lease.generation, true, 200)
+                .unwrap(),
+            WorkItemStatus::Retrying
+        );
+        assert_eq!(state.tasks["a"].lease_reaps, 1);
+        assert!(state.tasks["a"].active_lease.is_none());
     }
 
     #[test]

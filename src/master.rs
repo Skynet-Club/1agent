@@ -752,6 +752,15 @@ pub struct TaskLease {
     pub idempotency_key: String,
     pub expires_unix_ms: u128,
     pub generation: u64,
+    /// Lease duration used to extend the expiry on each heartbeat.
+    #[serde(default = "default_lease_duration_ms")]
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub last_heartbeat_unix_ms: Option<u128>,
+}
+
+fn default_lease_duration_ms() -> u64 {
+    30_000
 }
 
 impl TaskLease {
@@ -1059,6 +1068,8 @@ mod tests {
             idempotency_key: "plan-1:a:1".into(),
             expires_unix_ms: 100,
             generation: 1,
+            duration_ms: 30_000,
+            last_heartbeat_unix_ms: None,
         };
         assert!(lease.is_active(99));
         assert!(!lease.is_active(100));

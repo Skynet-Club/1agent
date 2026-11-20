@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-20",
+  "feature": "MA-005 lease heartbeat and expiry reaper",
+  "max_lease_reaps": 2,
+  "heartbeat": "extends by the lease's original duration_ms; rejects stale generation and expired leases",
+  "reaper": "requires terminated execution; first 2 reaps -> Retrying, then Blocked",
+  "tests": {
+    "lib_passed": 1332,
+    "lib_failed": 0,
+    "bin_passed": 67,
+    "bin_failed": 0,
+    "mast_fault_injection_passed": 7,
+    "clippy_tests": "clean"
+  },
+  "focused": {
+    "master_coordination_tests": 20,
+    "reaper_wiring_test": "expired_master_lease_is_reaped_and_journaled",
+    "acceptance_regression_test": "master_verify_rejects_false_success_missing_criteria_and_sha_drift"
+  }
+}

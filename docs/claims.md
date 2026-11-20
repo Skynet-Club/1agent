@@ -340,6 +340,7 @@ file: <路径>              → 文件必须存在
 | 1ASH v1 四套 JSON Schema（task/run/trace/report）与示例落地；结构测试与 jsonschema 校验通过 | cmd: cargo test --test 1ash_schema && python3 scripts/check-1ash-schemas.py | ✅ | 只是 M0 契约；无 runner/任务集，不是 1ASH 实现 |
 | 1ASH M1 Inspect adapter 可跑 fake/no-op 与真实 1Agent，journal 投影 Trace IR，单题 report v0 可校验 | cmd: ~/.cache/1ash-venv/bin/python harness/1ash/tests/run_m1.py | ✅ | 需要本地 Inspect venv；无 Docker 沙箱；report 是本地证据，不是 benchmark |
 | 规划前澄清门禁：模型可在拆解前返回 `needs_authorization` + ≤3 个问题；运行时只校验/展示，CLI `--clarification` 答案进入上下文重跑；生产规划路径同样拦截；清晰任务不被强制提问 | cmd: cargo test --lib master_planner && cargo test --test mast_fault_injection | ✅ | 模型是否“该问才问”无统计评测；TUI `/plan` 只展示问题，无就地回答重跑 UI；一次 DeepSeek 实机往返 |
+| Master 租约心跳/自动回收：live observation 续租；过期租约先终止旧执行再回收，前 2 次 Retrying、之后 Blocked；旧 generation 收据被拒；终止失败保留租约；暂停/拒绝运行不回收 | cmd: cargo test --lib master_coordination::tests && cargo test --bin first-principles-agent expired_master_lease_is_reaped_and_journaled | ✅ | 无多 Master/时钟漂移测试；心跳依赖 poll/watch 调用，不是后台定时器；无 session 的执行只能 fencing，不能杀进程 |
 
 ## 覆盖率
 

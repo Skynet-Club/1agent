@@ -233,9 +233,14 @@ low-risk assumption is not a reason to ask: the model records it and proceeds.
 The source-read gate still applies when a plan is eventually returned.
 
 Default safety limits are eight Work Items, three parallel tasks, one automatic retry per
-task and one automatic replan per run. A plan must be approved before dispatch. A
-nonterminal lease cannot be silently replaced even after expiry; explicit cancel/takeover
-is required. Verification fails closed unless execution exited zero, every acceptance
+task and one automatic replan per run. A plan must be approved before dispatch. A lease
+is extended only by `MasterState::heartbeat` from a live supervision observation
+(`Running`/`AwaitingInput`/`Blocked`); an expired lease cannot be renewed. The supervisor
+first terminates the old execution, then `reap_expired_lease` returns the task to
+`Retrying` for up to two automatic reaps, after which it becomes `Blocked` for human
+intervention. The lease generation is the fencing token: an old generation's receipt is
+rejected after a reap or a replacement lease. Explicit cancel/takeover remains available.
+Verification fails closed unless execution exited zero, every acceptance
 criterion has independent passing evidence and every expected Artifact exists under the
 workspace with optional SHA-256 matching. The CLI `master verify` also builds an
 `AcceptanceContract` from the Work Item, recomputes artifact checks, and requires

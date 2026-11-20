@@ -1,0 +1,27 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.50s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 20 tests
+test master_coordination::tests::heartbeat_extends_a_live_lease_and_rejects_stale_generations ... ok
+test master_coordination::tests::async_submission_and_observations_keep_the_lease_until_terminal ... ok
+test master_coordination::tests::duplicate_receipt_retry_and_replan_are_bounded ... ok
+test master_coordination::tests::host_event_projection_writes_a_typed_goal_event ... ok
+test master_coordination::tests::lease_reaper_skips_active_and_paused_runs ... ok
+test master_coordination::tests::expired_lease_can_be_reclaimed_and_replaced_with_monotonic_generation ... ok
+test master_coordination::tests::changed_blocked_reason_resets_stall_counter ... ok
+test master_coordination::tests::expired_and_stale_leases_fail_closed_without_silent_replacement ... ok
+test master_coordination::tests::lease_expired_before_start_is_retried_without_killing_anything ... ok
+test master_coordination::tests::repeated_blocked_observations_replan_after_stall_threshold ... ok
+test master_coordination::tests::lease_receipt_and_verification_unlock_dependencies ... ok
+test master_coordination::tests::expired_lease_is_reaped_after_termination_and_old_receipt_is_fenced ... ok
+test master_coordination::tests::missing_or_tampered_artifacts_cannot_be_verified_and_expired_leases_do_not_duplicate ... ok
+test master_coordination::tests::repeated_lease_reaps_block_until_a_human_retry ... ok
+test master_coordination::tests::takeover_can_be_explicitly_returned_to_the_master ... ok
+test master_coordination::tests::repeated_running_heartbeats_do_not_stall ... ok
+test master_coordination::tests::unstarted_plan_can_be_rejected_or_revised_without_losing_old_journal_state ... ok
+test master_coordination::tests::goal_acceptance_requires_every_task_verified_and_is_idempotent ... ok
+test master_coordination::tests::concurrent_stale_writers_cannot_create_two_events_with_the_same_sequence ... ok
+test master_coordination::tests::journal_replay_restores_the_latest_state_and_audits_sequence ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 1316 filtered out; finished in 0.01s
+

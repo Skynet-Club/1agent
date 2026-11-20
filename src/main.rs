@@ -21,19 +21,19 @@ use first_principles_agent::{
     ExecutionObservation, ExecutionReceipt, ExecutionStatus, ExecutionSubmission, ExecutionTarget,
     ExperienceCandidateSpec, ExperienceStore, ExperienceVerificationInput, GoldSetManifest,
     HostBinding, HostCommand, HostError, HostRegistry, HostRequestState, HostResponse, Journal,
-    JournalCursor, JournalEventKind, MasterJournalEventKind, MasterPlannerError, MasterState,
-    MasterStore, ModelPlanGenerator, ModelProductionPlanGenerator, ModelProvider,
-    ModelRequestChain, OpenAiCompatibleProvider, PermissionPreset, PlanGenerator, PlanProposal,
-    PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext, ProviderAdapter,
-    ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport, REFRAME_SYSTEM_PROMPT,
-    ReasoningEffort, ReframeChoice, ReframeProposal, RegistrySnapshot, RejectedReason,
-    ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective, RoutePolicySources,
-    RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits, SessionEvent,
-    SessionPickerAction, SessionPickerItem, SessionPreferences, SkillService, StopReason,
-    TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus, TriageSignals,
-    TrustAnchorManifest, TuiActivity, TuiActivityKind, TuiCommandId, TuiInput, TuiInputResolution,
-    TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput, WorkItemStatus,
-    WorkshopCliAdapter, add_git_worktree,
+    JournalCursor, JournalEventKind, MasterCoordinationError, MasterJournalEventKind,
+    MasterPlannerError, MasterState, MasterStore, ModelPlanGenerator, ModelProductionPlanGenerator,
+    ModelProvider, ModelRequestChain, OpenAiCompatibleProvider, PermissionPreset, PlanGenerator,
+    PlanProposal, PlanningContext, PolicyValueSource, ProductionPlan, ProductionPlanningContext,
+    ProviderAdapter, ProviderCandidate, ProviderProbeReport, ProviderToolProbeReport,
+    REFRAME_SYSTEM_PROMPT, ReasoningEffort, ReframeChoice, ReframeProposal, RegistrySnapshot,
+    RejectedReason, ReleasePolicy, ReleasePolicyMode, RequestRole, RiskLevel, RouteObjective,
+    RoutePolicySources, RouteRequest, Router, RunBudget, RuntimeError, SchedulerLimits,
+    SessionEvent, SessionPickerAction, SessionPickerItem, SessionPreferences, SkillService,
+    StopReason, TaskRequest, TerminalSession, ToolObservation, ToolRegistry, ToolStatus,
+    TriageSignals, TrustAnchorManifest, TuiActivity, TuiActivityKind, TuiCommandId, TuiInput,
+    TuiInputResolution, TuiPreset, TuiSession, TuiState, TuiStatus, TuiTone, VerificationInput,
+    WorkItemStatus, WorkshopCliAdapter, add_git_worktree,
     answer_render::{
         answer_impact_label, answer_status_label, claim_status_label, render_answer,
         render_answer_default,
@@ -16444,6 +16444,13 @@ fn run_master_ready(
     if state.paused {
         bail!("master run is paused");
     }
+    let mut reaped = Vec::new();
+    if !dry_run {
+        let (next, messages) =
+            reap_expired_master_leases(state, &store, &workshop_prefix, now_unix_ms())?;
+        state = next;
+        reaped = messages;
+    }
     let profiles = load_agent_profiles(&runtime_profiles)?;
     let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?
         .with_goal_context(state.trace_id.clone(), state.plan.goal_id.clone());
@@ -16474,10 +16481,14 @@ fn run_master_ready(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "dispatched": [],
+                    "reaped": &reaped,
                     "state": state,
                 }))?
             );
         } else {
+            for message in &reaped {
+                println!("{message}");
+            }
             println!("没有可派发的 Ready 任务。");
         }
         return Ok(());
@@ -16621,10 +16632,14 @@ fn run_master_ready(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "receipts": receipts,
+                "reaped": &reaped,
                 "state": state,
             }))?
         );
     } else {
+        for message in &reaped {
+            println!("{message}");
+        }
         for receipt in receipts {
             println!(
                 "{} · {:?} · agent={} · session={}",
@@ -16663,6 +16678,13 @@ fn run_master_start(
     if state.paused {
         bail!("master run is paused");
     }
+    let mut reaped = Vec::new();
+    if !dry_run {
+        let (next, messages) =
+            reap_expired_master_leases(state, &store, &workshop_prefix, now_unix_ms())?;
+        state = next;
+        reaped = messages;
+    }
     let profiles = load_agent_profiles(&runtime_profiles)?;
     let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), !no_gui)?
         .with_artifact_dir(store.trace_dir().join("executions"))
@@ -16690,10 +16712,14 @@ fn run_master_start(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "submitted": [],
+                    "reaped": &reaped,
                     "state": state,
                 }))?
             );
         } else {
+            for message in &reaped {
+                println!("{message}");
+            }
             println!("没有可启动的 Ready 任务。");
         }
         return Ok(());
@@ -16799,10 +16825,14 @@ fn run_master_start(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "submitted": submitted,
+                "reaped": &reaped,
                 "state": state,
             }))?
         );
     } else {
+        for message in &reaped {
+            println!("{message}");
+        }
         for submission in submitted {
             println!(
                 "{} · submitted · agent={} · session={}",
@@ -16828,7 +16858,7 @@ fn run_master_poll(
 ) -> Result<()> {
     let store = MasterStore::new(&state_root, &trace_id)?;
     let mut state = store.load()?;
-    let adapter = WorkshopCliAdapter::new(workshop_prefix, Duration::from_secs(30), false)?
+    let adapter = WorkshopCliAdapter::new(workshop_prefix.clone(), Duration::from_secs(30), false)?
         .with_artifact_dir(store.trace_dir().join("executions"))
         .with_goal_context(state.trace_id.clone(), state.plan.goal_id.clone());
     let submissions = state
@@ -16865,15 +16895,46 @@ fn run_master_poll(
         .collect::<Vec<_>>();
     let mut observed = Vec::new();
     for submission in submissions {
+        let now = now_unix_ms();
         let previous_status = state.tasks.get(&submission.task_id).map(|task| task.status);
-        let observation = adapter
-            .observe_submission(&submission, now_unix_ms())
-            .unwrap_or_else(|error| ExecutionObservation::Blocked {
-                reason: error.to_string(),
-            });
+        let (observation, live) = match adapter.observe_submission(&submission, now) {
+            Ok(observation) => {
+                let live = matches!(
+                    observation,
+                    ExecutionObservation::Running
+                        | ExecutionObservation::AwaitingInput { .. }
+                        | ExecutionObservation::Blocked { .. }
+                );
+                (observation, live)
+            }
+            Err(error) => (
+                ExecutionObservation::Blocked {
+                    reason: error.to_string(),
+                },
+                false,
+            ),
+        };
         let terminal = matches!(observation, ExecutionObservation::Finished { .. });
+        if live {
+            // A live observation is the supervisor's lease heartbeat. An
+            // observation error is not liveness; if the lease expired the
+            // reaper owns recovery.
+            let _ = state.heartbeat(&submission.task_id, submission.lease_generation, now);
+        }
         let summary = format!("{observation:?}");
-        state.record_observation(&submission.task_id, observation.clone(), now_unix_ms())?;
+        if let Err(error) = state.record_observation(&submission.task_id, observation.clone(), now)
+        {
+            if matches!(error, MasterCoordinationError::StaleReceipt) {
+                observed.push(serde_json::json!({
+                    "task_id": submission.task_id,
+                    "session_id": submission.execution_target.session_id,
+                    "observation": observation,
+                    "error": "stale lease; reaper will recover",
+                }));
+                continue;
+            }
+            return Err(error.into());
+        }
         let next_status = state.tasks.get(&submission.task_id).map(|task| task.status);
         if terminal || previous_status != next_status {
             state = store.append(
@@ -16886,7 +16947,7 @@ fn run_master_poll(
                 Some(submission.task_id.clone()),
                 "workshop",
                 summary.clone(),
-                now_unix_ms(),
+                now,
             )?;
         }
         observed.push(serde_json::json!({
@@ -16895,17 +16956,24 @@ fn run_master_poll(
             "observation": observation,
         }));
     }
+    let (next, reaped) =
+        reap_expired_master_leases(state, &store, &workshop_prefix, now_unix_ms())?;
+    state = next;
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "observed": observed,
+                "reaped": &reaped,
                 "state": state,
             }))?
         );
-    } else if observed.is_empty() {
+    } else if observed.is_empty() && reaped.is_empty() {
         println!("没有需要观察的运行中任务。");
     } else {
+        for message in &reaped {
+            println!("{message}");
+        }
         for item in observed {
             println!(
                 "{} · {}",
@@ -16964,11 +17032,7 @@ fn terminate_expired_session_if_any(
     let session_id = state
         .tasks
         .get(task_id)
-        .and_then(|task| {
-            task.active_lease
-                .as_ref()
-                .and(task.execution_target.as_ref())
-        })
+        .and_then(|task| task.execution_target.as_ref())
         .and_then(|target| target.session_id.clone());
     let Some(session_id) = session_id else {
         return Ok(());
@@ -16985,6 +17049,55 @@ fn terminate_expired_session_if_any(
         }
         Err(error) => Err(error.into()),
     }
+}
+
+fn reap_expired_master_leases(
+    mut state: MasterState,
+    store: &MasterStore,
+    workshop_prefix: &str,
+    now_unix_ms: u128,
+) -> Result<(MasterState, Vec<String>)> {
+    let mut messages = Vec::new();
+    for expired in state.expired_leases(now_unix_ms) {
+        if let Err(error) =
+            terminate_expired_session_if_any(&state, &expired.task_id, workshop_prefix)
+        {
+            messages.push(format!(
+                "{} · lease generation {} expired; termination failed: {error}",
+                expired.task_id, expired.lease.generation
+            ));
+            continue;
+        }
+        match state.reap_expired_lease(
+            &expired.task_id,
+            expired.lease.generation,
+            true,
+            now_unix_ms,
+        ) {
+            Ok(status) => {
+                state = store.append(
+                    state,
+                    MasterJournalEventKind::LeaseReaped,
+                    Some(expired.task_id.clone()),
+                    "reaper",
+                    format!(
+                        "lease generation {} expired without heartbeat; {status:?}",
+                        expired.lease.generation
+                    ),
+                    now_unix_ms,
+                )?;
+                messages.push(format!(
+                    "{} · lease generation {} reaped -> {status:?}",
+                    expired.task_id, expired.lease.generation
+                ));
+            }
+            Err(error) => messages.push(format!(
+                "{} · lease generation {} reap failed: {error}",
+                expired.task_id, expired.lease.generation
+            )),
+        }
+    }
+    Ok((state, messages))
 }
 
 #[derive(serde::Deserialize)]
@@ -17133,16 +17246,53 @@ fn verify_master_task(
         expected_artifacts: acceptance_expectations,
         artifact_checks: verification_checks,
     };
-    let receipt =
-        first_principles_agent::acceptance::close(&acceptance_contract, &acceptance_input, now)
-            .map_err(|error| error.to_string())?;
-    if receipt.decision != first_principles_agent::acceptance::AcceptanceDecision::Accepted {
-        return Err(format!(
-            "验收未通过：decision={:?}; failures={}",
-            receipt.decision,
-            receipt.report.failures.join("; ")
-        ));
-    }
+    let receipt = match first_principles_agent::acceptance::close(
+        &acceptance_contract,
+        &acceptance_input,
+        now,
+    ) {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            let error = error.to_string();
+            let mut result = state
+                .verify(
+                    VerificationInput {
+                        task_id: submission.task_id.clone(),
+                        lease_generation: generation,
+                        criteria_results: submission.criteria_results,
+                        artifact_checks,
+                        test_results: submission.test_results,
+                        evidence: submission.evidence,
+                        verified_by: verified_by.clone(),
+                        verified_at_unix_ms: now,
+                    },
+                    now,
+                )
+                .map_err(|error| error.to_string())?;
+            let reason = format!("acceptance receipt failed: {error}");
+            state
+                .reject_verification(&submission.task_id, reason.clone(), now)
+                .map_err(|error| error.to_string())?;
+            result.status = WorkItemStatus::Rejected;
+            result.failure_reason = Some(match result.failure_reason.take() {
+                Some(existing) => format!("{existing}; {reason}"),
+                None => reason,
+            });
+            store
+                .append(
+                    state,
+                    MasterJournalEventKind::Rejected,
+                    Some(submission.task_id.clone()),
+                    &verified_by,
+                    result.failure_reason.clone().unwrap_or_default(),
+                    now,
+                )
+                .map_err(|error| error.to_string())?;
+            return Err(format!("验收未通过：{error}"));
+        }
+    };
+    let accepted =
+        receipt.decision == first_principles_agent::acceptance::AcceptanceDecision::Accepted;
     let mut result = state
         .verify(
             VerificationInput {
@@ -17164,6 +17314,20 @@ fn verify_master_task(
     {
         verification.acceptance_receipt = Some(receipt.clone());
     }
+    if !accepted {
+        let reason = format!(
+            "acceptance decision {:?}: {}",
+            receipt.decision,
+            receipt.report.failures.join("; ")
+        );
+        state
+            .reject_verification(&submission.task_id, reason.clone(), now)
+            .map_err(|error| error.to_string())?;
+        result.status = WorkItemStatus::Rejected;
+        if result.failure_reason.is_none() {
+            result.failure_reason = Some(reason);
+        }
+    }
     let kind = if result.status == WorkItemStatus::Verified {
         MasterJournalEventKind::Verified
     } else {
@@ -17184,6 +17348,9 @@ fn verify_master_task(
             now,
         )
         .map_err(|error| error.to_string())?;
+    if !accepted {
+        return Err(format!("验收未通过：decision={:?}", receipt.decision));
+    }
     Ok((result, state))
 }
 
@@ -20816,18 +20983,33 @@ fn watch_tui_master(state: &mut TuiState, session: &TuiSession, settings: &TuiRu
     );
     let mut outputs = Vec::new();
     for submission in submissions {
+        let now = now_unix_ms();
         let previous = master
             .tasks
             .get(&submission.task_id)
             .map(|task| task.status);
-        let observation = adapter
-            .observe_submission(&submission, now_unix_ms())
-            .unwrap_or_else(|error| ExecutionObservation::Blocked {
-                reason: error.to_string(),
-            });
+        let (observation, live) = match adapter.observe_submission(&submission, now) {
+            Ok(observation) => {
+                let live = matches!(
+                    observation,
+                    ExecutionObservation::Running
+                        | ExecutionObservation::AwaitingInput { .. }
+                        | ExecutionObservation::Blocked { .. }
+                );
+                (observation, live)
+            }
+            Err(error) => (
+                ExecutionObservation::Blocked {
+                    reason: error.to_string(),
+                },
+                false,
+            ),
+        };
         let terminal = matches!(observation, ExecutionObservation::Finished { .. });
-        if let Err(error) =
-            master.record_observation(&submission.task_id, observation.clone(), now_unix_ms())
+        if live {
+            let _ = master.heartbeat(&submission.task_id, submission.lease_generation, now);
+        }
+        if let Err(error) = master.record_observation(&submission.task_id, observation.clone(), now)
         {
             outputs.push(format!("{} · 状态更新失败：{error}", submission.task_id));
             continue;
@@ -20860,6 +21042,10 @@ fn watch_tui_master(state: &mut TuiState, session: &TuiSession, settings: &TuiRu
             };
         }
         outputs.push(format!("{} · {:?}", submission.task_id, observation));
+    }
+    match reap_expired_master_leases(master, &store, &settings.workshop_prefix, now_unix_ms()) {
+        Ok((_, messages)) => outputs.extend(messages),
+        Err(error) => outputs.push(format!("租约回收失败：{error}")),
     }
     state.set_master_activity(
         TuiActivity::bilingual(
@@ -29877,6 +30063,126 @@ mod tui_rendering_tests {
         assert!(!formatted.contains("src/example_4.rs:4"));
         assert!(formatted.contains("另有 2 处匹配"));
         assert!(!formatted.contains("\"hits\""));
+    }
+
+    #[test]
+    fn expired_master_lease_is_reaped_and_journaled() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan = PlanProposal {
+            schema_version: first_principles_agent::MASTER_PLAN_SCHEMA_VERSION,
+            plan_id: "plan-reap".into(),
+            goal_id: "goal-reap".into(),
+            version: 1,
+            summary: "Reaper test plan".into(),
+            task_contract: None,
+            work_items: vec![first_principles_agent::WorkItem {
+                id: "task-1".into(),
+                title: "Expire a lease".into(),
+                objective: "Produce a result".into(),
+                dependencies: Vec::new(),
+                required_capabilities: vec!["general".into()],
+                required_tools: vec!["read_file".into()],
+                permissions: first_principles_agent::PermissionSet {
+                    read_roots: vec![workspace.path().to_path_buf()],
+                    allow_network: false,
+                    allow_write: false,
+                },
+                acceptance_criteria: vec!["result exists".into()],
+                expected_artifacts: vec!["result.txt".into()],
+                workspace: workspace.path().to_path_buf(),
+                budget: first_principles_agent::WorkBudget::default(),
+                deadline_unix_ms: None,
+                risk: RiskLevel::Low,
+                status: WorkItemStatus::Pending,
+            }],
+            max_parallel: 1,
+            approved: false,
+        };
+        plan.validate().unwrap();
+        let assignment = first_principles_agent::AssignmentProposal {
+            schema_version: first_principles_agent::MASTER_PLAN_SCHEMA_VERSION,
+            plan_id: plan.plan_id.clone(),
+            assignments: vec![first_principles_agent::AssignmentCandidate {
+                task_id: "task-1".into(),
+                agent_id: "worker".into(),
+                runtime: "mock".into(),
+                selection_reason: "test".into(),
+            }],
+        };
+        let profile = AgentProfile {
+            agent_id: "worker".into(),
+            runtime: "mock".into(),
+            display_name: None,
+            capabilities: vec!["general".into()],
+            tools: vec!["read_file".into()],
+            runtime_command: vec!["mock".into()],
+            permissions: first_principles_agent::PermissionSet::default(),
+            availability: first_principles_agent::AgentAvailability::Idle,
+            current_load: 0,
+            observed_success_permille: Some(1_000),
+            observed_runs: 1,
+            cost_micros: None,
+            max_risk: RiskLevel::Low,
+        };
+        let mut state = MasterState::initialize("trace-reap", plan, assignment, 1).unwrap();
+        state.approve("user", 2).unwrap();
+        let lease = state
+            .lease_task("task-1", &profile, "term-reap".into(), 100, 3)
+            .unwrap();
+        state.begin_starting("task-1", lease.generation, 4).unwrap();
+        let store = MasterStore::new(workspace.path(), "trace-reap").unwrap();
+        store.initialize(state, 5).unwrap();
+        let state = store.load().unwrap();
+
+        // A stale worker whose session cannot be terminated must not be
+        // retried automatically; the lease stays for human reclaim.
+        let mut termination_blocked = state.clone();
+        termination_blocked
+            .tasks
+            .get_mut("task-1")
+            .unwrap()
+            .execution_target = Some(ExecutionTarget {
+            session_id: Some("term-missing".into()),
+            pane_id: None,
+            job_id: None,
+        });
+        let (termination_blocked, messages) = reap_expired_master_leases(
+            termination_blocked,
+            &store,
+            "/nonexistent/skynet-workshop",
+            200,
+        )
+        .unwrap();
+        assert!(termination_blocked.tasks["task-1"].active_lease.is_some());
+        assert_eq!(
+            termination_blocked.tasks["task-1"].status,
+            WorkItemStatus::Starting
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("termination failed"))
+        );
+
+        let (state, messages) =
+            reap_expired_master_leases(state, &store, "missing-workshop", 200).unwrap();
+        assert_eq!(state.tasks["task-1"].status, WorkItemStatus::Retrying);
+        assert!(state.tasks["task-1"].active_lease.is_none());
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("reaped -> Retrying"))
+        );
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.tasks["task-1"].status, WorkItemStatus::Retrying);
+        let events = first_principles_agent::read_master_journal_events(
+            &store.trace_dir().join("events.jsonl"),
+        )
+        .unwrap();
+        assert_eq!(
+            events.last().unwrap().kind,
+            MasterJournalEventKind::LeaseReaped
+        );
     }
 }
 

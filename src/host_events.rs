@@ -56,7 +56,7 @@ fn project(kind: &MasterJournalEventKind, task: Option<&TaskRuntimeState>) -> Op
         },
         Verified => Some("task.verified"),
         Rejected => Some("task.rejected"),
-        RetryRequested | LeaseReclaimed => Some("task.queued"),
+        RetryRequested | LeaseReclaimed | LeaseReaped => Some("task.queued"),
         TakenOver => Some("human_takeover.started"),
         TakeoverEnded => Some("human_takeover.ended"),
         GoalAccepted => Some("goal.accepted"),
