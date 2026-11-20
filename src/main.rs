@@ -23579,7 +23579,10 @@ fn subagent_lineage_line(record: &SubagentRecord) -> String {
     )
 }
 
-fn subagent_preview(record: &SubagentRecord) -> String {
+const SUBAGENT_PREVIEW_TAIL_BYTES: u64 = 256 * 1024;
+const SUBAGENT_PREVIEW_TIMELINE: usize = 80;
+
+fn subagent_preview(state: &mut TuiState, record: &SubagentRecord) -> String {
     let mut lines = vec![
         format!("任务    {}", bounded_chars(&record.task, 800)),
         format!(
@@ -23617,47 +23620,89 @@ fn subagent_preview(record: &SubagentRecord) -> String {
     if let Some(summary) = &record.summary {
         lines.push(format!("摘要    {}", bounded_chars(summary, 500)));
     }
-    let Some(path) = newest_journal_since(std::path::Path::new(&record.journal_dir), 0) else {
+    let Some(journal) = newest_journal_since(std::path::Path::new(&record.journal_dir), 0) else {
         lines.push("\n子进程已登记，等待子 journal…".into());
         return lines.join("\n");
     };
-    let Ok(events) = read_events_incremental(&path.0, &mut JournalCursor::default()) else {
-        lines.push("\n子 journal 暂时不可读。".into());
-        return lines.join("\n");
+    let path = journal.0;
+    let cache = state.subagent_preview_cache(&record.id);
+    let fresh = cache.journal_path.as_deref() != Some(path.as_path());
+    if fresh {
+        cache.journal_path = Some(path.clone());
+        cache.cursor = JournalCursor::new();
+        cache.timeline.clear();
+    }
+    let read = if fresh {
+        first_principles_agent::read_events_tail(&path, SUBAGENT_PREVIEW_TAIL_BYTES).map(
+            |(events, cursor)| {
+                cache.cursor = cursor;
+                events
+            },
+        )
+    } else {
+        read_events_incremental(&path, &mut cache.cursor)
     };
-    let mut timeline = Vec::new();
-    for event in events.iter().rev().take(80).rev() {
-        match &event.event {
-            JournalEventKind::RunStarted { request, .. } => {
-                timeline.push(format!("任务：{}", bounded_chars(&request.objective, 300)))
+    match read {
+        Ok(events) => append_preview_timeline(&mut cache.timeline, &events),
+        Err(_) => {
+            cache.cursor = JournalCursor::new();
+            cache.timeline.clear();
+            match first_principles_agent::read_events_tail(&path, SUBAGENT_PREVIEW_TAIL_BYTES) {
+                Ok((events, cursor)) => {
+                    cache.cursor = cursor;
+                    append_preview_timeline(&mut cache.timeline, &events);
+                }
+                Err(_) => {
+                    lines.push("\n子 journal 暂时不可读。".into());
+                    return lines.join("\n");
+                }
             }
-            JournalEventKind::ToolCalled { call } => timeline.push(format!(
+        }
+    }
+    if cache.timeline.is_empty() {
+        lines.push("\n子 journal 已创建，暂无可见事件。".into());
+    } else {
+        lines.push("\n实时进度".into());
+        lines.extend(cache.timeline.iter().rev().take(18).rev().cloned());
+    }
+    lines.join("\n")
+}
+
+fn append_preview_timeline(
+    timeline: &mut std::collections::VecDeque<String>,
+    events: &[first_principles_agent::JournalEvent],
+) {
+    for event in events {
+        let line = match &event.event {
+            JournalEventKind::RunStarted { request, .. } => {
+                Some(format!("任务：{}", bounded_chars(&request.objective, 300)))
+            }
+            JournalEventKind::ToolCalled { call } => Some(format!(
                 "工具：{} · {}",
                 call.name,
                 bounded_chars(&call.arguments.to_string(), 220)
             )),
-            JournalEventKind::ToolObserved { observation } => timeline.push(format!(
+            JournalEventKind::ToolObserved { observation } => Some(format!(
                 "结果：{} · {:?} · {}",
                 observation.tool,
                 observation.status,
                 bounded_chars(&observation.summary, 240)
             )),
-            JournalEventKind::AnswerProduced { answer } => timeline.push(format!(
+            JournalEventKind::AnswerProduced { answer } => Some(format!(
                 "结论 · {}：{}",
                 answer_status_label(answer.status),
                 bounded_chars(&answer.conclusion, 420)
             )),
-            JournalEventKind::RunStopped { reason } => timeline.push(format!("结束：{reason:?}")),
-            _ => {}
+            JournalEventKind::RunStopped { reason } => Some(format!("结束：{reason:?}")),
+            _ => None,
+        };
+        if let Some(line) = line {
+            timeline.push_back(line);
         }
     }
-    if timeline.is_empty() {
-        lines.push("\n子 journal 已创建，暂无可见事件。".into());
-    } else {
-        lines.push("\n实时进度".into());
-        lines.extend(timeline.into_iter().rev().take(18).rev());
+    while timeline.len() > SUBAGENT_PREVIEW_TIMELINE {
+        timeline.pop_front();
     }
-    lines.join("\n")
 }
 
 fn bounded_chars(value: &str, max: usize) -> String {
@@ -23674,8 +23719,8 @@ fn sync_session_picker_preview(state: &mut TuiState, session: &TuiSession) {
     };
     if state.session_picker_on_squad() {
         if let Some(record) = state.session_picker_selected_squad() {
-            let text = subagent_preview(&record);
-            state.session_picker_set_preview(id, text);
+            let text = subagent_preview(state, &record);
+            state.session_picker_set_preview(record.id, text);
         }
         return;
     }
@@ -28934,7 +28979,8 @@ mod tui_rendering_tests {
         record.parent_run_id = Some("run-parent".into());
         record.spawn_call_id = Some("call-7".into());
         record.child_run_id = Some("run-child".into());
-        let preview = subagent_preview(&record);
+        let mut state = TuiState::new("mock", 6, 120);
+        let preview = subagent_preview(&mut state, &record);
         assert!(preview.contains("child task"), "{preview}");
         assert!(preview.contains("已完成"), "{preview}");
         assert!(preview.contains("实时进度"), "{preview}");
@@ -28944,6 +28990,69 @@ mod tui_rendering_tests {
                 "血缘    会话 ses-parent · 父 run run-parent · spawn call-7 · 子 run run-child"
             ),
             "{preview}"
+        );
+    }
+
+    #[test]
+    fn subagent_preview_appends_only_new_events() {
+        let workspace = tempfile::tempdir().unwrap();
+        let journal_dir = workspace.path().join("child-journal");
+        std::fs::create_dir_all(&journal_dir).unwrap();
+        let journal_path = journal_dir.join("child.jsonl");
+        write_replay_journal(&journal_path, "child task");
+        let record = SubagentRecord::new(
+            "sub-test",
+            std::process::id(),
+            std::process::id(),
+            1,
+            "child task",
+            workspace.path().display().to_string(),
+            journal_dir.display().to_string(),
+            true,
+            false,
+            8,
+            120,
+        );
+        let mut state = TuiState::new("mock", 6, 120);
+        let first = subagent_preview(&mut state, &record);
+        assert!(first.contains("连接测试成功。"), "{first}");
+        let before = state.subagent_preview_cache("sub-test").cursor.offset();
+
+        let events = first_principles_agent::read_events(&journal_path).unwrap();
+        let last = events.last().unwrap();
+        let appended = first_principles_agent::JournalEvent {
+            schema_version: last.schema_version,
+            run_id: last.run_id,
+            seq: last.seq + 1,
+            timestamp_unix_ms: last.timestamp_unix_ms + 1,
+            event: JournalEventKind::ToolCalled {
+                call: first_principles_agent::ToolCall {
+                    id: "tail-1".into(),
+                    name: "tail_tool".into(),
+                    arguments: serde_json::json!({}),
+                },
+            },
+        };
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&journal_path)
+            .unwrap();
+        writeln!(file, "{}", serde_json::to_string(&appended).unwrap()).unwrap();
+        file.flush().unwrap();
+
+        let second = subagent_preview(&mut state, &record);
+        assert!(second.contains("tail_tool"), "{second}");
+        assert!(
+            second.contains("连接测试成功。"),
+            "the previous timeline should be retained: {second}"
+        );
+        let after = state.subagent_preview_cache("sub-test").cursor.offset();
+        assert!(after > before);
+        assert_eq!(
+            after,
+            std::fs::metadata(&journal_path).unwrap().len(),
+            "the second read should consume only the appended event"
         );
     }
 

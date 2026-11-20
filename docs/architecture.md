@@ -880,7 +880,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   child run when known, exit status or stop reason) in the parent observation;
   no failure is reported as completed. The TUI squad details pane shows the
   session/run/spawn-call/child-run lineage and uses `-` for legacy records
-  without those fields; the panel layout and interaction are unchanged.
+  without those fields; the panel layout and interaction are unchanged. The
+  preview keeps a per-record `JournalCursor` and an 80-line timeline: the first
+  read is capped at the last 256 KiB of the journal, and later refreshes read
+  only appended events.
 - `schedule` persists interval jobs under the runtime home and `daemon` runs
   due jobs as isolated child processes. A pid lock prevents duplicate daemons;
   an overdue persisted job is caught up after restart, and `schedule health`

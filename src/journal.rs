@@ -794,6 +794,39 @@ pub fn read_events_incremental(
     Ok(events)
 }
 
+/// Read at most `max_bytes` from the end of a journal.
+///
+/// The first partial line is skipped, and the cursor points at the end of the
+/// complete lines that were parsed, so a later incremental read appends only
+/// new events. This bounds the UI's first read of a large child journal.
+pub fn read_events_tail(
+    path: impl AsRef<Path>,
+    max_bytes: u64,
+) -> Result<(Vec<JournalEvent>, JournalCursor), JournalReadError> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    let start = length.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let skipped = if start == 0 {
+        0
+    } else {
+        bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(0, |offset| offset + 1)
+    };
+    let (events, consumed, lines) = parse_event_lines(&bytes[skipped..], 0, true)?;
+    Ok((
+        events,
+        JournalCursor {
+            offset: start + skipped as u64 + consumed as u64,
+            line: lines,
+        },
+    ))
+}
+
 fn parse_event_lines(
     bytes: &[u8],
     first_line: usize,
@@ -2677,6 +2710,49 @@ mod reframe_journal_tests {
                 .is_empty()
         );
         assert_eq!(read_events(&path).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn tail_read_is_bounded_and_then_continues_incrementally() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("tail.jsonl");
+        let mut journal = Journal::create(&path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "x".repeat(512 * 1024),
+            })
+            .unwrap();
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "tail-visible".into(),
+            })
+            .unwrap();
+
+        let (events, mut cursor) = read_events_tail(&path, 64 * 1024).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0].event,
+            JournalEventKind::ClientRequestLinked { client_request_id }
+                if client_request_id == "tail-visible"
+        ));
+        assert_eq!(
+            cursor.offset(),
+            std::fs::metadata(&path).unwrap().len(),
+            "the tail cursor should land at EOF"
+        );
+
+        journal
+            .append(JournalEventKind::ClientRequestLinked {
+                client_request_id: "appended".into(),
+            })
+            .unwrap();
+        let appended = read_events_incremental(&path, &mut cursor).unwrap();
+        assert_eq!(appended.len(), 1);
+        assert!(matches!(
+            &appended[0].event,
+            JournalEventKind::ClientRequestLinked { client_request_id }
+                if client_request_id == "appended"
+        ));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use crate::clarify::{ClarifyPanel, OTHER_OPTION_ID};
 use crate::domain::{CognitiveMode, RiskLevel};
+use crate::journal::JournalCursor;
 use crate::safety::is_disallowed_control;
 use crate::subagent_registry::SubagentRecord;
 use crate::tui_clarify::{TuiClarifyResult, TuiClarifyState, TuiClarifyStep, outcome_label};
@@ -23,6 +24,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
 };
+use std::collections::{BTreeMap, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -842,6 +844,15 @@ fn prompt_marker(input: &str) -> Option<(usize, usize)> {
     best
 }
 
+/// Incremental child-journal preview: a tail-bounded first read, then only
+/// appended events. The timeline keeps the last visible lines for the panel.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SubagentPreviewCache {
+    pub journal_path: Option<PathBuf>,
+    pub cursor: JournalCursor,
+    pub timeline: VecDeque<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiState {
     pub last_instruction: String,
@@ -919,6 +930,7 @@ pub struct TuiState {
     secret_input: Option<SecretInput>,
     setting_input: Option<SettingInput>,
     provider_models: Vec<String>,
+    subagent_previews: BTreeMap<String, SubagentPreviewCache>,
 }
 
 impl TuiState {
@@ -999,6 +1011,7 @@ impl TuiState {
             secret_input: None,
             setting_input: None,
             provider_models: Vec::new(),
+            subagent_previews: BTreeMap::new(),
         }
     }
 
@@ -2116,9 +2129,15 @@ impl TuiState {
     }
 
     pub fn session_picker_set_squad(&mut self, squad: Vec<SubagentRecord>) {
+        self.subagent_previews
+            .retain(|id, _| squad.iter().any(|record| &record.id == id));
         if let Some(picker) = self.session_picker.as_mut() {
             picker.set_squad(squad);
         }
+    }
+
+    pub fn subagent_preview_cache(&mut self, id: &str) -> &mut SubagentPreviewCache {
+        self.subagent_previews.entry(id.to_string()).or_default()
     }
 
     pub fn session_picker_selected_squad(&self) -> Option<SubagentRecord> {
