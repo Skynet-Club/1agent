@@ -4,8 +4,9 @@ Status: **landed; profile guidance, environment manifest, step metrics, cache-sa
 nudges, read cache/coalescing/circuit breaker, and large-payload receipts**
 
 Feature commits: `1d0b164` (task profiles, step metrics, tool cache),
-`fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix) and
-`c0b0db3` (multi-tool page classification, page checklist, audit repair).
+`fd84da3` (context breakdown, recitation, CLI provider-attempt budget fix),
+`c0b0db3` (multi-tool page classification, page checklist, audit repair) and
+`5fc7830` (verification reserve, audit recheck, page acceptance re-plan).
 
 ## What changed
 
@@ -131,28 +132,30 @@ specific speedup on the original task.
 ## Original T1 rerun (same core task, isolated output path)
 
 The original 59-step task was rerun with the final rc.13 harness and an
-isolated output path (`/tmp/1agent-t1-rerun4/index.html`; the original
+isolated output path (`/tmp/1agent-t1-rerun8/index.html`; the original
 `/home/skynet/work/join-us` was not modified).
 
 | Metric | Baseline | Rerun | Change |
 |---|---:|---:|---:|
-| Wall clock | 365.0s | **177.6s** | **−51.3% (2.06×)** |
-| Model responses | 59 | **28** | −52.5% |
-| Loop steps | 59 | **26** | −55.9% |
-| Tool calls | 68 | **37** | −45.6% |
-| Input tokens | 4,946,706 | **1,287,351** | −74.0% |
-| Avg input tokens | 83,842 | **45,977** | −45.1% |
-| Max input tokens | 133,893 | **69,072** | −48.4% |
-| Tool time | 71.6s | 7.4s | −89.7% |
+| Wall clock | 365.0s | **184.0s** | **−49.6% (1.98×)** |
+| Model responses | 59 | **26** | −55.9% |
+| Loop steps | 59 | **25** | −57.6% |
+| Tool calls | 68 | **40** | −41.2% |
+| Input tokens | 4,946,706 | **1,257,280** | −74.6% |
+| Avg input tokens | 83,842 | **48,357** | −42.3% |
+| Max input tokens | 133,893 | **75,398** | −43.7% |
+| Tool time | 71.6s | 12.1s | −83.0% |
 | Final status | conditional | conditional | parity |
 | Browser audit | all_pass=true | all_pass=true | parity |
 
-The rerun found 6 small tap targets on its first two audits, fixed them, and
-re-audited to `all_pass=true`. This is the **quality-parity** result; the
-earlier fast-profile attempt stopped at 112s with 6 unfixed tap targets and was
-not counted as a win.
+The rerun found small tap targets, fixed them, and re-audited to
+`all_pass=true`. It still ended conditional because no `acceptance_gate`
+receipt was collected before the tool budget ended; the baseline was also
+conditional. This is the **quality-parity** result; earlier attempts without
+the audit/classifier fixes stopped with unfixed tap targets and were not
+counted as wins.
 
-Artifact: 23,543 bytes, sha256 `3e53ecaf…`; screenshots `t1-rerun-mobile.png`
+Artifact: 28,568 bytes, sha256 `8fef293f…`; screenshots `t1-rerun-mobile.png`
 and `t1-rerun-desktop.png`; full metrics `t1-rerun.json`.
 
 ### What made the rerun both faster and not dumber
@@ -205,10 +208,10 @@ not a model-quality claim.
 
 - `cargo fmt --check`: clean.
 - `cargo clippy --offline --all-targets -- -D warnings`: clean.
-- `cargo test --lib`: **1,383 passed / 0 failed / 4 ignored**.
+- `cargo test --lib`: **1,386 passed / 0 failed / 4 ignored**.
 - `cargo test --bins`: **68 passed / 0 failed**.
 - Full test suite with the known CLI-session test skipped:
-  **1,853 passed / 0 failed / 13 ignored**.
+  **1,856 passed / 0 failed / 13 ignored**.
 - Eval `evals/core.json`: **8/8 PASS**, hard-gate failures 0, rubric 6/6.
 - `scripts/verify-claims.sh`: **290 checked / 266 verified / 16 partial /
   8 no evidence**, structure only.

@@ -1,14 +1,14 @@
 状态：有条件完成
-结论：页面已做完，三视口体检全部通过：手机、平板、桌面都不横向溢出、无占位符残留、点击区域没有小于 44px 的； 交付在 /tmp/1agent-t1-rerun4/index.html，可打开 http://127.0.0.1:32919/ 直接看。
-信任摘要：我的判断 10 · 依据 8 · 假设 2 · 还没确定 4 · 改判 3
+结论：页面已交付到 /tmp/1agent-t1-rerun8/index.html（单文件、零外部请求），手机端可交互：岗位双 tab、三段「晨启人说」可展开、电话/邮箱一键复制、滚动后底部操作条出现； 浏览器实测 390/768/1440 三档 all_pass=true，横向溢出 0、占位符 0、小于 44px 的触控目标 0。
+信任摘要：我的判断 9 · 依据 7 · 假设 2 · 还没确定 4 · 改判 3
 依据：
-- [/home/skynet/work/join-us/source.md] 完整读取 14662 字节，含口号、四项福利、三则员工自述、两类岗位的职责与要求、电话 15810555856、邮箱 wangxudong@szchenqi.com 和三个校区地址。
-- [https://szchenqi.feishu.cn/wiki/QDPswzhW7irkiSkEq8McFXP1nMc] 抓取后最终地址变成 accounts.feishu.cn 的登录页，正文 0 字符。
-- [terminal_create] 两次调用都返回 create_failed: session_limit：活动会话最多 128 个，无法执行 lark-cli。
+- [/tmp/1agent-t1-rerun8/index.html] 写入后 28568 字节，sha256 8fef293f7f5568fe2e92cfb76072d91b4c92c2e166aff4b1a8170052f6a10a42；verify_artifact 返回 decision=verified、schema_ok=true、preview_ok=true
+- [http://127.0.0.1:8791/?v=2] audit 返回 all_pass=true，overflow_count=0，placeholder_hits=0，small_tap_targets=0；390→390/390，768→753/753，1440→1425/1425，h1_count=1，截图 390x900 sha256 808eaf63…、768x900 adb74498…、1440x900 1fda2670…
+- [/home/skynet/work/join-us/source.md] document_id Higbd259domECKx3XuZcinYWnEg，revision_id 990；含两类岗位方向、职责与要求、三处校区地址、电话 15810555856 与邮箱 wangxudong@szchenqi.com
 什么情况会改变结论：
-- 若 lark-cli 读到的线上 revision_id 不是 990，或正文里的岗位、电话、地址与快照不同，则 c1 和 c10 不成立，页面正文必须按线上文本重写
-- 若 acceptance_gate 返回 rejected 或 conditional，则 c7、c8 的体检结论不足以上线，需要按回执列出的问题重修
-- 若 ui-ux-pro-max 安装后按其流程复核，指出当前配色或间距不合规，则 c5、c9 的设计判断需要按该技能的结论调整
+- 若 终端会话能创建，lark-cli docs +fetch 成功且正文与 source.md 不一致，则 c3 与 c7 失效，页面文案需按新版本重写并重新质检
+- 若 点击探针显示 tab 切换或复制不生效，则 u1 升级为缺陷，交互部分需修复后重跑 audit
+- 若 ui-ux-pro-max 随后被安装并运行，则 c5 的缺口关闭，可补一次该技能的设计规则复核
 使用 --details 查看完整字段与路由轨迹
 
-运行日志：/tmp/1agent-t1-rerun4/.journal/869d6cf5-12d6-4fd5-9d79-342ccf92ea79.jsonl
+运行日志：/tmp/1agent-t1-rerun8/.journal/b00d6ddb-19c1-42c0-b995-db0ba54affed.jsonl

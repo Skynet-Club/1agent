@@ -1,10 +1,10 @@
 date: 2026-11-21
 version: 1agent 1.0.0-rc.13
-feature_commits: 1d0b164, fd84da3, c0b0db3
+feature_commits: 1d0b164, fd84da3, c0b0db3, 5fc7830
 release_binary: target/release/first-principles-agent
-release_binary_sha256: 58dacab0dbda06a59760812ac5bffecfe29d771f4512546c9c548034c8c2dff4
+release_binary_sha256: e599f26562c4ae786a9210096a5f777c6ed2f55061b762d9e8e36f7911d3ccfb
 installed: ~/.local/bin/1agent
-installed_sha256: 58dacab0dbda06a59760812ac5bffecfe29d771f4512546c9c548034c8c2dff4
+installed_sha256: e599f26562c4ae786a9210096a5f777c6ed2f55061b762d9e8e36f7911d3ccfb
 backup: ~/.local/bin/1agent-pre-super-2026-11-21
 installed_smoke:
   - "1agent --version" -> 1agent 1.0.0-rc.13
