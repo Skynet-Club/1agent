@@ -71,7 +71,7 @@ impl TaskProfileDecision {
                 "Use a short plan, gather only the evidence the deliverable needs, verify the artifact once, and answer. Expand the plan only when verification fails."
             }
             TaskProfile::Deep => {
-                "This is a complex or high-risk task. Plan before acting, keep decisions and evidence in the working notes, verify each artifact, and re-plan after a failed tool or test. Do not stop early without a concrete blocker."
+                "This is a complex or high-risk task. Plan before acting, keep decisions and evidence in the working notes, verify each artifact, and re-plan after a failed tool or test. Do not stop early without a concrete blocker. Maintain a short NOTES.md in the workspace with the goal, constraints, decisions, artifact paths/SHA, failed attempts, open questions and next step; update it at phase boundaries and re-read it after compaction."
             }
         };
         format!(
@@ -272,6 +272,15 @@ mod tests {
             "使用lark-cli 阅读理解，https://example.feishu.cn/wiki/abc 并且深度思考后 使用ui-ux-pro-max skill 制作成手机网页，并得到unslop skill 的质检验收",
         ));
         assert_eq!(decision.profile, TaskProfile::Deep);
+    }
+
+    #[test]
+    fn deep_guidance_names_notes_pointers_and_compaction() {
+        let decision = classify(&request("Refactor the authentication module"));
+        let guidance = decision.guidance();
+        assert!(guidance.contains("NOTES.md"));
+        assert!(guidance.contains("SHA"));
+        assert!(guidance.contains("compaction"));
     }
 
     #[test]
