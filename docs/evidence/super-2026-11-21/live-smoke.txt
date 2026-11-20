@@ -1,0 +1,6 @@
+状态：完成
+结论：The package version is `1.0.0-rc.13`, declared in the `[package]` section of `/home/skynet/1-agent/Cargo.toml` (crate name `first-principles-agent`). One full read of the file returned all 1334 bytes, so the version line was not cut off.
+信任摘要：我的判断 3 · 依据 1 · 假设 0 · 还没确定 0 · 改判 1
+使用 --details 查看完整字段与路由轨迹
+
+运行日志：/tmp/1agent-release-smoke/ca45d775-8e16-47eb-aed4-696d812679d0.jsonl

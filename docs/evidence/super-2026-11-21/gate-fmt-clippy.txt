@@ -1,0 +1,5 @@
+### cargo fmt --check
+
+### cargo clippy --offline --all-targets -- -D warnings
+    Checking first-principles-agent v1.0.0-rc.13 (/home/skynet/1-agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 35.14s

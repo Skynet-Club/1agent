@@ -1,0 +1,2 @@
+   Compiling first-principles-agent v1.0.0-rc.13 (/home/skynet/1-agent)
+    Finished `release` profile [optimized] target(s) in 1m 48s

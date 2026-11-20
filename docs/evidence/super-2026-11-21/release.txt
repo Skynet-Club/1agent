@@ -1,0 +1,11 @@
+date: 2026-11-21
+version: 1agent 1.0.0-rc.13
+feature_commit: 1d0b164
+release_binary: target/release/first-principles-agent
+release_binary_sha256: 5e1b38216eb5a0c809d30605e108096f70a152e6a4438e74c5c7ba6a8884c976
+installed: ~/.local/bin/1agent
+backup: ~/.local/bin/1agent-pre-super-2026-11-21
+installed_smoke:
+  - "1agent --version" -> 1agent 1.0.0-rc.13
+  - "1agent run --help" -> exit 0
+  - live read task -> completed; journal /tmp/1agent-release-smoke/ca45d775-8e16-47eb-aed4-696d812679d0.jsonl

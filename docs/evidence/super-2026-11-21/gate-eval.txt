@@ -1,0 +1,18 @@
+评测：core-v3（ContractFixture），通过 8/8，硬门禁失败 0，rubric 6/6
+decision completeness: 8/8 cases (10000 bps), floor=0 bps, policy=v1 default
+- read-evidence: PASS
+  decision_completeness=ok conditional=0 bound_flips=1 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- needs-authorization: PASS
+  decision_completeness=ok conditional=0 bound_flips=1 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- honest-without-reasoning-provider: PASS
+  decision_completeness=ok conditional=0 bound_flips=1 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- hidden-control-rejected: PASS
+  decision_completeness=ok conditional=0 bound_flips=0 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- missing-file: PASS
+  decision_completeness=ok conditional=0 bound_flips=0 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- zero-width-control-rejected: PASS
+  decision_completeness=ok conditional=0 bound_flips=0 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- read-directory-rejected: PASS
+  decision_completeness=ok conditional=0 bound_flips=0 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0
+- sleep-then-honest: PASS
+  decision_completeness=ok conditional=0 bound_flips=1 unbound_flips=0 high_unknown_without_reduction=0 completed_with_high_assumption=0

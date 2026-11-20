@@ -1,0 +1,8 @@
+claims checked    : 290
+  verified  ✅    : 266
+  partial   ⚠️    : 16
+  no evidence ❌  : 8
+README claims     : 0 (not yet mapped one by one)
+mode              : structure only
+
+claims table is well-formed

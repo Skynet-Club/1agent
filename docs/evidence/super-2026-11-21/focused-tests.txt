@@ -1,0 +1,86 @@
+
+### cargo test --lib task_profile::tests
+   Compiling first-principles-agent v1.0.0-rc.13 (/home/skynet/1-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.67s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 4 tests
+test task_profile::tests::complex_change_is_deep ... ok
+test task_profile::tests::small_artifact_is_fast ... ok
+test task_profile::tests::short_plain_request_is_standard ... ok
+test task_profile::tests::ambiguous_style_request_stays_standard ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1376 filtered out; finished in 0.00s
+
+
+### cargo test --lib runtime::tests::repeated_
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 2 tests
+test runtime::tests::repeated_read_is_served_from_cache_and_step_metrics_are_journaled ... ok
+test runtime::tests::repeated_identical_failure_opens_the_circuit ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1378 filtered out; finished in 0.02s
+
+
+### cargo test --lib runtime::tests::run_injects_profile_and_environment_manifest_once
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 1 test
+test runtime::tests::run_injects_profile_and_environment_manifest_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1379 filtered out; finished in 0.01s
+
+
+### cargo test --lib runtime::tests::large_tool_content_is_offloaded_to_a_receipt
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 1 test
+test runtime::tests::large_tool_content_is_offloaded_to_a_receipt ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1379 filtered out; finished in 0.01s
+
+
+### cargo test --lib runtime::tests::efficiency
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 2 tests
+test runtime::tests::efficiency_nudges_fire_at_the_checkpoint_steps ... ok
+test runtime::tests::efficiency_nudge_is_tail_only_and_keeps_the_system_prefix_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1378 filtered out; finished in 0.00s
+
+
+### cargo test --lib runtime::tests::fast_profile
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 1 test
+test runtime::tests::fast_profile_nudges_earlier_and_deep_profile_nudges_later ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1379 filtered out; finished in 0.00s
+
+
+### cargo test --lib tools::tests::only_side_effect_free_tools_are_parallel_safe
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 1 test
+test tools::tests::only_side_effect_free_tools_are_parallel_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1379 filtered out; finished in 0.00s
+
+
+### cargo test --lib tui::tests::running_activity_uses_working_label_and_run_metrics
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-afa532b19c308c96)
+
+running 1 test
+test tui::tests::running_activity_uses_working_label_and_run_metrics ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1379 filtered out; finished in 0.00s
+
