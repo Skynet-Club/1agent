@@ -50,6 +50,11 @@ const MAX_EVIDENCE_REPLANS: usize = 2;
 /// replaced with a receipt so the model keeps a small, cache-friendly context.
 const MAX_INLINE_TOOL_CONTENT_CHARS: usize = 32_000;
 
+/// Verification calls may exceed the tool budget by this many calls. Without
+/// the reserve, a run can exhaust its budget on fixes and never re-audit or
+/// collect the acceptance receipt for the fixed bytes.
+const VERIFICATION_RESERVE: usize = 3;
+
 /// Unknown ids used when the runtime downgrades a delivery.
 const ACCEPTANCE_UNKNOWN_ID: &str = "completion-acceptance";
 const UNFINISHED_ARTIFACT_UNKNOWN_ID: &str = "completion-artifact-unfinished";
@@ -529,6 +534,19 @@ pub(crate) fn action_status_for(observation: &ToolObservation) -> ActionStatus {
             ActionStatus::Cancelled
         }
         ToolStatus::Failed => ActionStatus::Failed,
+    }
+}
+
+fn is_verification_tool(call: &ToolCall) -> bool {
+    match call.name.as_str() {
+        "acceptance_gate" | "verify_artifact" | "preview_file" => true,
+        "browser" => {
+            call.arguments
+                .get("action")
+                .and_then(serde_json::Value::as_str)
+                == Some("audit")
+        }
+        _ => false,
     }
 }
 
@@ -2735,7 +2753,12 @@ impl AgentRuntime {
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
         let mut evidence_replans = 0usize;
+        let mut acceptance_replans = 0usize;
         let mut audit_repair_nudges = 0usize;
+        let mut audit_recheck_nudges = 0usize;
+        let mut verification_reserve_used = 0usize;
+        let mut last_audit_all_passed = false;
+        let mut write_since_audit = false;
         let mut last_turn: Option<(ModelRequest, String, String)> = None;
         let mut completion_gate = CompletionGate::new(looks_like_page_task(
             &request.objective,
@@ -3340,6 +3363,44 @@ impl AgentRuntime {
                             StopReason::NeedsEvidence,
                         );
                     }
+                    if acceptance_replans < 1
+                        && looks_like_page_task(&request.objective, request.deliverable.as_deref())
+                        && completion_gate.accepted_receipt.is_none()
+                        && !completion_gate.side_effect_tools.is_empty()
+                    {
+                        acceptance_replans += 1;
+                        let draft = serde_json::to_string(&answer).map_err(|error| {
+                            RuntimeError::InvalidOutput {
+                                path: journal_path.clone(),
+                                message: format!(
+                                    "cannot serialize answer draft for acceptance re-plan: {error}"
+                                ),
+                            }
+                        })?;
+                        messages.push(ModelMessage::assistant(draft, Vec::new()));
+                        messages.push(ModelMessage::user(
+                            "Runtime acceptance checkpoint (internal, not a user request): side-effect tools ran, but there is no accepted acceptance_gate receipt. Before answering, call acceptance_gate with the task contract and per-criterion evidence from this run, and require decision=accepted. If you cannot obtain it, return conditional with the exact missing evidence. Do not claim completed without the receipt."
+                                .to_string(),
+                        ));
+                        continue;
+                    }
+                    if last_audit_all_passed && write_since_audit && audit_recheck_nudges < 1 {
+                        audit_recheck_nudges += 1;
+                        let draft = serde_json::to_string(&answer).map_err(|error| {
+                            RuntimeError::InvalidOutput {
+                                path: journal_path.clone(),
+                                message: format!(
+                                    "cannot serialize answer draft for audit re-check: {error}"
+                                ),
+                            }
+                        })?;
+                        messages.push(ModelMessage::assistant(draft, Vec::new()));
+                        messages.push(ModelMessage::user(
+                            "Runtime audit invalidation checkpoint (internal, not a user request): the page changed after its last passing browser audit. Re-run the browser audit at 390/768/1440 on the current artifact before answering. If it passes, answer; if it fails, fix and re-audit. Do not claim the earlier audit for the current bytes."
+                                .to_string(),
+                        ));
+                        continue;
+                    }
                     let stop_reason = stop_reason_for_answer(answer.status);
                     return finish_with_answer(
                         &mut journal,
@@ -3512,9 +3573,13 @@ impl AgentRuntime {
                             message: "model returned an empty tool-call list".into(),
                         });
                     }
-                    if request.budget.max_tool_calls != 0
-                        && tool_calls.saturating_add(calls.len()) > request.budget.max_tool_calls
-                    {
+                    let over_tool_budget = request.budget.max_tool_calls != 0
+                        && tool_calls.saturating_add(calls.len()) > request.budget.max_tool_calls;
+                    let verification_reserve_ok = over_tool_budget
+                        && calls.iter().all(is_verification_tool)
+                        && verification_reserve_used.saturating_add(calls.len())
+                            <= VERIFICATION_RESERVE;
+                    if over_tool_budget && !verification_reserve_ok {
                         let answer = self
                             .answer_at_budget(
                                 &mut journal,
@@ -3557,6 +3622,10 @@ impl AgentRuntime {
                             answer,
                             stop_reason,
                         });
+                    }
+                    if verification_reserve_ok {
+                        verification_reserve_used =
+                            verification_reserve_used.saturating_add(calls.len());
                     }
                     tool_calls = tool_calls.saturating_add(calls.len());
                     // A gate in the same model turn cannot have seen this
@@ -3695,6 +3764,20 @@ impl AgentRuntime {
                             }
                             if audit_repair.is_none() {
                                 audit_repair = audit_failure_nudge(&observation);
+                            }
+                            if observation.status == ToolStatus::Ok
+                                && self.tools.requires_write(&call.name)
+                            {
+                                write_since_audit = true;
+                            }
+                            if observation.tool == "browser"
+                                && observation.metadata.get("action").map(String::as_str)
+                                    == Some("audit")
+                                && observation.metadata.get("all_pass").map(String::as_str)
+                                    == Some("true")
+                            {
+                                last_audit_all_passed = true;
+                                write_since_audit = false;
                             }
                             completion_gate.observe(
                                 call,
@@ -4783,6 +4866,32 @@ mod tests {
         assert!(recitation.contains("mobile first"));
         assert!(recitation.contains("page opens"));
         assert!(goal_recitation(&request, TaskProfile::Fast, 9).is_none());
+    }
+
+    #[test]
+    fn verification_reserve_only_covers_audit_and_acceptance() {
+        assert!(is_verification_tool(&tool_call(
+            "call-1",
+            "acceptance_gate"
+        )));
+        assert!(is_verification_tool(&tool_call(
+            "call-2",
+            "verify_artifact"
+        )));
+        assert!(is_verification_tool(&tool_call("call-3", "preview_file")));
+        let audit = ToolCall {
+            id: "call-4".into(),
+            name: "browser".into(),
+            arguments: serde_json::json!({"action": "audit"}),
+        };
+        assert!(is_verification_tool(&audit));
+        let open = ToolCall {
+            id: "call-5".into(),
+            name: "browser".into(),
+            arguments: serde_json::json!({"action": "open"}),
+        };
+        assert!(!is_verification_tool(&open));
+        assert!(!is_verification_tool(&tool_call("call-6", "write_file")));
     }
 
     #[test]
@@ -6991,6 +7100,182 @@ mod tests {
             message.role == crate::domain::MessageRole::User
                 && message.content.contains("browser audit failed")
                 && message.content.contains("small_tap_targets=6")
+        }));
+    }
+
+    struct SideEffectTool;
+
+    #[async_trait]
+    impl crate::tools::AgentTool for SideEffectTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "write_one".into(),
+                description: "test write tool".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn requires_write(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            Ok(crate::tools::ToolOutcome {
+                summary: "wrote one".into(),
+                content: "ok".into(),
+                metadata: BTreeMap::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn side_effect_answer_without_receipt_gets_an_acceptance_replan() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(SideEffectTool));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "write-1".into(),
+                        name: "write_one".into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("done"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("done after checkpoint"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+        let mut request =
+            TaskRequest::from_objective("write one HTML page", workspace.path().into());
+        request.permissions.allow_write = true;
+
+        runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(requests.len() >= 3);
+        assert!(requests.iter().any(|request| {
+            request.messages.iter().any(|message| {
+                message.role == crate::domain::MessageRole::User
+                    && message.content.contains("acceptance checkpoint")
+                    && message.content.contains("acceptance_gate")
+            })
+        }));
+    }
+
+    struct PassingAuditTool;
+
+    #[async_trait]
+    impl crate::tools::AgentTool for PassingAuditTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "browser".into(),
+                description: "test browser audit that passes".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": true
+                }),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            let mut metadata = BTreeMap::new();
+            metadata.insert("action".into(), "audit".into());
+            metadata.insert("all_pass".into(), "true".into());
+            metadata.insert("small_tap_targets".into(), "0".into());
+            metadata.insert("overflow".into(), "0".into());
+            metadata.insert("placeholders".into(), "0".into());
+            Ok(crate::tools::ToolOutcome {
+                summary: "audit passed".into(),
+                content: "audit".into(),
+                metadata,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn write_after_passing_audit_requires_a_recheck() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(SideEffectTool));
+        registry.register(Arc::new(PassingAuditTool));
+        let write = || ModelTurn::ToolCalls {
+            calls: vec![ToolCall {
+                id: "write-1".into(),
+                name: "write_one".into(),
+                arguments: serde_json::json!({}),
+            }],
+        };
+        let audit = || ModelTurn::ToolCalls {
+            calls: vec![ToolCall {
+                id: "audit-1".into(),
+                name: "browser".into(),
+                arguments: serde_json::json!({"action": "audit"}),
+            }],
+        };
+        let final_turn = || ModelTurn::Final {
+            answer: completed_answer("done"),
+        };
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                write(),
+                audit(),
+                write(),
+                final_turn(),
+                final_turn(),
+                final_turn(),
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, registry);
+        let mut request = TaskRequest::from_objective("write one thing", workspace.path().into());
+        request.permissions.allow_write = true;
+
+        runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert!(requests.iter().any(|request| {
+            request.messages.iter().any(|message| {
+                message.role == crate::domain::MessageRole::User
+                    && message.content.contains("audit invalidation checkpoint")
+                    && message.content.contains("Re-run the browser audit")
+            })
         }));
     }
 
