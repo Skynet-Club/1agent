@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-cb0ca464-7251-41ae-a257-1169ecb8d22e",
+  "goal_id": "goal-657851e0-a84e-48fa-a287-18607b288113",
+  "version": 1,
+  "summary": "规划阶段已读 docs/agent-registry.md（list/find 现有参数为 --capability/--idle/--busy/--include-stale，过滤在 Rust agents 模块内完成）并检索到 ponytail 技能正文；据此生成两个 Work Item：①按 ponytail（full）约束给 skynet-term-agents 的 list/find 加最小完整改动 --count N 并补一处 CLI 断言测试，②最小同步 docs/agent-registry.md。计划不执行任何改动，approved=false。",
+  "work_items": [
+    {
+      "id": "agents-count-flag",
+      "title": "为 list/find 增加 --count N（最小改动+一处检查）",
+      "objective": "按 ponytail（full 级）约束为 skynet-term-agents 的 list 与 find 增加 --count N，产出可运行的最小完整改动。开始前先读 src/bin/skynet-term-agents.rs、src/agents.rs 的 list/find 签名与 tests/agent_registry_cli.rs，列出改动必须触达的位置（usage 文本、两个子命令的解析、测试）。ponytail 约束：先问'这个功能是否必须存在'——目标只要求 CLI 的 list/find，因此不要改 agents::list/find 的签名、不要给 MCP agents_list 或 GUI 加参数、不加配置项/包装层/兼容开关/将来可能用到的抽象；优先复用文件里已有的 take_flag/take_value 风格并在既有 stale 与 idle/busy 过滤之后截断结果（保持现有层与约定）；只有在必须时才新增代码，删除优于新增；--count 的取值保持 CLI 已给的字符串->整数形式，不做额外类型转换层。新分支（截断+非法值）属于非平凡逻辑，需在 tests/agent_registry_cli.rs 现有的断言式 CLI 测试里补一条最小断言（注册两条记录后 list --count 1 只返回 1 条、find --capability X --count 1 同理、非法 --count 以非 0 退出且不 panic），不追求覆盖率。若为已知限制留下取舍，用一行 `shortcut: <限制>, <何时升级>` 注释，不要注释代码本身显而易见的内容。不得削减校验与错误处理：--count 缺少值必须报错，合法路径行为与现在完全一致。若发现问题根因在共享代码只改一处，不复制逻辑。结束时在回复末尾用一到两行说明跳过了什么（例如 MCP/GUI 未加 --count）以及用户需要知道的风险。",
+      "dependencies": [],
+      "required_capabilities": [
+        "rust",
+        "testing"
+      ],
+      "required_tools": [],
+      "permissions": {
+        "read_roots": [
+          "/tmp/skynet-workshop-parallel-dev"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "src/bin/skynet-term-agents.rs 中 list 与 find 都接受 --count N，usage() 文本同时列出该选项，未传时行为与改动前一致",
+        "截断发生在既有 stale 与 idle/busy 过滤之后：注册两条非 stale 记录后 `list --count 1` 只输出 1 条，`find --capability <c> --count 1` 只输出 1 条",
+        "--count 缺值或非数字时以非 0 退出并输出可读错误，不 panic",
+        "tests/agent_registry_cli.rs 新增的断言覆盖上述截断与非法值路径，且原有注册/心跳/注销/销毁断言仍通过",
+        "`cargo test --locked --test agent_registry_cli` 与 `cargo test --locked agents` 通过",
+        "未修改 src/agents.rs 的 list/find 签名、src/mcp.rs、GUI 或新增依赖；回复末尾有一到两行说明跳过项与风险"
+      ],
+      "expected_artifacts": [
+        "src/bin/skynet-term-agents.rs",
+        "tests/agent_registry_cli.rs"
+      ],
+      "workspace": "/tmp/skynet-workshop-parallel-dev",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 300000,
+        "max_tool_calls": 14
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "agents-count-doc",
+      "title": "同步 docs/agent-registry.md 的 --count 说明",
+      "objective": "按 ponytail（full 级）约束，最小同步文档以匹配 agents-count-flag 的最终 --count 语义：只在 docs/agent-registry.md 的用法代码块里给 `skynet-term-agents list` 与 `find` 两行加上 `--count N`，并在讲 stale 的那段附近补一句说明（截断发生在 stale 与 idle/busy 过滤之后，只影响输出条数，Registry 记录不变）。约束：不重写文档结构、不新增章节或示例文件、不改 README 及其他文档、不描述代码尚未实现的行为；写之前先读已有中文措辞并按同样风格续写，保持文档承诺与 src/bin/skynet-term-agents.rs 的实际行为一致。若文档与实现存在不一致，只修正本次改动的部分并在回复末尾一行说明其余差异属于已知限制。",
+      "dependencies": [
+        "agents-count-flag"
+      ],
+      "required_capabilities": [
+        "rust",
+        "documentation"
+      ],
+      "required_tools": [],
+      "permissions": {
+        "read_roots": [
+          "/tmp/skynet-workshop-parallel-dev"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "docs/agent-registry.md 用法块中 list 与 find 行包含 --count N，语法与实际 CLI 一致",
+        "文档明确说明截断在 stale 与 idle/busy 过滤之后进行且不改变存储内容",
+        "改动仅限 docs/agent-registry.md，未新增章节、示例文件或修改其他文件",
+        "文档中未出现未被代码实现的行为描述"
+      ],
+      "expected_artifacts": [
+        "docs/agent-registry.md"
+      ],
+      "workspace": "/tmp/skynet-workshop-parallel-dev",
+      "budget": {
+        "max_steps": 4,
+        "timeout_ms": 180000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 2,
+  "approved": false
+}

@@ -195,6 +195,19 @@ Every event contains the post-transition state; load prefers replaying the journ
 `audit` validates sequence, identity, bounded counters and status transitions. Planner
 requests and responses are separately journaled before a plan enters the Master store.
 
+`master plan` runs a bounded read-only tool loop before it returns a plan. The planner
+may use `read_file`, `search_files`, `read_document` and `skill_search` under the
+planning workspace; each tool call and observation is written to the planning journal.
+With `--allow-network` and `~/.1a/skill-exec.json`, the planner may also use
+`skill_exec` to run operator-allowlisted read-only commands from an external skill CLI
+(for example `lark-cli docs +fetch`). The limits are twelve tool steps and twenty-four
+tool calls per plan. `read_document` covers text/markup, PDF, OOXML/ODF/EPUB, RTF, archives
+and optional image OCR; `skill_search` indexes the 1Agent skill journal and user
+`SKILL.md` roots, returning metadata and a bounded body. It never activates or executes
+a skill: skill application belongs to the Worker Work Item. `skill_exec` uses no shell,
+runs only declared read-only argument prefixes and never writes. See
+`docs/document-readers.md` and `docs/skill-exec.md`.
+
 Default safety limits are eight Work Items, three parallel tasks, one automatic retry per
 task and one automatic replan per run. A plan must be approved before dispatch. A
 nonterminal lease cannot be silently replaced even after expiry; explicit cancel/takeover
@@ -772,17 +785,24 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - `spawn_agent` starts a bounded child `1agent run` with its own journal,
   workspace and budget. Depth is capped at 2, requested write/network
   permissions are intersected with the parent's (they can only restrict), and
-  the child is killed with the parent process. The spawn itself is classified
+  the child is killed when the parent cancels or drops it; OS-level cleanup
+  after a parent `SIGKILL` remains open as MA-011 in
+  `1.2-multi-agent-hardening-plan.md`. The spawn itself is classified
   as write-capable, so read-only mode, the kill switch and write-level
   Authority checks run before any child starts. Each run scopes a task-local
-  `RunContext {run_id, session_id}` around tool execution, so a successful
-  spawn writes `parent_run_id`, `parent_session_id`, `spawn_call_id` and
-  `child_run_id` to the subagent registry and the same parent/child ids to the
-  spawn observation metadata. Runs outside a TUI session leave
-  `parent_session_id` empty rather than guessing one. The child inherits
-  `ONEAGENT_PARENT_RUN_ID`/`ONEAGENT_PARENT_SESSION_ID`/
+  `RunContext {run_id, session_id, goal_id, work_item_id}` around tool
+  execution, so a successful spawn writes `parent_run_id`,
+  `parent_session_id`, `spawn_call_id`, `child_run_id`, `goal_id`,
+  `work_item_id` and `delegation_id` to the subagent registry and the same
+  parent/child ids to the spawn observation metadata. Runs outside a TUI
+  session leave `parent_session_id` empty rather than guessing one. The child
+  inherits `ONEAGENT_PARENT_RUN_ID`/`ONEAGENT_PARENT_SESSION_ID`/
   `ONEAGENT_SPAWN_CALL_ID` and writes a `ParentRunLinked` journal event, so a
-  child journal points back to the spawning run. Failed, timed-out and
+  child journal points back to the spawning run. A completed child must return
+  a readable journal; a missing, oversized or audit-failing journal fails
+  closed. The tool result carries the conclusion plus a bounded structured
+  `answer` (claims, evidence, conflicts, unknowns; counts when truncated); the
+  full answer stays in the child journal. Failed, timed-out and
   cancelled spawns return structured metadata (status, parent ids, spawn call,
   child run when known, exit status or stop reason) in the parent observation;
   no failure is reported as completed. The TUI squad details pane shows the

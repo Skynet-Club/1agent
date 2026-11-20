@@ -79,6 +79,14 @@ pub struct SubagentRecord {
     pub spawn_call_id: Option<String>,
     #[serde(default)]
     pub child_run_id: Option<String>,
+    /// Durable goal and work item this child serves, when known.
+    #[serde(default)]
+    pub goal_id: Option<String>,
+    #[serde(default)]
+    pub work_item_id: Option<String>,
+    /// Stable id for the whole delegation: parent run + spawn call.
+    #[serde(default)]
+    pub delegation_id: Option<String>,
     pub depth: u8,
     pub task: String,
     pub workspace: String,
@@ -120,6 +128,9 @@ impl SubagentRecord {
             parent_run_id: None,
             spawn_call_id: None,
             child_run_id: None,
+            goal_id: None,
+            work_item_id: None,
+            delegation_id: None,
             depth,
             task: task.into(),
             workspace: workspace.into(),
@@ -381,6 +392,9 @@ mod tests {
         record.parent_session_id = Some("ses_parent".into());
         record.parent_run_id = Some("run-parent".into());
         record.spawn_call_id = Some("call-7".into());
+        record.goal_id = Some("goal-7".into());
+        record.work_item_id = Some("wi-7".into());
+        record.delegation_id = Some("run-parent:call-7".into());
 
         let mut guard = RegistryGuard {
             path: path.clone(),
@@ -401,6 +415,9 @@ mod tests {
         assert_eq!(latest.parent_run_id.as_deref(), Some("run-parent"));
         assert_eq!(latest.spawn_call_id.as_deref(), Some("call-7"));
         assert_eq!(latest.child_run_id.as_deref(), Some("run-child"));
+        assert_eq!(latest.goal_id.as_deref(), Some("goal-7"));
+        assert_eq!(latest.work_item_id.as_deref(), Some("wi-7"));
+        assert_eq!(latest.delegation_id.as_deref(), Some("run-parent:call-7"));
     }
 
     #[test]
@@ -448,6 +465,9 @@ mod tests {
             "parent_run_id",
             "spawn_call_id",
             "child_run_id",
+            "goal_id",
+            "work_item_id",
+            "delegation_id",
         ] {
             assert!(object.remove(key).is_some(), "expected {key} in old record");
         }
@@ -457,5 +477,8 @@ mod tests {
         assert!(parsed.parent_run_id.is_none());
         assert!(parsed.spawn_call_id.is_none());
         assert!(parsed.child_run_id.is_none());
+        assert!(parsed.goal_id.is_none());
+        assert!(parsed.work_item_id.is_none());
+        assert!(parsed.delegation_id.is_none());
     }
 }

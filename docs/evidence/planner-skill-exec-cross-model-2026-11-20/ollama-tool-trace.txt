@@ -1,0 +1,18 @@
+# 1agent master plan — local Ollama qwen3-8b-16k live run (2026-11-20)
+# Same task and skill-exec policy as the DeepSeek run. num_ctx=16384.
+# Source: Lark DOCX HztBdLEAXorDhQxCYp1cyDXOnmd (revision 8), never fetched.
+
+step  tool          call                                                         status             observation
+0     skill_search  query=lark-cli max_results=1                                ok                 0 skills (CLI skill is not a filesystem SKILL.md)
+1     skill_exec    ["fetch", <doc-url>]                                         invalid_arguments  not an allowed prefix; allowed: skills list | skills read | docs +fetch | docs +search
+2     skill_exec    ["docs", "fetch", <doc-url>]                               invalid_arguments  not an allowed prefix; needs "docs +fetch"
+3     read_document  docx/HztBdLEAXorDhQxCYp1cyDXOnmd.pdf max_chars=1000000    invalid_arguments  max_chars above 200000
+4     read_document  docx/HztBdLEAXorDhQxCYp1cyDXOnmd.pdf max_chars=200000     failed             no such local file
+5-8   (final)       PlanProposal                                                  ok                 3 Work Items, approved=false, not document-grounded
+
+Totals: 9 model requests, 5 tool calls, 0 successful document reads, 198.1 s,
+18,845 input / 7,292 output tokens.
+
+The final plan is schema-valid but generic: multi-cloud landing zone, SOC2
+compliance and Grafana/Prometheus observability. It invents "per document"
+constraints and sets allow_network=true. The document was never read.

@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-6bacd933-afe5-4ac8-ab27-e05726725483",
+  "goal_id": "goal-b4f03985-befe-49a6-977f-e229b1cfc8dc",
+  "version": 1,
+  "summary": "90-day landing plan analysis and productization work items for Skyget/1Agent",
+  "work_items": [
+    {
+      "id": "work-1",
+      "title": "Landing Zone Architecture Design",
+      "objective": "Implement multi-cloud architecture with 3 AZs redundancy per region, meeting 99.95% SLA per document constraint",
+      "dependencies": [],
+      "required_capabilities": [
+        "cloud_infrastructure",
+        "network_design"
+      ],
+      "required_tools": [
+        "terraform",
+        "gcp_cli",
+        "aws_cli"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": true,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "Terraform plan validated",
+        "Network latency < 15ms between AZs"
+      ],
+      "expected_artifacts": [
+        "terraform/landing_zone.tf",
+        "docs/architecture_review.md"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "medium",
+      "status": "pending"
+    },
+    {
+      "id": "work-2",
+      "title": "Security Compliance Automation",
+      "objective": "Deploy CIS benchmarks with real-time audit logging, satisfying SOC2 Type II requirements from document",
+      "dependencies": [
+        "work-1"
+      ],
+      "required_capabilities": [
+        "security_compliance",
+        "devops"
+      ],
+      "required_tools": [
+        "gcloud",
+        "aws_config",
+        "sentinel"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": true,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "Compliance dashboard operational",
+        "Daily audit reports generated"
+      ],
+      "expected_artifacts": [
+        "security/compliance_pipeline.yaml",
+        "reports/weekly_audit.log"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "high",
+      "status": "pending"
+    },
+    {
+      "id": "work-3",
+      "title": "Observability Stack Integration",
+      "objective": "Implement centralized logging with 15ms latency SLI, per document's observability requirements",
+      "dependencies": [
+        "work-1"
+      ],
+      "required_capabilities": [
+        "monitoring",
+        "log_analysis"
+      ],
+      "required_tools": [
+        "grafana",
+        "prometheus",
+        "cloudwatch"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": true,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "Dashboards available in 24h",
+        "Alerts configured for 99.9% uptime"
+      ],
+      "expected_artifacts": [
+        "observability/grafana_dashboard.json",
+        "configs/prometheus.yml"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "medium",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 3,
+  "approved": false
+}

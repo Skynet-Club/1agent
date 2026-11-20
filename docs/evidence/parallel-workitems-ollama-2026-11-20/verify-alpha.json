@@ -1,0 +1,17 @@
+{
+  "task_id": "alpha",
+  "criteria_results": [
+    {
+      "criterion": "result.txt exists and contains alpha",
+      "passed": true,
+      "evidence": [
+        "result.txt read back as alpha"
+      ]
+    }
+  ],
+  "test_results": [],
+  "evidence": [
+    "independent check: result.txt exists and contains alpha"
+  ],
+  "verified_by": "operator"
+}

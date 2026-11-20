@@ -1,0 +1,33 @@
+{
+  "plan_id": "plan-9f2c1f62-37d0-4c2f-9eb9-3048386fabe1",
+  "goal_id": "goal-92aa868d-77b0-4df9-89e8-29f7609d8e48",
+  "version": 1,
+  "approved": false,
+  "max_parallel": 2,
+  "work_items": [
+    {
+      "id": "skyget-90day-brief",
+      "title": "Skyget 90 天落地方案执行摘要与工作分解",
+      "dependencies": [],
+      "status": "pending",
+      "risk": "low"
+    },
+    {
+      "id": "1agent-skyget-boundary-memo",
+      "title": "1Agent 与 Skyget 的边界与投入度备忘（内部）",
+      "dependencies": [],
+      "status": "pending",
+      "risk": "low"
+    },
+    {
+      "id": "skyget-gate-and-spec-checklist",
+      "title": "Skyget 四道门禁检查单与埋点/自愈/license 规格草案",
+      "dependencies": [
+        "skyget-90day-brief"
+      ],
+      "status": "pending",
+      "risk": "low"
+    }
+  ],
+  "note": "Full plan kept locally; this summary and plan.sha256 are committed instead of the private document content."
+}

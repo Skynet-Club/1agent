@@ -1,0 +1,67 @@
+{
+  "task": "Read the Feishu DOCX HztBdLEAXorDhQxCYp1cyDXOnmd with lark-cli via skill_exec, then produce 2-3 grounded Work Items for Skyget/1Agent productization.",
+  "workspace": "/home/skynet/1-agent",
+  "binary_sha256": "e152970023e2a76f96af1c1cbb9fc26dd3ec23d4f08de2eaf705885317662194",
+  "source_document": {
+    "document_id": "HztBdLEAXorDhQxCYp1cyDXOnmd",
+    "revision_id": 8
+  },
+  "models": {
+    "deepseek-flash": {
+      "provider": "deepseek",
+      "config": "~/.1a/config.json",
+      "requests": 6,
+      "tool_calls": 8,
+      "successful_tool_calls": 7,
+      "failed_tool_calls": 1,
+      "successful_doc_reads": 1,
+      "doc_read_chars": 24270,
+      "elapsed_ms": 43148,
+      "input_tokens": 94953,
+      "output_tokens": 8132,
+      "work_items": 3,
+      "valid_plan": true,
+      "document_grounded": true,
+      "fabricated_document_claims": false,
+      "boundary_compliant": true,
+      "rubric_score_0_10": 10,
+      "evidence": "../planner-skill-exec-2026-11-20/"
+    },
+    "qwen3-8b-16k": {
+      "provider": "ollama-local",
+      "config": "configs/ollama-local.json",
+      "num_ctx": 16384,
+      "requests": 9,
+      "tool_calls": 5,
+      "successful_tool_calls": 1,
+      "failed_tool_calls": 4,
+      "successful_doc_reads": 0,
+      "doc_read_chars": 0,
+      "elapsed_ms": 198097,
+      "input_tokens": 18845,
+      "output_tokens": 7292,
+      "work_items": 3,
+      "valid_plan": true,
+      "document_grounded": false,
+      "fabricated_document_claims": true,
+      "boundary_compliant": false,
+      "rubric_score_0_10": 1,
+      "evidence": "."
+    }
+  },
+  "rubric": {
+    "skill_discovery": {"weight": 1, "deepseek": 1, "ollama": 0},
+    "doc_fetch": {"weight": 2, "deepseek": 2, "ollama": 0},
+    "error_recovery": {"weight": 1, "deepseek": 1, "ollama": 0},
+    "valid_plan": {"weight": 1, "deepseek": 1, "ollama": 1},
+    "document_grounding": {"weight": 3, "deepseek": 3, "ollama": 0},
+    "no_fabricated_claims": {"weight": 1, "deepseek": 1, "ollama": 0},
+    "boundary_compliance": {"weight": 1, "deepseek": 1, "ollama": 0}
+  },
+  "limitations": [
+    "One run per model; no repeated sampling.",
+    "qwen3-8b-16k used a 16k context; the DeepSeek run used much more input context.",
+    "The prompt/tool schema targets capable tool-calling models.",
+    "Local 8B quality is not a release gate; this is a capability comparison."
+  ]
+}

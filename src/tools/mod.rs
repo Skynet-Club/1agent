@@ -20,6 +20,10 @@ use crate::safety::contains_disallowed_control;
 pub struct RunContext {
     pub run_id: String,
     pub session_id: Option<String>,
+    /// Durable goal this run is serving, when the caller knows it.
+    pub goal_id: Option<String>,
+    /// Master/Workshop work item this run is serving, when known.
+    pub work_item_id: Option<String>,
 }
 
 tokio::task_local! {
@@ -51,7 +55,10 @@ mod files;
 mod mcp;
 mod memory;
 mod preview;
+mod read_document;
 mod session;
+mod skill_exec;
+mod skill_search;
 mod skills;
 mod subagent;
 mod terminal;
@@ -67,7 +74,10 @@ pub use files::*;
 pub use mcp::*;
 pub use memory::*;
 pub use preview::*;
+pub use read_document::*;
 pub use session::*;
+pub use skill_exec::*;
+pub use skill_search::*;
 pub use skills::*;
 pub use subagent::*;
 pub use terminal::*;
@@ -1251,6 +1261,8 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(Arc::new(UserModelTool::from_env()));
     registry.register(Arc::new(MemoryWhyTool::from_env()));
     registry.register(Arc::new(PdfReadTool::from_env()));
+    registry.register(Arc::new(ReadDocumentTool::from_env()));
+    registry.register(Arc::new(SkillSearchTool::from_env()));
     registry.register(Arc::new(SearchFilesTool));
     registry.register(Arc::new(FetchUrlTool));
     registry.register(Arc::new(WebSearchTool));

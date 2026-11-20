@@ -2027,6 +2027,8 @@ impl AgentRuntime {
         let run_context = crate::tools::RunContext {
             run_id: run_id.to_string(),
             session_id: self.session_id.clone(),
+            goal_id: std::env::var("ONEAGENT_GOAL_ID").ok(),
+            work_item_id: std::env::var("ONEAGENT_WORK_ITEM_ID").ok(),
         };
         let journal_path = self.journal_dir.join(format!("{run_id}.jsonl"));
         let mut journal =
@@ -4418,6 +4420,8 @@ mod tests {
                 crate::tools::RunContext {
                     run_id: "run-allow".into(),
                     session_id: Some("ses-allow".into()),
+                    goal_id: None,
+                    work_item_id: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -4481,6 +4485,8 @@ mod tests {
                 crate::tools::RunContext {
                     run_id: "run-deny".into(),
                     session_id: None,
+                    goal_id: None,
+                    work_item_id: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -4549,6 +4555,8 @@ mod tests {
                 crate::tools::RunContext {
                     run_id: "run-approval".into(),
                     session_id: Some("ses-approval".into()),
+                    goal_id: None,
+                    work_item_id: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {
@@ -4706,6 +4714,8 @@ mod tests {
                 crate::tools::RunContext {
                     run_id: run_id.into(),
                     session_id: Some("ses-approval".into()),
+                    goal_id: None,
+                    work_item_id: None,
                 },
                 runtime.execute_tool(
                     &ToolCall {

@@ -16350,7 +16350,15 @@ async fn run_master_plan(
             .map(|candidate| candidate.provider.clone())
             .context("provider list is empty")?
     };
-    let generator = ModelPlanGenerator::new(provider).with_journal_dir(&planner_journal_dir);
+    let mut generator = ModelPlanGenerator::new(provider).with_journal_dir(&planner_journal_dir);
+    if allow_network {
+        match first_principles_agent::SkillExecTool::from_env() {
+            Ok(Some(tool)) => generator = generator.with_skill_exec(Arc::new(tool)),
+            Ok(None) => {}
+            Err(error) => bail!("invalid skill-exec policy: {error}"),
+        }
+    }
+    let generator = generator.with_network(allow_network);
     let cancellation = CancellationToken::new();
     let plan = generator.generate(&context, &cancellation).await?;
     if !json {

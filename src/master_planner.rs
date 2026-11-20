@@ -7,12 +7,19 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-#[cfg(test)]
-use crate::domain::PermissionSet;
-use crate::domain::{AgentAnswer, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, RiskLevel};
+use crate::domain::{
+    AgentAnswer, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, PermissionSet, RiskLevel,
+};
 use crate::master::{AgentProfile, MasterPlanError, PlanProposal};
 use crate::production_line::{ProductionLineError, ProductionPlan};
 use crate::provider::{ModelProvider, ProviderError};
+use crate::tools::{
+    AgentTool, ReadDocumentTool, ReadFileTool, SearchFilesTool, SkillSearchTool, ToolRegistry,
+};
+
+const MAX_PLANNER_TOOL_STEPS: usize = 12;
+const MAX_PLANNER_TOOL_CALLS: usize = 24;
+const MAX_PLANNER_TOOL_OUTPUT_CHARS: usize = 200_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -289,6 +296,8 @@ pub trait PlanGenerator: Send + Sync {
 pub struct ModelPlanGenerator {
     provider: Arc<dyn ModelProvider>,
     journal_dir: Option<PathBuf>,
+    skill_exec: Option<Arc<dyn AgentTool>>,
+    allow_network: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -512,11 +521,25 @@ impl ModelPlanGenerator {
         Self {
             provider,
             journal_dir: None,
+            skill_exec: None,
+            allow_network: false,
         }
     }
 
     pub fn with_journal_dir(mut self, journal_dir: impl Into<PathBuf>) -> Self {
         self.journal_dir = Some(journal_dir.into());
+        self
+    }
+
+    /// Advertise `skill_exec` to the planner. Callers must also enable network
+    /// permission; the tool itself fails closed without it.
+    pub fn with_skill_exec(mut self, tool: Arc<dyn AgentTool>) -> Self {
+        self.skill_exec = Some(tool);
+        self
+    }
+
+    pub fn with_network(mut self, allow_network: bool) -> Self {
+        self.allow_network = allow_network;
         self
     }
 
@@ -547,93 +570,148 @@ impl PlanGenerator for ModelPlanGenerator {
         cancellation: &CancellationToken,
     ) -> Result<PlanProposal, MasterPlannerError> {
         context.validate()?;
+        let mut tools = planner_read_registry();
+        if let Some(skill_exec) = &self.skill_exec {
+            tools.register(skill_exec.clone());
+        }
+        let permissions = PermissionSet {
+            read_roots: vec![context.workspace.clone()],
+            allow_network: self.allow_network,
+            allow_write: false,
+        };
         let mut request =
             ModelRequest {
                 run_id: Uuid::new_v4(),
                 mode: CognitiveMode::DecisionAnalysis,
                 messages: vec![
-                    ModelMessage::system(master_plan_system_prompt()),
+                    ModelMessage::system(master_plan_system_prompt(self.skill_exec.is_some())),
                     ModelMessage::user(serde_json::to_string(context).map_err(|error| {
                         MasterPlannerError::InvalidContextJson(error.to_string())
                     })?),
                 ],
-                tools: Vec::new(),
+                tools: tools.specs_for(&permissions),
             };
-        self.trace(
-            &context.plan_id,
-            request.run_id,
-            "request",
-            serde_json::json!({"attempt": 1, "request": &request}),
-        )?;
-        let response = self
-            .provider
-            .complete(request.clone(), cancellation)
-            .await
-            .map_err(|error| {
-                let _ = self.trace(
-                    &context.plan_id,
-                    request.run_id,
-                    "error",
-                    serde_json::json!({"attempt": 1, "error": &error}),
-                );
-                MasterPlannerError::Provider(error)
-            })?;
-        self.trace(
-            &context.plan_id,
-            request.run_id,
-            "response",
-            serde_json::json!({"attempt": 1, "response": &response}),
-        )?;
-        match response.turn {
-            ModelTurn::Final { answer } => return parse_plan_from_answer(&answer, context),
-            ModelTurn::InvalidFinal { content, error } => {
-                if let Ok(plan) = parse_plan_text(&content, context) {
-                    return Ok(plan);
+        let mut tool_calls = 0usize;
+        let mut tool_chars = 0usize;
+        for step in 0..=MAX_PLANNER_TOOL_STEPS {
+            self.trace(
+                &context.plan_id,
+                request.run_id,
+                "request",
+                serde_json::json!({"step": step, "request": &request}),
+            )?;
+            let response = self
+                .provider
+                .complete(request.clone(), cancellation)
+                .await
+                .map_err(|error| {
+                    let _ = self.trace(
+                        &context.plan_id,
+                        request.run_id,
+                        "error",
+                        serde_json::json!({"step": step, "error": &error}),
+                    );
+                    MasterPlannerError::Provider(error)
+                })?;
+            self.trace(
+                &context.plan_id,
+                request.run_id,
+                "response",
+                serde_json::json!({"step": step, "response": &response}),
+            )?;
+            match response.turn {
+                ModelTurn::Final { answer } => {
+                    return parse_plan_from_answer(&answer, context);
                 }
-                request.messages.push(ModelMessage::user(format!(
-                    "The previous answer was not a valid final response ({error}). \
-                     Return one complete AgentAnswer JSON object now. No tools are available."
-                )));
-            }
-            ModelTurn::ToolCalls { calls } => {
-                request.messages.push(ModelMessage::user(format!(
-                    "The previous attempt requested {} tool call(s), but planning has no tools. \
-                     Return the complete final AgentAnswer JSON object now.",
-                    calls.len()
-                )));
+                ModelTurn::InvalidFinal { content, error } => {
+                    if let Ok(plan) = parse_plan_text(&content, context) {
+                        return Ok(plan);
+                    }
+                    if step == MAX_PLANNER_TOOL_STEPS {
+                        break;
+                    }
+                    request.messages.push(ModelMessage::user(format!(
+                        "The previous answer was not a valid final response ({error}). \
+                         Use read_file/search_files if a requirement is still missing, then \
+                         return one complete AgentAnswer JSON object with the PlanProposal in conclusion."
+                    )));
+                }
+                ModelTurn::ToolCalls { calls } => {
+                    if calls.is_empty() {
+                        if step == MAX_PLANNER_TOOL_STEPS {
+                            break;
+                        }
+                        request.messages.push(ModelMessage::user(
+                            "The previous response contained no tool calls and no plan. \
+                             Use read_file/search_files if needed, then return one complete \
+                             AgentAnswer JSON object with the PlanProposal in conclusion.",
+                        ));
+                        continue;
+                    }
+                    if step == MAX_PLANNER_TOOL_STEPS {
+                        return Err(MasterPlannerError::ToolStepBudget(MAX_PLANNER_TOOL_STEPS));
+                    }
+                    if tool_calls.saturating_add(calls.len()) > MAX_PLANNER_TOOL_CALLS {
+                        return Err(MasterPlannerError::ToolCallBudget(MAX_PLANNER_TOOL_CALLS));
+                    }
+                    tool_calls = tool_calls.saturating_add(calls.len());
+                    request
+                        .messages
+                        .push(ModelMessage::assistant("", calls.clone()));
+                    for call in calls {
+                        let observation = tools.execute(&call, &permissions, cancellation).await;
+                        self.trace(
+                            &context.plan_id,
+                            request.run_id,
+                            "tool_call",
+                            serde_json::json!({"step": step, "call": &call}),
+                        )?;
+                        self.trace(
+                            &context.plan_id,
+                            request.run_id,
+                            "tool_observation",
+                            serde_json::json!({"step": step, "observation": &observation}),
+                        )?;
+                        let remaining = MAX_PLANNER_TOOL_OUTPUT_CHARS.saturating_sub(tool_chars);
+                        if remaining == 0 {
+                            return Err(MasterPlannerError::ToolCallBudget(MAX_PLANNER_TOOL_CALLS));
+                        }
+                        let content = bounded_planner_text(&observation.model_content(), remaining);
+                        tool_chars = tool_chars.saturating_add(content.chars().count());
+                        request
+                            .messages
+                            .push(ModelMessage::tool(call.id.clone(), content));
+                    }
+                    if step + 1 == MAX_PLANNER_TOOL_STEPS {
+                        request.messages.push(ModelMessage::user(
+                            "Tool budget: one model step remains. Return the final PlanProposal \
+                             now without calling more tools.",
+                        ));
+                    }
+                }
             }
         }
-        self.trace(
-            &context.plan_id,
-            request.run_id,
-            "request",
-            serde_json::json!({"attempt": 2, "request": &request}),
-        )?;
-        let response = self
-            .provider
-            .complete(request.clone(), cancellation)
-            .await
-            .map_err(|error| {
-                let _ = self.trace(
-                    &context.plan_id,
-                    request.run_id,
-                    "error",
-                    serde_json::json!({"attempt": 2, "error": &error}),
-                );
-                MasterPlannerError::Provider(error)
-            })?;
-        self.trace(
-            &context.plan_id,
-            request.run_id,
-            "response",
-            serde_json::json!({"attempt": 2, "response": &response}),
-        )?;
-        match response.turn {
-            ModelTurn::Final { answer } => parse_plan_from_answer(&answer, context),
-            ModelTurn::InvalidFinal { content, .. } => parse_plan_text(&content, context),
-            ModelTurn::ToolCalls { .. } => Err(MasterPlannerError::UnexpectedToolCall),
-        }
+        Err(MasterPlannerError::InvalidPlanJson(
+            "planner did not return a valid PlanProposal within the read-tool budget".into(),
+        ))
     }
+}
+
+fn planner_read_registry() -> ToolRegistry {
+    let mut registry = ToolRegistry::default();
+    registry.register(Arc::new(ReadFileTool));
+    registry.register(Arc::new(ReadDocumentTool::from_env()));
+    registry.register(Arc::new(SearchFilesTool));
+    registry.register(Arc::new(SkillSearchTool::from_env()));
+    registry
+}
+
+fn bounded_planner_text(value: &str, max_chars: usize) -> String {
+    let mut bounded: String = value.chars().take(max_chars).collect();
+    if value.chars().nth(max_chars).is_some() {
+        bounded.push_str("…[truncated]");
+    }
+    bounded
 }
 
 pub fn planning_journal_path(directory: &Path, plan_id: &str) -> PathBuf {
@@ -650,12 +728,26 @@ pub fn planning_journal_path(directory: &Path, plan_id: &str) -> PathBuf {
     directory.join(format!("{safe}.jsonl"))
 }
 
-pub fn master_plan_system_prompt() -> &'static str {
-    r#"You are the planning component of 1-Agent, a Master-Agent that proposes work; deterministic code owns IDs, limits, approval and acceptance.
+pub fn master_plan_system_prompt(skill_exec: bool) -> String {
+    let mut prompt = String::from(
+        r#"You are the planning component of 1-Agent, a Master-Agent that proposes work; deterministic code owns IDs, limits, approval and acceptance.
 
-Create a PlanProposal for the user's goal. Do not execute tools or claim that work happened.
-
+Create a PlanProposal for the user's goal. You have read-only tools: read_file, search_files, read_document and skill_search. Use read_document for PDF/Office/HTML/images, read_file for plain text, search_files to discover requirements, and skill_search to find installed skills whose SKILL.md may cover the task. When a skill applies, read its body and put its instructions in the Work Item objective; put its declared tools in required_tools only when the Agents advertise them. Do not write files, run arbitrary commands, or claim that work happened.
+"#,
+    );
+    if skill_exec {
+        prompt.push_str(
+            "\nYou also have skill_exec for operator-approved read-only skill CLIs. Use it when a requirement lives outside the workspace, for example a Lark document: run the CLI's own skill listing/read commands to learn usage, then run its read-only fetch command. skill_exec may use the network only for those configured read-only commands. Never attempt a write or high-risk command.\n",
+        );
+    } else {
+        prompt.push_str(
+            "\nYou have no skill-execution tool in this run; do not execute skills during planning. Workers apply them.\n",
+        );
+    }
+    prompt.push_str(
+        r#"
 Rules:
+- Read the relevant docs/files before deciding the split. Use only tool observations; do not invent file contents or evidence.
 - Use only the context's plan_id and goal_id; set approved=false.
 - Produce 1..max_work_items Work Items. Prefer the fewest items that preserve real dependencies and independent verification.
 - Every Work Item must include required_capabilities, required_tools, acceptance_criteria and expected_artifacts.
@@ -695,7 +787,9 @@ PlanProposal shape:
   "max_parallel": 1,
   "approved": false
 }
-"#
+"#,
+    );
+    prompt
 }
 
 pub fn production_plan_system_prompt() -> &'static str {
@@ -928,6 +1022,10 @@ pub enum MasterPlannerError {
     Provider(ProviderError),
     #[error("planning provider requested a tool; planning is a single structured turn")]
     UnexpectedToolCall,
+    #[error("planning exceeded {0} read-tool steps")]
+    ToolStepBudget(usize),
+    #[error("planning exceeded {0} read-tool calls")]
+    ToolCallBudget(usize),
     #[error("planning journal failed: {0}")]
     Trace(String),
     #[error("provider did not return a valid PlanProposal JSON object: {0}")]
@@ -953,10 +1051,11 @@ pub enum MasterPlannerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{AnswerStatus, ModelResponse, Usage};
+    use crate::domain::{AnswerStatus, MessageRole, ModelResponse, ToolCall, Usage};
     use crate::master::{MASTER_PLAN_SCHEMA_VERSION, WorkBudget, WorkItem, WorkItemStatus};
     use crate::production_line::{GoalContract, KeyResult, PRODUCTION_LINE_SCHEMA_VERSION};
     use crate::provider::ProviderError;
+    use std::sync::Mutex;
     use tempfile::tempdir;
 
     fn context() -> PlanningContext {
@@ -969,6 +1068,38 @@ mod tests {
             allows_dispatch: false,
         };
         PlanningContext::new("先实现接口，然后测试", tempdir().unwrap().keep(), &triage).unwrap()
+    }
+
+    fn sample_plan(context: &PlanningContext) -> PlanProposal {
+        PlanProposal {
+            schema_version: MASTER_PLAN_SCHEMA_VERSION,
+            plan_id: context.plan_id.clone(),
+            goal_id: context.goal_id.clone(),
+            version: 1,
+            summary: "Read requirements, then implement".into(),
+            work_items: vec![WorkItem {
+                id: "implement".into(),
+                title: "Implement".into(),
+                objective: "Implement the requested change".into(),
+                dependencies: Vec::new(),
+                required_capabilities: vec!["rust".into()],
+                required_tools: vec!["shell".into()],
+                permissions: PermissionSet {
+                    read_roots: vec![context.workspace.clone()],
+                    allow_network: false,
+                    allow_write: false,
+                },
+                acceptance_criteria: vec!["cargo test passes".into()],
+                expected_artifacts: vec!["result.txt".into()],
+                workspace: context.workspace.clone(),
+                budget: WorkBudget::default(),
+                deadline_unix_ms: None,
+                risk: RiskLevel::Low,
+                status: WorkItemStatus::Pending,
+            }],
+            max_parallel: 1,
+            approved: false,
+        }
     }
 
     #[test]
@@ -1157,6 +1288,357 @@ mod tests {
             .unwrap();
         assert_eq!(generated, plan);
         assert!(!generated.approved);
+    }
+
+    struct ReadingPlannerProvider {
+        plan: PlanProposal,
+        calls: std::sync::atomic::AtomicUsize,
+        saw_tool_result: Arc<Mutex<bool>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ReadingPlannerProvider {
+        fn id(&self) -> &str {
+            "reading-planner"
+        }
+
+        fn model(&self) -> &str {
+            "fake-model"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if call == 0 {
+                return Ok(ModelResponse {
+                    provider_id: self.id().into(),
+                    model: self.model().into(),
+                    turn: ModelTurn::ToolCalls {
+                        calls: vec![ToolCall {
+                            id: "read-1".into(),
+                            name: "read_file".into(),
+                            arguments: serde_json::json!({"path": "docs/requirements.md"}),
+                        }],
+                    },
+                    usage: Usage::default(),
+                });
+            }
+            let saw = request.messages.iter().any(|message| {
+                message.role == MessageRole::Tool && message.content.contains("COUNT_FLAG")
+            });
+            *self.saw_tool_result.lock().unwrap() = saw;
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: 2,
+                        status: AnswerStatus::Completed,
+                        conclusion: serde_json::to_string(&self.plan).unwrap(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_reads_workspace_docs_before_planning() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+        std::fs::write(
+            dir.path().join("docs/requirements.md"),
+            "COUNT_FLAG: add --count\n",
+        )
+        .unwrap();
+        let triage = TriageDecision {
+            route: WorkRoute::MultiStep,
+            reason: "test".into(),
+            max_work_items: 4,
+            requires_plan: true,
+            requires_user_approval: true,
+            allows_dispatch: false,
+        };
+        let context = PlanningContext::new(
+            "read docs then implement",
+            dir.path().to_path_buf(),
+            &triage,
+        )
+        .unwrap();
+        let plan = sample_plan(&context);
+        let saw_tool_result = Arc::new(Mutex::new(false));
+        let journal_dir = dir.path().join("journal");
+        let generator = ModelPlanGenerator::new(Arc::new(ReadingPlannerProvider {
+            plan: plan.clone(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            saw_tool_result: saw_tool_result.clone(),
+        }))
+        .with_journal_dir(&journal_dir);
+        let generated = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(generated, plan);
+        assert!(*saw_tool_result.lock().unwrap());
+        let journal =
+            std::fs::read_to_string(planning_journal_path(&journal_dir, &context.plan_id)).unwrap();
+        assert!(journal.contains("tool_call"));
+        assert!(journal.contains("tool_observation"));
+        assert!(journal.contains("docs/requirements.md"));
+    }
+
+    struct ToolSpecCaptureProvider {
+        plan: PlanProposal,
+        tools: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ToolSpecCaptureProvider {
+        fn id(&self) -> &str {
+            "tool-spec-capture"
+        }
+
+        fn model(&self) -> &str {
+            "fake-model"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            *self.tools.lock().unwrap() =
+                request.tools.iter().map(|tool| tool.name.clone()).collect();
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: 2,
+                        status: AnswerStatus::Completed,
+                        conclusion: serde_json::to_string(&self.plan).unwrap(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_exposes_only_read_tools() {
+        let context = context();
+        let plan = sample_plan(&context);
+        let tools = Arc::new(Mutex::new(Vec::new()));
+        let generator = ModelPlanGenerator::new(Arc::new(ToolSpecCaptureProvider {
+            plan,
+            tools: tools.clone(),
+        }));
+        generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        let names = tools.lock().unwrap().clone();
+        assert!(names.iter().any(|name| name == "read_file"));
+        assert!(names.iter().any(|name| name == "read_document"));
+        assert!(names.iter().any(|name| name == "search_files"));
+        assert!(names.iter().any(|name| name == "skill_search"));
+        assert!(!names.iter().any(|name| name == "skill_exec"));
+        for forbidden in [
+            "write_file",
+            "edit_file",
+            "terminal_exec",
+            "spawn_agent",
+            "fetch_url",
+            "web_search",
+        ] {
+            assert!(
+                !names.iter().any(|name| name == forbidden),
+                "{forbidden} must not be advertised to the planner"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_advertises_skill_exec_when_configured() {
+        let context = context();
+        let plan = sample_plan(&context);
+        let tools = Arc::new(Mutex::new(Vec::new()));
+        let skill_exec = crate::tools::SkillExecTool::new(crate::tools::SkillExecConfig {
+            schema_version: 1,
+            commands: vec![crate::tools::SkillExecCommand {
+                name: "fake".into(),
+                bin: PathBuf::from("/bin/echo"),
+                read: vec![vec!["docs".into(), "+fetch".into()]],
+            }],
+        })
+        .unwrap();
+        let generator = ModelPlanGenerator::new(Arc::new(ToolSpecCaptureProvider {
+            plan,
+            tools: tools.clone(),
+        }))
+        .with_skill_exec(Arc::new(skill_exec))
+        .with_network(true);
+        generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        let names = tools.lock().unwrap().clone();
+        assert!(names.iter().any(|name| name == "skill_exec"));
+        assert!(names.iter().any(|name| name == "read_file"));
+    }
+
+    struct LoopingPlannerProvider;
+
+    #[async_trait]
+    impl ModelProvider for LoopingPlannerProvider {
+        fn id(&self) -> &str {
+            "looping-planner"
+        }
+
+        fn model(&self) -> &str {
+            "fake-model"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "read-loop".into(),
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({"path": "docs/requirements.md"}),
+                    }],
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_tool_loop_is_bounded() {
+        let context = context();
+        std::fs::create_dir_all(context.workspace.join("docs")).unwrap();
+        std::fs::write(
+            context.workspace.join("docs/requirements.md"),
+            "COUNT_FLAG: add --count\n",
+        )
+        .unwrap();
+        let generator = ModelPlanGenerator::new(Arc::new(LoopingPlannerProvider));
+        let error = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            MasterPlannerError::ToolStepBudget(MAX_PLANNER_TOOL_STEPS)
+        ));
+    }
+
+    struct DeniedPathPlannerProvider {
+        plan: PlanProposal,
+        saw_denied: Arc<Mutex<bool>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for DeniedPathPlannerProvider {
+        fn id(&self) -> &str {
+            "denied-path-planner"
+        }
+
+        fn model(&self) -> &str {
+            "fake-model"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if call == 0 {
+                return Ok(ModelResponse {
+                    provider_id: self.id().into(),
+                    model: self.model().into(),
+                    turn: ModelTurn::ToolCalls {
+                        calls: vec![ToolCall {
+                            id: "read-outside".into(),
+                            name: "read_file".into(),
+                            arguments: serde_json::json!({"path": "/etc/passwd"}),
+                        }],
+                    },
+                    usage: Usage::default(),
+                });
+            }
+            let saw = request.messages.iter().any(|message| {
+                message.role == MessageRole::Tool
+                    && message.content.contains("outside configured read roots")
+            });
+            *self.saw_denied.lock().unwrap() = saw;
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: 2,
+                        status: AnswerStatus::Completed,
+                        conclusion: serde_json::to_string(&self.plan).unwrap(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_read_tools_stay_inside_the_workspace() {
+        let context = context();
+        let there = Arc::new(Mutex::new(false));
+        let generator = ModelPlanGenerator::new(Arc::new(DeniedPathPlannerProvider {
+            plan: sample_plan(&context),
+            saw_denied: there.clone(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        }));
+        generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(*there.lock().unwrap());
     }
 
     struct FakeProductionPlannerProvider {

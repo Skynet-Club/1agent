@@ -1,0 +1,375 @@
+{
+  "state": {
+    "approved_at_unix_ms": 1795140721159,
+    "assignment": {
+      "assignments": [
+        {
+          "agent_id": "ollama-alpha",
+          "runtime": "ollama",
+          "selection_reason": "capabilities and tools match; success=unmeasured; observed_runs=0; load=0; cost=unmeasured",
+          "task_id": "alpha"
+        },
+        {
+          "agent_id": "ollama-beta",
+          "runtime": "ollama",
+          "selection_reason": "capabilities and tools match; success=unmeasured; observed_runs=0; load=0; cost=unmeasured",
+          "task_id": "beta"
+        },
+        {
+          "agent_id": "ollama-gamma",
+          "runtime": "ollama",
+          "selection_reason": "capabilities and tools match; success=unmeasured; observed_runs=0; load=0; cost=unmeasured",
+          "task_id": "gamma"
+        }
+      ],
+      "plan_id": "parallel-ollama-2026-11-20",
+      "schema_version": 1
+    },
+    "decisions": [
+      {
+        "actor": "user",
+        "created_unix_ms": 1795140721159,
+        "decision_id": "5482c8db-14b6-485a-bf17-3ddcec410a66",
+        "kind": "plan_approved",
+        "reason": "plan approved",
+        "task_id": null
+      },
+      {
+        "actor": "ollama-alpha",
+        "created_unix_ms": 1795140727314,
+        "decision_id": "24028a1e-2ad3-4b57-8c3b-83ec5f3dfd50",
+        "kind": "task_leased",
+        "reason": "capabilities and tools match; success=unmeasured; observed_runs=0; load=0; cost=unmeasured",
+        "task_id": "alpha"
+      },
+      {
+        "actor": "ollama-beta",
+        "created_unix_ms": 1795140727316,
+        "decision_id": "d9edd1d2-9c1f-4310-91bc-98249ce43cb7",
+        "kind": "task_leased",
+        "reason": "capabilities and tools match; success=unmeasured; observed_runs=0; load=0; cost=unmeasured",
+        "task_id": "beta"
+      },
+      {
+        "actor": "ollama-gamma",
+        "created_unix_ms": 1795140727318,
+        "decision_id": "6b1da161-59b7-445a-9cda-8d7ad069cdce",
+        "kind": "task_leased",
+        "reason": "capabilities and tools match; success=unmeasured; observed_runs=0; load=0; cost=unmeasured",
+        "task_id": "gamma"
+      }
+    ],
+    "event_seq": 13,
+    "goal_accepted": false,
+    "paused": false,
+    "plan": {
+      "approved": true,
+      "goal_id": "goal-parallel-2026-11-20",
+      "max_parallel": 3,
+      "plan_id": "parallel-ollama-2026-11-20",
+      "schema_version": 1,
+      "summary": "Three independent file-writing Work Items for local Ollama",
+      "version": 1,
+      "work_items": [
+        {
+          "acceptance_criteria": [
+            "result.txt exists and contains alpha"
+          ],
+          "budget": {
+            "max_steps": 6,
+            "max_tool_calls": 4,
+            "timeout_ms": 300000
+          },
+          "deadline_unix_ms": null,
+          "dependencies": [],
+          "expected_artifacts": [
+            "result.txt"
+          ],
+          "id": "alpha",
+          "objective": "Call the tool write_file NOW with arguments {\"path\":\"result.txt\",\"content\":\"alpha\"}. Do not produce any prose before the tool call. After the tool returns, answer exactly done.",
+          "permissions": {
+            "allow_network": false,
+            "allow_write": true,
+            "read_roots": [
+              "/tmp/1agent-parallel-workitems/alpha"
+            ]
+          },
+          "required_capabilities": [
+            "write"
+          ],
+          "required_tools": [
+            "write_file"
+          ],
+          "risk": "low",
+          "status": "pending",
+          "title": "Write alpha artifact",
+          "workspace": "/tmp/1agent-parallel-workitems/alpha"
+        },
+        {
+          "acceptance_criteria": [
+            "result.txt exists and contains beta"
+          ],
+          "budget": {
+            "max_steps": 6,
+            "max_tool_calls": 4,
+            "timeout_ms": 300000
+          },
+          "deadline_unix_ms": null,
+          "dependencies": [],
+          "expected_artifacts": [
+            "result.txt"
+          ],
+          "id": "beta",
+          "objective": "Call the tool write_file NOW with arguments {\"path\":\"result.txt\",\"content\":\"beta\"}. Do not produce any prose before the tool call. After the tool returns, answer exactly done.",
+          "permissions": {
+            "allow_network": false,
+            "allow_write": true,
+            "read_roots": [
+              "/tmp/1agent-parallel-workitems/beta"
+            ]
+          },
+          "required_capabilities": [
+            "write"
+          ],
+          "required_tools": [
+            "write_file"
+          ],
+          "risk": "low",
+          "status": "pending",
+          "title": "Write beta artifact",
+          "workspace": "/tmp/1agent-parallel-workitems/beta"
+        },
+        {
+          "acceptance_criteria": [
+            "result.txt exists and contains gamma"
+          ],
+          "budget": {
+            "max_steps": 6,
+            "max_tool_calls": 4,
+            "timeout_ms": 300000
+          },
+          "deadline_unix_ms": null,
+          "dependencies": [],
+          "expected_artifacts": [
+            "result.txt"
+          ],
+          "id": "gamma",
+          "objective": "Call the tool write_file NOW with arguments {\"path\":\"result.txt\",\"content\":\"gamma\"}. Do not produce any prose before the tool call. After the tool returns, answer exactly done.",
+          "permissions": {
+            "allow_network": false,
+            "allow_write": true,
+            "read_roots": [
+              "/tmp/1agent-parallel-workitems/gamma"
+            ]
+          },
+          "required_capabilities": [
+            "write"
+          ],
+          "required_tools": [
+            "write_file"
+          ],
+          "risk": "low",
+          "status": "pending",
+          "title": "Write gamma artifact",
+          "workspace": "/tmp/1agent-parallel-workitems/gamma"
+        }
+      ]
+    },
+    "plan_rejected": false,
+    "replan_count": 0,
+    "replan_scope": null,
+    "retry_count": 0,
+    "schema_version": 1,
+    "tasks": {
+      "alpha": {
+        "active_lease": null,
+        "attempts": 1,
+        "execution_target": null,
+        "generation": 1,
+        "human_takeover": false,
+        "last_error": null,
+        "receipt": {
+          "agent_id": "ollama-alpha",
+          "artifacts": [
+            "/tmp/1agent-parallel-workitems/workshop/sessions/term-1795140727344-2069514-2/exec/1795140727452-1.output"
+          ],
+          "error": null,
+          "execution_target": {
+            "job_id": null,
+            "pane_id": null,
+            "session_id": "term-1795140727344-2069514-2"
+          },
+          "exit_code": 0,
+          "finished_unix_ms": 1795140783989,
+          "idempotency_key": "parallel-ollama-2026-11-20:alpha:1",
+          "lease_generation": 1,
+          "result_digest": "f12baf1c8b490d1ec5a7d65499313498d83519cd83434c716c8ec75b74c3e53b",
+          "started_unix_ms": 1795140727322,
+          "status": "completed",
+          "task_id": "alpha"
+        },
+        "retries": 0,
+        "status": "verified",
+        "submitted_unix_ms": null,
+        "verification": {
+          "checked_artifacts": [
+            {
+              "bytes": 5,
+              "error": null,
+              "exists": true,
+              "expected_sha256": null,
+              "path": "result.txt",
+              "regular_file": true,
+              "sha256": "8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8"
+            }
+          ],
+          "criteria_results": [
+            {
+              "criterion": "result.txt exists and contains alpha",
+              "evidence": [
+                "result.txt read back as alpha"
+              ],
+              "passed": true
+            }
+          ],
+          "evidence": [
+            "independent check: result.txt exists and contains alpha"
+          ],
+          "failure_reason": null,
+          "status": "verified",
+          "task_id": "alpha",
+          "test_results": [],
+          "verified_at_unix_ms": 1795140797045,
+          "verified_by": "operator"
+        }
+      },
+      "beta": {
+        "active_lease": null,
+        "attempts": 1,
+        "execution_target": null,
+        "generation": 1,
+        "human_takeover": false,
+        "last_error": null,
+        "receipt": {
+          "agent_id": "ollama-beta",
+          "artifacts": [
+            "/tmp/1agent-parallel-workitems/workshop/sessions/term-1795140727343-2069514-1/exec/1795140727452-2.output"
+          ],
+          "error": null,
+          "execution_target": {
+            "job_id": null,
+            "pane_id": null,
+            "session_id": "term-1795140727343-2069514-1"
+          },
+          "exit_code": 0,
+          "finished_unix_ms": 1795140777772,
+          "idempotency_key": "parallel-ollama-2026-11-20:beta:1",
+          "lease_generation": 1,
+          "result_digest": "e57d72b377cb5dd0a646cb2b34da2345e5d9a1db3772cf09d75269f603a949de",
+          "started_unix_ms": 1795140727321,
+          "status": "completed",
+          "task_id": "beta"
+        },
+        "retries": 0,
+        "status": "verified",
+        "submitted_unix_ms": null,
+        "verification": {
+          "checked_artifacts": [
+            {
+              "bytes": 4,
+              "error": null,
+              "exists": true,
+              "expected_sha256": null,
+              "path": "result.txt",
+              "regular_file": true,
+              "sha256": "f44e64e75f3948e9f73f8dfa94721c4ce8cbb4f265c4790c702b2d41cfbf2753"
+            }
+          ],
+          "criteria_results": [
+            {
+              "criterion": "result.txt exists and contains beta",
+              "evidence": [
+                "result.txt read back as beta"
+              ],
+              "passed": true
+            }
+          ],
+          "evidence": [
+            "independent check: result.txt exists and contains beta"
+          ],
+          "failure_reason": null,
+          "status": "verified",
+          "task_id": "beta",
+          "test_results": [],
+          "verified_at_unix_ms": 1795140797085,
+          "verified_by": "operator"
+        }
+      },
+      "gamma": {
+        "active_lease": null,
+        "attempts": 1,
+        "execution_target": null,
+        "generation": 1,
+        "human_takeover": false,
+        "last_error": null,
+        "receipt": {
+          "agent_id": "ollama-gamma",
+          "artifacts": [
+            "/tmp/1agent-parallel-workitems/workshop/sessions/term-1795140727344-2069514-3/exec/1795140727452-3.output"
+          ],
+          "error": null,
+          "execution_target": {
+            "job_id": null,
+            "pane_id": null,
+            "session_id": "term-1795140727344-2069514-3"
+          },
+          "exit_code": 0,
+          "finished_unix_ms": 1795140770310,
+          "idempotency_key": "parallel-ollama-2026-11-20:gamma:1",
+          "lease_generation": 1,
+          "result_digest": "a9c444aac534727361ac386bb18af3fd25268cc2d5224b1e7b44a0afa4767f5e",
+          "started_unix_ms": 1795140727321,
+          "status": "completed",
+          "task_id": "gamma"
+        },
+        "retries": 0,
+        "status": "artifact_ready",
+        "submitted_unix_ms": null,
+        "verification": null
+      }
+    },
+    "trace_id": "parallel-ollama-2026-11-20c",
+    "updated_unix_ms": 1795140797085
+  },
+  "verification": {
+    "checked_artifacts": [
+      {
+        "bytes": 4,
+        "error": null,
+        "exists": true,
+        "expected_sha256": null,
+        "path": "result.txt",
+        "regular_file": true,
+        "sha256": "f44e64e75f3948e9f73f8dfa94721c4ce8cbb4f265c4790c702b2d41cfbf2753"
+      }
+    ],
+    "criteria_results": [
+      {
+        "criterion": "result.txt exists and contains beta",
+        "evidence": [
+          "result.txt read back as beta"
+        ],
+        "passed": true
+      }
+    ],
+    "evidence": [
+      "independent check: result.txt exists and contains beta"
+    ],
+    "failure_reason": null,
+    "status": "verified",
+    "task_id": "beta",
+    "test_results": [],
+    "verified_at_unix_ms": 1795140797085,
+    "verified_by": "operator"
+  }
+}

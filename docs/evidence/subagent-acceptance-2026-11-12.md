@@ -1,5 +1,10 @@
 # Subagent Acceptance and Fanout — Evidence (2026-11-12)
 
+> 2026-11-20 update: completed children now require a readable journal;
+> missing/unreadable journals fail closed. This document records the
+> 2026-11-12 baseline. See `docs/evidence/multi-agent-ollama-2026-11-20/` for
+> the current behavior and live run.
+
 Status: **passed on this machine**
 Scope: `SpawnAgentTool` parent acceptance and fanout bound.
 

@@ -1,0 +1,19 @@
+# 1agent master plan — planner skill execution live run (2026-11-20)
+# Binary: ~/.local/bin/1agent release e1529700…; model DeepSeek deepseek-flash.
+# Source: Lark DOCX HztBdLEAXorDhQxCYp1cyDXOnmd (revision 8).
+# Bounded observations only; raw tool content stays in the local planning journal.
+
+step  tool          call                                                         status  observation
+0     skill_exec    lark-cli skills list                                         ok      14158 chars
+0     search_files  path=. max_depth=1 max_results=60                               ok      12 files
+1     skill_exec    lark-cli skills read lark-doc                                 ok      3099 chars
+1     read_file     README.md max_bytes=8000                                      ok      8000 bytes
+2     skill_exec    lark-cli docs +fetch --doc-url <doc-url> --as user            failed   exit 2: unknown flag "--doc-url"
+3     skill_exec    lark-cli docs +fetch --doc <doc-url> --as user                ok      24270 chars
+4     search_files  path=. query=skyget max_depth=2                              ok      30 matches
+4     search_files  path=docs max_depth=1 max_results=60                         ok      60 files (truncated)
+5     (final)       PlanProposal                                                  ok      3 Work Items, approved=false
+
+Totals: 6 model requests, 8 tool calls, 0 budget errors.
+The failed --doc-url call proves errors are returned as observations; the planner
+retried with --doc and fetched the document.

@@ -25,11 +25,18 @@ const MAX_TASK_CHARS: usize = 8 * 1024;
 const MAX_DEPTH: u8 = 2;
 const MAX_FANOUT: usize = 8;
 const MAX_CHILD_JOURNAL_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_CHILD_ANSWER_BYTES: usize = 8 * 1024;
 const DEPTH_ENV: &str = "ONEAGENT_SUBAGENT_DEPTH";
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_MAX_STEPS: usize = 8;
 const MAX_MAX_STEPS: usize = 20;
+
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
 
 fn depth_from_env() -> u8 {
     std::env::var(DEPTH_ENV)
@@ -124,6 +131,8 @@ pub struct SpawnAgentTool {
     program: PathBuf,
     depth: u8,
     spawned: AtomicUsize,
+    /// A completed child must leave a readable journal the parent can audit.
+    require_journal: bool,
 }
 
 impl SpawnAgentTool {
@@ -132,12 +141,21 @@ impl SpawnAgentTool {
             program: program.into(),
             depth: depth_from_env(),
             spawned: AtomicUsize::new(0),
+            require_journal: true,
         }
     }
 
     #[cfg(test)]
     pub fn with_depth(mut self, depth: u8) -> Self {
         self.depth = depth;
+        self
+    }
+
+    /// Legacy fake programs in tests report no journal. Production keeps the
+    /// fail-closed default.
+    #[cfg(test)]
+    pub fn allow_missing_journal(mut self) -> Self {
+        self.require_journal = false;
         self
     }
 }
@@ -271,6 +289,18 @@ impl AgentTool for SpawnAgentTool {
             record.parent_run_id = Some(context.run_id.clone());
             record.parent_session_id = context.session_id.clone();
         }
+        record.goal_id = run_context
+            .as_ref()
+            .and_then(|context| context.goal_id.clone())
+            .or_else(|| nonempty_env("ONEAGENT_GOAL_ID"));
+        record.work_item_id = run_context
+            .as_ref()
+            .and_then(|context| context.work_item_id.clone())
+            .or_else(|| nonempty_env("ONEAGENT_WORK_ITEM_ID"));
+        record.delegation_id = match (&record.parent_run_id, &spawn_call_id) {
+            (Some(run_id), Some(call_id)) => Some(format!("{run_id}:{call_id}")),
+            _ => None,
+        };
         let mut registry = RegistryGuard::start(record);
 
         let mut args = vec![
@@ -475,6 +505,15 @@ impl AgentTool for SpawnAgentTool {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        let answer_value = value.get("answer").cloned();
+        let child_answer = bounded_child_answer(answer_value.as_ref(), &conclusion);
+        let answer_truncated = child_answer
+            .get("truncated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let claims_count = answer_array_len(answer_value.as_ref(), "claims");
+        let evidence_count = answer_array_len(answer_value.as_ref(), "evidence");
+        let conflicts_count = answer_array_len(answer_value.as_ref(), "conflicts");
         if stop_reason != "completed" {
             registry.finish(
                 SubagentStatus::Failed,
@@ -496,6 +535,22 @@ impl AgentTool for SpawnAgentTool {
                 ),
                 metadata,
             });
+        }
+        if self.require_journal
+            && (child_journal.is_empty() || !std::path::Path::new(&child_journal).is_file())
+        {
+            registry.finish(
+                SubagentStatus::Failed,
+                Some("subagent journal is missing".into()),
+            );
+            return Err(spawn_journal_error(
+                "completed child must provide a readable journal",
+                run_context.as_ref(),
+                spawn_call_id.as_deref(),
+                &workspace,
+                &journal_dir,
+                child_run_id.as_deref(),
+            ));
         }
         if !child_journal.is_empty() {
             let path = std::path::Path::new(&child_journal);
@@ -551,6 +606,8 @@ impl AgentTool for SpawnAgentTool {
             "task": task,
             "stop_reason": stop_reason,
             "conclusion": conclusion,
+            "answer": child_answer,
+            "answer_truncated": answer_truncated,
             "workspace": workspace.display().to_string(),
             "journal_path": child_journal,
             "depth": self.depth + 1,
@@ -566,6 +623,19 @@ impl AgentTool for SpawnAgentTool {
             child_run_id.as_deref(),
         );
         metadata.insert("stop_reason".into(), stop_reason);
+        metadata.insert(
+            "child_status".into(),
+            answer_value
+                .as_ref()
+                .and_then(|answer| answer.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+        );
+        metadata.insert("claims_count".into(), claims_count.to_string());
+        metadata.insert("evidence_count".into(), evidence_count.to_string());
+        metadata.insert("conflicts_count".into(), conflicts_count.to_string());
+        metadata.insert("answer_truncated".into(), answer_truncated.to_string());
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
         }
@@ -634,6 +704,36 @@ fn spawn_journal_error(
     }
 }
 
+fn answer_array_len(answer: Option<&Value>, key: &str) -> usize {
+    answer
+        .and_then(|answer| answer.get(key))
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len)
+}
+
+/// Keep the child answer bounded in the tool result. The full answer remains
+/// in the child journal; a truncated result keeps counts so the parent still
+/// knows what was omitted.
+fn bounded_child_answer(answer: Option<&Value>, conclusion: &str) -> Value {
+    let Some(answer) = answer else {
+        return json!({"status": "unknown", "conclusion": bounded(conclusion, 2_000)});
+    };
+    if answer.to_string().len() <= MAX_CHILD_ANSWER_BYTES {
+        return answer.clone();
+    }
+    json!({
+        "status": answer.get("status").and_then(Value::as_str).unwrap_or("unknown"),
+        "conclusion": bounded(conclusion, 2_000),
+        "truncated": true,
+        "counts": {
+            "claims": answer_array_len(Some(answer), "claims"),
+            "evidence": answer_array_len(Some(answer), "evidence"),
+            "conflicts": answer_array_len(Some(answer), "conflicts"),
+            "unknowns": answer_array_len(Some(answer), "unknowns"),
+        }
+    })
+}
+
 fn bounded(value: &str, max_chars: usize) -> String {
     let mut bounded: String = value.chars().take(max_chars).collect();
     if value.chars().nth(max_chars).is_some() {
@@ -648,7 +748,11 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::domain::ToolStatus;
+    use crate::domain::{
+        ANSWER_SCHEMA_VERSION, AgentAnswer, AnswerStatus, Claim, ClaimStatus, CognitiveMode,
+        StopReason, TaskRequest, ToolStatus,
+    };
+    use crate::journal::{Journal, JournalEventKind};
     use crate::tools::ToolRegistry;
 
     fn fake_program_with_stop(dir: &Path, stop_reason: &str) -> PathBuf {
@@ -715,7 +819,9 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let tool = SpawnAgentTool::new(program.clone()).with_depth(0);
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
         let outcome = tool
             .execute(
                 json!({"task": "child task", "workspace": workspace}),
@@ -740,12 +846,16 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         std::fs::create_dir_all(&workspace).unwrap();
         let mut registry = ToolRegistry::default();
         registry.register(std::sync::Arc::new(
-            SpawnAgentTool::new(program).with_depth(0),
+            SpawnAgentTool::new(program)
+                .with_depth(0)
+                .allow_missing_journal(),
         ));
         let call_id = format!("spawn-call-{}", Uuid::new_v4());
         let context = crate::tools::RunContext {
             run_id: format!("run-parent-{}", Uuid::new_v4()),
             session_id: Some(format!("ses-{}", Uuid::new_v4())),
+            goal_id: Some("goal-lineage".into()),
+            work_item_id: Some("wi-lineage".into()),
         };
         let observation = crate::tools::RUN_CONTEXT
             .scope(context.clone(), async {
@@ -801,6 +911,13 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             record.parent_session_id.as_deref(),
             context.session_id.as_deref()
         );
+        assert_eq!(record.goal_id.as_deref(), Some("goal-lineage"));
+        assert_eq!(record.work_item_id.as_deref(), Some("wi-lineage"));
+        let expected_delegation = format!("{}:{}", context.run_id, call_id);
+        assert_eq!(
+            record.delegation_id.as_deref(),
+            Some(expected_delegation.as_str())
+        );
     }
 
     #[tokio::test]
@@ -811,8 +928,12 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let workspace_b = dir.path().join("workspace-b");
         std::fs::create_dir_all(&workspace_a).unwrap();
         std::fs::create_dir_all(&workspace_b).unwrap();
-        let tool_a = SpawnAgentTool::new(program.clone()).with_depth(0);
-        let tool_b = SpawnAgentTool::new(program).with_depth(0);
+        let tool_a = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
+        let tool_b = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
         let permissions_a = permissions(dir.path(), false);
         let permissions_b = permissions(dir.path(), false);
         let cancellation_a = CancellationToken::new();
@@ -820,10 +941,14 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let context_a = crate::tools::RunContext {
             run_id: format!("run-a-{}", Uuid::new_v4()),
             session_id: Some(format!("ses-a-{}", Uuid::new_v4())),
+            goal_id: None,
+            work_item_id: None,
         };
         let context_b = crate::tools::RunContext {
             run_id: format!("run-b-{}", Uuid::new_v4()),
             session_id: Some(format!("ses-b-{}", Uuid::new_v4())),
+            goal_id: None,
+            work_item_id: None,
         };
 
         let future_a = crate::tools::RUN_CONTEXT.scope(
@@ -904,7 +1029,9 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
         tool.execute(
             json!({"task": "out-of-run child", "workspace": workspace}),
             &permissions(dir.path(), false),
@@ -934,7 +1061,9 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let tool = SpawnAgentTool::new(program.clone()).with_depth(0);
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
         let mut parent = permissions(dir.path(), true);
         parent.allow_network = false;
         let outcome = tool
@@ -1008,7 +1137,9 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program_with_stop(dir.path(), "needs_authorization");
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
         let error = tool
             .execute(
                 json!({"task": "child task", "workspace": workspace}),
@@ -1038,12 +1169,16 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         std::fs::create_dir_all(&workspace).unwrap();
         let mut registry = ToolRegistry::default();
         registry.register(std::sync::Arc::new(
-            SpawnAgentTool::new(program).with_depth(0),
+            SpawnAgentTool::new(program)
+                .with_depth(0)
+                .allow_missing_journal(),
         ));
         let call_id = format!("spawn-fail-{}", Uuid::new_v4());
         let context = crate::tools::RunContext {
             run_id: format!("run-fail-{}", Uuid::new_v4()),
             session_id: Some(format!("ses-fail-{}", Uuid::new_v4())),
+            goal_id: None,
+            work_item_id: None,
         };
         let observation = crate::tools::RUN_CONTEXT
             .scope(context.clone(), async {
@@ -1111,13 +1246,17 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program_sleeping(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
         let cancellation = CancellationToken::new();
         let cancel = cancellation.clone();
         let child_permissions = permissions(dir.path(), false);
         let context = crate::tools::RunContext {
             run_id: format!("run-cancel-{}", Uuid::new_v4()),
             session_id: Some(format!("ses-cancel-{}", Uuid::new_v4())),
+            goal_id: None,
+            work_item_id: None,
         };
         let (result, _) = tokio::join!(
             crate::tools::RUN_CONTEXT.scope(
@@ -1169,13 +1308,17 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         std::fs::create_dir_all(&workspace).unwrap();
         let mut registry = ToolRegistry::default();
         registry.register(std::sync::Arc::new(
-            SpawnAgentTool::new(program.clone()).with_depth(0),
+            SpawnAgentTool::new(program.clone())
+                .with_depth(0)
+                .allow_missing_journal(),
         ));
         let call_id = format!("spawn-env-{}", Uuid::new_v4());
         let session_id = format!("ses-env-{}", Uuid::new_v4());
         let context = crate::tools::RunContext {
             run_id: format!("run-env-{}", Uuid::new_v4()),
             session_id: Some(session_id.clone()),
+            goal_id: None,
+            work_item_id: None,
         };
         let observation = crate::tools::RUN_CONTEXT
             .scope(context.clone(), async {
@@ -1211,7 +1354,9 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         let program = fake_program(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
         let permissions = permissions(dir.path(), false);
         for _ in 0..MAX_FANOUT {
             tool.execute(
@@ -1234,6 +1379,136 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             matches!(error, ToolError::Failed(ref message) if message.contains("fanout")),
             "unexpected error: {error:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn completed_child_without_journal_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let error = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ToolError::FailedWithMetadata { ref message, .. } if message.contains("journal")),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_child_with_valid_journal_preserves_structured_answer() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let journal_path = dir.path().join("child.jsonl");
+        let mut journal = Journal::create(&journal_path, Uuid::new_v4()).unwrap();
+        journal
+            .append(JournalEventKind::RunStarted {
+                request: TaskRequest::from_objective("child task", std::path::PathBuf::from(".")),
+                mode: CognitiveMode::DirectAnswer,
+            })
+            .unwrap();
+        let answer = AgentAnswer {
+            schema_version: ANSWER_SCHEMA_VERSION,
+            status: AnswerStatus::Completed,
+            conclusion: "child done".into(),
+            claims: vec![Claim {
+                id: "c1".into(),
+                text: "42 is even".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["child-journal".into()],
+                scope: None,
+            }],
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+            task_need: None,
+        };
+        journal
+            .append(JournalEventKind::AnswerProduced {
+                answer: answer.clone(),
+            })
+            .unwrap();
+        journal
+            .append(JournalEventKind::RunStopped {
+                reason: StopReason::Completed,
+            })
+            .unwrap();
+        drop(journal);
+
+        let output = json!({
+            "run_id": "child-valid",
+            "journal_path": journal_path.display().to_string(),
+            "answer": answer,
+            "stop_reason": "completed"
+        });
+        std::fs::write(dir.path().join("child-output.json"), output.to_string()).unwrap();
+        let program = write_program(
+            dir.path(),
+            "fake-valid",
+            &format!(
+                "#!/bin/sh\ncat '{}'\n",
+                dir.path().join("child-output.json").display()
+            ),
+        );
+
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let outcome = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            outcome.content.contains("\"claims\""),
+            "{}",
+            outcome.content
+        );
+        assert!(
+            outcome.content.contains("42 is even"),
+            "{}",
+            outcome.content
+        );
+        assert_eq!(
+            outcome.metadata.get("claims_count").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            outcome.metadata.get("child_status").map(String::as_str),
+            Some("completed")
+        );
+    }
+
+    #[test]
+    fn oversized_child_answer_is_truncated_with_counts() {
+        let answer = json!({
+            "status": "completed",
+            "conclusion": "x".repeat(MAX_CHILD_ANSWER_BYTES + 1),
+            "claims": [1, 2, 3],
+            "evidence": [1],
+            "conflicts": [],
+            "unknowns": [1, 2],
+        });
+        let bounded = bounded_child_answer(Some(&answer), "short conclusion");
+        assert_eq!(bounded["truncated"], true);
+        assert_eq!(bounded["counts"]["claims"], 3);
+        assert_eq!(bounded["counts"]["evidence"], 1);
+        assert_eq!(bounded["counts"]["unknowns"], 2);
+        assert_eq!(bounded["conclusion"], "short conclusion");
     }
 
     #[test]

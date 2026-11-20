@@ -1,0 +1,20 @@
+step 0 call read_file {"path": "/tmp/skynet-workshop-parallel-dev/docs/agent-registry.md"}
+step 0 observation read_file status=ok # Provider-neutral Agent registry v1  状态：**首版已实现。** CLI：`skynet-term-agents`。  ## 解决什么  多个 Agent 同时使用天网工坊时，进程名和 pane 标记只能回答“某个格子像不像 Agent”， 不能稳定回答：  - 当前有哪些 Agent； - 各自来自哪个 provider； - 声明了哪些能力； - 正在使用哪些 session/pane； - 是否忙碌，最近一次心跳是什么时候。  registry 提供共享的发现元数据，让调度器、面板和其他 Agent 不必解析屏幕或猜进程名。 它不是任务调度器，也不替
+step 0 call skill_search {"query": "ponytail"}
+step 0 observation skill_search status=ok matched=6 skills=ponytail-gain,ponytail-help,ponytail,ponytail-audit,ponytail-debt
+step 1 call search_files {"max_results": 40, "path": "/tmp/skynet-workshop-parallel-dev", "query": "skynet-term-agents"}
+step 1 observation search_files status=ok {"hits":[{"path":"README.md","line":290,"column":1,"excerpt":"skynet-term-agents register --id build-01 --provider opencode \\"},{"path":"README.md","line":292,"column":1,"excerpt":"skynet-term-agents list"},{"path":"README.md","line":293,"column":1,"excerpt":"skynet-term-agents destroy build-01"},{
+step 1 call search_files {"max_results": 30, "path": "/tmp/skynet-workshop-parallel-dev", "query": "--include-stale"}
+step 1 observation search_files status=ok {"hits":[{"path":"docs/1agent-integration.md","line":19,"column":50,"excerpt":"| `list_agents()` | `skynet-workshop-agents list --include-stale` |"},{"path":"docs/1agent-integration.md","line":142,"column":62,"excerpt":"not the final idle state. Query `skynet-workshop-agents list --include-stale` af
+step 2 call read_file {"path": "/tmp/skynet-workshop-parallel-dev/src/bin/skynet-term-agents.rs"}
+step 2 observation read_file status=ok use skynet_term::agents::{self, AgentInput, AgentStatus, AgentUpdate, DEFAULT_TTL_S}; use std::path::Path;  fn usage() -> ! {     skynet_term::eprintln_invoked!(         "skynet-term-agents",         "用法：   skynet-term-agents list [--include-stale]   skynet-term-agents find [--capability C]... [--id
+step 2 call search_files {"max_results": 20, "path": "/tmp/skynet-workshop-parallel-dev/tests", "query": ""}
+step 2 observation search_files status=ok {"hits":[{"path":"tests/agent_registry_cli.rs","line":0,"column":0,"excerpt":""},{"path":"tests/artifact_verify.rs","line":0,"column":0,"excerpt":""},{"path":"tests/capability_cli.rs","line":0,"column":0,"excerpt":""},{"path":"tests/control_cli.rs","line":0,"column":0,"excerpt":""},{"path":"tests/do
+step 3 call search_files {"max_results": 30, "path": "/tmp/skynet-workshop-parallel-dev/src", "query": "agents_list"}
+step 3 observation search_files status=ok {"hits":[{"path":"src/mcp.rs","line":279,"column":10,"excerpt":"        \"agents_list\" => {"},{"path":"src/mcp.rs","line":1182,"column":14,"excerpt":"            \"agents_list\","}],"files_scanned":44,"skipped_unsafe":0,"truncated":false}
+step 3 call read_file {"max_bytes": 16000, "path": "/tmp/skynet-workshop-parallel-dev/tests/agent_registry_cli.rs"}
+step 3 observation read_file status=ok use serde_json::Value; use std::process::Command; use std::time::{SystemTime, UNIX_EPOCH};  #[test] fn registry_cli_register_list_heartbeat_and_remove() {     let stamp = SystemTime::now()         .duration_since(UNIX_EPOCH)         .unwrap()         .as_nanos();     let root =         std::env::tem
+step 4 call search_files {"max_results": 20, "path": "/tmp/skynet-workshop-parallel-dev/src/agents.rs", "query": "pub fn list"}
+step 4 observation search_files status=ok {"hits":[{"path":"src/agents.rs","line":203,"column":1,"excerpt":"pub fn list(root: &Path, include_stale: bool) -> Result<Vec<AgentView>, String> {"}],"files_scanned":1,"skipped_unsafe":0,"truncated":false}
+step 4 call read_document {"max_chars": 3000, "path": "/tmp/skynet-workshop-parallel-dev/src/mcp.rs"}
+step 4 observation read_document status=ok //! Minimal Model Context Protocol stdio server for local Agent integrations. //! //! Tools call the same versioned Unix-socket protocols as the native clients. //! This layer owns orchestration and schemas, not permissions or execution.  use crate::agents::{self, AgentInput, AgentStatus, AgentUpdat

@@ -1,0 +1,36 @@
+=== 0c4da351-2b92-438e-a5d2-0707fb4562d3.jsonl ===
+{
+  "ok": true,
+  "event_count": 23,
+  "run_id": "0c4da351-2b92-438e-a5d2-0707fb4562d3",
+  "terminal_reason": "completed",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}
+replay=ok
+=== 71f5eb78-c9a8-4140-b8a4-c96b3e00e108.jsonl ===
+{
+  "ok": true,
+  "event_count": 9,
+  "run_id": "71f5eb78-c9a8-4140-b8a4-c96b3e00e108",
+  "terminal_reason": "completed",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}
+replay=ok
+=== 778e3a86-5c4b-4097-8273-b7bfb6905fd2.jsonl ===
+{
+  "ok": true,
+  "event_count": 9,
+  "run_id": "778e3a86-5c4b-4097-8273-b7bfb6905fd2",
+  "terminal_reason": "completed",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}
+replay=ok

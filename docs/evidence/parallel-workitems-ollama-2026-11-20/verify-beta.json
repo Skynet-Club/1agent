@@ -1,0 +1,17 @@
+{
+  "task_id": "beta",
+  "criteria_results": [
+    {
+      "criterion": "result.txt exists and contains beta",
+      "passed": true,
+      "evidence": [
+        "result.txt read back as beta"
+      ]
+    }
+  ],
+  "test_results": [],
+  "evidence": [
+    "independent check: result.txt exists and contains beta"
+  ],
+  "verified_by": "operator"
+}

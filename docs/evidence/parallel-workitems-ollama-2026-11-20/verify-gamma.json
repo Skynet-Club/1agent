@@ -1,0 +1,17 @@
+{
+  "task_id": "gamma",
+  "criteria_results": [
+    {
+      "criterion": "result.txt exists and contains gamma",
+      "passed": true,
+      "evidence": [
+        "result.txt read back as gamma"
+      ]
+    }
+  ],
+  "test_results": [],
+  "evidence": [
+    "independent check: result.txt exists and contains gamma"
+  ],
+  "verified_by": "operator"
+}

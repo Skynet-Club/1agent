@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "plan_id": "parallel-ollama-2026-11-20",
+  "goal_id": "goal-parallel-2026-11-20",
+  "version": 1,
+  "summary": "Three independent file-writing Work Items for local Ollama",
+  "work_items": [
+    {
+      "id": "alpha",
+      "title": "Write alpha artifact",
+      "objective": "Call the tool write_file NOW with arguments {\"path\":\"result.txt\",\"content\":\"alpha\"}. Do not produce any prose before the tool call. After the tool returns, answer exactly done.",
+      "dependencies": [],
+      "required_capabilities": [
+        "write"
+      ],
+      "required_tools": [
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/tmp/1agent-parallel-workitems/alpha"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "result.txt exists and contains alpha"
+      ],
+      "expected_artifacts": [
+        "result.txt"
+      ],
+      "workspace": "/tmp/1agent-parallel-workitems/alpha",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 300000,
+        "max_tool_calls": 4
+      },
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "beta",
+      "title": "Write beta artifact",
+      "objective": "Call the tool write_file NOW with arguments {\"path\":\"result.txt\",\"content\":\"beta\"}. Do not produce any prose before the tool call. After the tool returns, answer exactly done.",
+      "dependencies": [],
+      "required_capabilities": [
+        "write"
+      ],
+      "required_tools": [
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/tmp/1agent-parallel-workitems/beta"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "result.txt exists and contains beta"
+      ],
+      "expected_artifacts": [
+        "result.txt"
+      ],
+      "workspace": "/tmp/1agent-parallel-workitems/beta",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 300000,
+        "max_tool_calls": 4
+      },
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "gamma",
+      "title": "Write gamma artifact",
+      "objective": "Call the tool write_file NOW with arguments {\"path\":\"result.txt\",\"content\":\"gamma\"}. Do not produce any prose before the tool call. After the tool returns, answer exactly done.",
+      "dependencies": [],
+      "required_capabilities": [
+        "write"
+      ],
+      "required_tools": [
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/tmp/1agent-parallel-workitems/gamma"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "result.txt exists and contains gamma"
+      ],
+      "expected_artifacts": [
+        "result.txt"
+      ],
+      "workspace": "/tmp/1agent-parallel-workitems/gamma",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 300000,
+        "max_tool_calls": 4
+      },
+      "risk": "low",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 3,
+  "approved": false
+}

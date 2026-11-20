@@ -19,7 +19,20 @@ fn tool_search_ranks_name_and_description_matches() {
     let read = search("read");
     let hits = read.as_array().unwrap();
     assert!(!hits.is_empty());
-    assert_eq!(hits[0]["spec"]["name"], "read_file");
+    let names = hits
+        .iter()
+        .filter_map(|hit| hit["spec"]["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"read_file"));
+    assert!(names.contains(&"read_document"));
+    assert!(
+        matches!(
+            hits[0]["spec"]["name"].as_str(),
+            Some("read_file" | "read_document")
+        ),
+        "unexpected first read hit: {}",
+        hits[0]["spec"]["name"]
+    );
     assert!(hits.iter().any(|hit| hit["spec"]["name"] == "browser_read"));
     assert!(hits.iter().all(|hit| hit["spec"]["name"] != "write_file"));
 

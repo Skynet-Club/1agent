@@ -1,0 +1,28 @@
+{
+  "run_id": "cb3a2fd6-afbc-4fae-9f1b-bd473429c698",
+  "journal_path": "/home/skynet/.1a/journals/cb3a2fd6-afbc-4fae-9f1b-bd473429c698.jsonl",
+  "answer": {
+    "schema_version": 2,
+    "status": "needs_evidence",
+    "conclusion": "模型返回的答案结构无法修复，已降级为需要证据；本轮没有执行任何外部动作。请重试或缩小任务范围。",
+    "claims": [],
+    "evidence": [],
+    "assumptions": [],
+    "constraints": [
+      "answer repair failed"
+    ],
+    "unknowns": [
+      {
+        "id": "repair-failed",
+        "description": "模型输出未通过答案结构校验",
+        "impact": "low",
+        "why_it_matters": "结构无效的答案不能当作完成",
+        "reduction_method": "重试或缩小任务范围"
+      }
+    ],
+    "conflicts": [],
+    "flip_conditions": [],
+    "action_receipts": []
+  },
+  "stop_reason": "needs_evidence"
+}

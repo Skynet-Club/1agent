@@ -1,0 +1,83 @@
+[
+  {
+    "agent_id": "ollama-alpha",
+    "runtime": "ollama",
+    "display_name": "Ollama Alpha",
+    "capabilities": [
+      "write"
+    ],
+    "tools": [
+      "write_file"
+    ],
+    "runtime_command": [
+      "/home/skynet/1-agent/scripts/ollama-workitem-runtime.sh"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/tmp/1agent-parallel-workitems"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  },
+  {
+    "agent_id": "ollama-beta",
+    "runtime": "ollama",
+    "display_name": "Ollama Beta",
+    "capabilities": [
+      "write"
+    ],
+    "tools": [
+      "write_file"
+    ],
+    "runtime_command": [
+      "/home/skynet/1-agent/scripts/ollama-workitem-runtime.sh"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/tmp/1agent-parallel-workitems"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  },
+  {
+    "agent_id": "ollama-gamma",
+    "runtime": "ollama",
+    "display_name": "Ollama Gamma",
+    "capabilities": [
+      "write"
+    ],
+    "tools": [
+      "write_file"
+    ],
+    "runtime_command": [
+      "/home/skynet/1-agent/scripts/ollama-workitem-runtime.sh"
+    ],
+    "permissions": {
+      "read_roots": [
+        "/tmp/1agent-parallel-workitems"
+      ],
+      "allow_network": false,
+      "allow_write": true
+    },
+    "availability": "idle",
+    "current_load": 0,
+    "observed_success_permille": null,
+    "observed_runs": 0,
+    "cost_micros": null,
+    "max_risk": "high"
+  }
+]

@@ -1,0 +1,36 @@
+=== cb3a2fd6-afbc-4fae-9f1b-bd473429c698 ===
+{
+  "ok": true,
+  "event_count": 14,
+  "run_id": "cb3a2fd6-afbc-4fae-9f1b-bd473429c698",
+  "terminal_reason": "needs_evidence",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}
+replay=ok
+=== 30f664e9-3014-42d5-a4c6-f940e55087e0 ===
+{
+  "ok": true,
+  "event_count": 14,
+  "run_id": "30f664e9-3014-42d5-a4c6-f940e55087e0",
+  "terminal_reason": "needs_evidence",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}
+replay=ok
+=== 2ff5c076-f661-449c-a0af-acce687c04b2 ===
+{
+  "ok": true,
+  "event_count": 14,
+  "run_id": "2ff5c076-f661-449c-a0af-acce687c04b2",
+  "terminal_reason": "needs_evidence",
+  "answer_schema_version": 2,
+  "unresolved_tool_calls": [],
+  "issues": [],
+  "findings": []
+}
+replay=ok

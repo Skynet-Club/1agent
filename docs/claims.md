@@ -172,8 +172,16 @@ file: <路径>              → 文件必须存在
 | 1A 可用 web_search 返回真实搜索结果 | file: docs/evidence/web-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；Bing RSS；结果可能本地化/限流 |
 | MCP stdio client 可发现并调用工具 | cmd: cargo test --offline --lib tools::mcp | ✅ | fake server 契约测试；写工具权限门控 |
 | 1A 可通过 `--mcp-config` 调用真实 MCP 工具 | file: docs/evidence/mcp-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；本地 fake echo server |
-| 子 Agent 可隔离运行、回传结论并限制深度/总扇出；只接受 completed 子运行；存在子 journal 时必须 audit 通过；请求的 write/network 只与父权限取交集 | cmd: cargo test --offline --lib tools::subagent | ✅ | fake program；扇出为单进程实例上限；子 journal 缺失时不审计；跨进程扇出未限制 |
+| 子 Agent 可隔离运行、回传结构化 answer 并限制深度/总扇出；只接受 completed 子运行且必须提供可读 journal 并通过 audit；请求的 write/network 只与父权限取交集；登记父子/目标/工作项/委托血缘 | cmd: cargo test --offline --lib tools::subagent | ✅ | fake program；扇出为单进程实例上限；跨进程扇出未限制；本地 8B 质量不等同 M1 |
 | 1A 可 spawn 真实子 Agent | file: docs/evidence/subagent-2026-11-09/README.md | ✅ | 单次 DeepSeek 实机；两次独立子运行；父读子工作区被拒 |
+| 1A 开发版可用本地 Ollama 跑两次 `spawn_agent` 协作，父/子 journal audit+replay 通过 | file: docs/evidence/multi-agent-ollama-2026-11-20/README.md | ✅ | 单机、qwen3-8b-16k、两次顺序 child；不代表模型质量或规模 |
+| 1A 可把一个 Goal 拆成 3 个独立 WorkItem 并行执行，经 Workshop production lease、artifact 检查和独立验收后接受 Goal | file: docs/evidence/parallel-workitems-ollama-2026-11-20/README.md | ✅ | 本地 Ollama；独立 workspace；未验证同 workspace 并发写/合并、依赖 DAG、超 128 session、补偿路径 |
+| `master plan` 规划器可在规划前用只读 `read_file`/`search_files`/`read_document`/`skill_search` 读需求；工具调用/结果写入 planning journal | cmd: cargo test --offline --lib master_planner | ✅ | 只读；12 步/24 次上限；`skill_exec` 仅在显式配置且 `--allow-network` 时执行声明前缀 |
+| 1A 规划器可读真实 docs 并检索用户安装的 skill，把 skill 约束写进 PlanProposal | file: docs/evidence/planner-skill-reading-2026-11-20/README.md | ✅ | DeepSeek 一例；计划未执行；不硬编码任何单个 skill |
+| `read_document` 支持 text/HTML/XML/PDF/DOCX/PPTX/XLSX/ODT/ODS/ODP/EPUB/RTF/zip 并受 read roots 限制 | cmd: cargo test --offline --lib read_document | ✅ | 图片 OCR 需 tesseract/OCR_PYTHON；旧版 doc/xls/ppt 需 catdoc；sqlite/音视频需额外后端 |
+| `skill_search` 搜索 skill journal + SKILL.md roots，返回 metadata/body；只读、不激活/执行 | cmd: cargo test --offline --lib skill_search | ✅ | 只扫默认根/环境变量根；不验证 skill 内容安全性 |
+| `skill_exec` 可运行操作者声明的只读 skill CLI 前缀（如 `lark-cli docs +fetch`）；无 shell、需 `--allow-network` | file: docs/evidence/planner-skill-exec-2026-11-20/README.md | ✅ | 只运行声明前缀；不执行写命令；DeepSeek 一例；计划未执行 |
+| 同一安装二进制下，DeepSeek 能按 `skill_exec` 读飞书文档并产出有据计划；本地 `qwen3-8b-16k` 同任务未读文档、计划为虚构 | file: docs/evidence/planner-skill-exec-cross-model-2026-11-20/README.md | ✅ | 各一次运行；8B 16k context；非等上下文基准，不是模型排名 |
 | 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
 | schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |
 | schedule 支持文件 mtime trigger | test: schedule_trigger_file_runs_once | ✅ | CLI e2e；第二次未变化不重复运行 |
