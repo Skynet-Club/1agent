@@ -537,6 +537,12 @@ pub(crate) fn action_status_for(observation: &ToolObservation) -> ActionStatus {
     }
 }
 
+fn verification_budget_nudge(remaining: usize) -> String {
+    format!(
+        "Runtime budget checkpoint (internal, not a user request): only {remaining} tool calls remain before the soft limit. Spend them on browser audit, verify_artifact, preview_file or acceptance_gate. Do not spend the final calls on another edit unless an audit just failed and the fix is required. If verification cannot finish, return conditional with the exact blocker."
+    )
+}
+
 fn is_verification_tool(call: &ToolCall) -> bool {
     match call.name.as_str() {
         "acceptance_gate" | "verify_artifact" | "preview_file" => true,
@@ -2757,6 +2763,7 @@ impl AgentRuntime {
         let mut audit_repair_nudges = 0usize;
         let mut audit_recheck_nudges = 0usize;
         let mut verification_reserve_used = 0usize;
+        let mut verification_budget_nudged = false;
         let mut last_audit_all_passed = false;
         let mut write_since_audit = false;
         let mut last_turn: Option<(ModelRequest, String, String)> = None;
@@ -2800,6 +2807,20 @@ impl AgentRuntime {
                 compact_messages_at_tokens(&messages, trigger_tokens, 4);
             apply_efficiency_nudge(&mut model_messages, task_profile.profile, step);
             apply_goal_recitation(&mut model_messages, &request, task_profile.profile, step);
+            if !verification_budget_nudged
+                && looks_like_page_task(&request.objective, request.deliverable.as_deref())
+                && request.budget.max_tool_calls != 0
+                && tool_calls
+                    >= request
+                        .budget
+                        .max_tool_calls
+                        .saturating_sub(VERIFICATION_RESERVE)
+                && completion_gate.accepted_receipt.is_none()
+            {
+                let remaining = request.budget.max_tool_calls.saturating_sub(tool_calls);
+                model_messages.push(ModelMessage::user(verification_budget_nudge(remaining)));
+                verification_budget_nudged = true;
+            }
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
@@ -4892,6 +4913,15 @@ mod tests {
         };
         assert!(!is_verification_tool(&open));
         assert!(!is_verification_tool(&tool_call("call-6", "write_file")));
+    }
+
+    #[test]
+    fn verification_budget_nudge_names_remaining_calls_and_tools() {
+        let text = verification_budget_nudge(3);
+        assert!(text.contains("only 3 tool calls"));
+        assert!(text.contains("acceptance_gate"));
+        assert!(text.contains("browser audit"));
+        assert!(text.contains("conditional"));
     }
 
     #[test]
