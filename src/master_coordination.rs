@@ -12,6 +12,8 @@ use crate::master::{
     MasterPlanError, PlanProposal, TaskLease, TestResult, VerificationResult, WorkItem,
     WorkItemStatus,
 };
+use crate::repair::{RepairRunbook, build_runbook};
+use crate::task_graph::{SideEffect, SideEffectStatus};
 
 pub const MASTER_STATE_SCHEMA_VERSION: u32 = 1;
 pub const MASTER_JOURNAL_SCHEMA_VERSION: u32 = 1;
@@ -98,6 +100,7 @@ pub enum DecisionKind {
     TaskCancelled,
     RunPaused,
     RunResumed,
+    RepairPlanned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -175,6 +178,9 @@ pub struct TaskRuntimeState {
     pub receipt: Option<ExecutionReceipt>,
     #[serde(default)]
     pub verification: Option<VerificationResult>,
+    /// Compensation plan for applied side effects when this task fails.
+    #[serde(default)]
+    pub repair: Option<RepairRunbook>,
     #[serde(default)]
     pub human_takeover: bool,
     #[serde(default)]
@@ -196,6 +202,7 @@ impl Default for TaskRuntimeState {
             submitted_unix_ms: None,
             receipt: None,
             verification: None,
+            repair: None,
             human_takeover: false,
             last_error: None,
             progress: ProgressLedger::default(),
@@ -255,6 +262,9 @@ pub struct MasterState {
     pub assignment: AssignmentProposal,
     pub tasks: BTreeMap<String, TaskRuntimeState>,
     pub decisions: Vec<DecisionRecord>,
+    /// Applied artifacts that a failed later step may need to undo.
+    #[serde(default)]
+    pub side_effects: Vec<SideEffect>,
     #[serde(default)]
     pub replan_scope: Option<ReplanRequest>,
     pub retry_count: u32,
@@ -415,6 +425,7 @@ impl MasterState {
             assignment,
             tasks,
             decisions: Vec::new(),
+            side_effects: Vec::new(),
             replan_scope: None,
             retry_count: 0,
             replan_count: 0,
@@ -939,7 +950,14 @@ impl MasterState {
         state.progress.stall_count = 0;
         state.progress.last_progress_unix_ms = Some(now_unix_ms);
         state.progress.last_observed_unix_ms = Some(now_unix_ms);
+        let failed = matches!(
+            next,
+            WorkItemStatus::Rejected | WorkItemStatus::Blocked | WorkItemStatus::Cancelled
+        );
         self.updated_unix_ms = now_unix_ms;
+        if failed {
+            self.record_repair(&task_id, now_unix_ms);
+        }
         Ok(())
     }
 
@@ -1052,13 +1070,11 @@ impl MasterState {
                 let label = format!("blocked: {reason}");
                 state.status = WorkItemStatus::Blocked;
                 state.last_error = Some(reason);
-                if let Err(error) =
-                    state.note_observation(task_id, &label, Some(&signature), now_unix_ms)
-                {
-                    self.updated_unix_ms = now_unix_ms;
-                    return Err(error);
-                }
+                let observed =
+                    state.note_observation(task_id, &label, Some(&signature), now_unix_ms);
                 self.updated_unix_ms = now_unix_ms;
+                self.record_repair(task_id, now_unix_ms);
+                observed?;
                 Ok(())
             }
         }
@@ -1175,6 +1191,11 @@ impl MasterState {
             state.last_error = result.failure_reason.clone();
             set_task_status(state, WorkItemStatus::Rejected);
         }
+        if status == WorkItemStatus::Verified {
+            self.record_artifact_effects(&item, now_unix_ms);
+        } else {
+            self.record_repair(&task_id, now_unix_ms);
+        }
         self.updated_unix_ms = now_unix_ms;
         self.advance_ready(now_unix_ms);
         Ok(result)
@@ -1203,8 +1224,74 @@ impl MasterState {
             verification.status = WorkItemStatus::Rejected;
             verification.failure_reason = state.last_error.clone();
         }
+        self.record_repair(task_id, now_unix_ms);
         self.updated_unix_ms = now_unix_ms;
         Ok(())
+    }
+
+    /// Compensation plan for every applied artifact effect in this trace.
+    pub fn repair_runbook(&self) -> RepairRunbook {
+        build_runbook(&self.side_effects)
+    }
+
+    fn record_artifact_effects(&mut self, item: &WorkItem, now_unix_ms: u128) {
+        for expected in &item.expected_artifacts {
+            let expectation = artifact_expectation(expected);
+            let idempotency_key = format!("{}:{}", item.id, expectation.path);
+            if self
+                .side_effects
+                .iter()
+                .any(|effect| effect.idempotency_key == idempotency_key)
+            {
+                continue;
+            }
+            let target = item.workspace.join(&expectation.path).display().to_string();
+            // shortcut: artifact ownership is not tracked; the compensation is
+            // an advisory remove that asks the operator to restore overwritten
+            // content, upgrade when the runtime records pre-write snapshots.
+            self.side_effects.push(SideEffect {
+                side_effect_id: format!("effect-{}", Uuid::new_v4()),
+                ticket_id: item.id.clone(),
+                action: "write_artifact".into(),
+                target: target.clone(),
+                idempotency_key,
+                reversible: true,
+                compensation: Some(format!(
+                    "remove {target} only if this task created it; restore any previous file otherwise"
+                )),
+                status: SideEffectStatus::Applied,
+                recorded_ms: now_unix_ms,
+            });
+        }
+    }
+
+    fn record_repair(&mut self, task_id: &str, now_unix_ms: u128) {
+        let runbook = build_runbook(&self.side_effects);
+        let interesting =
+            runbook.compensate > 0 || runbook.manual > 0 || !runbook.errors.is_empty();
+        let changed = {
+            let Some(task) = self.tasks.get_mut(task_id) else {
+                return;
+            };
+            let next = interesting.then(|| runbook.clone());
+            let changed = task.repair != next;
+            task.repair = next;
+            changed
+        };
+        if changed && interesting {
+            self.record_decision(
+                DecisionKind::RepairPlanned,
+                Some(task_id.to_string()),
+                "master",
+                format!(
+                    "compensate={} manual={} errors={}",
+                    runbook.compensate,
+                    runbook.manual,
+                    runbook.errors.len()
+                ),
+                now_unix_ms,
+            );
+        }
     }
 
     pub fn request_retry(
@@ -2390,6 +2477,110 @@ mod tests {
         assert_eq!(result.status, WorkItemStatus::Verified);
         assert_eq!(state.tasks["a"].status, WorkItemStatus::Verified);
         assert_eq!(state.tasks["b"].status, WorkItemStatus::Ready);
+        assert_eq!(state.side_effects.len(), 1);
+        assert!(state.side_effects[0].target.ends_with("a.txt"));
+        let runbook = state.repair_runbook();
+        assert_eq!(runbook.compensate, 1);
+        assert!(
+            runbook.plans[0]
+                .compensation
+                .as_deref()
+                .is_some_and(|compensation| compensation.contains("a.txt"))
+        );
+    }
+
+    #[test]
+    fn failed_second_step_builds_compensation_for_the_first() {
+        let workspace = tempdir().unwrap();
+        std::fs::write(workspace.path().join("a.txt"), "artifact").unwrap();
+        let mut state = ready_state();
+        state.plan.work_items[0].workspace = workspace.path().into();
+        state.plan.work_items[1].workspace = workspace.path().into();
+
+        let lease_a = state
+            .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+            .unwrap();
+        state.begin_starting("a", lease_a.generation, 4).unwrap();
+        state
+            .record_receipt(receipt("a", lease_a.generation, &lease_key("a", 1)), 5)
+            .unwrap();
+        let checks_a = inspect_artifacts(
+            workspace.path(),
+            &[ArtifactExpectation {
+                path: "a.txt".into(),
+                expected_sha256: None,
+            }],
+        )
+        .unwrap();
+        let verified = state
+            .verify(
+                VerificationInput {
+                    task_id: "a".into(),
+                    lease_generation: lease_a.generation,
+                    criteria_results: vec![CriterionResult {
+                        criterion: "artifact exists".into(),
+                        passed: true,
+                        evidence: vec!["sha256 verified".into()],
+                    }],
+                    artifact_checks: checks_a,
+                    test_results: Vec::new(),
+                    evidence: vec!["independent artifact hash".into()],
+                    verified_by: "verifier".into(),
+                    verified_at_unix_ms: 6,
+                },
+                6,
+            )
+            .unwrap();
+        assert_eq!(verified.status, WorkItemStatus::Verified);
+
+        let lease_b = state
+            .lease_task("b", &agent(), lease_key("b", 1), 1_000, 7)
+            .unwrap();
+        state.begin_starting("b", lease_b.generation, 8).unwrap();
+        state
+            .record_receipt(receipt("b", lease_b.generation, &lease_key("b", 1)), 9)
+            .unwrap();
+        let missing_b = inspect_artifacts(
+            workspace.path(),
+            &[ArtifactExpectation {
+                path: "b.txt".into(),
+                expected_sha256: None,
+            }],
+        )
+        .unwrap();
+        let rejected = state
+            .verify(
+                VerificationInput {
+                    task_id: "b".into(),
+                    lease_generation: lease_b.generation,
+                    criteria_results: vec![CriterionResult {
+                        criterion: "artifact exists".into(),
+                        passed: true,
+                        evidence: vec!["criteria checked".into()],
+                    }],
+                    artifact_checks: missing_b,
+                    test_results: Vec::new(),
+                    evidence: vec!["independent artifact check".into()],
+                    verified_by: "verifier".into(),
+                    verified_at_unix_ms: 10,
+                },
+                10,
+            )
+            .unwrap();
+        assert_eq!(rejected.status, WorkItemStatus::Rejected);
+
+        let repair = state.tasks["b"].repair.as_ref().expect("repair runbook");
+        assert_eq!(repair.compensate, 1);
+        assert!(
+            repair.plans[0]
+                .compensation
+                .as_deref()
+                .is_some_and(|compensation| compensation.contains("a.txt")),
+            "{repair:?}"
+        );
+        assert!(state.decisions.iter().any(|decision| {
+            decision.kind == DecisionKind::RepairPlanned && decision.task_id.as_deref() == Some("b")
+        }));
     }
 
     #[test]

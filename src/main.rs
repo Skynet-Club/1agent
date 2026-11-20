@@ -2035,6 +2035,15 @@ enum MasterCommand {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "生成补偿计划 · Build a side-effect repair runbook")]
+    Repair {
+        #[arg(long)]
+        trace_id: String,
+        #[arg(long, default_value_os_t = home_or_legacy("master", ".master"))]
+        state_root: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "重试失败任务 · Retry failed tasks")]
     Retry {
         #[arg(long)]
@@ -11127,6 +11136,41 @@ async fn main() -> Result<()> {
             } => {
                 run_master_verify(trace_id, state_root, input, json)?;
             }
+            MasterCommand::Repair {
+                trace_id,
+                state_root,
+                json,
+            } => {
+                let state = MasterStore::new(&state_root, &trace_id)?.load()?;
+                let runbook = state.repair_runbook();
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "runbook": runbook,
+                            "side_effects": state.side_effects,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "补偿计划 compensate={} manual={} errors={} clean={}",
+                        runbook.compensate,
+                        runbook.manual,
+                        runbook.errors.len(),
+                        runbook.clean
+                    );
+                    for plan in &runbook.plans {
+                        println!(
+                            "- {} {:?}: {}",
+                            plan.side_effect_id, plan.action, plan.reason
+                        );
+                        println!("  {}", plan.user_receipt);
+                    }
+                    for error in &runbook.errors {
+                        println!("- error: {error}");
+                    }
+                }
+            }
             MasterCommand::Retry {
                 trace_id,
                 state_root,
@@ -17399,6 +17443,14 @@ fn print_master_state(state: &MasterState, json: bool) -> Result<()> {
                 .unwrap_or("-"),
             task.attempts
         );
+        if let Some(repair) = &task.repair {
+            println!(
+                "  repair · compensate={} manual={} errors={}",
+                repair.compensate,
+                repair.manual,
+                repair.errors.len()
+            );
+        }
     }
     Ok(())
 }

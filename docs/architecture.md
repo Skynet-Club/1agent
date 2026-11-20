@@ -248,7 +248,14 @@ an accepted `CompletionReceipt` from `acceptance::close`; the receipt is stored
 in `VerificationResult` and journaled. Each `TaskRuntimeState` also carries a
 bounded `ProgressLedger`: repeated identical blocked/awaiting-input observations
 move the task to `Replanning` and return `Stalled`; a changed reason, running
-heartbeat, submission or receipt resets the stall count.
+heartbeat, submission or receipt resets the stall count. A verified Work Item
+records one applied reversible `SideEffect` per expected artifact; a rejected
+verification, failed/interrupted/cancelled receipt or blocked observation stores
+a `repair::build_runbook` runbook on the task and records a `RepairPlanned`
+decision when there is something to compensate. `1agent master repair` prints
+the runbook and effects. Nothing is deleted automatically: artifact ownership is
+not tracked, so the compensation is advisory and asks the operator to restore
+any overwritten file.
 
 The standalone `verification::verify` contract (ADR-0037) makes the same
 distinction reusable outside Master: a distinct verifier, exactly one result

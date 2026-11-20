@@ -803,6 +803,32 @@ printf '%s\n' '{"schema":"skynet.term.agent-run/v1","agent":{"agent_id":"agent-1
             .is_some_and(|digest| !digest.is_empty())
     );
 
+    let repair = Command::new(binary)
+        .args([
+            "master",
+            "repair",
+            "--trace-id",
+            trace_id,
+            "--state-root",
+            &state_root.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        repair.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&repair.stderr)
+    );
+    let repair: serde_json::Value = serde_json::from_slice(&repair.stdout).unwrap();
+    assert_eq!(repair["runbook"]["compensate"], 1);
+    assert!(
+        repair["runbook"]["plans"][0]["compensation"]
+            .as_str()
+            .is_some_and(|compensation| compensation.contains("result.txt"))
+    );
+    assert_eq!(repair["side_effects"][0]["status"], "applied");
+
     let audit = Command::new(binary)
         .args([
             "master",
