@@ -1,0 +1,7 @@
+903ddce06e2223827e261e854a2cd0ff3f64eba43b76fac8baf0709d67f83837  src/tools/subagent.rs
+ab2d56e2e733f202c2295034e995aa0aeac10ce50ed5713a09795ed1afdd6aab  src/master_coordination.rs
+dec6aaf81c9f0b38e1b8876c76721526343362117ccc8134b3b8371228f0aeb9  docs/1.2-multi-agent-hardening-plan.md
+c90dd757a6d3050ee95bc6b601d5d5ead7fb68dbbca9160c2a978d81d1afebdb  docs/evidence/live-multi-agent-2026-11-20/README.md
+181493cae482fa995c19907eac03b0eb9fd9869fedb904e0840d307ee569b71c  docs/evidence/live-multi-agent-2026-11-20/gate.txt
+089c0aa90e6e6b9692cff9f3c50fd9a6ac38776a07db0a61ae17a3ec70b54b14  docs/evidence/live-multi-agent-2026-11-20/fault-tests.txt
+b72fde03ee2d897c238f6ca49dac1ca221a39c77cbff125cc93898d1cfff3203  docs/evidence/live-multi-agent-2026-11-20/live.txt
