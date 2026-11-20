@@ -1,0 +1,6 @@
+269a7b2ad8d076aff1a9f255d6c9cde5b5c4b445d238a8140097b3742015e616  src/tools/spawn_ledger.rs
+5db9674d9b5221232fba16a947fa1b376505673f4a655ae47caa665c7bc34624  src/tools/subagent.rs
+26491ce29b81bc2eea939e1c305f1c1691b70863b2d3e370a9c18c3a4717d61c  docs/1.2-multi-agent-hardening-plan.md
+c0aba33d821b3fb06e03c2996d9496921b252b5c5d2b1dcbde374791303c41a0  docs/evidence/spawn-idempotency-2026-11-20/README.md
+85f80866d5d0df52852e042724e64d6d658f1b660b87bff6dec8753b698d020a  docs/evidence/spawn-idempotency-2026-11-20/gate.txt
+c3a0048daf1724dea25ea97e040c1d93d72733792d40168cc020f72df347607b  docs/evidence/spawn-idempotency-2026-11-20/spawn-idempotency-tests.txt

@@ -1,0 +1,8 @@
+date: 2026-11-20
+feature_commit: e6c27b0
+release_binary_sha256: 72619963d52c603874682e13c82dee7368a3043b4d77a8764a9ff3aa9feb8912
+installed: ~/.local/bin/1agent
+backup: ~/.local/bin/1agent-pre-spawn-idempotency-2026-11-20
+backup_sha256: 330f68e6670c96893693d6d8e291e3c86fab7949bd357ca2cb1255539790361c
+version: 1agent 1.0.0-rc.12
+installed_smoke: "1agent --version" and "1agent run --help" exit 0
