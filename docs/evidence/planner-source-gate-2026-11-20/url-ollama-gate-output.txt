@@ -1,0 +1,16 @@
+# Local qwen3-8b-16k, URL source gate (binary 15322184…)
+# Same task and skill-exec policy as the DeepSeek run; the model never read the URL.
+
+$ 1agent master plan --task "先使用 skill_exec 调用 lark-cli 阅读飞书文档 <url> …" \
+    --config configs/ollama-local.json --workspace /home/skynet/1-agent \
+    --allow-network --output /tmp/skill-exec-ollama-gate.json \
+    --planner-journal-dir /tmp/skill-exec-ollama-gate-journal --json
+
+Error: planner did not read source URL(s) named by the task: https://szchenqi.feishu.cn/docx/HztBdLEAXorDhQxCYp1cyDXOnmd
+exit=1
+
+# Tool calls before rejection:
+# 0 skill_exec ["docs","fetch",<url>]            invalid_arguments (prefix needs "docs +fetch")
+# 1 skill_exec ["docs","+fetch",<url>]           failed (missing --doc)
+# 2 skill_exec ["docs","fetch","--url",<url>]    invalid_arguments
+# 3 model returned a plan without reading; gate rejected it; no plan file written.

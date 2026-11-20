@@ -1,0 +1,20 @@
+{
+  "plan_id": "plan-b8d7a264-8ac4-4ad8-88d3-93d06d032090",
+  "goal_id": "goal-c72781a0-aa2c-420e-95dc-0d6f5e0cd7b1",
+  "approved": false,
+  "work_items": [
+    {
+      "id": "skyget-90d-baseline",
+      "title": "固化 90 天方案基线与 1-Agent 边界对齐"
+    },
+    {
+      "id": "gate1-onboarding-spec",
+      "title": "门 1 规格：README 首屏、离线安装与 3 分钟可用性测试"
+    },
+    {
+      "id": "metrics-and-ci-embedding-spec",
+      "title": "度量事件表、job_failed.reason 草案与门 4 CI 嵌入规格"
+    }
+  ],
+  "note": "The full plan quotes private document content and stays local; this summary and the hashes are committed instead."
+}

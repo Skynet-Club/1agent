@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-b82fbc01-5992-41af-9cf5-03b7d5ac28e8",
+  "goal_id": "goal-4873d8df-c2db-4a84-80d5-7590a5dee5b7",
+  "version": 1,
+  "summary": "已读本地需求文档 /tmp/1agent-local-source-test/requirements.md（内容：要求在 docs/local-source-check.md 写一段说明记录来源门禁已验证本地文件读取，并包含标记 LOCAL_SOURCE_GATE_OK；不修改其他文件、不执行代码）。基于该需求拆分为 2 个 Work Item：先创建文档，再只读校验文档与“未改动其他文件”。本计划只做规划，不执行任何写入。",
+  "work_items": [
+    {
+      "id": "write-local-source-check-doc",
+      "title": "按需求创建 docs/local-source-check.md",
+      "objective": "在 workspaces 内创建 docs/local-source-check.md（目录 docs 已存在于工作区）。文件内容为一段简短中文说明，记录来源门禁（local source gate）已验证本地文件读取：来源路径为 /tmp/1agent-local-source-test/requirements.md，该文件为本需求文档，规划阶段已成功读取（288 字节，sha256 948e26a98860a00a93a4bea19402940b8c74b2cf82604d0ffb468e426b16cd38），plan 阶段未写入任何文件。说明中必须出现字面标记 LOCAL_SOURCE_GATE_OK（建议单独一行）。严格限制：只新建/写这一个文件，不得修改、删除或新建任何其他文件，不得执行代码或运行 shell 命令，不做网络访问。",
+      "dependencies": [],
+      "required_capabilities": [
+        "file_write",
+        "text_composition"
+      ],
+      "required_tools": [
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "docs/local-source-check.md 在工作区中存在且非空",
+        "文件内容包含字面标记 LOCAL_SOURCE_GATE_OK",
+        "文件内容明确记录来源门禁已验证本地文件读取，并给出所读取的来源文件路径",
+        "除 docs/local-source-check.md 外，工作区内没有其他文件被创建、修改或删除",
+        "未执行任何代码或 shell 命令"
+      ],
+      "expected_artifacts": [
+        "docs/local-source-check.md"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 4,
+        "timeout_ms": 120000,
+        "max_tool_calls": 5
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "verify-local-source-check-doc",
+      "title": "只读校验文档与改动范围",
+      "objective": "对 write-local-source-check-doc 的产物做独立只读校验，不新增任何文件（需求明确要求不修改其他文件）。校验步骤：1) 读取 docs/local-source-check.md，确认其存在、非空且包含字面标记 LOCAL_SOURCE_GATE_OK；2) 确认文档说明中确实写明了来源门禁已验证本地文件读取以及来源文件路径；3) 仅在读取范围内检查工作区，确认没有出现预期之外的改动（例如通过列目录/检索确认除 docs/local-source-check.md 外没有与该需求相关的新增文件），并核实未执行代码。禁止写入、禁止联网、禁止执行命令；若任一项不满足，如实报告失败项而不去修改文件。",
+      "dependencies": [
+        "write-local-source-check-doc"
+      ],
+      "required_capabilities": [
+        "file_read",
+        "verification"
+      ],
+      "required_tools": [
+        "read_file",
+        "search_files"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": false
+      },
+      "acceptance_criteria": [
+        "已实际读取 docs/local-source-check.md 并引用其内容作为证据",
+        "校验结论明确说明 LOCAL_SOURCE_GATE_OK 是否存在",
+        "核对结果明确说明除 docs/local-source-check.md 外是否发现其他改动",
+        "本轮未创建或修改任何文件，未执行代码或命令",
+        "若发现缺失标记或越界改动，结论明确标注为不满足并指出具体项"
+      ],
+      "expected_artifacts": [
+        "docs/local-source-check.md"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 5,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 1,
+  "approved": false
+}

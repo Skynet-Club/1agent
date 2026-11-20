@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     AgentAnswer, CognitiveMode, ModelMessage, ModelRequest, ModelTurn, PermissionSet, RiskLevel,
+    ToolStatus,
 };
 use crate::master::{AgentProfile, MasterPlanError, PlanProposal};
 use crate::production_line::{ProductionLineError, ProductionPlan};
@@ -243,6 +245,12 @@ pub struct PlanningContext {
     pub constraints: Vec<String>,
     #[serde(default)]
     pub agents: Vec<AgentProfile>,
+    /// External sources the plan must read: http(s) URLs or local paths.
+    #[serde(default)]
+    pub sources: Vec<String>,
+    /// Extra local roots the planner may read for declared path sources.
+    #[serde(default)]
+    pub read_roots: Vec<PathBuf>,
 }
 
 impl PlanningContext {
@@ -265,12 +273,60 @@ impl PlanningContext {
             max_work_items: triage.max_work_items,
             constraints: Vec::new(),
             agents: Vec::new(),
+            sources: Vec::new(),
+            read_roots: Vec::new(),
         })
+    }
+
+    /// Add explicit sources. URLs are tracked as remote sources; local files
+    /// and directories become read roots for the planner. For a file source,
+    /// the parent directory is the read root.
+    pub fn add_sources(&mut self, sources: &[String]) -> Result<(), MasterPlannerError> {
+        for source in sources {
+            let source = source.trim();
+            if source.is_empty() || source.chars().any(char::is_control) {
+                return Err(MasterPlannerError::InvalidSource(source.to_string()));
+            }
+            if source.starts_with("http://") || source.starts_with("https://") {
+                if !self.sources.iter().any(|existing| existing == source) {
+                    self.sources.push(source.to_string());
+                }
+                continue;
+            }
+            let path = expand_source_path(source)?;
+            let canonical = path
+                .canonicalize()
+                .map_err(|_| MasterPlannerError::InvalidSource(source.to_string()))?;
+            let display = canonical.display().to_string();
+            if !self.sources.iter().any(|existing| existing == &display) {
+                self.sources.push(display);
+            }
+            let root = if canonical.is_dir() {
+                canonical
+            } else {
+                canonical
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .ok_or_else(|| MasterPlannerError::InvalidSource(source.to_string()))?
+            };
+            if !self.read_roots.iter().any(|existing| existing == &root) {
+                self.read_roots.push(root);
+            }
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), MasterPlannerError> {
         if self.goal.trim().is_empty() || self.goal.chars().any(char::is_control) {
             return Err(MasterPlannerError::InvalidGoal);
+        }
+        if self
+            .sources
+            .iter()
+            .any(|source| source.trim().is_empty() || source.chars().any(char::is_control))
+            || self.read_roots.iter().any(|root| !root.is_dir())
+        {
+            return Err(MasterPlannerError::InvalidContext);
         }
         if self.plan_id.trim().is_empty()
             || self.goal_id.trim().is_empty()
@@ -574,8 +630,10 @@ impl PlanGenerator for ModelPlanGenerator {
         if let Some(skill_exec) = &self.skill_exec {
             tools.register(skill_exec.clone());
         }
+        let mut read_roots = vec![context.workspace.clone()];
+        read_roots.extend(context.read_roots.iter().cloned());
         let permissions = PermissionSet {
-            read_roots: vec![context.workspace.clone()],
+            read_roots,
             allow_network: self.allow_network,
             allow_write: false,
         };
@@ -593,6 +651,8 @@ impl PlanGenerator for ModelPlanGenerator {
             };
         let mut tool_calls = 0usize;
         let mut tool_chars = 0usize;
+        let mut read_urls = BTreeSet::new();
+        let mut read_paths = BTreeSet::new();
         for step in 0..=MAX_PLANNER_TOOL_STEPS {
             self.trace(
                 &context.plan_id,
@@ -621,10 +681,18 @@ impl PlanGenerator for ModelPlanGenerator {
             )?;
             match response.turn {
                 ModelTurn::Final { answer } => {
-                    return parse_plan_from_answer(&answer, context);
+                    let plan = parse_plan_from_answer(&answer, context)?;
+                    ensure_sources_read(&context.goal, &context.sources, &read_urls, &read_paths)?;
+                    return Ok(plan);
                 }
                 ModelTurn::InvalidFinal { content, error } => {
                     if let Ok(plan) = parse_plan_text(&content, context) {
+                        ensure_sources_read(
+                            &context.goal,
+                            &context.sources,
+                            &read_urls,
+                            &read_paths,
+                        )?;
                         return Ok(plan);
                     }
                     if step == MAX_PLANNER_TOOL_STEPS {
@@ -660,6 +728,17 @@ impl PlanGenerator for ModelPlanGenerator {
                         .push(ModelMessage::assistant("", calls.clone()));
                     for call in calls {
                         let observation = tools.execute(&call, &permissions, cancellation).await;
+                        if observation.status == ToolStatus::Ok {
+                            match call.name.as_str() {
+                                "skill_exec" => {
+                                    collect_source_urls(&call.arguments, &mut read_urls);
+                                }
+                                "read_file" | "read_document" | "search_files" => {
+                                    collect_read_path(&call, &context.workspace, &mut read_paths);
+                                }
+                                _ => {}
+                            }
+                        }
                         self.trace(
                             &context.plan_id,
                             request.run_id,
@@ -714,6 +793,185 @@ fn bounded_planner_text(value: &str, max_chars: usize) -> String {
     bounded
 }
 
+/// A plan may not claim a task that names a source without a successful read:
+/// URLs need `skill_exec`; local files need `read_file`/`read_document`; local
+/// directories need a read or search under them.
+fn ensure_sources_read(
+    goal: &str,
+    declared_sources: &[String],
+    read_urls: &BTreeSet<String>,
+    read_paths: &BTreeSet<PathBuf>,
+) -> Result<(), MasterPlannerError> {
+    let mut urls = source_urls(goal);
+    let mut paths = Vec::new();
+    for source in declared_sources {
+        if source.starts_with("http://") || source.starts_with("https://") {
+            if !urls.iter().any(|existing| existing == source) {
+                urls.push(source.clone());
+            }
+        } else {
+            paths.push(PathBuf::from(source));
+        }
+    }
+    let mut missing = urls
+        .into_iter()
+        .filter(|url| !read_urls.iter().any(|read| same_source(url, read)))
+        .collect::<Vec<_>>();
+    for path in paths {
+        let read = if path.is_dir() {
+            read_paths.iter().any(|read| read.starts_with(&path))
+        } else {
+            read_paths.iter().any(|read| read == &path)
+        };
+        if !read {
+            missing.push(path.display().to_string());
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(MasterPlannerError::UnreadSource(missing.join(", ")))
+    }
+}
+
+fn collect_read_path(
+    call: &crate::domain::ToolCall,
+    workspace: &Path,
+    read_paths: &mut BTreeSet<PathBuf>,
+) {
+    let Some(raw) = call
+        .arguments
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+    let path = Path::new(raw);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        workspace.join(path)
+    };
+    if let Ok(canonical) = path.canonicalize() {
+        read_paths.insert(canonical);
+    }
+}
+
+fn expand_source_path(source: &str) -> Result<PathBuf, MasterPlannerError> {
+    let path = if source == "~" {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| MasterPlannerError::InvalidSource(source.to_string()))?
+    } else if let Some(rest) = source.strip_prefix("~/") {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| MasterPlannerError::InvalidSource(source.to_string()))?
+            .join(rest)
+    } else {
+        PathBuf::from(source)
+    };
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(path))
+            .map_err(|_| MasterPlannerError::InvalidSource(source.to_string()))
+    }
+}
+
+fn collect_source_urls(value: &serde_json::Value, urls: &mut BTreeSet<String>) {
+    match value {
+        serde_json::Value::String(text) => urls.extend(source_urls(text)),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_source_urls(item, urls);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values() {
+                collect_source_urls(item, urls);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn source_urls(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for marker in ["https://", "http://"] {
+        let mut rest = text;
+        while let Some(offset) = rest.find(marker) {
+            let candidate = &rest[offset..];
+            let end = candidate
+                .char_indices()
+                .find(|(index, ch)| *index > 0 && is_url_terminator(*ch))
+                .map(|(index, _)| index)
+                .unwrap_or(candidate.len());
+            let url = candidate[..end].trim_end_matches(is_url_trailing_punctuation);
+            if !url.is_empty() && !urls.iter().any(|existing| existing == url) {
+                urls.push(url.to_string());
+            }
+            rest = &candidate[end..];
+        }
+    }
+    urls
+}
+
+fn same_source(left: &str, right: &str) -> bool {
+    source_key(left) == source_key(right)
+}
+
+fn source_key(url: &str) -> &str {
+    url.split(['#', '?'])
+        .next()
+        .unwrap_or(url)
+        .trim_end_matches('/')
+}
+
+fn is_url_terminator(ch: char) -> bool {
+    ch.is_whitespace()
+        || matches!(
+            ch,
+            '<' | '>'
+                | '"'
+                | '\''
+                | '`'
+                | '，'
+                | '。'
+                | '；'
+                | '：'
+                | '！'
+                | '？'
+                | '）'
+                | '】'
+                | '}'
+                | ']'
+                | ')'
+        )
+}
+
+fn is_url_trailing_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '.' | ','
+            | ';'
+            | ':'
+            | '!'
+            | '?'
+            | ')'
+            | ']'
+            | '}'
+            | '，'
+            | '。'
+            | '；'
+            | '：'
+            | '！'
+            | '？'
+            | '）'
+            | '】'
+    )
+}
+
 pub fn planning_journal_path(directory: &Path, plan_id: &str) -> PathBuf {
     let safe = plan_id
         .bytes()
@@ -756,7 +1014,8 @@ Rules:
 - Keep sessions, panes and jobs out of the plan; they are execution containers assigned later.
 - Write and external actions must retain their required permissions and may require approval.
 - If context risk is high, write or external-action Work Items must also use high risk.
-- Use context.workspace (or a path below it) for workspace and read_roots. Never broaden read access to a parent directory.
+- Read every entry in context.sources before planning. A URL needs a successful skill_exec fetch; a local file needs read_file/read_document; a local directory needs a successful read or search under it.
+- Work Item workspace and read_roots must be context.workspace or paths below it. Never put an external source path into a Work Item; read sources in planning and put the needed facts in the objective. Never broaden read access to a parent directory.
 - Do not invent evidence or existing artifacts.
 - The Work Item status must be "pending".
 - Return one valid 1-Agent AgentAnswer JSON object with status "completed". Its conclusion must be a JSON string containing only the PlanProposal object. Keep all other AgentAnswer arrays empty.
@@ -1016,6 +1275,8 @@ pub enum MasterPlannerError {
     InvalidGoal,
     #[error("planning context is invalid")]
     InvalidContext,
+    #[error("planning source is invalid or missing: {0}")]
+    InvalidSource(String),
     #[error("planning context could not be serialized: {0}")]
     InvalidContextJson(String),
     #[error("planning provider failed: {0}")]
@@ -1026,6 +1287,8 @@ pub enum MasterPlannerError {
     ToolStepBudget(usize),
     #[error("planning exceeded {0} read-tool calls")]
     ToolCallBudget(usize),
+    #[error("planner did not read source URL(s) named by the task: {0}")]
+    UnreadSource(String),
     #[error("planning journal failed: {0}")]
     Trace(String),
     #[error("provider did not return a valid PlanProposal JSON object: {0}")]
@@ -1056,9 +1319,14 @@ mod tests {
     use crate::production_line::{GoalContract, KeyResult, PRODUCTION_LINE_SCHEMA_VERSION};
     use crate::provider::ProviderError;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::tempdir;
 
     fn context() -> PlanningContext {
+        context_with_goal("先实现接口，然后测试")
+    }
+
+    fn context_with_goal(goal: &str) -> PlanningContext {
         let triage = TriageDecision {
             route: WorkRoute::MultiStep,
             reason: "test".into(),
@@ -1067,7 +1335,7 @@ mod tests {
             requires_user_approval: true,
             allows_dispatch: false,
         };
-        PlanningContext::new("先实现接口，然后测试", tempdir().unwrap().keep(), &triage).unwrap()
+        PlanningContext::new(goal, tempdir().unwrap().keep(), &triage).unwrap()
     }
 
     fn sample_plan(context: &PlanningContext) -> PlanProposal {
@@ -1506,6 +1774,242 @@ mod tests {
         let names = tools.lock().unwrap().clone();
         assert!(names.iter().any(|name| name == "skill_exec"));
         assert!(names.iter().any(|name| name == "read_file"));
+    }
+
+    struct ToolThenPlanProvider {
+        plan: PlanProposal,
+        calls: AtomicUsize,
+        tool: &'static str,
+        arguments: serde_json::Value,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ToolThenPlanProvider {
+        fn id(&self) -> &str {
+            "source-read-planner"
+        }
+
+        fn model(&self) -> &str {
+            "fake-model"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(ModelResponse {
+                    provider_id: self.id().into(),
+                    model: self.model().into(),
+                    turn: ModelTurn::ToolCalls {
+                        calls: vec![ToolCall {
+                            id: "read-source".into(),
+                            name: self.tool.into(),
+                            arguments: self.arguments.clone(),
+                        }],
+                    },
+                    usage: Usage::default(),
+                });
+            }
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: AgentAnswer {
+                        task_need: None,
+                        schema_version: 2,
+                        status: AnswerStatus::Completed,
+                        conclusion: serde_json::to_string(&self.plan).unwrap(),
+                        claims: Vec::new(),
+                        evidence: Vec::new(),
+                        assumptions: Vec::new(),
+                        constraints: Vec::new(),
+                        unknowns: Vec::new(),
+                        conflicts: Vec::new(),
+                        flip_conditions: Vec::new(),
+                        action_receipts: Vec::new(),
+                    },
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn planner_rejects_a_plan_when_task_url_was_not_read() {
+        let context = context_with_goal("先阅读 https://example.com/doc，然后实现");
+        let plan = sample_plan(&context);
+        let tools = Arc::new(Mutex::new(Vec::new()));
+        let generator = ModelPlanGenerator::new(Arc::new(ToolSpecCaptureProvider {
+            plan,
+            tools: tools.clone(),
+        }));
+        let error = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, MasterPlannerError::UnreadSource(_)));
+    }
+
+    #[tokio::test]
+    async fn planner_accepts_a_plan_after_reading_the_task_url() {
+        let context = context_with_goal("先阅读 https://example.com/doc，然后实现");
+        let plan = sample_plan(&context);
+        let skill_exec = crate::tools::SkillExecTool::new(crate::tools::SkillExecConfig {
+            schema_version: 1,
+            commands: vec![crate::tools::SkillExecCommand {
+                name: "fake".into(),
+                bin: PathBuf::from("/bin/echo"),
+                read: vec![vec!["docs".into(), "+fetch".into()]],
+            }],
+        })
+        .unwrap();
+        let generator = ModelPlanGenerator::new(Arc::new(ToolThenPlanProvider {
+            plan: plan.clone(),
+            calls: AtomicUsize::new(0),
+            tool: "skill_exec",
+            arguments: serde_json::json!({
+                "skill": "fake",
+                "args": ["docs", "+fetch", "--doc", "https://example.com/doc"]
+            }),
+        }))
+        .with_skill_exec(Arc::new(skill_exec))
+        .with_network(true);
+        let generated = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(generated, plan);
+    }
+
+    #[tokio::test]
+    async fn planner_rejects_a_plan_when_local_source_was_not_read() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("requirements.md");
+        std::fs::write(&source, "REQUIREMENT: add --count\n").unwrap();
+        let mut context = context_with_goal("先阅读需求文档，然后实现");
+        context
+            .add_sources(&[source.display().to_string()])
+            .unwrap();
+        let plan = sample_plan(&context);
+        let tools = Arc::new(Mutex::new(Vec::new()));
+        let generator = ModelPlanGenerator::new(Arc::new(ToolSpecCaptureProvider { plan, tools }));
+        let error = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, MasterPlannerError::UnreadSource(_)));
+    }
+
+    #[tokio::test]
+    async fn planner_accepts_a_plan_after_reading_the_local_source() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("requirements.md");
+        std::fs::write(&source, "REQUIREMENT: add --count\n").unwrap();
+        let mut context = context_with_goal("先阅读需求文档，然后实现");
+        context
+            .add_sources(&[source.display().to_string()])
+            .unwrap();
+        let plan = sample_plan(&context);
+        let generator = ModelPlanGenerator::new(Arc::new(ToolThenPlanProvider {
+            plan: plan.clone(),
+            calls: AtomicUsize::new(0),
+            tool: "read_file",
+            arguments: serde_json::json!({"path": source}),
+        }));
+        let generated = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(generated, plan);
+    }
+
+    #[tokio::test]
+    async fn planner_accepts_a_plan_after_searching_a_directory_source() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("note.md"), "# Note\nknowledge\n").unwrap();
+        let mut context = context_with_goal("先阅读知识库，然后实现");
+        context
+            .add_sources(&[dir.path().display().to_string()])
+            .unwrap();
+        let plan = sample_plan(&context);
+        let generator = ModelPlanGenerator::new(Arc::new(ToolThenPlanProvider {
+            plan: plan.clone(),
+            calls: AtomicUsize::new(0),
+            tool: "search_files",
+            arguments: serde_json::json!({
+                "path": dir.path(),
+                "query": "",
+                "max_results": 5
+            }),
+        }));
+        let generated = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(generated, plan);
+    }
+
+    #[test]
+    fn add_sources_records_urls_and_local_read_roots() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("req.md");
+        std::fs::write(&file, "req\n").unwrap();
+        let mut context = context_with_goal("plan");
+        context
+            .add_sources(&[
+                "https://example.com/doc".into(),
+                dir.path().display().to_string(),
+                file.display().to_string(),
+            ])
+            .unwrap();
+        assert!(
+            context
+                .sources
+                .iter()
+                .any(|source| source == "https://example.com/doc")
+        );
+        assert!(
+            context
+                .sources
+                .iter()
+                .any(|source| source.ends_with("req.md"))
+        );
+        assert_eq!(context.read_roots.len(), 1);
+        assert_eq!(
+            context.read_roots[0].canonicalize().unwrap(),
+            dir.path().canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn source_urls_are_extracted_with_punctuation_and_fragments() {
+        let urls =
+            source_urls("先读 https://example.com/doc#part，再参考 http://127.0.0.1:8080/a。");
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/doc#part".to_string(),
+                "http://127.0.0.1:8080/a".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn source_matching_ignores_fragments_and_trailing_slashes() {
+        assert!(same_source(
+            "https://example.com/doc#part",
+            "https://example.com/doc"
+        ));
+        assert!(same_source(
+            "https://example.com/doc/",
+            "https://example.com/doc"
+        ));
+        assert!(!same_source(
+            "https://example.com/doc",
+            "https://example.com/other"
+        ));
     }
 
     struct LoopingPlannerProvider;

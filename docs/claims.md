@@ -182,6 +182,7 @@ file: <路径>              → 文件必须存在
 | `skill_search` 搜索 skill journal + SKILL.md roots，返回 metadata/body；只读、不激活/执行 | cmd: cargo test --offline --lib skill_search | ✅ | 只扫默认根/环境变量根；不验证 skill 内容安全性 |
 | `skill_exec` 可运行操作者声明的只读 skill CLI 前缀（如 `lark-cli docs +fetch`）；无 shell、需 `--allow-network` | file: docs/evidence/planner-skill-exec-2026-11-20/README.md | ✅ | 只运行声明前缀；不执行写命令；DeepSeek 一例；计划未执行 |
 | 同一安装二进制下，DeepSeek 能按 `skill_exec` 读飞书文档并产出有据计划；本地 `qwen3-8b-16k` 同任务未读文档、计划为虚构 | file: docs/evidence/planner-skill-exec-cross-model-2026-11-20/README.md | ✅ | 各一次运行；8B 16k context；非等上下文基准，不是模型排名 |
+| `master plan` 来源门禁：任务 URL 或 `--source` 声明的本地文件/目录未成功读取时拒绝计划 | file: docs/evidence/planner-source-gate-2026-11-20/README.md | ✅ | 只证明成功读过，不证明读懂；Work Item 仍限制在 workspace |
 | 定时任务可持久化、到期执行并更新状态 | test: schedule_store_and_daemon_once_run_a_job | ✅ | CLI e2e；mock provider；pid 锁与原子状态 |
 | schedule 存储校验、锁和原子写入 | cmd: cargo test --offline --lib scheduler | ✅ | 到期/标记/删除/损坏状态测试 |
 | schedule 支持文件 mtime trigger | test: schedule_trigger_file_runs_once | ✅ | CLI e2e；第二次未变化不重复运行 |

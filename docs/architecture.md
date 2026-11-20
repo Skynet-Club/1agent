@@ -205,7 +205,13 @@ tool calls per plan. `read_document` covers text/markup, PDF, OOXML/ODF/EPUB, RT
 and optional image OCR; `skill_search` indexes the 1Agent skill journal and user
 `SKILL.md` roots, returning metadata and a bounded body. It never activates or executes
 a skill: skill application belongs to the Worker Work Item. `skill_exec` uses no shell,
-runs only declared read-only argument prefixes and never writes. See
+runs only declared read-only argument prefixes and never writes. If the task
+names an http(s) URL, the planner must have a successful `skill_exec` call whose
+arguments contain that URL; otherwise the plan is rejected with `UnreadSource`.
+`master plan --source <URL|PATH>` may declare additional sources. A local file
+needs a successful `read_file`/`read_document`; a local directory needs a
+successful read or `search_files` under it. Declared local sources become
+planner read roots; Work Items stay inside the planning workspace. See
 `docs/document-readers.md` and `docs/skill-exec.md`.
 
 Default safety limits are eight Work Items, three parallel tasks, one automatic retry per

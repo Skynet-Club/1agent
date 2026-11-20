@@ -97,7 +97,10 @@ impl SkillExecTool {
         let metadata = std::fs::metadata(path)
             .map_err(|error| format!("cannot stat {}: {error}", path.display()))?;
         if metadata.len() > MAX_CONFIG_BYTES {
-            return Err(format!("{} exceeds {MAX_CONFIG_BYTES} bytes", path.display()));
+            return Err(format!(
+                "{} exceeds {MAX_CONFIG_BYTES} bytes",
+                path.display()
+            ));
         }
         let bytes = std::fs::read(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
@@ -117,18 +120,13 @@ impl SkillExecTool {
             return Err("skill-exec must configure at least one command".into());
         }
         if config.commands.len() > MAX_COMMANDS {
-            return Err(format!(
-                "skill-exec allows at most {MAX_COMMANDS} commands"
-            ));
+            return Err(format!("skill-exec allows at most {MAX_COMMANDS} commands"));
         }
         let mut names = std::collections::BTreeSet::new();
         let mut commands = Vec::with_capacity(config.commands.len());
         for command in config.commands {
             let name = command.name.trim().to_string();
-            if name.is_empty()
-                || name.chars().count() > 64
-                || contains_disallowed_control(&name)
-            {
+            if name.is_empty() || name.chars().count() > 64 || contains_disallowed_control(&name) {
                 return Err("skill-exec command name is empty or unsafe".into());
             }
             if !names.insert(name.clone()) {
@@ -452,8 +450,12 @@ mod tests {
         arguments: Value,
         allow_network: bool,
     ) -> Result<ToolOutcome, ToolError> {
-        tool.execute(arguments, &permissions(allow_network), &CancellationToken::new())
-            .await
+        tool.execute(
+            arguments,
+            &permissions(allow_network),
+            &CancellationToken::new(),
+        )
+        .await
     }
 
     #[tokio::test]
@@ -533,9 +535,11 @@ mod tests {
     #[test]
     fn missing_policy_is_none_and_malformed_policy_fails() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(SkillExecTool::from_path(&dir.path().join("missing.json"))
-            .unwrap()
-            .is_none());
+        assert!(
+            SkillExecTool::from_path(&dir.path().join("missing.json"))
+                .unwrap()
+                .is_none()
+        );
 
         let path = dir.path().join("bad.json");
         std::fs::write(&path, "{not json").unwrap();

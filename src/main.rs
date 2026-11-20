@@ -1880,6 +1880,9 @@ enum MasterCommand {
     Plan {
         #[arg(long)]
         task: String,
+        /// External source: an http(s) URL or a local file/directory (repeatable).
+        #[arg(long = "source", value_name = "URL|PATH")]
+        source: Vec<String>,
         #[arg(
             long,
             conflicts_with_all = ["provider", "model", "base_url", "api_key"]
@@ -10921,6 +10924,7 @@ async fn main() -> Result<()> {
             }
             MasterCommand::Plan {
                 task,
+                source,
                 config,
                 provider,
                 model,
@@ -10940,6 +10944,7 @@ async fn main() -> Result<()> {
             } => {
                 run_master_plan(
                     task,
+                    source,
                     config,
                     provider,
                     model,
@@ -16283,6 +16288,7 @@ fn canonical_or_original(path: &PathBuf) -> PathBuf {
 #[allow(clippy::too_many_arguments)]
 async fn run_master_plan(
     task: String,
+    sources: Vec<String>,
     config: Option<PathBuf>,
     provider: String,
     model: Option<String>,
@@ -16327,6 +16333,7 @@ async fn run_master_plan(
             .merge_profiles(&profiles)?;
     }
     let mut context = PlanningContext::new(task, workspace, &triage)?;
+    context.add_sources(&sources)?;
     context.risk = if signals.requires_write
         || signals.requires_external_action
         || signals.risk == RiskLevel::High

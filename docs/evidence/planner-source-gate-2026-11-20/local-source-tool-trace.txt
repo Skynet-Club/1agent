@@ -1,0 +1,15 @@
+# 1agent master plan — local source live run (2026-11-20)
+# Binary: ~/.local/bin/1agent release d620eb9a…; model DeepSeek deepseek-flash.
+# Source: /tmp/1agent-local-source-test/requirements.md (outside the workspace).
+
+step  tool          call                                                         status  observation
+0     read_file     /tmp/1agent-local-source-test/requirements.md                ok      288 bytes
+0     skill_search  query="requirements document analysis planning"               ok      0 skills
+1     search_files  path=/home/skynet/1-agent query=LOCAL_SOURCE_GATE_OK          ok      0 matches
+1     search_files  path=/home/skynet/1-agent query="" max_results=40             ok      40 files
+2     read_file     docs/io-contracts.md max_bytes=2000                          ok      2000 bytes
+3     (final)       PlanProposal                                                  ok      2 Work Items, approved=false
+
+Totals: 4 model requests, 5 tool calls, 13.3 s, 14,474 input / 2,358 output tokens.
+The source is outside the workspace; --source added its parent to planner read roots.
+Both Work Items keep read_roots inside the workspace.

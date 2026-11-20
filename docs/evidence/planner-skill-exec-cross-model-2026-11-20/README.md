@@ -2,6 +2,9 @@
 
 Status: **completed; DeepSeek passed, local qwen3-8b-16k failed the doc-grounded task**
 
+Note: the source gate added after this run now rejects the 8B's plan with
+`UnreadSource`; see `../planner-source-gate-2026-11-20/`.
+
 Same task, same workspace, same `~/.1a/skill-exec.json` policy, same installed
 binary (`~/.local/bin/1agent`, sha256 `e1529700…`). Only the provider/model
 changed:

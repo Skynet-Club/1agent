@@ -81,12 +81,41 @@
 `skill_search` 不扫描 CLI 内嵌的 skill（例如 `lark-cli` 的 `lark-doc`）；
 需要时由 `skill_exec` 调用 `lark-cli skills list/read` 发现和阅读。
 
+## 来源门禁
+
+**解决什么**：确定性计划校验只看结构、ID 和权限，看不出模型有没有真的读
+来源。门禁把“结构合法但没读来源”的计划变成明确的 `UnreadSource` 错误，宁可
+不给计划，也不给假计划。
+
+**来源怎么声明**：
+
+| 来源 | 声明方式 | 通过条件 |
+|---|---|---|
+| 任务里的 `http(s)` URL | 自动识别 | 某次**成功**的 `skill_exec` 调用参数包含该 URL |
+| 本地文件 | `--source <文件>` | `read_file` 或 `read_document` 成功读过该文件 |
+| 本地目录 / 知识库 | `--source <目录>` | 目录下有过成功的 `read_file` / `read_document` / `search_files` |
+| 显式 URL | `--source <url>` | 同 URL |
+
+`--source` 可重复。本地来源同时成为规划器的读取根：文件授权其父目录，目录
+授权自身。Work Item 仍限制在 `context.workspace` 内；外部来源由规划器读取，
+再把关键事实写进 objective。这样不会顺手放大 Worker 的读取权限。
+
+Obsidian 只是“第三方知识库入口”的一个例子；任何导出成目录的笔记/知识库都
+走同一套 `--source` + 现有读取工具，不新增 Obsidian 专用工具。
+
+匹配 URL 时忽略 `#fragment`、`?query` 和末尾 `/`。门禁只保证“读过”，不保证
+“读懂了”；模型仍可能在读过之后再编。
+
 ## 已验证
 
-2026-11-20：DeepSeek 规划器通过 `lark-cli docs +fetch` 读取飞书 DOCX
+2026-11-20：DeepSeek 通过 `lark-cli docs +fetch` 读取飞书 DOCX
 （`document_id=HztBdLEAXorDhQxCYp1cyDXOnmd`，revision 8），并产出 3 个
 Work Item；一次 `--doc-url` 错误被当作观察返回，规划器自行改用 `--doc`。
-证据：`docs/evidence/planner-skill-exec-2026-11-20/`。
+同一版本还验证了本地来源：`--source /tmp/.../requirements.md` 被
+`read_file` 成功读取后产出 2 个 Work Item；本地 `qwen3-8b-16k` 未读 URL
+时被 `UnreadSource` 拒绝。证据：
+`docs/evidence/planner-skill-exec-2026-11-20/`、
+`docs/evidence/planner-source-gate-2026-11-20/`。
 
 ### 跨模型（2026-11-20）
 
