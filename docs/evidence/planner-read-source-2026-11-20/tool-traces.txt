@@ -1,0 +1,38 @@
+# read_source live traces (2026-11-20)
+
+## DeepSeek + Feishu URL (binary 69233386…)
+step  tool          call                                                         status  observation
+0     read_source   source=https://…/docx/HztBdLEAXorDhQxCYp1cyDXOnmd             ok      read Lark document via lark-cli
+1     search_files  path=/home/skynet/1-agent query="" max_results=60             ok      12 files
+1     skill_search  query="skyget install script CI action readme"                 ok      0 skills
+2     read_file     README.md max_bytes=6000                                      ok      5999 bytes
+2     read_file     AGENTS.md max_bytes=4000                                      ok      968 bytes
+3     search_files  path=docs/release query="" max_results=40                     ok      23 files
+4     (final)       PlanProposal                                                  ok      3 Work Items, approved=false
+
+Totals: 5 requests, 6 tool calls, 42.4 s, 49,128 input / 7,238 output tokens.
+The model used one read_source call; it did not need skills list/read or CLI flags.
+
+## DeepSeek + local file/directory (binary 69233386…)
+step  tool          call                                                         status  observation
+0     read_source   source=/tmp/1agent-local-source-test/requirements.md          ok      read local file
+0     search_files  path=/tmp/1agent-local-source-test query=""                   ok      1 file
+1     skill_search  query="write markdown documentation file"                     ok      0 skills
+2     search_files  path=/home/skynet/1-agent query="" max_results=50             ok      50 files
+3     read_file     AGENTS.md max_bytes=4000                                      ok      968 bytes
+4     read_file     .gitignore max_bytes=2000                                     ok      2000 bytes
+5     read_source   source=/tmp/1agent-local-source-test query="requirements …"   ok      directory search
+6     (final)       PlanProposal                                                  ok      2 Work Items, approved=false
+
+Totals: 7 requests, 7 tool calls, 26.1 s, 31,574 input / 3,960 output tokens.
+
+## Local qwen3-8b-16k + Feishu URL (binary c14971c8…, before max_chars clamp)
+step  tool          call                                                         status  observation
+0     read_source   source=https://…/docx/… max_chars=1000000                   invalid_arguments  max_chars above 200000
+1     read_source   source=https://…/docx/… max_chars=200000                    ok      read Lark document via lark-cli
+2     skill_search  query="skyget 1agent work item"                              ok      0 skills
+3-10  (final)       repeated invalid_final                                       failed  plan_id unknown field / conclusion object instead of string
+
+Totals: 11 requests, 3 tool calls, 515.6 s, 85,626 input / 12,595 output tokens.
+The typed read succeeded for the 8B; plan wrapper/identity formatting remained the blocker.
+The run was stopped after repeated invalid_final responses; no plan was written.

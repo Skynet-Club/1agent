@@ -1,0 +1,20 @@
+{
+  "plan_id": "plan-c653a884-1f1d-4c4b-b54b-42f49eb86ed5",
+  "goal_id": "goal-5d95586e-3f41-46e8-97e2-16897abd7cb7",
+  "approved": false,
+  "work_items": [
+    {
+      "id": "skyget-gate1-positioning-readme",
+      "title": "门 1：定位句与 README v2 首屏规范"
+    },
+    {
+      "id": "skyget-gate2-4-metrics-ci",
+      "title": "门 2/3/4：度量事件表与进 CI 技术契约"
+    },
+    {
+      "id": "1agent-scope-and-brand-audit",
+      "title": "1Agent 在 90 天方案中的投入约束与品牌红线核对"
+    }
+  ],
+  "note": "The full plan quotes private document content and stays local; this summary and the hashes are committed instead."
+}

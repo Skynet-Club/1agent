@@ -278,39 +278,7 @@ impl AgentTool for SkillExecTool {
             )));
         }
 
-        let mut process = tokio::process::Command::new(&command.bin);
-        process
-            .args(&args.args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .env_clear();
-        for key in ENV_PASSTHROUGH {
-            if let Some(value) = std::env::var_os(key) {
-                process.env(key, value);
-            }
-        }
-        let output = async {
-            let child = spawn_with_retry(&mut process).await?;
-            child.wait_with_output().await
-        };
-        let output = match tokio::time::timeout(TOOL_TIMEOUT, output).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ToolError::Failed(format!(
-                    "skill CLI not found: {}",
-                    command.bin.display()
-                )));
-            }
-            Ok(Err(error)) => {
-                return Err(ToolError::Failed(format!(
-                    "cannot run {}: {error}",
-                    command.bin.display()
-                )));
-            }
-            Err(_) => return Err(ToolError::TimedOut),
-        };
+        let output = run_readonly_cli(&command.bin, &args.args, TOOL_TIMEOUT).await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -397,6 +365,41 @@ fn resolve_bin(bin: &Path) -> Result<PathBuf, String> {
     std::env::current_dir()
         .map(|directory| directory.join(&candidate))
         .map_err(|error| format!("cannot resolve {}: {error}", candidate.display()))
+}
+
+pub(crate) async fn run_readonly_cli(
+    bin: &Path,
+    args: &[String],
+    timeout: Duration,
+) -> Result<std::process::Output, ToolError> {
+    let mut process = tokio::process::Command::new(bin);
+    process
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .env_clear();
+    for key in ENV_PASSTHROUGH {
+        if let Some(value) = std::env::var_os(key) {
+            process.env(key, value);
+        }
+    }
+    let output = async {
+        let child = spawn_with_retry(&mut process).await?;
+        child.wait_with_output().await
+    };
+    match tokio::time::timeout(timeout, output).await {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => Err(ToolError::Failed(
+            format!("read-only CLI not found: {}", bin.display()),
+        )),
+        Ok(Err(error)) => Err(ToolError::Failed(format!(
+            "cannot run {}: {error}",
+            bin.display()
+        ))),
+        Err(_) => Err(ToolError::TimedOut),
+    }
 }
 
 fn bounded_chars(value: &str, max_chars: usize) -> (String, bool) {

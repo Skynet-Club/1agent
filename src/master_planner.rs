@@ -16,7 +16,8 @@ use crate::master::{AgentProfile, MasterPlanError, PlanProposal};
 use crate::production_line::{ProductionLineError, ProductionPlan};
 use crate::provider::{ModelProvider, ProviderError};
 use crate::tools::{
-    AgentTool, ReadDocumentTool, ReadFileTool, SearchFilesTool, SkillSearchTool, ToolRegistry,
+    AgentTool, ReadDocumentTool, ReadFileTool, ReadSourceTool, SearchFilesTool, SkillSearchTool,
+    ToolRegistry,
 };
 
 const MAX_PLANNER_TOOL_STEPS: usize = 12;
@@ -733,6 +734,14 @@ impl PlanGenerator for ModelPlanGenerator {
                                 "skill_exec" => {
                                     collect_source_urls(&call.arguments, &mut read_urls);
                                 }
+                                "read_source" => {
+                                    collect_read_source(
+                                        &call,
+                                        &context.workspace,
+                                        &mut read_urls,
+                                        &mut read_paths,
+                                    );
+                                }
                                 "read_file" | "read_document" | "search_files" => {
                                     collect_read_path(&call, &context.workspace, &mut read_paths);
                                 }
@@ -780,6 +789,7 @@ fn planner_read_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::default();
     registry.register(Arc::new(ReadFileTool));
     registry.register(Arc::new(ReadDocumentTool::from_env()));
+    registry.register(Arc::new(ReadSourceTool::from_env()));
     registry.register(Arc::new(SearchFilesTool));
     registry.register(Arc::new(SkillSearchTool::from_env()));
     registry
@@ -854,6 +864,34 @@ fn collect_read_path(
     };
     if let Ok(canonical) = path.canonicalize() {
         read_paths.insert(canonical);
+    }
+}
+
+fn collect_read_source(
+    call: &crate::domain::ToolCall,
+    workspace: &Path,
+    read_urls: &mut BTreeSet<String>,
+    read_paths: &mut BTreeSet<PathBuf>,
+) {
+    let Some(source) = call
+        .arguments
+        .get("source")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+    if source.starts_with("http://") || source.starts_with("https://") {
+        read_urls.extend(source_urls(source));
+    } else {
+        let path = Path::new(source);
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            workspace.join(path)
+        };
+        if let Ok(canonical) = path.canonicalize() {
+            read_paths.insert(canonical);
+        }
     }
 }
 
@@ -990,12 +1028,12 @@ pub fn master_plan_system_prompt(skill_exec: bool) -> String {
     let mut prompt = String::from(
         r#"You are the planning component of 1-Agent, a Master-Agent that proposes work; deterministic code owns IDs, limits, approval and acceptance.
 
-Create a PlanProposal for the user's goal. You have read-only tools: read_file, search_files, read_document and skill_search. Use read_document for PDF/Office/HTML/images, read_file for plain text, search_files to discover requirements, and skill_search to find installed skills whose SKILL.md may cover the task. When a skill applies, read its body and put its instructions in the Work Item objective; put its declared tools in required_tools only when the Agents advertise them. Do not write files, run arbitrary commands, or claim that work happened.
+Create a PlanProposal for the user's goal. You have read-only tools: read_file, search_files, read_document, read_source and skill_search. Use read_source for any source the task names: a Lark/Feishu document URL, a local file, a local directory/knowledge base, or a public https URL. The runtime picks the backend; do not compose CLI flags. For a directory/knowledge base, pass a query. Use read_document/read_file for workspace files when you already know the path, search_files to discover files, and skill_search to find installed skills whose SKILL.md may cover the task. When a skill applies, read its body and put its instructions in the Work Item objective; put its declared tools in required_tools only when the Agents advertise them. Do not write files, run arbitrary commands, or claim that work happened.
 "#,
     );
     if skill_exec {
         prompt.push_str(
-            "\nYou also have skill_exec for operator-approved read-only skill CLIs. Use it when a requirement lives outside the workspace, for example a Lark document: run the CLI's own skill listing/read commands to learn usage, then run its read-only fetch command. skill_exec may use the network only for those configured read-only commands. Never attempt a write or high-risk command.\n",
+            "\nYou also have skill_exec for operator-approved read-only skill CLIs. Prefer read_source for a source the task names; use skill_exec only for other read-only commands that read_source does not cover. skill_exec may use the network only for configured read-only commands. Never attempt a write or high-risk command.\n",
         );
     } else {
         prompt.push_str(
@@ -1729,6 +1767,7 @@ mod tests {
         let names = tools.lock().unwrap().clone();
         assert!(names.iter().any(|name| name == "read_file"));
         assert!(names.iter().any(|name| name == "read_document"));
+        assert!(names.iter().any(|name| name == "read_source"));
         assert!(names.iter().any(|name| name == "search_files"));
         assert!(names.iter().any(|name| name == "skill_search"));
         assert!(!names.iter().any(|name| name == "skill_exec"));
@@ -1917,6 +1956,29 @@ mod tests {
             calls: AtomicUsize::new(0),
             tool: "read_file",
             arguments: serde_json::json!({"path": source}),
+        }));
+        let generated = generator
+            .generate(&context, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(generated, plan);
+    }
+
+    #[tokio::test]
+    async fn planner_accepts_a_plan_after_reading_source_tool() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("requirements.md");
+        std::fs::write(&source, "REQUIREMENT: add --count\n").unwrap();
+        let mut context = context_with_goal("先阅读需求文档，然后实现");
+        context
+            .add_sources(&[source.display().to_string()])
+            .unwrap();
+        let plan = sample_plan(&context);
+        let generator = ModelPlanGenerator::new(Arc::new(ToolThenPlanProvider {
+            plan: plan.clone(),
+            calls: AtomicUsize::new(0),
+            tool: "read_source",
+            arguments: serde_json::json!({"source": source}),
         }));
         let generated = generator
             .generate(&context, &CancellationToken::new())

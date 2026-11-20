@@ -198,9 +198,12 @@ requests and responses are separately journaled before a plan enters the Master 
 `master plan` runs a bounded read-only tool loop before it returns a plan. The planner
 may use `read_file`, `search_files`, `read_document` and `skill_search` under the
 planning workspace; each tool call and observation is written to the planning journal.
-With `--allow-network` and `~/.1a/skill-exec.json`, the planner may also use
-`skill_exec` to run operator-allowlisted read-only commands from an external skill CLI
-(for example `lark-cli docs +fetch`). The limits are twelve tool steps and twenty-four
+The planner also has `read_source`, a typed entry: the model names a URL or path and
+the runtime selects the backend (Lark/Feishu URL -> `lark-cli`, public HTTPS ->
+`fetch_url`, local file -> `read_document`, local directory/knowledge base ->
+`search_files`). With `--allow-network` and `~/.1a/skill-exec.json`, the planner may
+also use `skill_exec` to run operator-allowlisted read-only commands from an external
+skill CLI. The limits are twelve tool steps and twenty-four
 tool calls per plan. `read_document` covers text/markup, PDF, OOXML/ODF/EPUB, RTF, archives
 and optional image OCR; `skill_search` indexes the 1Agent skill journal and user
 `SKILL.md` roots, returning metadata and a bounded body. It never activates or executes

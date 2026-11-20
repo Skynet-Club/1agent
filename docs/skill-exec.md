@@ -91,10 +91,13 @@
 
 | 来源 | 声明方式 | 通过条件 |
 |---|---|---|
-| 任务里的 `http(s)` URL | 自动识别 | 某次**成功**的 `skill_exec` 调用参数包含该 URL |
+| 任务里的 `http(s)` URL | 自动识别 | 某次**成功**的 `read_source` 或 `skill_exec` 调用包含该 URL |
 | 本地文件 | `--source <文件>` | `read_file` 或 `read_document` 成功读过该文件 |
 | 本地目录 / 知识库 | `--source <目录>` | 目录下有过成功的 `read_file` / `read_document` / `search_files` |
 | 显式 URL | `--source <url>` | 同 URL |
+
+优先使用 `read_source`（见 `docs/read-source.md`）；`skill_exec` 保留给
+`read_source` 覆盖不到的其他只读 skill 命令。
 
 `--source` 可重复。本地来源同时成为规划器的读取根：文件授权其父目录，目录
 授权自身。Work Item 仍限制在 `context.workspace` 内；外部来源由规划器读取，

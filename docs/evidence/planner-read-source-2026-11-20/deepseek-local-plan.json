@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-01e2299e-17b6-44ed-ab09-b00f5f97319f",
+  "goal_id": "goal-dfdecab8-779a-4725-897c-179b73d26042",
+  "version": 1,
+  "summary": "需求文档已读取（本地文件，内容含三条要求与验收标准：在 docs/local-source-check.md 写入说明并包含标记 LOCAL_SOURCE_GATE_OK，不改动其他文件、不执行代码）。计划拆成 2 个 Work Item：先撰写目标文档，再做只读验收核对。仅规划，不执行。",
+  "work_items": [
+    {
+      "id": "write-local-source-check-doc",
+      "title": "撰写 docs/local-source-check.md 并写入 LOCAL_SOURCE_GATE_OK",
+      "objective": "在仓库 /home/skynet/1-agent 内创建文件 docs/local-source-check.md（若 docs 目录不存在则先创建目录），内容为一段简短中文说明，记录：来源门禁已验证本地文件读取（规划阶段已成功读取需求文档 requirements.md，格式 markdown、文本类，读取成功且未截断）。文件必须包含独立一行或明确可见的字面标记 LOCAL_SOURCE_GATE_OK。只创建/写入这一个文件，不修改仓库中任何其他文件，不执行任何代码或脚本，不联网。AGENTS.md 规定的项目规则仍适用：任何额外副作用都需要权限与策略批准，本次不需要。",
+      "dependencies": [],
+      "required_capabilities": [
+        "filesystem_write",
+        "markdown_authoring"
+      ],
+      "required_tools": [
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "docs/local-source-check.md 存在于 /home/skynet/1-agent 下",
+        "文件内容包含字面标记 LOCAL_SOURCE_GATE_OK",
+        "文件中有一段说明，明确记录来源门禁已验证本地文件读取",
+        "除 docs/local-source-check.md 外没有新增或修改任何文件",
+        "未执行任何代码或命令，未进行网络访问"
+      ],
+      "expected_artifacts": [
+        "docs/local-source-check.md"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 6,
+        "timeout_ms": 120000,
+        "max_tool_calls": 8
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    },
+    {
+      "id": "verify-local-source-check-doc",
+      "title": "只读验收核对 docs/local-source-check.md",
+      "objective": "对 write-local-source-check-doc 的产物做独立只读验收：读取 /home/skynet/1-agent/docs/local-source-check.md，逐项核对（1）文件存在；（2）内容包含字面标记 LOCAL_SOURCE_GATE_OK；（3）包含记录来源门禁已验证本地文件读取的说明文字。同时核对仓库根目录层级未出现被要求之外的改动迹象（只做只读列举，不修改）。把核对结论写成简短验收记录到 .1a/verification/local-source-check.md（.1a/ 已被 .gitignore 忽略，不属于被跟踪的仓库内容，因此不违反‘不修改任何其他文件’）。若核对失败，在记录中写明失败项，不要修改目标文档本身，也不要执行任何代码。",
+      "dependencies": [
+        "write-local-source-check-doc"
+      ],
+      "required_capabilities": [
+        "filesystem_read",
+        "verification"
+      ],
+      "required_tools": [
+        "read_file",
+        "write_file"
+      ],
+      "permissions": {
+        "read_roots": [
+          "/home/skynet/1-agent"
+        ],
+        "allow_network": false,
+        "allow_write": true
+      },
+      "acceptance_criteria": [
+        "验收记录中逐项列出三项核对结果，且均以读取到的实际文件内容为依据",
+        ".1a/verification/local-source-check.md 存在并包含总体结论（通过/不通过）",
+        "验收过程中未修改 docs/local-source-check.md 或任何被跟踪文件",
+        "未执行任何代码或命令，未进行网络访问"
+      ],
+      "expected_artifacts": [
+        ".1a/verification/local-source-check.md"
+      ],
+      "workspace": "/home/skynet/1-agent",
+      "budget": {
+        "max_steps": 5,
+        "timeout_ms": 90000,
+        "max_tool_calls": 6
+      },
+      "deadline_unix_ms": null,
+      "risk": "low",
+      "status": "pending"
+    }
+  ],
+  "max_parallel": 1,
+  "approved": false
+}
