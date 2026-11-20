@@ -231,6 +231,10 @@ pub struct SpawnAgentTool {
     instance_id: Uuid,
     #[cfg(test)]
     tree_override: Option<(PathBuf, TreeLimits)>,
+    #[cfg(test)]
+    timeout_override: Option<u64>,
+    #[cfg(test)]
+    wait_grace_secs: u64,
 }
 
 impl SpawnAgentTool {
@@ -243,6 +247,10 @@ impl SpawnAgentTool {
             instance_id: Uuid::new_v4(),
             #[cfg(test)]
             tree_override: None,
+            #[cfg(test)]
+            timeout_override: None,
+            #[cfg(test)]
+            wait_grace_secs: 20,
         }
     }
 
@@ -255,6 +263,13 @@ impl SpawnAgentTool {
     #[cfg(test)]
     pub fn with_tree_budget(mut self, path: PathBuf, limits: TreeLimits) -> Self {
         self.tree_override = Some((path, limits));
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_timeout_override(mut self, seconds: u64) -> Self {
+        self.timeout_override = Some(seconds);
+        self.wait_grace_secs = 0;
         self
     }
 
@@ -368,6 +383,18 @@ impl AgentTool for SpawnAgentTool {
             .and_then(Value::as_u64)
             .unwrap_or(DEFAULT_TIMEOUT_SECS)
             .clamp(10, MAX_TIMEOUT_SECS);
+        #[cfg(test)]
+        let timeout_seconds = self.timeout_override.unwrap_or(timeout_seconds);
+        let wait_grace_secs = {
+            #[cfg(test)]
+            {
+                self.wait_grace_secs
+            }
+            #[cfg(not(test))]
+            {
+                20
+            }
+        };
         let requested_allowed_tools = parse_allowed_tools(arguments.get("allowed_tools"))?;
         let child_write = permissions.allow_write
             && arguments
@@ -597,7 +624,7 @@ impl AgentTool for SpawnAgentTool {
                 )));
             }
             waited = tokio::time::timeout(
-                Duration::from_secs(timeout_seconds + 20),
+                Duration::from_secs(timeout_seconds + wait_grace_secs),
                 child.wait_with_output(),
             ) => waited,
         };
@@ -971,9 +998,9 @@ mod tests {
     use super::*;
     use crate::domain::{
         ANSWER_SCHEMA_VERSION, AgentAnswer, AnswerStatus, Claim, ClaimStatus, CognitiveMode,
-        ModelResponse, ModelTurn, StopReason, TaskRequest, ToolStatus, Usage,
+        ModelResponse, ModelTurn, PROTOCOL_VERSION, StopReason, TaskRequest, ToolStatus, Usage,
     };
-    use crate::journal::{Journal, JournalEventKind};
+    use crate::journal::{Journal, JournalEvent, JournalEventKind};
     use crate::tools::ToolRegistry;
 
     fn fake_program_with_stop(dir: &Path, stop_reason: &str) -> PathBuf {
@@ -1652,6 +1679,128 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
     }
 
     #[tokio::test]
+    async fn timed_out_spawn_is_killed_and_marked_timed_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_sleeping(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal()
+            .with_timeout_override(1);
+        let started = std::time::Instant::now();
+        let error = tool
+            .execute(
+                json!({"task": "slow child", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "timeout branch did not fire promptly"
+        );
+        assert!(
+            matches!(
+                error,
+                ToolError::TimedOutWithMetadata(ref metadata)
+                    if metadata.get("status").map(String::as_str) == Some("timed_out")
+            ),
+            "unexpected error: {error:?}"
+        );
+        assert_eq!(
+            record_for_workspace(&workspace).status,
+            SubagentStatus::TimedOut
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_child_with_audit_failure_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let journal_path = dir.path().join("tampered.jsonl");
+        let run_id = Uuid::new_v4();
+        let events = [
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 0,
+                timestamp_unix_ms: 1,
+                event: JournalEventKind::RunStarted {
+                    request: TaskRequest::from_objective(
+                        "tampered child",
+                        std::path::PathBuf::from("."),
+                    ),
+                    mode: CognitiveMode::DirectAnswer,
+                },
+            },
+            JournalEvent {
+                schema_version: PROTOCOL_VERSION,
+                run_id,
+                seq: 5,
+                timestamp_unix_ms: 2,
+                event: JournalEventKind::ClientRequestLinked {
+                    client_request_id: "out-of-sequence".into(),
+                },
+            },
+        ];
+        let body = events
+            .iter()
+            .map(|event| serde_json::to_string(event).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&journal_path, format!("{body}\n")).unwrap();
+        let output = json!({
+            "run_id": "child-bad-audit",
+            "journal_path": journal_path.display().to_string(),
+            "answer": {
+                "schema_version": ANSWER_SCHEMA_VERSION,
+                "status": "completed",
+                "conclusion": "tampered child",
+                "claims": [],
+                "evidence": [],
+                "assumptions": [],
+                "constraints": [],
+                "unknowns": [],
+                "conflicts": [],
+                "flip_conditions": [],
+                "action_receipts": []
+            },
+            "stop_reason": "completed"
+        });
+        let output_path = dir.path().join("child-output.json");
+        std::fs::write(&output_path, output.to_string()).unwrap();
+        let program = write_program(
+            dir.path(),
+            "fake-audit-failure",
+            &format!("#!/bin/sh\ncat '{}'\n", output_path.display()),
+        );
+        let tool = SpawnAgentTool::new(program).with_depth(0);
+        let error = tool
+            .execute(
+                json!({"task": "tampered child", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ToolError::FailedWithMetadata { ref message, .. }
+                    if message.contains("audit failed")
+            ),
+            "unexpected error: {error:?}"
+        );
+        assert_eq!(
+            record_for_workspace(&workspace).status,
+            SubagentStatus::Failed
+        );
+    }
+
+    #[tokio::test]
     async fn cancelled_spawn_is_structured_and_marked_cancelled() {
         let dir = tempfile::tempdir().unwrap();
         let program = fake_program_sleeping(dir.path());
@@ -2091,6 +2240,22 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         );
         let runs = std::fs::read_to_string(format!("{}.count", program.display())).unwrap();
         assert_eq!(runs.lines().count(), 1);
+        let expected_workspace = std::fs::canonicalize(&workspace)
+            .unwrap()
+            .display()
+            .to_string();
+        let registry = std::fs::read_to_string(crate::subagent_registry::registry_path()).unwrap();
+        let ids = registry
+            .lines()
+            .filter_map(|line| serde_json::from_str::<SubagentRecord>(line).ok())
+            .filter(|record| record.workspace == expected_workspace)
+            .map(|record| record.id)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            ids.len(),
+            1,
+            "duplicate spawn must not write a second record"
+        );
 
         let conflict = crate::tools::RUN_CONTEXT
             .scope(

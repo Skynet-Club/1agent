@@ -1,0 +1,14 @@
+Live multi-agent smoke (Ollama qwen3-8b-16k, installed 1agent)
+
+Parent journal: /home/skynet/.1a/journals/ba463610-b68e-463e-a1d3-d116f8e920e7.jsonl
+spawn_agent ToolCalled: 2
+spawn_agent ToolObserved: 2
+
+Child A observation: failed: subagent exited 1: no provider route for mode Execute
+Child B observation: failed: needs_authorization (read-only + Execute classification)
+Child usage metadata: input 0, output 0, cost 0, model_calls 0 (journals contain no model response)
+
+Run 2 parent: exit 1, no provider route for mode Execute (task wording classified as Execute)
+Run 2 journal: /home/skynet/.1a/journals/3645cddb-b9f2-488c-bff2-e819b46157b7.jsonl
+
+Result: spawn path and structured failures observed; no successful child answer on local 8B.

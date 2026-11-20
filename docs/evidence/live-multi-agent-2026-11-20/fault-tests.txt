@@ -1,0 +1,39 @@
+$ cargo test --offline --lib timed_out_spawn_is_killed_and_marked_timed_out
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tools::subagent::tests::timed_out_spawn_is_killed_and_marked_timed_out ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1364 filtered out; finished in 1.01s
+
+
+$ cargo test --offline --lib completed_child_with_audit_failure_is_rejected
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tools::subagent::tests::completed_child_with_audit_failure_is_rejected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1364 filtered out; finished in 0.02s
+
+
+$ cargo test --offline --lib replaying_the_same_spawn_call_returns_the_cached_child
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tools::subagent::tests::replaying_the_same_spawn_call_returns_the_cached_child ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1364 filtered out; finished in 0.22s
+
+
+$ cargo test --offline --lib failed_task_without_applied_effects_has_no_repair
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test master_coordination::tests::failed_task_without_applied_effects_has_no_repair ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1364 filtered out; finished in 0.00s
+

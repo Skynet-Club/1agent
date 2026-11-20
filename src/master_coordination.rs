@@ -2435,6 +2435,58 @@ mod tests {
     }
 
     #[test]
+    fn failed_task_without_applied_effects_has_no_repair() {
+        let workspace = tempdir().unwrap();
+        let mut state = ready_state();
+        state.plan.work_items[0].workspace = workspace.path().into();
+        let lease = state
+            .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+            .unwrap();
+        state.begin_starting("a", lease.generation, 4).unwrap();
+        state
+            .record_receipt(receipt("a", lease.generation, &lease_key("a", 1)), 5)
+            .unwrap();
+        let checks = inspect_artifacts(
+            workspace.path(),
+            &[ArtifactExpectation {
+                path: "a.txt".into(),
+                expected_sha256: None,
+            }],
+        )
+        .unwrap();
+        let result = state
+            .verify(
+                VerificationInput {
+                    task_id: "a".into(),
+                    lease_generation: lease.generation,
+                    criteria_results: vec![CriterionResult {
+                        criterion: "artifact exists".into(),
+                        passed: true,
+                        evidence: vec!["checked".into()],
+                    }],
+                    artifact_checks: checks,
+                    test_results: Vec::new(),
+                    evidence: vec!["independent check".into()],
+                    verified_by: "verifier".into(),
+                    verified_at_unix_ms: 6,
+                },
+                6,
+            )
+            .unwrap();
+        assert_eq!(result.status, WorkItemStatus::Rejected);
+        assert!(
+            state.tasks["a"].repair.is_none(),
+            "no applied artifact means no compensation plan"
+        );
+        assert!(
+            !state
+                .decisions
+                .iter()
+                .any(|decision| decision.kind == DecisionKind::RepairPlanned)
+        );
+    }
+
+    #[test]
     fn lease_receipt_and_verification_unlock_dependencies() {
         let workspace = tempdir().unwrap();
         std::fs::write(workspace.path().join("a.txt"), "artifact").unwrap();

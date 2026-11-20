@@ -1,0 +1,20 @@
+{
+  "ma": "MA-014",
+  "date": "2026-11-20",
+  "fault_tests": 4,
+  "lib_passed": 1361,
+  "lib_failed": 0,
+  "lib_ignored": 4,
+  "bin_passed": 68,
+  "cli_e2e_passed": 39,
+  "cli_e2e_skipped_baseline_failure": "cli_tui_agents_refresh_uses_configured_profiles",
+  "mast_passed": 7,
+  "eval": "8/8 PASS",
+  "clippy": "clean",
+  "fmt": "clean",
+  "live_model": "qwen3-8b-16k",
+  "live_parent_completed": true,
+  "live_spawn_calls": 2,
+  "live_successful_children": 0,
+  "agent_exec_blocker": "session_limit 128 active sessions"
+}
