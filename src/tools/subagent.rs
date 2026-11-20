@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::spawn_ledger::{SpawnLedger, fingerprint as spawn_fingerprint};
 #[cfg(test)]
 use super::subagent_budget::TreeLimits;
 use super::subagent_budget::{TREE_FILE_ENV, TreeBudget};
@@ -312,12 +313,6 @@ impl AgentTool for SpawnAgentTool {
                 "subagent depth limit ({MAX_DEPTH}) reached"
             )));
         }
-        let previous = self.spawned.fetch_add(1, Ordering::SeqCst);
-        if previous >= MAX_FANOUT {
-            return Err(ToolError::Failed(format!(
-                "subagent fanout limit ({MAX_FANOUT}) reached"
-            )));
-        }
         let task = arguments
             .get("task")
             .and_then(Value::as_str)
@@ -334,8 +329,6 @@ impl AgentTool for SpawnAgentTool {
             .unwrap_or(DEFAULT_TIMEOUT_SECS)
             .clamp(10, MAX_TIMEOUT_SECS);
         let requested_allowed_tools = parse_allowed_tools(arguments.get("allowed_tools"))?;
-        let workspace = resolve_workspace(&arguments, permissions).await?;
-        let journal_dir = workspace.join(".1agent-subagent-journal");
         let child_write = permissions.allow_write
             && arguments
                 .get("allow_write")
@@ -346,6 +339,60 @@ impl AgentTool for SpawnAgentTool {
                 .get("allow_network")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
+        let spawn_call_id = super::TOOL_CALL_ID.try_with(Clone::clone).ok();
+        let run_context = super::RUN_CONTEXT.try_with(Clone::clone).ok();
+        let allowed_tools = child_allowed_tools(
+            run_context
+                .as_ref()
+                .and_then(|context| context.allowed_tools.as_ref()),
+            requested_allowed_tools,
+        );
+        let ledger = match (run_context.as_ref(), spawn_call_id.as_deref()) {
+            (Some(context), Some(call_id)) => Some(
+                SpawnLedger::new(&cache_root(), &context.run_id, call_id)
+                    .map_err(|error| ToolError::Failed(format!("spawn idempotency: {error}")))?,
+            ),
+            _ => None,
+        };
+        let fingerprint = ledger.as_ref().map(|_| {
+            spawn_fingerprint(&json!({
+                "task": task,
+                // An omitted workspace is generated per attempt; key on the
+                // argument so a replay does not create a second workspace.
+                "workspace": arguments
+                    .get("workspace")
+                    .and_then(Value::as_str)
+                    .unwrap_or("auto"),
+                "max_steps": max_steps,
+                "timeout_seconds": timeout_seconds,
+                "allow_write": child_write,
+                "allow_network": child_network,
+                "allowed_tools": allowed_tools,
+                "read_roots": permissions
+                    .read_roots
+                    .iter()
+                    .map(|root| root.display().to_string())
+                    .collect::<Vec<_>>(),
+            }))
+        });
+        if let (Some(ledger), Some(fingerprint)) = (&ledger, &fingerprint)
+            && let Some(mut outcome) = ledger
+                .replay(fingerprint)
+                .map_err(|error| ToolError::Failed(format!("spawn idempotency: {error}")))?
+        {
+            outcome
+                .metadata
+                .insert("idempotent_replay".into(), "true".into());
+            return Ok(outcome);
+        }
+        let previous = self.spawned.fetch_add(1, Ordering::SeqCst);
+        if previous >= MAX_FANOUT {
+            return Err(ToolError::Failed(format!(
+                "subagent fanout limit ({MAX_FANOUT}) reached"
+            )));
+        }
+        let workspace = resolve_workspace(&arguments, permissions).await?;
+        let journal_dir = workspace.join(".1agent-subagent-journal");
         let root_pid = std::env::var(SUBAGENT_ROOT_PID_ENV)
             .ok()
             .and_then(|value| value.parse::<u32>().ok())
@@ -363,9 +410,7 @@ impl AgentTool for SpawnAgentTool {
             max_steps,
             timeout_seconds,
         );
-        record.spawn_call_id = super::TOOL_CALL_ID.try_with(Clone::clone).ok();
-        let spawn_call_id = record.spawn_call_id.clone();
-        let run_context = super::RUN_CONTEXT.try_with(Clone::clone).ok();
+        record.spawn_call_id = spawn_call_id.clone();
         if let Some(context) = &run_context {
             record.parent_run_id = Some(context.run_id.clone());
             record.parent_session_id = context.session_id.clone();
@@ -382,12 +427,6 @@ impl AgentTool for SpawnAgentTool {
             (Some(run_id), Some(call_id)) => Some(format!("{run_id}:{call_id}")),
             _ => None,
         };
-        let allowed_tools = child_allowed_tools(
-            run_context
-                .as_ref()
-                .and_then(|context| context.allowed_tools.as_ref()),
-            requested_allowed_tools,
-        );
         let tree = self
             .tree_budget(run_context.as_ref().map(|context| context.run_id.as_str()))
             .map_err(|error| ToolError::Failed(format!("tree budget: {error}")))?;
@@ -750,14 +789,20 @@ impl AgentTool for SpawnAgentTool {
             SubagentStatus::Completed,
             Some(bounded(conclusion.lines().next().unwrap_or("无结论"), 160)),
         );
-        Ok(ToolOutcome {
+        let outcome = ToolOutcome {
             summary: format!(
                 "队员完成：{}",
                 bounded(conclusion.lines().next().unwrap_or("无结论"), 160)
             ),
             content: content.to_string(),
             metadata,
-        })
+        };
+        if let (Some(ledger), Some(fingerprint)) = (&ledger, &fingerprint) {
+            ledger
+                .record(fingerprint, &outcome)
+                .map_err(|error| ToolError::Failed(format!("spawn idempotency: {error}")))?;
+        }
+        Ok(outcome)
     }
 }
 
@@ -896,6 +941,17 @@ printf '{"run_id":"child","journal_path":"","answer":{"schema_version":2,"status
 
     fn fake_program(dir: &Path) -> PathBuf {
         fake_program_with_stop(dir, "completed")
+    }
+
+    fn fake_program_counted(dir: &Path) -> PathBuf {
+        write_program(
+            dir,
+            "fake-counted",
+            r#"#!/bin/sh
+printf 'run\n' >> "$0.count"
+printf '{"run_id":"child-idem","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed"}\n'
+"#,
+        )
     }
 
     fn write_program(dir: &Path, name: &str, script: &str) -> PathBuf {
@@ -1808,6 +1864,103 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         assert_eq!(state["spent_cost_micros"], 7);
         assert_eq!(state["spent_tokens"], 150);
         assert_eq!(state["active"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn replaying_the_same_spawn_call_returns_the_cached_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_counted(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program.clone())
+            .with_depth(0)
+            .allow_missing_journal();
+        let context = crate::tools::RunContext {
+            run_id: format!("run-idem-{}", Uuid::new_v4()),
+            session_id: None,
+            goal_id: None,
+            work_item_id: None,
+            allowed_tools: None,
+        };
+        let call_id = format!("call-idem-{}", Uuid::new_v4());
+        let permissions = permissions(dir.path(), false);
+        let args = json!({"task": "child task", "workspace": workspace});
+        let first = crate::tools::RUN_CONTEXT
+            .scope(
+                context.clone(),
+                crate::tools::TOOL_CALL_ID.scope(
+                    call_id.clone(),
+                    tool.execute(args.clone(), &permissions, &CancellationToken::new()),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(!first.metadata.contains_key("idempotent_replay"));
+        let second = crate::tools::RUN_CONTEXT
+            .scope(
+                context.clone(),
+                crate::tools::TOOL_CALL_ID.scope(
+                    call_id.clone(),
+                    tool.execute(args.clone(), &permissions, &CancellationToken::new()),
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            second.metadata.get("idempotent_replay").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            second.metadata.get("child_run_id"),
+            first.metadata.get("child_run_id")
+        );
+        let runs = std::fs::read_to_string(format!("{}.count", program.display())).unwrap();
+        assert_eq!(runs.lines().count(), 1);
+
+        let conflict = crate::tools::RUN_CONTEXT
+            .scope(
+                context.clone(),
+                crate::tools::TOOL_CALL_ID.scope(
+                    call_id.clone(),
+                    tool.execute(
+                        json!({"task": "different task", "workspace": workspace}),
+                        &permissions,
+                        &CancellationToken::new(),
+                    ),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                conflict,
+                ToolError::Failed(ref message) if message.contains("spawn idempotency")
+            ),
+            "unexpected error: {conflict:?}"
+        );
+
+        let error = crate::tools::RUN_CONTEXT
+            .scope(
+                crate::tools::RunContext {
+                    run_id: format!("run-idem-{}", Uuid::new_v4()),
+                    session_id: None,
+                    goal_id: None,
+                    work_item_id: None,
+                    allowed_tools: None,
+                },
+                crate::tools::TOOL_CALL_ID.scope(
+                    "call-idem-other".to_string(),
+                    tool.execute(
+                        json!({"task": "child task", "workspace": workspace}),
+                        &permissions,
+                        &CancellationToken::new(),
+                    ),
+                ),
+            )
+            .await;
+        assert!(error.is_ok(), "a new run id is a new key");
+        let runs = std::fs::read_to_string(format!("{}.count", program.display())).unwrap();
+        assert_eq!(runs.lines().count(), 2);
     }
 
     #[tokio::test]

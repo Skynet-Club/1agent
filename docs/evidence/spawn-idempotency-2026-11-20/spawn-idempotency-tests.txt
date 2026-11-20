@@ -1,0 +1,21 @@
+$ cargo test --offline --lib tools::spawn_ledger
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 3 tests
+test tools::spawn_ledger::tests::fingerprints_are_stable_and_request_sensitive ... ok
+test tools::spawn_ledger::tests::a_second_in_flight_handle_is_rejected ... ok
+test tools::spawn_ledger::tests::replay_returns_the_recorded_outcome_after_a_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1353 filtered out; finished in 0.01s
+
+
+$ cargo test --offline --lib replaying_the_same_spawn_call_returns_the_cached_child
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/first_principles_agent-2113f110f8abb361)
+
+running 1 test
+test tools::subagent::tests::replaying_the_same_spawn_call_returns_the_cached_child ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1355 filtered out; finished in 0.02s
+

@@ -852,6 +852,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   `usage` (model calls, input/output tokens, cost) plus matching observation
   metadata. A child that dies before its journal is read is not charged; the
   file is an overspend guard for cooperating agents, not a sandbox boundary.
+  Spawn calls are idempotent per `(parent_run_id, tool_call_id)`: a completed
+  outcome is replayed from a per-key `IdempotencyStore` under the cache with
+  `idempotent_replay=true`, an exclusive per-key file lock rejects a concurrent
+  duplicate, and the same call id with different arguments fails closed. Failed,
+  timed-out and cancelled attempts are not cached.
   Each run scopes a task-local
   `RunContext {run_id, session_id, goal_id, work_item_id, allowed_tools}`
   around tool execution, so a successful spawn writes `parent_run_id`,

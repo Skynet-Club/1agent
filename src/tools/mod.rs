@@ -64,6 +64,7 @@ mod session;
 mod skill_exec;
 mod skill_search;
 mod skills;
+mod spawn_ledger;
 mod subagent;
 mod subagent_budget;
 mod terminal;
