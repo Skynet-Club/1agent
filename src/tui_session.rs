@@ -338,6 +338,56 @@ impl TuiSession {
         })
     }
 
+    /// Newest non-archived session for this workspace under `journal_dir`.
+    /// Sessions that never recorded a workspace are a fallback only.
+    pub fn latest_for(
+        journal_dir: impl AsRef<Path>,
+        workspace: impl AsRef<Path>,
+    ) -> Result<Option<String>, TuiSessionError> {
+        let root = journal_dir.as_ref().join(".sessions");
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            return Ok(None);
+        };
+        let workspace = std::fs::canonicalize(workspace.as_ref())
+            .unwrap_or_else(|_| workspace.as_ref().to_path_buf());
+        let mut exact: Option<(SystemTime, String)> = None;
+        let mut unset: Option<(SystemTime, String)> = None;
+        for entry in entries.flatten() {
+            let id = entry.file_name().to_string_lossy().to_string();
+            if validate_id(&id).is_err() {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(entry.path().join("session.json")) else {
+                continue;
+            };
+            let Ok(record) = serde_json::from_slice::<SessionRecord>(&bytes) else {
+                continue;
+            };
+            if record.archived {
+                continue;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(UNIX_EPOCH);
+            match record.workspace {
+                Some(path) => {
+                    let path = std::fs::canonicalize(&path).unwrap_or(path);
+                    if path == workspace && exact.as_ref().is_none_or(|(time, _)| modified > *time)
+                    {
+                        exact = Some((modified, id));
+                    }
+                }
+                None => {
+                    if unset.as_ref().is_none_or(|(time, _)| modified > *time) {
+                        unset = Some((modified, id));
+                    }
+                }
+            }
+        }
+        Ok(exact.or(unset).map(|(_, id)| id))
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -1218,6 +1268,39 @@ mod tests {
         assert_eq!(
             reopened.continue_command(),
             format!("1agent tui --session {}", session.id())
+        );
+    }
+
+    #[test]
+    fn latest_for_prefers_the_current_workspace() {
+        let journal_dir = tempfile::tempdir().unwrap();
+        let ws1 = tempfile::tempdir().unwrap();
+        let ws2 = tempfile::tempdir().unwrap();
+
+        let mut first = TuiSession::open(journal_dir.path(), None).unwrap();
+        first.set_workspace(ws1.path().to_path_buf()).unwrap();
+        let first_id = first.id().to_string();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        let mut second = TuiSession::open(journal_dir.path(), None).unwrap();
+        second.set_workspace(ws2.path().to_path_buf()).unwrap();
+        let second_id = second.id().to_string();
+
+        assert_eq!(
+            TuiSession::latest_for(journal_dir.path(), ws1.path()).unwrap(),
+            Some(first_id)
+        );
+        assert_eq!(
+            TuiSession::latest_for(journal_dir.path(), ws2.path()).unwrap(),
+            Some(second_id.clone())
+        );
+
+        // A session without a recorded workspace is only a fallback; an exact
+        // workspace match still wins.
+        let _unset = TuiSession::open(journal_dir.path(), None).unwrap();
+        assert_eq!(
+            TuiSession::latest_for(journal_dir.path(), ws2.path()).unwrap(),
+            Some(second_id)
         );
     }
 

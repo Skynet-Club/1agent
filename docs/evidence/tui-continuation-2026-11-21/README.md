@@ -47,6 +47,22 @@ cheaper than the original 58-step run, but the model still acts — it rewrote
 the page (`write_file`) instead of asking “already done; verify or new
 version?”. The already-done gate is the next fix.
 
+## TUI `--continue` convenience
+
+Session `ses_57f209d854f141d4a945b01155a6b3ce` in
+`/tmp/tui-continue-journal`, workspace `/tmp/tui-continue-test`:
+
+| Turn | Entry | Session lines | Models | Tools | Wall | Result |
+|---|---|---|---|---|---|---|
+| C1 | new TUI (no `--session`) | 2 | 5 | 5 | — | `note.txt` = `first` |
+| C2 | `1agent tui --continue` | 4 | 7 | 5 | 19.4s | `second`, prior turn in request |
+| C3 | installed binary, `--continue` | 6 | 5 | 4 | — | `third`, prior turn in request |
+
+Only one TUI session directory existed throughout; `--continue` selected it
+from the current workspace without an explicit id. Preflight is 0 for these
+file-only turns because they have no capability requirement; see the page
+section for the preflight test.
+
 ## Negative control
 
 Session `ses_tui_cont_b_20261121` created a new conversation file and

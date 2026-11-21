@@ -264,6 +264,9 @@ enum Command {
         journal_dir: PathBuf,
         #[arg(long)]
         session: Option<String>,
+        /// Continue the most recent TUI session for this directory.
+        #[arg(long = "continue", conflicts_with = "session")]
+        continue_session: bool,
         #[arg(long)]
         experience_dir: Option<PathBuf>,
         #[arg(long)]
@@ -7346,6 +7349,7 @@ async fn main() -> Result<()> {
             read_root,
             journal_dir,
             session,
+            continue_session,
             experience_dir,
             experience_scope,
             max_steps,
@@ -7370,6 +7374,7 @@ async fn main() -> Result<()> {
                 read_root,
                 journal_dir,
                 session,
+                continue_session,
                 experience_dir,
                 experience_scope,
                 max_steps,
@@ -17996,6 +18001,7 @@ async fn run_tui(
     read_root: Vec<PathBuf>,
     journal_dir: PathBuf,
     session: Option<String>,
+    continue_session: bool,
     experience_dir: Option<PathBuf>,
     experience_scope: Option<String>,
     max_steps: usize,
@@ -18010,7 +18016,15 @@ async fn run_tui(
     let max_context_tokens =
         max_context_tokens.clamp(1_000, first_principles_agent::DEFAULT_MAX_CONTEXT_TOKENS);
     let host_binding = HostBinding::from_env();
-    let mut session = TuiSession::open(&journal_dir, session.as_deref())
+    let current_dir = std::env::current_dir().context("cannot determine current directory")?;
+    let requested_session = if let Some(id) = session {
+        Some(id)
+    } else if continue_session {
+        TuiSession::latest_for(&journal_dir, &current_dir)?
+    } else {
+        None
+    };
+    let mut session = TuiSession::open(&journal_dir, requested_session.as_deref())
         .context("cannot initialize TUI session")?;
     session.record_event(SessionEvent::Opened {
         host_kind: host_binding.kind().as_str().into(),
