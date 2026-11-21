@@ -42,7 +42,7 @@ use crate::task_profile::{TaskProfile, TaskProfileDecision};
 use crate::tool_approval::{ToolApprovalCard, ToolApprovalError, ToolApprovalStore};
 use crate::tools::{ToolCapability, ToolRegistry};
 use crate::verification::VerificationOutcome;
-use crate::work_ledger::WorkLedger;
+use crate::work_ledger::{LedgerEntry, WorkLedger};
 
 /// Bounded evidence re-planning: a completed draft that lacks the evidence its
 /// own task assessment calls for gets at most this many corrections.
@@ -2527,6 +2527,57 @@ impl AgentRuntime {
                 value => value.min(2),
             };
         }
+        // An exact repeat of a completed Act task with unchanged artifacts
+        // asks before redoing the work. Starting a new version or changing
+        // the artifact requires a different objective or an explicit reply.
+        if resume.is_none()
+            && interaction_mode == InteractionMode::Act
+            && let Some(entry) = work_ledger.completed_repeat(&request.objective)
+        {
+            let decision = InteractionModeDecision {
+                mode: InteractionMode::Ask,
+                confidence: 100,
+                reasons: vec!["repeat task with unchanged artifacts".into()],
+            };
+            journal
+                .append(JournalEventKind::RunStarted {
+                    request: request.clone(),
+                    mode,
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            journal
+                .append(JournalEventKind::InteractionModeSelected { decision })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            let answer = already_done_answer(entry);
+            journal
+                .append(JournalEventKind::AnswerProduced {
+                    answer: answer.clone(),
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            journal
+                .append(JournalEventKind::RunStopped {
+                    reason: StopReason::Completed,
+                })
+                .map_err(|source| RuntimeError::Journal {
+                    path: journal_path.clone(),
+                    source,
+                })?;
+            return Ok(RunResult {
+                run_id,
+                journal_path,
+                answer,
+                stop_reason: StopReason::Completed,
+            });
+        }
         let fast_chat = fast_chat && interaction_mode != InteractionMode::Act;
         let task_profile = if fast_chat {
             TaskProfileDecision::direct_chat()
@@ -4598,6 +4649,52 @@ fn capability_gap_answer(
     );
     answer.constraints = resolution.gaps.clone();
     answer
+}
+
+fn already_done_answer(entry: &LedgerEntry) -> crate::domain::AgentAnswer {
+    crate::domain::AgentAnswer {
+        task_need: None,
+        schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+        status: AnswerStatus::Completed,
+        conclusion: already_done_question(entry),
+        claims: Vec::new(),
+        evidence: Vec::new(),
+        assumptions: Vec::new(),
+        constraints: Vec::new(),
+        unknowns: Vec::new(),
+        conflicts: Vec::new(),
+        flip_conditions: Vec::new(),
+        action_receipts: Vec::new(),
+    }
+}
+
+fn already_done_question(entry: &LedgerEntry) -> String {
+    let mut files = entry
+        .artifacts
+        .iter()
+        .map(|artifact| {
+            let sha = artifact
+                .sha256
+                .get(..12)
+                .map(|short| format!("（sha256 {short}…）"))
+                .unwrap_or_default();
+            format!("{}{sha}", artifact.path)
+        })
+        .collect::<Vec<_>>();
+    files.extend(entry.reused.iter().cloned());
+    let total = files.len();
+    let shown = files.into_iter().take(3).collect::<Vec<_>>().join("；");
+    let extra = total.saturating_sub(3);
+    format!(
+        "这个任务在之前的运行 {} 中已经完成，记录的产物未变：{}{}。\n要新版本，还是只验收现有产物？",
+        entry.run_id.get(..8).unwrap_or(&entry.run_id),
+        shown,
+        if extra > 0 {
+            format!("；另有 {extra} 个文件")
+        } else {
+            String::new()
+        }
+    )
 }
 
 fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
@@ -11380,6 +11477,67 @@ mod tests {
             JournalEventKind::InteractionModeSelected { decision }
                 if decision.mode == InteractionMode::Act
         )));
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CapabilityPreflightResolved { .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn repeat_task_with_unchanged_artifacts_asks_instead_of_redoing() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("page.html");
+        std::fs::write(&target, "<html>page</html>").unwrap();
+        let bytes = std::fs::read(&target).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let sha = format!("{:x}", hasher.finalize());
+        crate::work_ledger::WorkLedger::append(
+            workspace.path(),
+            &crate::work_ledger::LedgerEntry {
+                run_id: "run-1".into(),
+                session_id: String::new(),
+                timestamp_unix_ms: 1,
+                objective: "执行：做一个页面".into(),
+                mode: "act".into(),
+                status: "completed".into(),
+                stop_reason: "completed".into(),
+                artifacts: vec![crate::work_ledger::LedgerArtifact {
+                    path: target.display().to_string(),
+                    sha256: sha,
+                    bytes: bytes.len() as u64,
+                    fresh: true,
+                }],
+                reused: Vec::new(),
+                blockers: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("SHOULD NOT RUN"),
+            }],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("执行：做一个页面", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert!(result.answer.conclusion.contains("要新版本"));
+        assert!(result.answer.conclusion.contains("page.html"));
+        assert_eq!(requests.lock().unwrap().len(), 0);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "<html>page</html>"
+        );
+        let events = read_events(&result.journal_path).unwrap();
         assert!(!events.iter().any(|event| matches!(
             &event.event,
             JournalEventKind::CapabilityPreflightResolved { .. }

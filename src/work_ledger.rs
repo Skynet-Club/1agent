@@ -83,6 +83,19 @@ impl WorkLedger {
             .any(|entry| !entry.artifacts.is_empty())
     }
 
+    /// A recent Act entry with the same objective whose recorded artifacts are
+    /// still present and unchanged. Exact objective match only.
+    pub fn completed_repeat(&self, objective: &str) -> Option<&LedgerEntry> {
+        let objective = objective.trim();
+        self.entries.iter().rev().find(|entry| {
+            entry.mode == "act"
+                && matches!(entry.status.as_str(), "completed" | "conditional")
+                && !entry.artifacts.is_empty()
+                && entry.objective.trim() == objective
+                && entry.artifacts.iter().all(artifact_unchanged)
+        })
+    }
+
     /// Compact context for the model: recent runs plus a live check of the
     /// artifact hashes. This is the answer to "is this the same file?".
     pub fn context(&self) -> Option<String> {
@@ -388,6 +401,20 @@ fn current_artifact_line(artifact: &LedgerArtifact) -> String {
     }
 }
 
+fn artifact_unchanged(artifact: &LedgerArtifact) -> bool {
+    const MAX_HASH_BYTES: u64 = 8 * 1024 * 1024;
+    let Ok(metadata) = fs::metadata(&artifact.path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() != artifact.bytes {
+        return false;
+    }
+    if artifact.sha256.is_empty() || metadata.len() > MAX_HASH_BYTES {
+        return true;
+    }
+    sha256_file(&artifact.path).is_ok_and(|sha256| sha256 == artifact.sha256)
+}
+
 fn sha256_file(path: &str) -> std::io::Result<String> {
     let bytes = fs::read(path)?;
     let mut hasher = Sha256::new();
@@ -584,6 +611,38 @@ mod tests {
         assert_eq!(again.appended, 0);
         assert_eq!(again.already_present, 2);
         assert_eq!(read_entries(&ledger_file).len(), 2);
+    }
+
+    #[test]
+    fn completed_repeat_requires_unchanged_artifacts() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("page.html");
+        fs::write(&target, "<html>page</html>").unwrap();
+        let sha = sha256_file(target.to_str().unwrap()).unwrap();
+        let ledger = WorkLedger {
+            entries: vec![LedgerEntry {
+                run_id: "run-1".into(),
+                session_id: String::new(),
+                timestamp_unix_ms: 1,
+                objective: "做一个页面".into(),
+                mode: "act".into(),
+                status: "completed".into(),
+                stop_reason: "completed".into(),
+                artifacts: vec![LedgerArtifact {
+                    path: target.display().to_string(),
+                    sha256: sha,
+                    bytes: fs::metadata(&target).unwrap().len(),
+                    fresh: true,
+                }],
+                reused: Vec::new(),
+                blockers: Vec::new(),
+            }],
+        };
+
+        assert!(ledger.completed_repeat(" 做一个页面 ").is_some());
+        fs::write(&target, "<html>changed</html>").unwrap();
+        assert!(ledger.completed_repeat("做一个页面").is_none());
+        assert!(ledger.completed_repeat("另一个任务").is_none());
     }
 
     #[test]
