@@ -2533,9 +2533,13 @@ impl AgentRuntime {
         } else {
             crate::task_profile::classify(&request)
         };
+        // A session with prior turns is a continuation. Only a new session
+        // compiles a capability contract; start a new session for a new task.
+        let continuation = !session_context.is_empty();
         let mut capability_resolution = None;
         if resume.is_none()
             && !fast_chat
+            && !continuation
             && interaction_mode == InteractionMode::Act
             && let Some(resolution) = self.capability_preflight(&request)
         {
@@ -11340,5 +11344,45 @@ mod tests {
         let entries = crate::session::load_entries(&session);
         assert_eq!(entries.len(), 4);
         assert!(!crate::session::needs_resume_notice(&session));
+    }
+
+    #[tokio::test]
+    async fn continuation_skips_capability_preflight() {
+        let workspace = tempfile::tempdir().unwrap();
+        let session = workspace.path().join("session.jsonl");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: completed_answer("页面写好了"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("标题改好了"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_session_path(&session);
+
+        let mut first = TaskRequest::from_objective("做一个页面", workspace.path().to_path_buf());
+        first.permissions.allow_write = true;
+        runtime.run(first, CancellationToken::new()).await.unwrap();
+
+        let mut second =
+            TaskRequest::from_objective("把页面标题改成 Test 2", workspace.path().to_path_buf());
+        second.permissions.allow_write = true;
+        let result = runtime.run(second, CancellationToken::new()).await.unwrap();
+
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::InteractionModeSelected { decision }
+                if decision.mode == InteractionMode::Act
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CapabilityPreflightResolved { .. }
+        )));
     }
 }

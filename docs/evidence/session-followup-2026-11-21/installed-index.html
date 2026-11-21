@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha</title>
+<style>
+  :root {
+    --ink: #12161c;
+    --muted: #4a5563;
+    --line: #e2e6ec;
+    --bg: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    width: 100%;
+    max-width: 34rem;
+    padding: 2.5rem 2rem;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  h1 {
+    margin: 0 0 0.75rem;
+    font-size: clamp(2rem, 8vw, 2.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  p {
+    margin: 0;
+    font-size: clamp(1rem, 3.2vw, 1.125rem);
+    color: var(--muted);
+  }
+  @media (max-width: 420px) {
+    main { padding: 2rem 1.25rem; }
+  }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Beta</h1>
+    <p>这是一个单文件页面，正文只有这一句话。</p>
+  </main>
+</body>
+</html>
