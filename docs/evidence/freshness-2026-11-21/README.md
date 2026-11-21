@@ -89,6 +89,24 @@ previous binary is backed up at
 `~/.local/bin/1agent-pre-freshness-2026-11-21`. A TUI that was already open
 still runs the old code until restarted.
 
+## Answer-fallback wording (same session follow-up)
+
+The user's `needs_evidence` run ended with:
+
+> 模型返回的答案结构无法修复，已降级为需要证据；本轮没有执行任何外部动作。
+
+That was both jargon and false: the run had 14 tool calls. `unrepairable_answer`
+now receives the run's tool count and completion gate and says what happened:
+
+> 模型最后一次回答的格式不对，自动重试也没能修好，所以这次不能把它的结论
+> 当成可信交付，已降级为「需要证据」。本轮实际调用过 14 次工具（含失败），
+> 这些动作没有回滚。本轮核验过这些文件：…；这可能是已有文件，不代表本轮
+> 重新做了交付。可以重试，或者把任务范围缩小后再说一次。
+
+Tests: `unrepairable_answer_reports_what_actually_ran`,
+`irreparable_answer_output_becomes_needs_evidence`. Binary rebuilt as
+sha256 `98be7004…` and installed at `~/.local/bin/1agent`.
+
 ## Honest limits
 
 - A write of identical bytes to an existing path counts as fresh. Detecting a

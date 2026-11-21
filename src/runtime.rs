@@ -3443,7 +3443,7 @@ impl AgentRuntime {
                                     &mut journal,
                                     run_id,
                                     journal_path,
-                                    unrepairable_answer(),
+                                    unrepairable_answer(&completion_gate, tool_calls),
                                     StopReason::NeedsEvidence,
                                 );
                             }
@@ -3685,7 +3685,7 @@ impl AgentRuntime {
                                 &mut journal,
                                 run_id,
                                 journal_path,
-                                unrepairable_answer(),
+                                unrepairable_answer(&completion_gate, tool_calls),
                                 StopReason::NeedsEvidence,
                             );
                         }
@@ -4435,25 +4435,51 @@ fn normalize_unresolved_conflicts(answer: &mut AgentAnswer) {
 
 /// An answer-repair attempt can fail because the model keeps returning an
 /// invalid answer shape. Convert that dead end into an auditable
-/// `needs_evidence` answer instead of a runtime error; no action is claimed
-/// and the original invalid response remains in the journal.
-fn unrepairable_answer() -> crate::domain::AgentAnswer {
+/// `needs_evidence` answer instead of a runtime error. The summary reports
+/// what actually ran; the original invalid response remains in the journal.
+fn unrepairable_answer(gate: &CompletionGate, tool_calls: usize) -> crate::domain::AgentAnswer {
+    let action_line = if tool_calls == 0 {
+        "本轮没有调用工具。".to_string()
+    } else {
+        format!("本轮实际调用过 {tool_calls} 次工具（含失败），这些动作没有回滚。")
+    };
+    let artifact_line = if !gate.written_html.is_empty() {
+        format!(
+            "本轮写出的文件仍在：{}。",
+            gate.written_html
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("、")
+        )
+    } else if !gate.verified_artifacts.is_empty() {
+        format!(
+            "本轮核验过这些文件：{}；这可能是已有文件，不代表本轮重新做了交付。",
+            gate.verified_artifacts
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("、")
+        )
+    } else {
+        String::new()
+    };
     crate::domain::AgentAnswer {
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::NeedsEvidence,
-        conclusion:
-            "模型返回的答案结构无法修复，已降级为需要证据；本轮没有执行任何外部动作。请重试或缩小任务范围。"
-                .into(),
+        conclusion: format!(
+            "模型最后一次回答的格式不对，自动重试也没能修好，所以这次不能把它的结论当成可信交付，已降级为「需要证据」。{action_line}{artifact_line}可以重试，或者把任务范围缩小后再说一次。"
+        ),
         claims: Vec::new(),
         evidence: Vec::new(),
         assumptions: Vec::new(),
-        constraints: vec!["answer repair failed".into()],
+        constraints: vec!["最终回答格式不合格".into()],
         unknowns: vec![UnknownItem {
             id: "repair-failed".into(),
-            description: "模型输出未通过答案结构校验".into(),
+            description: "模型最后的回答格式不对".into(),
             impact: ImpactLevel::Low,
-            why_it_matters: Some("结构无效的答案不能当作完成".into()),
-            reduction_method: Some("重试或缩小任务范围".into()),
+            why_it_matters: Some("格式无效的回答不能当作完成，也不能当作验收通过".into()),
+            reduction_method: Some("重试一次，或把任务拆小".into()),
         }],
         conflicts: Vec::new(),
         flip_conditions: Vec::new(),
@@ -10394,6 +10420,22 @@ mod tests {
     }
 
     #[test]
+    fn unrepairable_answer_reports_what_actually_ran() {
+        let mut gate = CompletionGate::new(true);
+        gate.side_effect_tools.insert("write_file".into());
+        gate.written_html
+            .insert("/tmp/page.html".into(), "abc".into());
+        let answer = unrepairable_answer(&gate, 4);
+        assert_eq!(answer.status, AnswerStatus::NeedsEvidence);
+        assert!(answer.conclusion.contains("4 次工具"));
+        assert!(answer.conclusion.contains("/tmp/page.html"));
+        assert!(!answer.conclusion.contains("没有执行任何外部动作"));
+
+        let idle = unrepairable_answer(&CompletionGate::new(false), 0);
+        assert!(idle.conclusion.contains("本轮没有调用工具"));
+    }
+
+    #[test]
     fn accepted_metadata_without_a_receipt_does_not_satisfy_the_gate() {
         let mut gate = CompletionGate::new(false);
         let call = ToolCall {
@@ -10753,7 +10795,8 @@ mod tests {
 
         assert_eq!(result.stop_reason, StopReason::NeedsEvidence);
         assert_eq!(result.answer.status, AnswerStatus::NeedsEvidence);
-        assert!(result.answer.conclusion.contains("无法修复"));
+        assert!(result.answer.conclusion.contains("格式不对"));
+        assert!(result.answer.conclusion.contains("本轮没有调用工具"));
         assert_eq!(requests.lock().unwrap().len(), 2);
     }
 
