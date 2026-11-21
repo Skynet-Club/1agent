@@ -2011,6 +2011,7 @@ impl AgentRuntime {
             .ok_or_else(|| RuntimeError::NoRoute {
                 path: journal_path.clone(),
                 mode: model_request.mode,
+                detail: format!("provider {provider_id}/{model} is no longer registered"),
             })?;
         if invalid_content.chars().count() > MAX_REPAIR_CONTENT_CHARS {
             invalid_content = invalid_content
@@ -2743,7 +2744,7 @@ impl AgentRuntime {
             .unwrap_or(RouteObjective::Quality);
         let route_request = RouteRequest {
             mode,
-            risk: risk_for_mode(mode),
+            risk: risk_for_run(interaction_mode, request.permissions.allow_write),
             requires_tools: !tool_specs.is_empty(),
             requires_structured_output: true,
             allow_remote: request.permissions.allow_network,
@@ -2809,11 +2810,35 @@ impl AgentRuntime {
                 path: journal_path.clone(),
                 source,
             })?;
+        let rejected = route_plan
+            .rejected
+            .iter()
+            .map(|rejected| {
+                format!(
+                    "{}/{}: {:?}",
+                    rejected.provider_id, rejected.model, rejected.reasons
+                )
+            })
+            .collect::<Vec<_>>();
         let routes = route_plan.ranked;
         if routes.is_empty() {
+            let detail = if rejected.is_empty() {
+                format!(
+                    "requested risk {}, no candidate supports mode {:?}",
+                    risk_str(route_request.risk),
+                    mode
+                )
+            } else {
+                format!(
+                    "requested risk {}; rejected {}",
+                    risk_str(route_request.risk),
+                    rejected.join("; ")
+                )
+            };
             return Err(RuntimeError::NoRoute {
                 path: journal_path.clone(),
                 mode,
+                detail,
             });
         }
 
@@ -3146,6 +3171,10 @@ impl AgentRuntime {
                     .ok_or_else(|| RuntimeError::NoRoute {
                         path: journal_path.clone(),
                         mode,
+                        detail: format!(
+                            "provider {}/{} is no longer registered",
+                            route.manifest.provider_id, route.manifest.model
+                        ),
                     })?;
                 let reason = if attempt == 0 {
                     route.reason.clone()
@@ -4364,6 +4393,17 @@ pub fn risk_for_mode(mode: CognitiveMode) -> RiskLevel {
     }
 }
 
+/// Route risk follows what the run may actually do, not what its wording looks
+/// like. A phrase containing "写入" must not be the only thing that raises risk,
+/// and a build task must not stay low-risk just because it says "制作".
+fn risk_for_run(mode: InteractionMode, allow_write: bool) -> RiskLevel {
+    match mode {
+        InteractionMode::Answer | InteractionMode::Ask => RiskLevel::Low,
+        InteractionMode::Act if allow_write => RiskLevel::High,
+        InteractionMode::Act => RiskLevel::Medium,
+    }
+}
+
 /// Return a human-readable reason when a completed answer is not supported by
 /// the evidence its own `task_need` assessment calls for. `None` means the
 /// answer can be returned as-is. Answers without an assessment keep the
@@ -4978,8 +5018,12 @@ pub enum RuntimeError {
         #[source]
         source: ProviderError,
     },
-    #[error("no provider route for mode {mode:?}; journal: {path}")]
-    NoRoute { path: PathBuf, mode: CognitiveMode },
+    #[error("no provider route for mode {mode:?}: {detail}; journal: {path}")]
+    NoRoute {
+        path: PathBuf,
+        mode: CognitiveMode,
+        detail: String,
+    },
     #[error("invalid model output: {message}; journal: {path}")]
     InvalidOutput { path: PathBuf, message: String },
     #[error("run cancelled; journal: {path}")]
@@ -5049,7 +5093,7 @@ impl RuntimeError {
                 }
             },
             Self::NoRoute { .. } => {
-                "check the provider/model and route objective; the journal records the route plan"
+                "raise providers[].max_risk in ~/.1a/config.json, or add a provider that supports this mode and risk; the journal records the route plan"
             }
             Self::InvalidOutput { .. } => {
                 "retry; if it persists, switch model or split the task into smaller steps"
@@ -11205,5 +11249,13 @@ mod tests {
             .expect("request_tools observation");
         assert_eq!(observation.status, ToolStatus::PermissionDenied);
         assert_eq!(observation.error_code.as_deref(), Some("permission_denied"));
+    }
+
+    #[test]
+    fn route_risk_follows_permissions_not_wording() {
+        assert_eq!(risk_for_run(InteractionMode::Answer, true), RiskLevel::Low);
+        assert_eq!(risk_for_run(InteractionMode::Ask, true), RiskLevel::Low);
+        assert_eq!(risk_for_run(InteractionMode::Act, true), RiskLevel::High);
+        assert_eq!(risk_for_run(InteractionMode::Act, false), RiskLevel::Medium);
     }
 }
