@@ -786,6 +786,7 @@ pub struct AgentRuntime {
     tool_cache: Arc<Mutex<ToolCallCache>>,
     journal_dir: PathBuf,
     session_id: Option<String>,
+    session_path: Option<PathBuf>,
     parent_run_link: Option<ParentRunLink>,
     action_log: Option<Arc<Mutex<ActionLogJournal>>>,
     tool_approvals: Option<ToolApprovalStore>,
@@ -843,6 +844,7 @@ impl AgentRuntime {
             tool_cache: Arc::new(Mutex::new(ToolCallCache::default())),
             journal_dir: journal_dir.into(),
             session_id: None,
+            session_path: None,
             parent_run_link: None,
             action_log: None,
             tool_approvals: None,
@@ -1027,6 +1029,14 @@ impl AgentRuntime {
     /// Attribute tool calls from subsequent runs to this session. The TUI
     /// refreshes it before every run so a session switch cannot leave a stale
     /// id behind. Runs outside a TUI session keep `None`.
+    /// Continue a conversation transcript. When set, each non-resume run
+    /// projects prior user/assistant turns into context and appends this run's
+    /// exchange. The per-run journal remains the audit record.
+    pub fn with_session_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.session_path = Some(path.into());
+        self
+    }
+
     pub fn set_session_id(&mut self, session_id: Option<String>) {
         self.session_id = session_id;
     }
@@ -2417,6 +2427,20 @@ impl AgentRuntime {
         fast_chat: bool,
     ) -> Result<RunResult, RuntimeError> {
         let strategy_request = request.clone();
+        let session_path = self.session_path.clone().filter(|_| resume.is_none());
+        let session_context = if let Some(path) = &session_path {
+            if crate::session::needs_resume_notice(path) {
+                let _ = crate::session::append_synthetic(
+                    path,
+                    "The previous run ended without an answer. Continue from where it left off without repeating completed work.",
+                );
+            }
+            let context = crate::session::context_messages(path);
+            let _ = crate::session::append_user(path, "", &strategy_request.objective);
+            context
+        } else {
+            Vec::new()
+        };
         let result = self
             .run_internal_inner(
                 request,
@@ -2425,14 +2449,24 @@ impl AgentRuntime {
                 client_request_id,
                 cancellation,
                 fast_chat,
+                session_context,
             )
             .await?;
+        if let Some(path) = &session_path {
+            let _ = crate::session::append_assistant(
+                path,
+                &result.run_id.to_string(),
+                &result.answer.conclusion,
+                crate::work_ledger::answer_status_str(result.answer.status),
+            );
+        }
         self.record_strategy(&strategy_request, &result);
         self.record_capability_paths(&result);
         self.record_work_ledger(&result);
         Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_internal_inner(
         &self,
         mut request: TaskRequest,
@@ -2441,6 +2475,7 @@ impl AgentRuntime {
         client_request_id: Option<String>,
         cancellation: CancellationToken,
         fast_chat: bool,
+        session_context: Vec<ModelMessage>,
     ) -> Result<RunResult, RuntimeError> {
         let run_id = Uuid::new_v4();
         let run_context = crate::tools::RunContext {
@@ -2905,6 +2940,8 @@ impl AgentRuntime {
                     initial_messages.push(ModelMessage::system(checklist));
                 }
             }
+            // Prior conversation turns, before the current user message.
+            initial_messages.extend(session_context);
             if fast_chat {
                 initial_messages.push(ModelMessage::user(format!(
                     "User message:\n{}",
@@ -11257,5 +11294,51 @@ mod tests {
         assert_eq!(risk_for_run(InteractionMode::Ask, true), RiskLevel::Low);
         assert_eq!(risk_for_run(InteractionMode::Act, true), RiskLevel::High);
         assert_eq!(risk_for_run(InteractionMode::Act, false), RiskLevel::Medium);
+    }
+
+    #[tokio::test]
+    async fn session_context_carries_prior_answer_into_the_next_run() {
+        let workspace = tempfile::tempdir().unwrap();
+        let session = workspace.path().join("session.jsonl");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: completed_answer("页面写好了，路径 /tmp/page.html"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("是同一份，没有重写"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_session_path(&session);
+
+        let mut first = TaskRequest::from_objective("写一个页面", workspace.path().to_path_buf());
+        first.permissions.allow_write = true;
+        runtime.run(first, CancellationToken::new()).await.unwrap();
+
+        let mut second =
+            TaskRequest::from_objective("这是你刚写的吗？", workspace.path().to_path_buf());
+        second.permissions.allow_write = true;
+        let result = runtime.run(second, CancellationToken::new()).await.unwrap();
+
+        assert_eq!(result.answer.conclusion, "是同一份，没有重写");
+        {
+            let requests = requests.lock().unwrap();
+            let second_request = requests.last().unwrap();
+            assert!(second_request.messages.iter().any(|message| {
+                message.role == crate::domain::MessageRole::Assistant
+                    && message.content.contains("页面写好了")
+            }));
+            assert!(second_request.messages.iter().any(|message| {
+                message.role == crate::domain::MessageRole::User
+                    && message.content.contains("写一个页面")
+            }));
+        }
+        let entries = crate::session::load_entries(&session);
+        assert_eq!(entries.len(), 4);
+        assert!(!crate::session::needs_resume_notice(&session));
     }
 }

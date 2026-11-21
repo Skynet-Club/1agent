@@ -336,7 +336,7 @@ fn write_entries(path: &Path, entries: &[LedgerEntry]) -> std::io::Result<()> {
     fs::rename(tmp, path)
 }
 
-fn answer_status_str(status: AnswerStatus) -> &'static str {
+pub(crate) fn answer_status_str(status: AnswerStatus) -> &'static str {
     match status {
         AnswerStatus::Completed => "completed",
         AnswerStatus::Conditional => "conditional",

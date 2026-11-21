@@ -95,6 +95,7 @@ pub mod safety;
 pub mod schedule_ledger;
 pub mod scheduler;
 pub mod service_unit;
+pub mod session;
 pub mod session_recall;
 pub mod setup_wizard;
 pub mod skill;

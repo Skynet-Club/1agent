@@ -158,6 +158,12 @@ enum Command {
         canary_sample: Option<PathBuf>,
         #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
         journal_dir: PathBuf,
+        /// Continue a conversation session by id.
+        #[arg(long, conflicts_with = "continue_session")]
+        session: Option<String>,
+        /// Continue the newest conversation session for this workspace.
+        #[arg(long, conflicts_with = "session")]
+        continue_session: bool,
         #[arg(long)]
         experience_dir: Option<PathBuf>,
         #[arg(long)]
@@ -7016,6 +7022,8 @@ async fn main() -> Result<()> {
             attach,
             canary_sample,
             journal_dir,
+            session,
+            continue_session,
             experience_dir,
             experience_scope,
             routine_skill,
@@ -7131,6 +7139,30 @@ async fn main() -> Result<()> {
                 request.permissions.read_roots =
                     vec![std::env::current_dir().context("cannot determine current directory")?];
             }
+            let session_workspace = request
+                .permissions
+                .read_roots
+                .first()
+                .cloned()
+                .unwrap_or_else(|| PathBuf::from("."));
+            let session_path = if let Some(id) = session {
+                Some(first_principles_agent::session::session_path(
+                    &session_workspace,
+                    &id,
+                ))
+            } else if continue_session {
+                Some(
+                    first_principles_agent::session::latest_session(&session_workspace)
+                        .unwrap_or_else(|| {
+                            first_principles_agent::session::session_path(
+                                &session_workspace,
+                                &Uuid::new_v4().to_string(),
+                            )
+                        }),
+                )
+            } else {
+                None
+            };
 
             let timeout = Duration::from_secs(timeout_seconds.max(1));
             let (candidates, mut tools) = if let Some(config) = &loaded_config {
@@ -7214,6 +7246,9 @@ async fn main() -> Result<()> {
                         unit_cost_budget: unit_cost_budget_source,
                     }),
             );
+            if let Some(path) = session_path {
+                runtime = runtime.with_session_path(path);
+            }
             if let Some(query) = tool_query {
                 runtime = runtime.with_tool_query(query);
             }
@@ -18129,6 +18164,10 @@ async fn run_tui(
             .map(canonical_or_original)
             .collect::<Vec<_>>()
     };
+    runtime = runtime.with_session_path(first_principles_agent::session::session_path(
+        &cwd,
+        session.id(),
+    ));
     let mut state = TuiState::new(provider_label, max_steps, timeout_seconds);
     state.set_theme(config_theme);
     state.set_context_budget(max_context_tokens);
