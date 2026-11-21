@@ -2,7 +2,7 @@
 //! (artifacts, hashes, fresh/reused) so a later turn can answer provenance
 //! questions without searching or re-auditing the workspace.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -59,8 +59,10 @@ pub struct RebuildReport {
 impl WorkLedger {
     pub fn load(workspace: &Path) -> Self {
         let mut entries = read_entries(&ledger_path(workspace));
-        if entries.len() > 5 {
-            entries = entries.split_off(entries.len() - 5);
+        // Keep enough history for the already-done/verify-only gates; the
+        // model context still shows only the newest five.
+        if entries.len() > 20 {
+            entries = entries.split_off(entries.len() - 20);
         }
         Self { entries }
     }
@@ -94,6 +96,25 @@ impl WorkLedger {
                 && entry.objective.trim() == objective
                 && entry.artifacts.iter().all(artifact_unchanged)
         })
+    }
+
+    /// The newest Act entry's artifact hashes when all of them are unchanged.
+    pub fn active_artifacts_unchanged(&self) -> Option<BTreeMap<String, String>> {
+        self.entries
+            .iter()
+            .rev()
+            .find(|entry| {
+                entry.mode == "act"
+                    && !entry.artifacts.is_empty()
+                    && entry.artifacts.iter().all(artifact_unchanged)
+            })
+            .map(|entry| {
+                entry
+                    .artifacts
+                    .iter()
+                    .map(|artifact| (artifact.path.clone(), artifact.sha256.clone()))
+                    .collect()
+            })
     }
 
     /// Compact context for the model: recent runs plus a live check of the
@@ -630,7 +651,7 @@ mod tests {
                 stop_reason: "completed".into(),
                 artifacts: vec![LedgerArtifact {
                     path: target.display().to_string(),
-                    sha256: sha,
+                    sha256: sha.clone(),
                     bytes: fs::metadata(&target).unwrap().len(),
                     fresh: true,
                 }],
@@ -640,8 +661,16 @@ mod tests {
         };
 
         assert!(ledger.completed_repeat(" 做一个页面 ").is_some());
+        assert_eq!(
+            ledger
+                .active_artifacts_unchanged()
+                .unwrap()
+                .get(&target.display().to_string()),
+            Some(&sha)
+        );
         fs::write(&target, "<html>changed</html>").unwrap();
         assert!(ledger.completed_repeat("做一个页面").is_none());
+        assert!(ledger.active_artifacts_unchanged().is_none());
         assert!(ledger.completed_repeat("另一个任务").is_none());
     }
 

@@ -149,6 +149,10 @@ struct CompletionGate {
     fresh_artifact_gap: Option<Vec<String>>,
     started_unix_ms: u128,
     design_task: bool,
+    /// The user explicitly asked to verify the existing artifact, not rewrite
+    /// it. Acceptance of an unchanged expected artifact may complete.
+    verify_only: bool,
+    expected_artifacts: BTreeMap<String, String>,
 }
 
 enum GateFailure {
@@ -183,6 +187,12 @@ impl CompletionGate {
     /// A page counts as this run's deliverable when a write tool reported it
     /// or its mtime moved after the run started (terminal-generated pages).
     fn fresh_html(&self, path: &str) -> bool {
+        if self.verify_only {
+            return self.expected_artifacts.iter().any(|(expected, sha256)| {
+                same_artifact_path(expected, path)
+                    && file_sha256(path).as_deref() == Some(sha256.as_str())
+            });
+        }
         self.written_html
             .keys()
             .any(|written| same_artifact_path(written, path))
@@ -224,7 +234,16 @@ impl CompletionGate {
                 // A page delivery must be written in this run; an accepted
                 // receipt over a pre-existing page is not this run's work.
                 let requested = html_artifact_paths(&call.arguments);
-                let fresh = if self.design_task {
+                let fresh = if self.verify_only {
+                    if requested.is_empty() {
+                        !self.expected_artifacts.is_empty()
+                            && self.expected_artifacts.iter().all(|(path, sha256)| {
+                                file_sha256(path).as_deref() == Some(sha256.as_str())
+                            })
+                    } else {
+                        requested.iter().all(|path| self.fresh_html(path))
+                    }
+                } else if self.design_task {
                     if requested.is_empty() {
                         !self.written_html.is_empty()
                     } else {
@@ -241,6 +260,11 @@ impl CompletionGate {
                 }
             }
         } else if tools.requires_write(&call.name) {
+            // A read-only browser audit does not modify the artifact; keep the
+            // verification receipt even when the audit runs after acceptance.
+            if self.verify_only && call.name == "browser" {
+                return;
+            }
             self.side_effect_tools.insert(call.name.clone());
             self.accepted_receipt = None;
             self.fresh_artifact_gap = None;
@@ -324,7 +348,7 @@ impl CompletionGate {
             );
             return Some(GateFailure::UnfinishedArtifact { paths, markers });
         }
-        if !self.design_task {
+        if !self.design_task || self.verify_only {
             return None;
         }
         if let Some(receipt) = &self.accepted_receipt {
@@ -492,6 +516,28 @@ fn same_artifact_path(left: &str, right: &str) -> bool {
             (std::fs::canonicalize(left), std::fs::canonicalize(right)),
             (Ok(left), Ok(right)) if left == right
         )
+}
+
+fn file_sha256(path: &str) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+fn verification_only_request(objective: &str, session_context: &[ModelMessage]) -> bool {
+    let text = objective.to_lowercase();
+    let explicit = text.contains("只验收")
+        || text.contains("仅验收")
+        || text.contains("verify only")
+        || text.contains("verify-only");
+    let after_gate = session_context
+        .iter()
+        .rev()
+        .find(|message| message.role == crate::domain::MessageRole::Assistant)
+        .is_some_and(|message| message.content.contains("要新版本，还是只验收现有产物"));
+    let mentions_verify = text.contains("验收") || text.contains("verify");
+    explicit || (after_gate && mentions_verify)
 }
 
 fn looks_like_page_task(objective: &str, deliverable: Option<&str>) -> bool {
@@ -2578,6 +2624,9 @@ impl AgentRuntime {
                 stop_reason: StopReason::Completed,
             });
         }
+        let verify_only = resume.is_none()
+            && verification_only_request(&request.objective, &session_context)
+            && work_ledger.active_artifacts_unchanged().is_some();
         let fast_chat = fast_chat && interaction_mode != InteractionMode::Act;
         let task_profile = if fast_chat {
             TaskProfileDecision::direct_chat()
@@ -2984,12 +3033,18 @@ impl AgentRuntime {
             if let Some(guidance) = crate::interaction_mode::guidance(interaction_mode) {
                 initial_messages.push(ModelMessage::system(guidance));
             }
+            if verify_only {
+                initial_messages.push(ModelMessage::system(
+                    "VERIFY ONLY\nThe user asked to verify the existing unchanged artifact. Do not write or edit files. Run acceptance/verification checks and report the current state. When the acceptance_gate returns accepted for the unchanged expected artifact, the final status is Completed; do not mark it Conditional only because this run wrote nothing. If a file would need to change, stop and ask.",
+                ));
+            }
             if !fast_chat {
                 initial_messages.push(ModelMessage::system(task_profile.guidance()));
                 if let Some(manifest) = environment_manifest(&request) {
                     initial_messages.push(ModelMessage::system(manifest));
                 }
                 if interaction_mode == InteractionMode::Act
+                    && !verify_only
                     && let Some(checklist) = page_delivery_checklist(&request)
                 {
                     initial_messages.push(ModelMessage::system(checklist));
@@ -3157,6 +3212,11 @@ impl AgentRuntime {
             interaction_mode == InteractionMode::Act
                 && looks_like_page_task(&request.objective, request.deliverable.as_deref()),
         );
+        if verify_only {
+            completion_gate.verify_only = true;
+            completion_gate.expected_artifacts =
+                work_ledger.active_artifacts_unchanged().unwrap_or_default();
+        }
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
@@ -11542,5 +11602,38 @@ mod tests {
             &event.event,
             JournalEventKind::CapabilityPreflightResolved { .. }
         )));
+    }
+
+    #[test]
+    fn verification_only_accepts_only_an_unchanged_expected_artifact() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("page.html");
+        std::fs::write(&target, "<html>page</html>").unwrap();
+        let path = target.display().to_string();
+        let sha = file_sha256(&path).unwrap();
+        let mut gate = CompletionGate::new(true);
+        gate.verify_only = true;
+        gate.expected_artifacts.insert(path.clone(), sha);
+        assert!(gate.fresh_html(&path));
+        std::fs::write(&target, "<html>changed</html>").unwrap();
+        assert!(!gate.fresh_html(&path));
+    }
+
+    #[test]
+    fn verification_only_request_needs_an_explicit_verify_phrase() {
+        assert!(verification_only_request(
+            "只验收现有 page.html，不要重做",
+            &[]
+        ));
+        assert!(verification_only_request(
+            "verify only: check page.html",
+            &[]
+        ));
+        assert!(!verification_only_request("重做一遍页面", &[]));
+        let context = vec![ModelMessage::assistant(
+            "要新版本，还是只验收现有产物？",
+            Vec::new(),
+        )];
+        assert!(verification_only_request("验收现有页面", &context));
     }
 }

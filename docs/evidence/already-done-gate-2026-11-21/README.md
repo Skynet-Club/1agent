@@ -42,6 +42,33 @@ fix is a verification-only mode: when the user explicitly verifies an
 unchanged artifact and the acceptance receipt is accepted, the run should be
 completed without requiring a fresh write.
 
+## Verification-only mode
+
+The first “只验收” reply (`2a36a3f1`) was conditional because the freshness
+gate required a write in the same run. The fix:
+
+- detect explicit verify-only intent (“只验收 / 仅验收 / verify only”, or a
+  verify reply right after the gate question) together with unchanged active
+  artifacts;
+- inject a `VERIFY ONLY` system message, skip the page delivery checklist;
+- the completion gate checks the expected artifact sha256 and skips the design
+  contract gap in verify-only mode;
+- a read-only browser audit no longer clears the acceptance receipt;
+- the ledger keeps 20 entries for the gate (context still shows 5).
+
+| Run | Binary | Models | Writes | Receipt | Status | Note |
+|---|---|---|---|---|---|---|
+| `8eb5f33b` | debug, before design-gap skip | 6 | 0 | accepted | conditional | design contract gap |
+| `b6e90da6` | debug, after design-gap skip | 6 | 0 | accepted | **completed** | page unchanged |
+| `5484e6cb` | debug, after browser fix | 6 | 0 | accepted | **completed** | page unchanged |
+| `8d8b511a` | installed, before browser fix | 14 | 0 | cleared by a browser audit after acceptance | conditional | `completion_acceptance_missing` |
+| `15e68de3` | installed, after browser fix | 13 | 0 | conditional (brief/CTA residual risk) | conditional | correct: the receipt itself is conditional |
+
+The last row is the boundary: verification-only can return completed only when
+the acceptance receipt is accepted. A receipt that is conditional for a real
+brief/CTA gap keeps the answer conditional; that is not a runtime gate false
+negative.
+
 ## Limits
 
 - Exact objective match only; fuzzy/paraphrased repeats do not trigger.
