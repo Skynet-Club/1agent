@@ -42,7 +42,7 @@ use crate::task_profile::{TaskProfile, TaskProfileDecision};
 use crate::tool_approval::{ToolApprovalCard, ToolApprovalError, ToolApprovalStore};
 use crate::tools::{ToolCapability, ToolRegistry};
 use crate::verification::VerificationOutcome;
-use crate::work_ledger::{LedgerArtifact, LedgerEntry, WorkLedger};
+use crate::work_ledger::WorkLedger;
 
 /// Bounded evidence re-planning: a completed draft that lacks the evidence its
 /// own task assessment calls for gets at most this many corrections.
@@ -1864,85 +1864,18 @@ impl AgentRuntime {
 
     /// Append runtime facts for the next turn. Never fail the run because the
     /// ledger could not be written.
-    fn record_work_ledger(&self, request: &TaskRequest, result: &RunResult) {
-        let Some(workspace) = request.permissions.read_roots.first() else {
-            return;
-        };
-        if workspace.as_os_str().is_empty() {
-            return;
-        }
+    fn record_work_ledger(&self, result: &RunResult) {
         let Ok(events) = read_events(&result.journal_path) else {
             return;
         };
-        let mut mode = "unknown".to_string();
-        let mut artifacts = BTreeMap::new();
-        let mut reused = BTreeSet::new();
-        for event in &events {
-            match &event.event {
-                JournalEventKind::InteractionModeSelected { decision } => {
-                    mode = decision.mode.as_str().to_string();
-                }
-                JournalEventKind::ToolObserved { observation }
-                    if observation.status == ToolStatus::Ok =>
-                {
-                    let (Some(path), Some(sha256)) = (
-                        observation.metadata.get("path"),
-                        observation.metadata.get("sha256"),
-                    ) else {
-                        continue;
-                    };
-                    let bytes = observation
-                        .metadata
-                        .get("bytes")
-                        .and_then(|value| value.parse::<u64>().ok())
-                        .or_else(|| std::fs::metadata(path).ok().map(|metadata| metadata.len()))
-                        .unwrap_or_default();
-                    if self.tools.requires_write(&observation.tool) {
-                        artifacts.insert(
-                            path.clone(),
-                            LedgerArtifact {
-                                path: path.clone(),
-                                sha256: sha256.clone(),
-                                bytes,
-                                fresh: true,
-                            },
-                        );
-                        reused.remove(path);
-                    } else if observation.tool == "verify_artifact" {
-                        reused.insert(path.clone());
-                    }
-                }
-                _ => {}
-            }
-        }
-        for path in artifacts.keys() {
-            reused.remove(path);
-        }
-        let blockers = result
-            .answer
-            .unknowns
-            .iter()
-            .map(|unknown| unknown.description.chars().take(160).collect::<String>())
-            .filter(|line| !line.is_empty())
-            .take(3)
-            .collect::<Vec<_>>();
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis())
-            .unwrap_or_default();
-        let entry = LedgerEntry {
-            run_id: result.run_id.to_string(),
-            session_id: self.session_id.clone().unwrap_or_default(),
-            timestamp_unix_ms: now_ms,
-            objective: request.objective.clone(),
-            mode,
-            status: answer_status_str(result.answer.status).into(),
-            stop_reason: stop_reason_str(result.stop_reason).into(),
-            artifacts: artifacts.into_values().collect(),
-            reused: reused.into_iter().collect(),
-            blockers,
+        let Some((workspace, entry)) = crate::work_ledger::entry_from_events(
+            &events,
+            self.session_id.as_deref().unwrap_or_default(),
+            |name| self.tools.requires_write(name),
+        ) else {
+            return;
         };
-        let _ = WorkLedger::append(workspace, &entry);
+        let _ = WorkLedger::append(&workspace, &entry);
     }
 
     fn record_strategy(&self, request: &TaskRequest, result: &RunResult) {
@@ -2495,7 +2428,7 @@ impl AgentRuntime {
             .await?;
         self.record_strategy(&strategy_request, &result);
         self.record_capability_paths(&result);
-        self.record_work_ledger(&strategy_request, &result);
+        self.record_work_ledger(&result);
         Ok(result)
     }
 
@@ -4492,30 +4425,6 @@ fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
         AnswerStatus::NeedsEvidence => StopReason::NeedsEvidence,
         AnswerStatus::NeedsAuthorization => StopReason::NeedsAuthorization,
         AnswerStatus::Failed => StopReason::InvalidOutput,
-    }
-}
-
-fn answer_status_str(status: AnswerStatus) -> &'static str {
-    match status {
-        AnswerStatus::Completed => "completed",
-        AnswerStatus::Conditional => "conditional",
-        AnswerStatus::NeedsEvidence => "needs_evidence",
-        AnswerStatus::NeedsAuthorization => "needs_authorization",
-        AnswerStatus::Failed => "failed",
-    }
-}
-
-fn stop_reason_str(reason: StopReason) -> &'static str {
-    match reason {
-        StopReason::Completed => "completed",
-        StopReason::NeedsEvidence => "needs_evidence",
-        StopReason::NeedsAuthorization => "needs_authorization",
-        StopReason::BudgetExhausted => "budget_exhausted",
-        StopReason::Cancelled => "cancelled",
-        StopReason::ProviderError => "provider_error",
-        StopReason::ToolFailure => "tool_failure",
-        StopReason::InvalidOutput => "invalid_output",
-        StopReason::InternalError => "internal_error",
     }
 }
 

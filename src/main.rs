@@ -1344,6 +1344,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "回填工作账本")]
+    Ledger {
+        #[command(subcommand)]
+        command: LedgerCommand,
+    },
     #[command(about = "标注评测结果")]
     Annotate {
         #[command(subcommand)]
@@ -1601,6 +1606,21 @@ enum Command {
         purge: bool,
         #[arg(long)]
         yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum LedgerCommand {
+    /// 从已有 journal 回填工作区账本
+    #[command(about = "从已有 journal 回填工作区账本 · Backfill the workspace work ledger")]
+    Rebuild {
+        /// 工作区；默认当前目录
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long, default_value_os_t = home_or_legacy("journals", ".journal"))]
+        journal_dir: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -5248,6 +5268,7 @@ const ENGLISH_COMMANDS: &[(&str, &str)] = &[
     ("master", "Multi-agent orchestration and supervision"),
     ("ontology", "Read-only 1AO semantic export and validation"),
     ("action", "Inspect and verify gated tool action records"),
+    ("ledger", "Backfill the workspace work ledger from journals"),
     ("goal", "Inspect, link and close long-term goals"),
     ("cost", "Model usage and cost summary"),
     ("metrics", "Local metrics from run journals"),
@@ -5453,6 +5474,7 @@ const ADVANCED_GROUPS: &[(&str, &[&str])] = &[
             "receipt",
             "receipt-index",
             "history",
+            "ledger",
             "dashboard",
             "unit-economics",
             "value-report",
@@ -14770,6 +14792,46 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::Ledger { command } => match command {
+            LedgerCommand::Rebuild {
+                workspace,
+                journal_dir,
+                json,
+            } => {
+                let workspace = workspace.unwrap_or(
+                    std::env::current_dir().context("cannot determine current directory")?,
+                );
+                let workspace = canonical_or_original(&workspace);
+                let ledger = first_principles_agent::work_ledger::ledger_path(&workspace);
+                let registry = default_registry();
+                let report = first_principles_agent::work_ledger::rebuild_from_journals(
+                    &workspace,
+                    &journal_dir,
+                    &ledger,
+                    |name| registry.requires_write(name),
+                )?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "workspace": workspace,
+                            "ledger": ledger,
+                            "report": report,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "ledger {} · scanned {} journals · matched {} · appended {} · already {} · unreadable {}",
+                        ledger.display(),
+                        report.scanned,
+                        report.matched,
+                        report.appended,
+                        report.already_present,
+                        report.unreadable
+                    );
+                }
+            }
+        },
         Command::History {
             journal_dir,
             limit,
