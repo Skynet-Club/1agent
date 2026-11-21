@@ -52,6 +52,7 @@ pub mod idempotency;
 pub mod identity;
 pub mod inbox;
 pub mod inbox_escalation;
+pub mod interaction_mode;
 pub mod journal;
 pub mod key_escrow;
 pub mod master;
@@ -141,6 +142,7 @@ pub mod verification;
 pub mod verification_store;
 pub mod voice;
 pub mod watchdog;
+pub mod work_ledger;
 pub mod worker_runtime;
 
 pub use action_log::*;

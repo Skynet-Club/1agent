@@ -22,6 +22,7 @@ use crate::domain::{
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
+use crate::interaction_mode::{InteractionMode, InteractionModeDecision};
 use crate::journal::{
     Journal, JournalEventKind, ModelRequestLog, ParentRunLink, ProviderFailure, ResumablePrefix,
     RetryOutcome, RetryTiming, StepModelMetrics, StepToolMetrics, ToolRequestDenial,
@@ -41,6 +42,7 @@ use crate::task_profile::{TaskProfile, TaskProfileDecision};
 use crate::tool_approval::{ToolApprovalCard, ToolApprovalError, ToolApprovalStore};
 use crate::tools::{ToolCapability, ToolRegistry};
 use crate::verification::VerificationOutcome;
+use crate::work_ledger::{LedgerArtifact, LedgerEntry, WorkLedger};
 
 /// Bounded evidence re-planning: a completed draft that lacks the evidence its
 /// own task assessment calls for gets at most this many corrections.
@@ -80,6 +82,38 @@ fn builtin_action_tool_names() -> &'static BTreeSet<String> {
             })
             .unwrap_or_default()
     })
+}
+
+/// Tools removed from an Answer/Ask run. Answer mode keeps read-only tools
+/// for a genuine lookup but blocks writes and delivery verification; Ask mode
+/// blocks everything.
+fn masked_tools_for(mode: InteractionMode, tools: &ToolRegistry) -> BTreeSet<String> {
+    if mode == InteractionMode::Act {
+        return BTreeSet::new();
+    }
+    if mode == InteractionMode::Ask {
+        return tools
+            .capabilities()
+            .into_iter()
+            .map(|capability| capability.name)
+            .collect();
+    }
+    let mut masked = tools
+        .capabilities()
+        .into_iter()
+        .filter(|capability| tools.requires_write(&capability.name))
+        .map(|capability| capability.name)
+        .collect::<BTreeSet<_>>();
+    for name in [
+        "acceptance_gate",
+        "preview_file",
+        "verify_artifact",
+        "browser",
+        "resolve_capability",
+    ] {
+        masked.insert(name.into());
+    }
+    masked
 }
 
 /// Action tools selected by the capability preflight. An action is selected
@@ -1115,7 +1149,7 @@ impl AgentRuntime {
         permissions: &crate::domain::PermissionSet,
         cancellation: &CancellationToken,
     ) -> ToolObservation {
-        self.execute_tool_scoped(call, permissions, cancellation, None)
+        self.execute_tool_scoped(call, permissions, cancellation, None, None)
             .await
     }
 
@@ -1125,7 +1159,20 @@ impl AgentRuntime {
         permissions: &crate::domain::PermissionSet,
         cancellation: &CancellationToken,
         selected_actions: Option<&BTreeSet<String>>,
+        masked_tools: Option<&BTreeSet<String>>,
     ) -> ToolObservation {
+        if masked_tools.is_some_and(|masked| masked.contains(&call.name)) {
+            return ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status: ToolStatus::PermissionDenied,
+                summary: "this run is answering a question, not performing delivery work; the tool is masked"
+                    .into(),
+                content: String::new(),
+                error_code: Some("mode_tool_masked".into()),
+                metadata: BTreeMap::new(),
+            };
+        }
         if let Some(selected) = selected_actions
             && builtin_action_tool_names().contains(&call.name)
             && !selected.contains(&call.name)
@@ -1508,11 +1555,18 @@ impl AgentRuntime {
         cancellation: &CancellationToken,
         context: &crate::tools::RunContext,
         selected_actions: &BTreeSet<String>,
+        masked_tools: &BTreeSet<String>,
     ) -> Vec<ToolObservation> {
         futures_util::future::join_all(calls.iter().map(|call| {
             crate::tools::RUN_CONTEXT.scope(
                 context.clone(),
-                self.execute_tool_scoped(call, permissions, cancellation, Some(selected_actions)),
+                self.execute_tool_scoped(
+                    call,
+                    permissions,
+                    cancellation,
+                    Some(selected_actions),
+                    Some(masked_tools),
+                ),
             )
         }))
         .await
@@ -1570,6 +1624,7 @@ impl AgentRuntime {
         permissions: &crate::domain::PermissionSet,
         tool_specs: &mut Vec<ToolSpec>,
         selected_actions: &BTreeSet<String>,
+        masked_tools: &BTreeSet<String>,
     ) -> (ToolObservation, Option<JournalEventKind>) {
         let args = match crate::dynamic_tools::parse_request_tools(&call.arguments) {
             Ok(args) => args,
@@ -1596,6 +1651,14 @@ impl AgentRuntime {
                 || tool_specs.iter().any(|spec| &spec.name == name)
             {
                 granted.push(name.clone());
+                continue;
+            }
+            if masked_tools.contains(name) {
+                denied.push(ToolRequestDenial {
+                    name: name.clone(),
+                    code: "mode_tool_masked".into(),
+                    message: "this run is answering a question; delivery tools are masked".into(),
+                });
                 continue;
             }
             if builtin_action_tool_names().contains(name) && !selected_actions.contains(name) {
@@ -1797,6 +1860,89 @@ impl AgentRuntime {
                 let _ = memory.record(record);
             }
         }
+    }
+
+    /// Append runtime facts for the next turn. Never fail the run because the
+    /// ledger could not be written.
+    fn record_work_ledger(&self, request: &TaskRequest, result: &RunResult) {
+        let Some(workspace) = request.permissions.read_roots.first() else {
+            return;
+        };
+        if workspace.as_os_str().is_empty() {
+            return;
+        }
+        let Ok(events) = read_events(&result.journal_path) else {
+            return;
+        };
+        let mut mode = "unknown".to_string();
+        let mut artifacts = BTreeMap::new();
+        let mut reused = BTreeSet::new();
+        for event in &events {
+            match &event.event {
+                JournalEventKind::InteractionModeSelected { decision } => {
+                    mode = decision.mode.as_str().to_string();
+                }
+                JournalEventKind::ToolObserved { observation }
+                    if observation.status == ToolStatus::Ok =>
+                {
+                    let (Some(path), Some(sha256)) = (
+                        observation.metadata.get("path"),
+                        observation.metadata.get("sha256"),
+                    ) else {
+                        continue;
+                    };
+                    let bytes = observation
+                        .metadata
+                        .get("bytes")
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .or_else(|| std::fs::metadata(path).ok().map(|metadata| metadata.len()))
+                        .unwrap_or_default();
+                    if self.tools.requires_write(&observation.tool) {
+                        artifacts.insert(
+                            path.clone(),
+                            LedgerArtifact {
+                                path: path.clone(),
+                                sha256: sha256.clone(),
+                                bytes,
+                                fresh: true,
+                            },
+                        );
+                        reused.remove(path);
+                    } else if observation.tool == "verify_artifact" {
+                        reused.insert(path.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        for path in artifacts.keys() {
+            reused.remove(path);
+        }
+        let blockers = result
+            .answer
+            .unknowns
+            .iter()
+            .map(|unknown| unknown.description.chars().take(160).collect::<String>())
+            .filter(|line| !line.is_empty())
+            .take(3)
+            .collect::<Vec<_>>();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        let entry = LedgerEntry {
+            run_id: result.run_id.to_string(),
+            session_id: self.session_id.clone().unwrap_or_default(),
+            timestamp_unix_ms: now_ms,
+            objective: request.objective.clone(),
+            mode,
+            status: answer_status_str(result.answer.status).into(),
+            stop_reason: stop_reason_str(result.stop_reason).into(),
+            artifacts: artifacts.into_values().collect(),
+            reused: reused.into_iter().collect(),
+            blockers,
+        };
+        let _ = WorkLedger::append(workspace, &entry);
     }
 
     fn record_strategy(&self, request: &TaskRequest, result: &RunResult) {
@@ -2349,6 +2495,7 @@ impl AgentRuntime {
             .await?;
         self.record_strategy(&strategy_request, &result);
         self.record_capability_paths(&result);
+        self.record_work_ledger(&strategy_request, &result);
         Ok(result)
     }
 
@@ -2382,6 +2529,36 @@ impl AgentRuntime {
             .or(requested_mode)
             .unwrap_or_else(|| crate::domain::infer_mode(&request));
         let fast_chat = fast_chat && resume.is_none();
+        let workspace = request
+            .permissions
+            .read_roots
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let work_ledger = if resume.is_none() && !workspace.as_os_str().is_empty() {
+            WorkLedger::load(&workspace)
+        } else {
+            WorkLedger::default()
+        };
+        let mode_decision = if resume.is_some() {
+            InteractionModeDecision::act("resume")
+        } else if fast_chat {
+            InteractionModeDecision {
+                mode: InteractionMode::Answer,
+                confidence: 100,
+                reasons: vec!["fast chat direct answer".into()],
+            }
+        } else {
+            crate::interaction_mode::classify(&request, &work_ledger)
+        };
+        let interaction_mode = mode_decision.mode;
+        if interaction_mode == InteractionMode::Answer {
+            request.budget.max_tool_calls = match request.budget.max_tool_calls {
+                0 => 2,
+                value => value.min(2),
+            };
+        }
+        let fast_chat = fast_chat && interaction_mode != InteractionMode::Act;
         let task_profile = if fast_chat {
             TaskProfileDecision::direct_chat()
         } else {
@@ -2390,6 +2567,7 @@ impl AgentRuntime {
         let mut capability_resolution = None;
         if resume.is_none()
             && !fast_chat
+            && interaction_mode == InteractionMode::Act
             && let Some(resolution) = self.capability_preflight(&request)
         {
             if resolution.gaps.is_empty() {
@@ -2425,6 +2603,14 @@ impl AgentRuntime {
                         source,
                     })?;
                 journal
+                    .append(JournalEventKind::InteractionModeSelected {
+                        decision: mode_decision.clone(),
+                    })
+                    .map_err(|source| RuntimeError::Journal {
+                        path: journal_path.clone(),
+                        source,
+                    })?;
+                journal
                     .append(JournalEventKind::AnswerProduced {
                         answer: answer.clone(),
                     })
@@ -2449,6 +2635,7 @@ impl AgentRuntime {
             }
         }
         let selected_actions = selected_action_tools(capability_resolution.as_ref());
+        let masked_tools = masked_tools_for(interaction_mode, &self.tools);
         if let Some(prefix) = &resume {
             journal
                 .append(JournalEventKind::ResumeStarted {
@@ -2488,6 +2675,14 @@ impl AgentRuntime {
                 path: journal_path.clone(),
                 source,
             })?;
+        journal
+            .append(JournalEventKind::InteractionModeSelected {
+                decision: mode_decision.clone(),
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
         if let Some(resolution) = capability_resolution {
             journal
                 .append(JournalEventKind::CapabilityPreflightResolved { resolution })
@@ -2511,7 +2706,9 @@ impl AgentRuntime {
         }
         let action_tools = builtin_action_tool_names();
         available_capabilities.retain(|capability| {
-            !action_tools.contains(&capability.name) || selected_actions.contains(&capability.name)
+            !masked_tools.contains(&capability.name)
+                && (!action_tools.contains(&capability.name)
+                    || selected_actions.contains(&capability.name))
         });
         available_capabilities.sort_by(|left, right| left.name.cmp(&right.name));
         let tool_capabilities =
@@ -2590,7 +2787,8 @@ impl AgentRuntime {
             }
         };
         tool_specs.retain(|spec| {
-            !action_tools.contains(&spec.name) || selected_actions.contains(&spec.name)
+            !masked_tools.contains(&spec.name)
+                && (!action_tools.contains(&spec.name) || selected_actions.contains(&spec.name))
         });
         if !fast_chat {
             tool_specs.extend(crate::dynamic_tools::virtual_specs());
@@ -2732,12 +2930,20 @@ impl AgentRuntime {
                     crate::attachment::format_attachment_block(&self.attachments),
                 ));
             }
+            if let Some(context) = work_ledger.context() {
+                initial_messages.push(ModelMessage::system(context));
+            }
+            if let Some(guidance) = crate::interaction_mode::guidance(interaction_mode) {
+                initial_messages.push(ModelMessage::system(guidance));
+            }
             if !fast_chat {
                 initial_messages.push(ModelMessage::system(task_profile.guidance()));
                 if let Some(manifest) = environment_manifest(&request) {
                     initial_messages.push(ModelMessage::system(manifest));
                 }
-                if let Some(checklist) = page_delivery_checklist(&request) {
+                if interaction_mode == InteractionMode::Act
+                    && let Some(checklist) = page_delivery_checklist(&request)
+                {
                     initial_messages.push(ModelMessage::system(checklist));
                 }
             }
@@ -2872,9 +3078,14 @@ impl AgentRuntime {
         let max_steps = if fast_chat {
             1
         } else {
-            match request.budget.max_steps {
+            let configured = match request.budget.max_steps {
                 0 => usize::MAX,
                 value => value,
+            };
+            match interaction_mode {
+                InteractionMode::Answer => configured.min(4),
+                InteractionMode::Ask => configured.min(2),
+                InteractionMode::Act => configured,
             }
         };
         let mut spent_cost_micros = 0u64;
@@ -2892,10 +3103,10 @@ impl AgentRuntime {
         let mut pending_audit_failure = false;
         let mut write_since_audit = false;
         let mut last_turn: Option<(ModelRequest, String, String)> = None;
-        let mut completion_gate = CompletionGate::new(looks_like_page_task(
-            &request.objective,
-            request.deliverable.as_deref(),
-        ));
+        let mut completion_gate = CompletionGate::new(
+            interaction_mode == InteractionMode::Act
+                && looks_like_page_task(&request.objective, request.deliverable.as_deref()),
+        );
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
@@ -2933,7 +3144,7 @@ impl AgentRuntime {
             apply_efficiency_nudge(&mut model_messages, task_profile.profile, step);
             apply_goal_recitation(&mut model_messages, &request, task_profile.profile, step);
             if !verification_budget_nudged
-                && looks_like_page_task(&request.objective, request.deliverable.as_deref())
+                && completion_gate.design_task
                 && request.budget.max_tool_calls != 0
                 && tool_calls
                     >= request
@@ -3529,7 +3740,7 @@ impl AgentRuntime {
                         );
                     }
                     if acceptance_replans < 1
-                        && looks_like_page_task(&request.objective, request.deliverable.as_deref())
+                        && completion_gate.design_task
                         && completion_gate.accepted_receipt.is_none()
                         && !completion_gate.side_effect_tools.is_empty()
                     {
@@ -3882,6 +4093,7 @@ impl AgentRuntime {
                                             &request.permissions,
                                             &mut tool_specs,
                                             &selected_actions,
+                                            &masked_tools,
                                         );
                                         if let Some(event) = event {
                                             journal.append(event).map_err(|source| {
@@ -3902,6 +4114,7 @@ impl AgentRuntime {
                                                     &request.permissions,
                                                     &cancellation,
                                                     Some(&selected_actions),
+                                                    Some(&masked_tools),
                                                 ),
                                             )
                                             .await
@@ -3917,6 +4130,7 @@ impl AgentRuntime {
                                 &cancellation,
                                 &run_context,
                                 &selected_actions,
+                                &masked_tools,
                             )
                             .await
                         } else {
@@ -3929,6 +4143,7 @@ impl AgentRuntime {
                                             &request.permissions,
                                             &cancellation,
                                             Some(&selected_actions),
+                                            Some(&masked_tools),
                                         ),
                                     )
                                     .await,
@@ -4277,6 +4492,30 @@ fn stop_reason_for_answer(status: AnswerStatus) -> StopReason {
         AnswerStatus::NeedsEvidence => StopReason::NeedsEvidence,
         AnswerStatus::NeedsAuthorization => StopReason::NeedsAuthorization,
         AnswerStatus::Failed => StopReason::InvalidOutput,
+    }
+}
+
+fn answer_status_str(status: AnswerStatus) -> &'static str {
+    match status {
+        AnswerStatus::Completed => "completed",
+        AnswerStatus::Conditional => "conditional",
+        AnswerStatus::NeedsEvidence => "needs_evidence",
+        AnswerStatus::NeedsAuthorization => "needs_authorization",
+        AnswerStatus::Failed => "failed",
+    }
+}
+
+fn stop_reason_str(reason: StopReason) -> &'static str {
+    match reason {
+        StopReason::Completed => "completed",
+        StopReason::NeedsEvidence => "needs_evidence",
+        StopReason::NeedsAuthorization => "needs_authorization",
+        StopReason::BudgetExhausted => "budget_exhausted",
+        StopReason::Cancelled => "cancelled",
+        StopReason::ProviderError => "provider_error",
+        StopReason::ToolFailure => "tool_failure",
+        StopReason::InvalidOutput => "invalid_output",
+        StopReason::InternalError => "internal_error",
     }
 }
 
@@ -10237,6 +10476,164 @@ mod tests {
                 | JournalEventKind::CompletionDesignContractGap { .. }
                 | JournalEventKind::CompletionArtifactStale { .. }
         )));
+    }
+
+    #[tokio::test]
+    async fn question_after_a_build_uses_answer_mode_without_delivery_tools() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote out.txt"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer(
+                        "这是上一轮写出的同一份文件；本轮没有新写，也没有重做。",
+                    ),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut first = TaskRequest::from_objective("写 out.txt", workspace.path().to_path_buf());
+        first.permissions.allow_write = true;
+        let first_result = runtime.run(first, CancellationToken::new()).await.unwrap();
+        assert_eq!(first_result.answer.status, AnswerStatus::Conditional);
+
+        let mut second = TaskRequest::from_objective(
+            "你这个是重新设计的，html ，还是用昨晚的来对付我呢？",
+            workspace.path().to_path_buf(),
+        );
+        second.permissions.allow_write = true;
+        let second_result = runtime.run(second, CancellationToken::new()).await.unwrap();
+        assert_eq!(second_result.answer.status, AnswerStatus::Completed);
+
+        let events = read_events(&second_result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::InteractionModeSelected { decision }
+                if decision.mode == InteractionMode::Answer
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CapabilityPreflightResolved { .. }
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ToolCalled { call } if call.name == "acceptance_gate"
+        )));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(&event.event, JournalEventKind::ToolCalled { .. }))
+                .count(),
+            0
+        );
+
+        let requests = requests.lock().unwrap();
+        let second_request = requests.last().unwrap();
+        assert!(second_request.messages.iter().any(|message| {
+            message.role == crate::domain::MessageRole::System
+                && message.content.contains("WORK LEDGER")
+                && message.content.contains("out.txt")
+        }));
+    }
+
+    #[tokio::test]
+    async fn answer_mode_masks_a_write_call() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("blocked.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "must not be written")],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("这个文件不是本轮写的"),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective(
+            "这是新做的，还是沿用昨晚的？",
+            workspace.path().to_path_buf(),
+        );
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert!(!target.exists());
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ToolObserved { observation }
+                if observation.tool == "write_file"
+                    && observation.error_code.as_deref() == Some("mode_tool_masked")
+        )));
+    }
+
+    #[tokio::test]
+    async fn vague_change_asks_without_capability_or_tools() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("landing.html");
+        std::fs::write(&target, "<html><body>old</body></html>").unwrap();
+        let entry = crate::work_ledger::LedgerEntry {
+            run_id: "run-1".into(),
+            session_id: "session-1".into(),
+            timestamp_unix_ms: 1,
+            objective: "做一个页面".into(),
+            mode: "act".into(),
+            status: "conditional".into(),
+            stop_reason: "completed".into(),
+            artifacts: vec![crate::work_ledger::LedgerArtifact {
+                path: target.display().to_string(),
+                sha256: "abc".into(),
+                bytes: 28,
+                fresh: true,
+            }],
+            reused: Vec::new(),
+            blockers: Vec::new(),
+        };
+        crate::work_ledger::WorkLedger::append(workspace.path(), &entry).unwrap();
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![ModelTurn::Final {
+                answer: completed_answer("你想先改哪一部分？标题、配色还是版式？"),
+            }],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("优化一下", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::InteractionModeSelected { decision }
+                if decision.mode == InteractionMode::Ask
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::CapabilityPreflightResolved { .. }
+        )));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(&event.event, JournalEventKind::ToolCalled { .. }))
+                .count(),
+            0
+        );
     }
 
     #[tokio::test]

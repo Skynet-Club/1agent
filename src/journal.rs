@@ -117,6 +117,11 @@ pub enum JournalEventKind {
     TaskProfileSelected {
         decision: TaskProfileDecision,
     },
+    /// The run decided whether the user is asking, requesting clarification,
+    /// or requesting an action, before capability compilation.
+    InteractionModeSelected {
+        decision: crate::interaction_mode::InteractionModeDecision,
+    },
     RouteSelected {
         provider_id: String,
         model: String,
@@ -1546,6 +1551,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::RunStopped { reason } => state.stop_reason = Some(*reason),
             JournalEventKind::ContextCompacted { .. }
             | JournalEventKind::TaskProfileSelected { .. }
+            | JournalEventKind::InteractionModeSelected { .. }
             | JournalEventKind::CapabilityPreflightResolved { .. }
             | JournalEventKind::ExperienceInjected { .. }
             | JournalEventKind::ModelRequested { .. }
