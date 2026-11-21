@@ -235,6 +235,11 @@ pub enum JournalEventKind {
     CompletionDesignContractGap {
         missing: Vec<String>,
     },
+    /// A page task claimed completion without writing HTML in this run; paths
+    /// are the artifacts the receipt named, empty when nothing was written.
+    CompletionArtifactStale {
+        paths: Vec<String>,
+    },
     ReframeProposed {
         proposal: ReframeProposal,
         provider_id: String,
@@ -1554,7 +1559,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             | JournalEventKind::AnswerVerificationExhausted { .. }
             | JournalEventKind::CompletionAcceptanceMissing { .. }
             | JournalEventKind::CompletionArtifactUnfinished { .. }
-            | JournalEventKind::CompletionDesignContractGap { .. } => {}
+            | JournalEventKind::CompletionDesignContractGap { .. }
+            | JournalEventKind::CompletionArtifactStale { .. } => {}
         }
     }
 
