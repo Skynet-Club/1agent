@@ -109,21 +109,46 @@ fn install_panic_hook() {
     });
 }
 
-pub fn spawn_input_reader() -> tokio::sync::mpsc::UnboundedReceiver<TuiInput> {
+pub fn spawn_input_reader() -> (
+    tokio::sync::mpsc::UnboundedReceiver<TuiInput>,
+    std::thread::JoinHandle<()>,
+) {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         let mut failures = 0u8;
         loop {
-            match event::read() {
-                Ok(event) => {
-                    failures = 0;
-                    let Some(input) = map_event(event) else {
-                        continue;
-                    };
-                    if sender.send(input).is_err() {
-                        break;
+            if sender.is_closed() {
+                break;
+            }
+            match event::poll(std::time::Duration::from_millis(100)) {
+                Ok(false) => continue,
+                Ok(true) => match event::read() {
+                    Ok(event) => {
+                        failures = 0;
+                        let Some(input) = map_event(event) else {
+                            continue;
+                        };
+                        if sender.send(input).is_err() {
+                            break;
+                        }
                     }
-                }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => {
+                        failures = failures.saturating_add(1);
+                        if failures >= 3 {
+                            let path = crate::runtime_home::default_home().join("tui-crash.log");
+                            if let Ok(mut file) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&path)
+                            {
+                                let _ = writeln!(file, "input reader stopped: {error}");
+                            }
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => {
                     failures = failures.saturating_add(1);
@@ -143,7 +168,7 @@ pub fn spawn_input_reader() -> tokio::sync::mpsc::UnboundedReceiver<TuiInput> {
             }
         }
     });
-    receiver
+    (receiver, handle)
 }
 
 fn map_event(event: Event) -> Option<TuiInput> {

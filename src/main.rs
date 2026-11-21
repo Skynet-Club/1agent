@@ -18199,15 +18199,78 @@ async fn run_tui(
         provider_sources,
         provider_timeout: timeout,
     };
+    let session_id = session.id().to_string();
     if interactive_terminal_available() {
         let (clarify_sender, clarify_receiver) = tokio::sync::mpsc::unbounded_channel();
         runtime.register_tool(Arc::new(
             first_principles_agent::tui_clarify::ClarifyTool::new(clarify_sender),
         ));
-        run_tui_interactive(runtime, state, settings, session, clarify_receiver).await
+        let result = run_tui_interactive(runtime, state, settings, session, clarify_receiver).await;
+        if result.is_ok() {
+            maybe_prompt_session_rating(&session_id);
+        }
+        result
     } else {
-        run_tui_line_mode(&mut runtime, &mut state, &mut settings, &mut session).await
+        let result = run_tui_line_mode(&mut runtime, &mut state, &mut settings, &mut session).await;
+        if result.is_ok() {
+            maybe_prompt_session_rating(&session_id);
+        }
+        result
     }
+}
+
+/// Optional, non-blocking session-end rating. Local only; `0` or any other
+/// input dismisses without writing.
+fn maybe_prompt_session_rating(session_id: &str) {
+    use std::io::{IsTerminal, Write};
+
+    let stdin = std::io::stdin();
+    if !stdin.is_terminal() {
+        return;
+    }
+    print!("\n这轮 1agent 表现如何？(可选)  1: 不好  2: 还行  3: 好  0: 跳过\n> ");
+    let _ = std::io::stdout().flush();
+    let mut input = String::new();
+    if stdin.read_line(&mut input).is_err() {
+        return;
+    }
+    let Some(rating) = parse_session_rating(&input) else {
+        return;
+    };
+    let path = home_or_legacy("session-ratings.jsonl", ".1a/session-ratings.jsonl");
+    if record_session_rating(&path, session_id, rating).is_ok() {
+        println!("谢谢，已记录。");
+    }
+}
+
+fn parse_session_rating(input: &str) -> Option<&'static str> {
+    match input.trim() {
+        "1" => Some("bad"),
+        "2" => Some("fine"),
+        "3" => Some("good"),
+        _ => None,
+    }
+}
+
+fn record_session_rating(path: &Path, session_id: &str, rating: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    let entry = json!({
+        "session_id": session_id,
+        "rating": rating,
+        "timestamp_unix_ms": current_time_ms() as u64,
+        "version": env!("CARGO_PKG_VERSION"),
+    });
+    let line = serde_json::to_string(&entry)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    writeln!(file, "{line}")
 }
 
 async fn run_tui_line_mode(
@@ -24400,7 +24463,7 @@ async fn run_tui_interactive(
     >,
 ) -> Result<()> {
     let mut terminal = TerminalSession::enter().context("cannot initialize terminal")?;
-    let mut inputs = spawn_input_reader();
+    let (mut inputs, input_handle) = spawn_input_reader();
     state.set_session_info(session.id());
     if session.journals().is_empty() {
         // The empty transcript renders the dedicated welcome surface.
@@ -25237,6 +25300,8 @@ async fn run_tui_interactive(
     state.info("Session ended.");
     draw_tui_frame(&mut terminal, &mut state)?;
     drop(terminal);
+    drop(inputs);
+    let _ = input_handle.join();
     print_session_banner(session.title(), &session.continue_command())
         .context("cannot print session banner")?;
     Ok(())
@@ -30826,5 +30891,24 @@ mod tui_status_tests {
             tui_status_for_answer(AnswerStatus::Completed),
             TuiStatus::Completed
         );
+    }
+
+    #[test]
+    fn session_rating_parses_and_records_locally() {
+        assert_eq!(parse_session_rating("1"), Some("bad"));
+        assert_eq!(parse_session_rating("2"), Some("fine"));
+        assert_eq!(parse_session_rating("3"), Some("good"));
+        assert_eq!(parse_session_rating("0"), None);
+        assert_eq!(parse_session_rating(""), None);
+        assert_eq!(parse_session_rating("yes"), None);
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ratings.jsonl");
+        record_session_rating(&path, "ses-test", "good").unwrap();
+        let line = std::fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["session_id"], "ses-test");
+        assert_eq!(value["rating"], "good");
+        assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
     }
 }
