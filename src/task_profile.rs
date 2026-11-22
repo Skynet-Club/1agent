@@ -65,17 +65,17 @@ impl TaskProfileDecision {
         let profile = self.profile.as_str();
         let action = match self.profile {
             TaskProfile::Fast => {
-                "This is a small delivery task. Probe the environment once, fetch only the needed inputs, write the deliverable once, verify once, then answer. Do not audit the codebase or repeat an identical read/audit. If blocked, return the blocker."
+                "Small delivery: probe once, fetch only needed inputs, write once, verify once, answer. No codebase audit or repeated read/audit. If blocked, return the blocker."
             }
             TaskProfile::Standard => {
-                "Use a short plan, gather only the evidence the deliverable needs, verify the artifact once, and answer. Expand the plan only when verification fails."
+                "Short plan, only the evidence the deliverable needs, verify once, answer; expand only if verification fails."
             }
             TaskProfile::Deep => {
                 "This is a complex or high-risk task. Plan before acting, keep decisions and evidence in the working notes, verify each artifact, and re-plan after a failed tool or test. Do not stop early without a concrete blocker. Maintain a short NOTES.md in the workspace with the goal, constraints, decisions, artifact paths/SHA, failed attempts, open questions and next step; update it at phase boundaries and re-read it after compaction."
             }
         };
         format!(
-            "TASK PROFILE: {profile} (confidence {}).\n{action}\nRecommended budget: about {} steps and {} context tokens; this is guidance, not a hard stop.",
+            "TASK PROFILE: {profile} (confidence {}).\n{action}\nBudget: about {} steps / {} tokens (guidance, not a hard stop).",
             self.confidence, self.recommended_max_steps, self.recommended_context_tokens
         )
     }

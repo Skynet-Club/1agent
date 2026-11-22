@@ -3170,12 +3170,19 @@ impl AgentRuntime {
                 let has_tool = |name: &str| tool_specs.iter().any(|spec| spec.name == name);
                 let artifacts =
                     has_tool("write_file") || has_tool("edit_file") || has_tool("acceptance_gate");
+                let memory_facts = request
+                    .known_facts
+                    .iter()
+                    .any(|fact| !fact.starts_with("Prompt library source"));
                 let deltas = PromptDeltas {
                     artifacts,
                     capability: has_tool("capability_search") || has_tool("resolve_capability"),
+                    skills: has_tool("skill_search") || has_tool("skill_list"),
                     page: artifacts
                         && looks_like_page_task(&request.objective, request.deliverable.as_deref()),
-                    followup: !request.known_facts.is_empty() || !session_context.is_empty(),
+                    prompt_library: !request.known_facts.is_empty(),
+                    memory: memory_facts,
+                    followup: !session_context.is_empty() || memory_facts,
                     answer_style: interaction_mode != InteractionMode::Act,
                 };
                 agent_system_prompt_for_run(
