@@ -59,16 +59,10 @@ const CORE_TOOL_NAMES: &[&str] = &[
     "write_file",
     "edit_file",
     "search_files",
-    "read_document",
     "terminal_create",
     "terminal_exec",
     "preview_file",
-    "browser",
     "acceptance_gate",
-    "verify_artifact",
-    "clarify",
-    "skill_search",
-    "skill_list",
 ];
 
 /// Verification calls may exceed the tool budget by this many calls. Without
@@ -11917,7 +11911,7 @@ mod tests {
                     answer: completed_answer("ok"),
                 },
             ],
-            requests,
+            requests.clone(),
         ));
         let runtime =
             scripted_runtime(workspace.path(), provider, default_registry()).with_core_tools(true);
@@ -11939,13 +11933,29 @@ mod tests {
             })
             .expect("advertised tools");
         assert!(names.iter().any(|name| name == "read_file"));
-        assert!(names.iter().any(|name| name == "browser"));
+        assert!(names.iter().any(|name| name == "terminal_exec"));
+        assert!(names.iter().any(|name| name == "acceptance_gate"));
+        assert!(!names.iter().any(|name| name == "browser"));
+        assert!(!names.iter().any(|name| name == "clarify"));
         assert!(!names.iter().any(|name| name == "web_search"));
         assert!(!names.iter().any(|name| name == "spawn_agent"));
         assert!(
-            names.len() <= 18,
+            names.len() <= 10,
             "advertised {} tools: {names:?}",
             names.len()
+        );
+
+        let requests = requests.lock().unwrap();
+        let schema_tokens: usize = requests[0]
+            .tools
+            .iter()
+            .map(|tool| {
+                estimate_tokens(&tool.description) + estimate_tokens(&tool.parameters.to_string())
+            })
+            .sum();
+        assert!(
+            schema_tokens <= 2_000,
+            "tool schema is {schema_tokens} tokens"
         );
     }
 

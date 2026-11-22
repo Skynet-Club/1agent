@@ -1,0 +1,2 @@
+{"type":"message","role":"user","content":"Execute: create /tmp/tui-core8-test/note.txt with exactly the text: core8","run_id":"","status":"","timestamp_unix_ms":1795316402425}
+{"type":"message","role":"assistant","content":"/tmp/tui-core8-test/note.txt 已创建，内容恰好是 5 个字节的 core8，末尾没有换行，独立校验通过（决策 accepted，contract_digest 8c7721af…）。","run_id":"e64e9bc2-2c45-4064-8ecf-4b57ef2ea61e","status":"completed","timestamp_unix_ms":1795316418997}
