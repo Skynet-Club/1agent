@@ -73,48 +73,35 @@ impl AgentTool for AcceptanceGateTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "acceptance_gate".into(),
-            description: "Close a task against an acceptance contract and return a CompletionReceipt. Call once per deliverable and then answer from the receipt; do not re-run the gate on its own receipt. Send one flat object: contract fields plus the independent verifier's per-criterion results and artifact checks. Put the exact criterion text in each result. A passed result needs non-empty evidence. The verifier must differ from the executor; `independent` needs a `verifier:` or `agent:` id, `human` needs `human:`. Read-only: it does not run the task or a checker. Only an `accepted` receipt justifies `completed`.".into(),
+            // The detailed acceptance rules live in AGENT_PROMPT_ARTIFACTS;
+            // keep this spec shape-only so the schema does not repeat them.
+            description: "Close a task against an acceptance contract and return a receipt. Failed hidden criterion -> hacked; high residual risk -> conditional; only `accepted` justifies completed.".into(),
             parameters: json!({
                 "type": "object",
-                "additionalProperties": false,
                 "required": [
                     "task_id", "objective", "acceptance_criteria", "risk",
                     "required_verifier", "executor", "verifier", "results"
                 ],
                 "properties": {
-                    "task_id": {
-                        "type": "string",
-                        "description": "Stable id for this task or deliverable."
-                    },
-                    "objective": {
-                        "type": "string",
-                        "description": "What the task must achieve."
-                    },
+                    "task_id": {"type": "string"},
+                    "objective": {"type": "string"},
                     "acceptance_criteria": {
                         "type": "array",
                         "minItems": 1,
-                        "items": {"type": "string"},
-                        "description": "Public criteria. Each text must appear exactly once in `results`."
+                        "items": {"type": "string"}
                     },
                     "hidden_criteria": {
                         "type": "array",
-                        "items": {"type": "string"},
-                        "default": [],
-                        "description": "Checks the executor did not see. Any failure makes the decision `hacked`."
+                        "items": {"type": "string"}
                     },
                     "expected_artifacts": {
                         "type": "array",
-                        "default": [],
                         "items": {
                             "type": "object",
-                            "additionalProperties": false,
                             "required": ["path"],
                             "properties": {
                                 "path": {"type": "string"},
-                                "sha256": {
-                                    "type": "string",
-                                    "description": "Expected SHA-256; omit this field to require only one passing check."
-                                }
+                                "sha256": {"type": "string"}
                             }
                         }
                     },
@@ -124,66 +111,48 @@ impl AgentTool for AcceptanceGateTool {
                     },
                     "required_verifier": {
                         "type": "string",
-                        "enum": ["automated", "independent", "human"],
-                        "description": "`independent` requires `verifier:` or `agent:`; `human` requires `human:`."
+                        "enum": ["automated", "independent", "human"]
                     },
                     "residual_risks": {
                         "type": "array",
-                        "default": [],
                         "items": {
                             "type": "object",
-                            "additionalProperties": false,
                             "required": ["description", "impact"],
                             "properties": {
                                 "description": {"type": "string"},
                                 "impact": {"type": "string", "enum": ["low", "medium", "high"]}
                             }
-                        },
-                        "description": "Known open risks. Any `high` impact turns `accepted` into `conditional`."
+                        }
                     },
-                    "executor": {
-                        "type": "string",
-                        "description": "Identity that did the work, e.g. `model:worker`."
-                    },
-                    "verifier": {
-                        "type": "string",
-                        "description": "Independent verifier identity; must differ from `executor`."
-                    },
+                    "executor": {"type": "string"},
+                    "verifier": {"type": "string"},
                     "results": {
                         "type": "array",
                         "minItems": 1,
                         "items": {
                             "type": "object",
-                            "additionalProperties": false,
                             "required": ["criterion", "passed", "evidence"],
                             "properties": {
-                                "criterion": {
-                                    "type": "string",
-                                    "description": "Exact text of one acceptance or hidden criterion."
-                                },
+                                "criterion": {"type": "string"},
                                 "passed": {"type": "boolean"},
                                 "evidence": {
                                     "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "Required non-empty for a pass."
+                                    "items": {"type": "string"}
                                 }
                             }
                         }
                     },
                     "artifact_checks": {
                         "type": "array",
-                        "default": [],
                         "items": {
                             "type": "object",
-                            "additionalProperties": false,
                             "required": ["path", "observed_sha256", "passed"],
                             "properties": {
                                 "path": {"type": "string"},
                                 "observed_sha256": {"type": "string"},
                                 "passed": {"type": "boolean"}
                             }
-                        },
-                        "description": "Exactly one check per expected artifact."
+                        }
                     }
                 }
             }),
@@ -239,6 +208,20 @@ impl AgentTool for AcceptanceGateTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spec_is_shape_only_and_compact() {
+        let spec = AcceptanceGateTool.spec();
+        let tokens = crate::context::estimate_tokens(&spec.description)
+            + crate::context::estimate_tokens(&spec.parameters.to_string());
+        assert!(tokens < 400, "acceptance schema is {tokens} tokens");
+        assert_eq!(
+            spec.parameters["required"].as_array().map(Vec::len),
+            Some(8)
+        );
+        assert_eq!(spec.parameters["properties"]["results"]["minItems"], 1);
+        assert!(spec.parameters["properties"]["task_id"]["description"].is_null());
+    }
 
     #[tokio::test]
     async fn tool_returns_an_accepted_receipt() {

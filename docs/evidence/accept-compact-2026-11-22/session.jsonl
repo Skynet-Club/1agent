@@ -1,0 +1,2 @@
+{"type":"message","role":"user","content":"Execute: create /tmp/tui-accept-compact/note.txt with exactly the text: compact","run_id":"","status":"","timestamp_unix_ms":1795316946038}
+{"type":"message","role":"assistant","content":"note.txt 已创建，内容为 7 字节的 \"compact\"，无换行或 BOM，验收结论 accepted（contract digest 538d9774…，evidence digest 55a28562…）。下一步无需操作。","run_id":"c851e21a-0f62-40e0-81fe-72c4dc31228f","status":"completed","timestamp_unix_ms":1795316961463}

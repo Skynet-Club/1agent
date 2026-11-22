@@ -11954,7 +11954,7 @@ mod tests {
             })
             .sum();
         assert!(
-            schema_tokens <= 2_000,
+            schema_tokens <= 1_600,
             "tool schema is {schema_tokens} tokens"
         );
     }
