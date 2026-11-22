@@ -27,6 +27,7 @@ use ratatui::widgets::{
 use std::collections::{BTreeMap, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -858,7 +859,7 @@ pub struct SubagentPreviewCache {
     pub timeline: VecDeque<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct TuiState {
     pub last_instruction: String,
     pub status: TuiStatus,
@@ -890,6 +891,7 @@ pub struct TuiState {
     command_panel_scroll: usize,
     welcome_visible: bool,
     transcript: Vec<TranscriptEntry>,
+    reasoning_stream: Arc<Mutex<String>>,
     slash_drawer_dismissed: bool,
     recent_commands: Vec<TuiCommandId>,
     pending_confirmation: Option<String>,
@@ -971,6 +973,7 @@ impl TuiState {
             command_panel_scroll: 0,
             welcome_visible: true,
             transcript: Vec::new(),
+            reasoning_stream: Arc::new(Mutex::new(String::new())),
             slash_drawer_dismissed: false,
             recent_commands: Vec::new(),
             pending_confirmation: None,
@@ -2499,6 +2502,48 @@ impl TuiState {
 
     pub fn push_work(&mut self, kind: TuiActivityKind, detail: impl Into<String>) {
         self.push_work_with_tone(kind, detail, activity_kind_tone(kind));
+    }
+
+    /// The runtime appends reasoning fragments here; the task loop drains them.
+    pub fn reasoning_buffer(&self) -> Arc<Mutex<String>> {
+        self.reasoning_stream.clone()
+    }
+
+    pub fn take_reasoning(&self) -> String {
+        std::mem::take(&mut *self.reasoning_stream.lock().unwrap())
+    }
+
+    /// Append a reasoning fragment to the current Thinking row. The live view
+    /// is capped; the session file keeps the full text.
+    pub fn push_reasoning(&mut self, delta: &str) {
+        let delta = sanitize_multiline(delta);
+        if delta.is_empty() {
+            return;
+        }
+        if let Some(entry) = self.transcript.last_mut()
+            && entry.call_id.as_deref() == Some("reasoning")
+        {
+            entry.text.push_str(&delta);
+            const MAX_REASONING_CHARS: usize = 8_000;
+            let chars = entry.text.chars().count();
+            if chars > MAX_REASONING_CHARS {
+                let keep: String = entry
+                    .text
+                    .chars()
+                    .skip(chars - MAX_REASONING_CHARS)
+                    .collect();
+                entry.text = format!("…{keep}");
+            }
+            self.transcript_revision = self.transcript_revision.wrapping_add(1);
+            if self.scroll_from_bottom > 0 {
+                self.unseen_activity = true;
+            }
+            return;
+        }
+        self.push_work(TuiActivityKind::Thinking, delta);
+        if let Some(entry) = self.transcript.last_mut() {
+            entry.call_id = Some("reasoning".into());
+        }
     }
 
     /// Open a dashed process-phase fence. The next phase or the run summary
@@ -7687,6 +7732,31 @@ mod tests {
         state.finish(TuiStatus::Completed, "Conclusion: A");
         let completed = state.render_screen(100, 30);
         assert!(completed.contains("已完成"));
+    }
+
+    #[test]
+    fn reasoning_fragments_share_one_live_row() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.push_reasoning("think ");
+        state.push_reasoning("more");
+        let rows: Vec<_> = state
+            .transcript
+            .iter()
+            .filter(|entry| entry.call_id.as_deref() == Some("reasoning"))
+            .collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "think more");
+        assert_eq!(rows[0].label.as_deref(), Some("模型思考 Thinking"));
+        assert!(state.take_reasoning().is_empty());
+    }
+
+    #[test]
+    fn reasoning_buffer_is_shared_with_the_runtime_sink() {
+        let state = TuiState::new("mock", 6, 120);
+        let buffer = state.reasoning_buffer();
+        buffer.lock().unwrap().push_str("streamed");
+        assert_eq!(state.take_reasoning(), "streamed");
+        assert!(state.take_reasoning().is_empty());
     }
 
     #[test]

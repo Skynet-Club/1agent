@@ -932,6 +932,7 @@ pub struct AgentRuntime {
     tool_query: Option<String>,
     attachments: Vec<crate::attachment::Attachment>,
     stream_sink: Option<StreamSink>,
+    reasoning_sink: Option<StreamSink>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -995,6 +996,7 @@ impl AgentRuntime {
             tool_query: None,
             attachments: Vec::new(),
             stream_sink: None,
+            reasoning_sink: None,
         }
     }
 
@@ -1008,6 +1010,14 @@ impl AgentRuntime {
     /// or interleave partial text with the fallback answer.
     pub fn with_stream_sink(mut self, sink: StreamSink) -> Self {
         self.stream_sink = Some(sink);
+        self
+    }
+
+    /// Report reasoning fragments from the first provider attempt as they
+    /// arrive. They are also appended to the conversation session when one is
+    /// configured; they are never projected back into model context.
+    pub fn with_reasoning_sink(mut self, sink: StreamSink) -> Self {
+        self.reasoning_sink = Some(sink);
         self
     }
 
@@ -2605,6 +2615,7 @@ impl AgentRuntime {
                 cancellation,
                 fast_chat,
                 session_context,
+                session_path.clone(),
             )
             .await?;
         if let Some(path) = &session_path {
@@ -2631,6 +2642,7 @@ impl AgentRuntime {
         cancellation: CancellationToken,
         fast_chat: bool,
         session_context: Vec<ModelMessage>,
+        session_path: Option<PathBuf>,
     ) -> Result<RunResult, RuntimeError> {
         let run_id = Uuid::new_v4();
         let run_context = crate::tools::RunContext {
@@ -3519,6 +3531,7 @@ impl AgentRuntime {
                     })?;
                 let attempt_started = Instant::now();
                 let first_token_ms = Arc::new(AtomicU64::new(u64::MAX));
+                let reasoning_collector = Arc::new(Mutex::new(String::new()));
                 let sink = if attempt == 0 {
                     self.stream_sink.clone().map(|sink| {
                         let first_token_ms = first_token_ms.clone();
@@ -3540,11 +3553,23 @@ impl AgentRuntime {
                 } else {
                     None
                 };
+                let reasoning_sink = if attempt == 0 {
+                    self.reasoning_sink.clone().map(|sink| {
+                        let collector = reasoning_collector.clone();
+                        Arc::new(move |text: &str| {
+                            collector.lock().unwrap().push_str(text);
+                            sink(text);
+                        }) as StreamSink
+                    })
+                } else {
+                    None
+                };
                 let provider_future = complete_with_stream(
                     candidate.provider.clone(),
                     model_request.clone(),
                     &cancellation,
                     sink,
+                    reasoning_sink,
                 );
                 let provider_result = if request.budget.timeout_ms == 0 {
                     Ok(provider_future.await)
@@ -3603,6 +3628,17 @@ impl AgentRuntime {
                                     candidate_response.model
                                 ),
                             });
+                        }
+                        let reasoning_text = reasoning_collector.lock().unwrap().clone();
+                        if !reasoning_text.is_empty()
+                            && let Some(path) = &session_path
+                        {
+                            let _ = crate::session::append_reasoning(
+                                path,
+                                &run_id.to_string(),
+                                step,
+                                &reasoning_text,
+                            );
                         }
                         apply_manifest_cost(&mut candidate_response, &route.manifest);
                         if let Some(health) = &self.provider_health
@@ -5549,15 +5585,30 @@ async fn complete_with_stream(
     request: ModelRequest,
     cancellation: &CancellationToken,
     sink: Option<StreamSink>,
+    reasoning_sink: Option<StreamSink>,
 ) -> Result<ModelResponse, ProviderError> {
-    match sink {
-        Some(sink) => {
+    match (sink, reasoning_sink) {
+        (Some(sink), Some(reasoning)) => {
+            let mut on_text = move |text: &str| sink(text);
+            let mut on_reasoning = move |text: &str| reasoning(text);
+            provider
+                .complete_streaming_with(request, cancellation, &mut on_text, &mut on_reasoning)
+                .await
+        }
+        (Some(sink), None) => {
             let mut on_text = move |text: &str| sink(text);
             provider
                 .complete_streaming(request, cancellation, &mut on_text)
                 .await
         }
-        None => provider.complete(request, cancellation).await,
+        (None, Some(reasoning)) => {
+            let mut on_text = |_: &str| {};
+            let mut on_reasoning = move |text: &str| reasoning(text);
+            provider
+                .complete_streaming_with(request, cancellation, &mut on_text, &mut on_reasoning)
+                .await
+        }
+        (None, None) => provider.complete(request, cancellation).await,
     }
 }
 
@@ -11762,6 +11813,98 @@ mod tests {
             requests[1].messages[0]
                 .content
                 .contains("For a page or UI deliverable")
+        );
+    }
+
+    struct ReasoningProvider;
+
+    #[async_trait]
+    impl ModelProvider for ReasoningProvider {
+        fn id(&self) -> &str {
+            "reasoning-provider"
+        }
+
+        fn model(&self) -> &str {
+            "reasoning-v1"
+        }
+
+        async fn complete(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: completed_answer("9.9 is larger"),
+                },
+                usage: Usage::default(),
+            })
+        }
+
+        async fn complete_streaming_with(
+            &self,
+            _request: ModelRequest,
+            _cancellation: &CancellationToken,
+            on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+            on_reasoning: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        ) -> Result<ModelResponse, ProviderError> {
+            on_reasoning("checked 9.90 > 9.11");
+            on_text("9.9 is larger");
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn: ModelTurn::Final {
+                    answer: completed_answer("9.9 is larger"),
+                },
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn reasoning_streams_to_the_sink_and_the_session() {
+        let workspace = tempfile::tempdir().unwrap();
+        let session = workspace.path().join("session.jsonl");
+        let reasoning = Arc::new(Mutex::new(String::new()));
+        let provider = Arc::new(ReasoningProvider);
+        let mut manifest = local_manifest();
+        manifest.provider_id = provider.id().into();
+        manifest.model = provider.model().into();
+        let sink_reasoning = reasoning.clone();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate { provider, manifest }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_session_path(&session)
+        .with_reasoning_sink(Arc::new(move |text: &str| {
+            sink_reasoning.lock().unwrap().push_str(text);
+        }));
+
+        let mut request = TaskRequest::from_objective(
+            "写一个比较：9.11 和 9.9 哪个大？",
+            workspace.path().to_path_buf(),
+        );
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(&*reasoning.lock().unwrap(), "checked 9.90 > 9.11");
+        let entries = crate::session::load_entries(&session);
+        assert!(entries.iter().any(|entry| matches!(
+            entry,
+            crate::session::SessionEntry::Reasoning { text, .. }
+                if text == "checked 9.90 > 9.11"
+        )));
+        assert!(
+            !crate::session::context_messages(&session)
+                .iter()
+                .any(|message| message.content.contains("9.90"))
         );
     }
 

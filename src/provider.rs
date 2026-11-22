@@ -84,6 +84,21 @@ pub trait ModelProvider: Send + Sync {
         self.complete(request, cancellation).await
     }
 
+    /// Streaming completion that also reports reasoning fragments as they
+    /// arrive. The default ignores reasoning and keeps the existing streaming
+    /// behavior, so providers need not implement it.
+    async fn complete_streaming_with(
+        &self,
+        request: ModelRequest,
+        cancellation: &CancellationToken,
+        on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        on_reasoning: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ModelResponse, ProviderError> {
+        let _ = on_reasoning;
+        self.complete_streaming(request, cancellation, on_text)
+            .await
+    }
+
     /// Raw text completion, for callers whose reply is not an `AgentAnswer`.
     ///
     /// Kept separate from [`ModelProvider::complete`] because that method owns
@@ -1239,6 +1254,7 @@ impl OpenAiCompatibleProvider {
         tools: Vec<WireTool>,
         cancellation: &CancellationToken,
         on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        on_reasoning: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<(String, Option<Vec<WireResponseToolCall>>, Usage), ProviderError> {
         let body = self.wire_body(messages, tools, true);
         let mut builder = self.client.post(&self.endpoint).json(&body);
@@ -1290,11 +1306,25 @@ impl OpenAiCompatibleProvider {
             pending.extend_from_slice(&chunk);
             while let Some(position) = pending.iter().position(|byte| *byte == b'\n') {
                 let line: Vec<u8> = pending.drain(..=position).collect();
-                process_stream_line(&line, &mut content, &mut calls, &mut usage, on_text)?;
+                process_stream_line(
+                    &line,
+                    &mut content,
+                    &mut calls,
+                    &mut usage,
+                    on_text,
+                    on_reasoning,
+                )?;
             }
         }
         if !pending.is_empty() {
-            process_stream_line(&pending, &mut content, &mut calls, &mut usage, on_text)?;
+            process_stream_line(
+                &pending,
+                &mut content,
+                &mut calls,
+                &mut usage,
+                on_text,
+                on_reasoning,
+            )?;
         }
 
         let calls = if calls.is_empty() {
@@ -1344,10 +1374,22 @@ impl ModelProvider for OpenAiCompatibleProvider {
         cancellation: &CancellationToken,
         on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<ModelResponse, ProviderError> {
+        let mut on_reasoning = |_: &str| {};
+        self.complete_streaming_with(request, cancellation, on_text, &mut on_reasoning)
+            .await
+    }
+
+    async fn complete_streaming_with(
+        &self,
+        request: ModelRequest,
+        cancellation: &CancellationToken,
+        on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        on_reasoning: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ModelResponse, ProviderError> {
         let messages = Self::wire_messages(&request);
         let tools = Self::wire_tools(&request);
         let (content, calls, usage) = self
-            .send_streaming(messages, tools, cancellation, on_text)
+            .send_streaming(messages, tools, cancellation, on_text, on_reasoning)
             .await?;
         self.response_from_parts(Some(WireContent::Text(content)), calls, usage)
     }
@@ -1684,6 +1726,8 @@ struct WireStreamDelta {
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
     tool_calls: Option<Vec<WireStreamToolCallDelta>>,
 }
 
@@ -1767,6 +1811,7 @@ fn process_stream_line(
     calls: &mut std::collections::BTreeMap<usize, StreamToolCallAccumulator>,
     usage: &mut Usage,
     on_text: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    on_reasoning: &mut (dyn for<'a> FnMut(&'a str) + Send),
 ) -> Result<(), ProviderError> {
     let line = std::str::from_utf8(line).map_err(|_| {
         ProviderError::new(
@@ -1810,6 +1855,11 @@ fn process_stream_line(
         *usage = usage_from_wire(wire_usage);
     }
     for choice in chunk.choices {
+        if let Some(reasoning) = choice.delta.reasoning_content
+            && !reasoning.is_empty()
+        {
+            on_reasoning(&reasoning);
+        }
         if let Some(text) = choice.delta.content
             && !text.is_empty()
         {
@@ -1909,6 +1959,8 @@ mod tests {
         let mut usage = Usage::default();
         let mut deltas = Vec::new();
         let mut on_text = |text: &str| deltas.push(text.to_string());
+        let mut reasoning = Vec::new();
+        let mut on_reasoning = |text: &str| reasoning.push(text.to_string());
 
         process_stream_line(
             b": keep-alive\n",
@@ -1916,6 +1968,25 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[{"delta":{"reasoning_content":"think "}}]}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+            &mut on_reasoning,
+        )
+        .unwrap();
+        process_stream_line(
+            br#"data: {"choices":[{"delta":{"reasoning_content":"more"}}]}"#,
+            &mut content,
+            &mut calls,
+            &mut usage,
+            &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
         process_stream_line(
@@ -1924,6 +1995,7 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
         process_stream_line(
@@ -1932,6 +2004,7 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
         process_stream_line(
@@ -1940,6 +2013,7 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
         process_stream_line(
@@ -1948,6 +2022,7 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
         process_stream_line(
@@ -1956,6 +2031,7 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
         process_stream_line(
@@ -1964,11 +2040,13 @@ mod tests {
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap();
 
         assert_eq!(content, "hello");
         assert_eq!(deltas, ["hel", "lo"]);
+        assert_eq!(reasoning, ["think ", "more"]);
         assert_eq!(usage.input_tokens, 11);
         assert_eq!(usage.output_tokens, 7);
         let call = calls.get(&0).unwrap();
@@ -1983,12 +2061,14 @@ mod tests {
         let mut calls = std::collections::BTreeMap::new();
         let mut usage = Usage::default();
         let mut on_text = |_: &str| {};
+        let mut on_reasoning = |_: &str| {};
         let error = process_stream_line(
             br#"data: {"error":{"message":"upstream exploded"}}"#,
             &mut content,
             &mut calls,
             &mut usage,
             &mut on_text,
+            &mut on_reasoning,
         )
         .unwrap_err();
         assert_eq!(error.code, ProviderErrorCode::InvalidResponse);

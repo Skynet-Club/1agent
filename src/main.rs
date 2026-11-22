@@ -18184,6 +18184,10 @@ async fn run_tui(
         session.id(),
     ));
     let mut state = TuiState::new(provider_label, max_steps, timeout_seconds);
+    let reasoning_buffer = state.reasoning_buffer();
+    runtime = runtime.with_reasoning_sink(Arc::new(move |text: &str| {
+        reasoning_buffer.lock().unwrap().push_str(text);
+    }));
     state.set_theme(config_theme);
     state.set_context_budget(max_context_tokens);
     state.set_prompt_language(prompt_language);
@@ -25483,6 +25487,10 @@ async fn run_tui_task(
                             state.info(format!("无法保存会话：{error}"));
                         }
                         state.set_interrupted_journal(None);
+                        let reasoning = state.take_reasoning();
+                        if !reasoning.is_empty() {
+                            state.push_reasoning(&reasoning);
+                        }
                         record_tui_result(state, &result);
                     }
                     Err(RuntimeError::Cancelled { .. }) => {
@@ -25797,6 +25805,10 @@ async fn run_tui_task(
                         state.set_activity(activity);
                     }
                     active_journal = Some((path, size, last_seq));
+                }
+                let reasoning = state.take_reasoning();
+                if !reasoning.is_empty() {
+                    state.push_reasoning(&reasoning);
                 }
                 if state.selection_autoscroll_active() {
                     state.autoscroll_selection_once();

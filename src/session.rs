@@ -31,6 +31,12 @@ pub enum SessionEntry {
         text: String,
         timestamp_unix_ms: u64,
     },
+    Reasoning {
+        run_id: String,
+        step: usize,
+        text: String,
+        timestamp_unix_ms: u64,
+    },
 }
 
 pub fn session_root() -> PathBuf {
@@ -122,12 +128,27 @@ pub fn append_synthetic(path: &Path, text: &str) -> std::io::Result<()> {
     )
 }
 
-/// A session whose last entry is an unanswered user message was interrupted.
-pub fn needs_resume_notice(path: &Path) -> bool {
-    matches!(
-        load_entries(path).last(),
-        Some(SessionEntry::Message { role, .. }) if role == "user"
+pub fn append_reasoning(path: &Path, run_id: &str, step: usize, text: &str) -> std::io::Result<()> {
+    append(
+        path,
+        &SessionEntry::Reasoning {
+            run_id: run_id.into(),
+            step,
+            text: text.into(),
+            timestamp_unix_ms: now_ms(),
+        },
     )
+}
+
+/// A session whose last message-like entry is an unanswered user message was
+/// interrupted. Reasoning entries are ignored so a crash after reasoning but
+/// before the answer still gets a resume notice.
+pub fn needs_resume_notice(path: &Path) -> bool {
+    load_entries(path)
+        .iter()
+        .rev()
+        .find(|entry| !matches!(entry, SessionEntry::Reasoning { .. }))
+        .is_some_and(|entry| matches!(entry, SessionEntry::Message { role, .. } if role == "user"))
 }
 
 /// Prior turns as model messages, bounded by count and characters.
@@ -213,6 +234,30 @@ mod tests {
         assert!(context[0].content.contains("写一个页面"));
         assert!(context[1].content.contains("页面写好了"));
         assert_eq!(context[2].content, "这是你刚写的吗？");
+    }
+
+    #[test]
+    fn reasoning_is_stored_but_not_projected_into_context() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("session.jsonl");
+        append_user(&path, "run-1", "9.11 和 9.9 哪个大？").unwrap();
+        append_reasoning(&path, "run-1", 0, "9.9 = 9.90 > 9.11").unwrap();
+        assert!(needs_resume_notice(&path));
+        append_assistant(&path, "run-1", "9.9 更大", "completed").unwrap();
+        assert!(!needs_resume_notice(&path));
+
+        let entries = load_entries(&path);
+        assert!(matches!(
+            entries.get(1),
+            Some(SessionEntry::Reasoning { step: 0, text, .. }) if text.contains("9.90")
+        ));
+        let context = context_messages(&path);
+        assert_eq!(context.len(), 2);
+        assert!(
+            context
+                .iter()
+                .all(|message| !message.content.contains("9.90"))
+        );
     }
 
     #[test]
