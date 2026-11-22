@@ -155,6 +155,24 @@ struct CompletionGate {
     expected_artifacts: BTreeMap<String, String>,
 }
 
+/// New-version runs must write a versioned sibling, never the active artifact.
+#[derive(Debug, Clone, Default)]
+struct NewVersionPolicy {
+    targets: BTreeMap<String, String>,
+}
+
+impl NewVersionPolicy {
+    fn overwrite_target(&self, call: &ToolCall) -> Option<(String, String)> {
+        if call.name != "write_file" && call.name != "edit_file" {
+            return None;
+        }
+        let path = call.arguments.get("path")?.as_str()?;
+        self.targets.iter().find_map(|(active, versioned)| {
+            same_artifact_path(active, path).then(|| (active.clone(), versioned.clone()))
+        })
+    }
+}
+
 enum GateFailure {
     MissingReceipt {
         tools: Vec<String>,
@@ -260,9 +278,9 @@ impl CompletionGate {
                 }
             }
         } else if tools.requires_write(&call.name) {
-            // A read-only browser audit does not modify the artifact; keep the
-            // verification receipt even when the audit runs after acceptance.
-            if self.verify_only && call.name == "browser" {
+            // Browser actions do not modify the artifact file; keep the
+            // acceptance receipt even when an audit runs after acceptance.
+            if call.name == "browser" {
                 return;
             }
             self.side_effect_tools.insert(call.name.clone());
@@ -523,6 +541,55 @@ fn file_sha256(path: &str) -> Option<String> {
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     Some(format!("{:x}", hasher.finalize()))
+}
+
+fn versioned_path(path: &str) -> String {
+    let path = Path::new(path);
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("artifact");
+    let base = stem
+        .rsplit_once("-v")
+        .filter(|(_, number)| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
+        .map(|(base, _)| base)
+        .unwrap_or(stem);
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    let mut version = 2u32;
+    loop {
+        let name = match extension {
+            Some(extension) => format!("{base}-v{version}.{extension}"),
+            None => format!("{base}-v{version}"),
+        };
+        let candidate = parent.join(name);
+        if !candidate.exists() {
+            return candidate.display().to_string();
+        }
+        version += 1;
+    }
+}
+
+fn new_version_request(objective: &str, session_context: &[ModelMessage]) -> bool {
+    let text = objective.to_lowercase();
+    let explicit = (text.contains("新版本")
+        || text.contains("再来一版")
+        || text.contains("新的一版")
+        || text.contains("另一版")
+        || text.contains("new version"))
+        && !text.contains("不要新版本")
+        && !text.contains("不要重做")
+        && !text.contains("不修改");
+    let after_gate = session_context
+        .iter()
+        .rev()
+        .find(|message| message.role == crate::domain::MessageRole::Assistant)
+        .is_some_and(|message| message.content.contains("要新版本，还是只验收现有产物"));
+    explicit
+        || (after_gate
+            && (text.contains("新版本")
+                || text.contains("再来一版")
+                || text.contains("new version")))
 }
 
 fn verification_only_request(objective: &str, session_context: &[ModelMessage]) -> bool {
@@ -1205,10 +1272,11 @@ impl AgentRuntime {
         permissions: &crate::domain::PermissionSet,
         cancellation: &CancellationToken,
     ) -> ToolObservation {
-        self.execute_tool_scoped(call, permissions, cancellation, None, None)
+        self.execute_tool_scoped(call, permissions, cancellation, None, None, None)
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_tool_scoped(
         &self,
         call: &crate::domain::ToolCall,
@@ -1216,6 +1284,7 @@ impl AgentRuntime {
         cancellation: &CancellationToken,
         selected_actions: Option<&BTreeSet<String>>,
         masked_tools: Option<&BTreeSet<String>>,
+        new_version: Option<&NewVersionPolicy>,
     ) -> ToolObservation {
         if masked_tools.is_some_and(|masked| masked.contains(&call.name)) {
             return ToolObservation {
@@ -1243,6 +1312,21 @@ impl AgentRuntime {
                 ),
                 content: String::new(),
                 error_code: Some("capability_not_selected".into()),
+                metadata: BTreeMap::new(),
+            };
+        }
+        if let Some(policy) = new_version
+            && let Some((active, versioned)) = policy.overwrite_target(call)
+        {
+            return ToolObservation {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                status: ToolStatus::PermissionDenied,
+                summary: format!(
+                    "new-version mode: do not overwrite {active}; write {versioned} instead"
+                ),
+                content: String::new(),
+                error_code: Some("new_version_target".into()),
                 metadata: BTreeMap::new(),
             };
         }
@@ -1604,6 +1688,7 @@ impl AgentRuntime {
 
     /// Run a batch of parallel-safe tool calls concurrently. Results are
     /// returned in call order, so journal observations stay deterministic.
+    #[allow(clippy::too_many_arguments)]
     async fn execute_tools_parallel(
         &self,
         calls: &[ToolCall],
@@ -1612,6 +1697,7 @@ impl AgentRuntime {
         context: &crate::tools::RunContext,
         selected_actions: &BTreeSet<String>,
         masked_tools: &BTreeSet<String>,
+        new_version: Option<&NewVersionPolicy>,
     ) -> Vec<ToolObservation> {
         futures_util::future::join_all(calls.iter().map(|call| {
             crate::tools::RUN_CONTEXT.scope(
@@ -1622,6 +1708,7 @@ impl AgentRuntime {
                     cancellation,
                     Some(selected_actions),
                     Some(masked_tools),
+                    new_version,
                 ),
             )
         }))
@@ -2624,9 +2711,25 @@ impl AgentRuntime {
                 stop_reason: StopReason::Completed,
             });
         }
+        let active_artifacts = work_ledger.active_artifacts_unchanged();
         let verify_only = resume.is_none()
             && verification_only_request(&request.objective, &session_context)
-            && work_ledger.active_artifacts_unchanged().is_some();
+            && active_artifacts.is_some();
+        let new_version = resume.is_none()
+            && !verify_only
+            && new_version_request(&request.objective, &session_context)
+            && active_artifacts.is_some();
+        let new_version_policy = new_version.then(|| NewVersionPolicy {
+            targets: active_artifacts
+                .clone()
+                .unwrap_or_default()
+                .into_keys()
+                .map(|path| {
+                    let versioned = versioned_path(&path);
+                    (path, versioned)
+                })
+                .collect(),
+        });
         let fast_chat = fast_chat && interaction_mode != InteractionMode::Act;
         let task_profile = if fast_chat {
             TaskProfileDecision::direct_chat()
@@ -3038,6 +3141,18 @@ impl AgentRuntime {
                     "VERIFY ONLY\nThe user asked to verify the existing unchanged artifact. Do not write or edit files. Run acceptance/verification checks and report the current state. When the acceptance_gate returns accepted for the unchanged expected artifact, the final status is Completed; do not mark it Conditional only because this run wrote nothing. If a file would need to change, stop and ask.",
                 ));
             }
+            if let Some(policy) = &new_version_policy {
+                let targets = policy
+                    .targets
+                    .iter()
+                    .take(3)
+                    .map(|(active, versioned)| format!("- {active} → {versioned}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                initial_messages.push(ModelMessage::system(format!(
+                    "NEW VERSION\nThis run creates a new version. Do not overwrite the active artifact(s):\n{targets}\nThe original path must remain byte-identical. Use the new path for preview, audit and acceptance."
+                )));
+            }
             if !fast_chat {
                 initial_messages.push(ModelMessage::system(task_profile.guidance()));
                 if let Some(manifest) = environment_manifest(&request) {
@@ -3214,8 +3329,7 @@ impl AgentRuntime {
         );
         if verify_only {
             completion_gate.verify_only = true;
-            completion_gate.expected_artifacts =
-                work_ledger.active_artifacts_unchanged().unwrap_or_default();
+            completion_gate.expected_artifacts = active_artifacts.clone().unwrap_or_default();
         }
         // (event seq of the last checkpoint, messages already covered by it)
         let mut checkpoint_state: Option<(u64, usize)> = None;
@@ -4229,6 +4343,7 @@ impl AgentRuntime {
                                                     &cancellation,
                                                     Some(&selected_actions),
                                                     Some(&masked_tools),
+                                                    new_version_policy.as_ref(),
                                                 ),
                                             )
                                             .await
@@ -4245,6 +4360,7 @@ impl AgentRuntime {
                                 &run_context,
                                 &selected_actions,
                                 &masked_tools,
+                                new_version_policy.as_ref(),
                             )
                             .await
                         } else {
@@ -4258,6 +4374,7 @@ impl AgentRuntime {
                                             &cancellation,
                                             Some(&selected_actions),
                                             Some(&masked_tools),
+                                            new_version_policy.as_ref(),
                                         ),
                                     )
                                     .await,
@@ -11620,6 +11737,42 @@ mod tests {
     }
 
     #[test]
+    fn versioned_path_increments_and_keeps_extension() {
+        let directory = tempfile::tempdir().unwrap();
+        let page = directory.path().join("page.html");
+        std::fs::write(&page, "x").unwrap();
+        let page = page.display().to_string();
+        let v2 = versioned_path(&page);
+        assert!(v2.ends_with("page-v2.html"));
+        std::fs::write(&v2, "x").unwrap();
+        let v3 = versioned_path(&page);
+        assert!(v3.ends_with("page-v3.html"));
+        assert!(versioned_path(&v2).ends_with("page-v3.html"));
+    }
+
+    #[test]
+    fn new_version_policy_blocks_only_the_active_artifact() {
+        let policy = NewVersionPolicy {
+            targets: BTreeMap::from([(
+                "/tmp/page.html".to_string(),
+                "/tmp/page-v2.html".to_string(),
+            )]),
+        };
+        let blocked = ToolCall {
+            id: "call-1".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "/tmp/page.html", "content": "x"}),
+        };
+        assert!(policy.overwrite_target(&blocked).is_some());
+        let allowed = ToolCall {
+            id: "call-2".into(),
+            name: "write_file".into(),
+            arguments: serde_json::json!({"path": "/tmp/page-v2.html", "content": "x"}),
+        };
+        assert!(policy.overwrite_target(&allowed).is_none());
+    }
+
+    #[test]
     fn verification_only_request_needs_an_explicit_verify_phrase() {
         assert!(verification_only_request(
             "只验收现有 page.html，不要重做",
@@ -11635,5 +11788,76 @@ mod tests {
             Vec::new(),
         )];
         assert!(verification_only_request("验收现有页面", &context));
+    }
+
+    #[tokio::test]
+    async fn new_version_write_is_redirected_to_a_versioned_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let active = workspace.path().join("page.html");
+        std::fs::write(&active, "<html>old</html>").unwrap();
+        let sha = file_sha256(active.to_str().unwrap()).unwrap();
+        let bytes = std::fs::metadata(&active).unwrap().len();
+        crate::work_ledger::WorkLedger::append(
+            workspace.path(),
+            &crate::work_ledger::LedgerEntry {
+                run_id: "run-old".into(),
+                session_id: String::new(),
+                timestamp_unix_ms: 1,
+                objective: "做一个页面".into(),
+                mode: "act".into(),
+                status: "completed".into(),
+                stop_reason: "completed".into(),
+                artifacts: vec![crate::work_ledger::LedgerArtifact {
+                    path: active.display().to_string(),
+                    sha256: sha,
+                    bytes,
+                    fresh: true,
+                }],
+                reused: Vec::new(),
+                blockers: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        let versioned = versioned_path(active.to_str().unwrap());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("call-1", &active, "overwritten")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call(
+                        "call-2",
+                        std::path::Path::new(&versioned),
+                        "new version",
+                    )],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("新版本写好了"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request =
+            TaskRequest::from_objective("做一个新版本", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&active).unwrap(),
+            "<html>old</html>"
+        );
+        assert_eq!(std::fs::read_to_string(&versioned).unwrap(), "new version");
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ToolObserved { observation }
+                if observation.error_code.as_deref() == Some("new_version_target")
+        )));
     }
 }

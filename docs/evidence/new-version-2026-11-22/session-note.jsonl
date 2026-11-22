@@ -1,0 +1,4 @@
+{"type":"message","role":"user","content":"Execute: create /tmp/tui-newver-test/note.txt with exactly the text: first","run_id":"","status":"","timestamp_unix_ms":1795312416322}
+{"type":"message","role":"assistant","content":"/tmp/tui-newver-test/note.txt 已创建，内容正好是 5 个字节 `first`，没有结尾换行或多于空白。验收门返回 accepted（contract digest c45da8bb…0b36a，evidence digest 50b51168…6ec8be）。","run_id":"9dd5018c-3881-4636-b040-6943b79ca372","status":"completed","timestamp_unix_ms":1795312436319}
+{"type":"message","role":"user","content":"做一个新版本，把内容改成 second，其他不变。","run_id":"","status":"","timestamp_unix_ms":1795312442515}
+{"type":"message","role":"assistant","content":"新版本已写到 /tmp/tui-newver-test/note-v2.txt，内容正好是 6 个字节 `second`，结尾没有换行；原文件 note.txt 仍是 5 字节 `first`，一个字节都没动。验收门返回 accepted（contract digest f11bba1d…1263，evidence digest c273114d…fb9f）。","run_id":"dfa0cd9d-4c2a-480b-9269-ec014a2f33b0","status":"completed","timestamp_unix_ms":1795312487712}
