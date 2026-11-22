@@ -29,7 +29,7 @@ use crate::journal::{
     find_resumable_prefix, read_events,
 };
 use crate::provider::{
-    ModelProvider, ProviderError, ProviderErrorCode, agent_system_prompt_for_form,
+    ModelProvider, PromptDeltas, ProviderError, ProviderErrorCode, agent_system_prompt_for_run,
     chat_system_prompt,
 };
 use crate::provider_health::ProviderHealth;
@@ -3161,9 +3161,21 @@ impl AgentRuntime {
                     crate::voice::VoiceForm::for_task(mode),
                 )
             } else {
-                agent_system_prompt_for_form(
+                let has_tool = |name: &str| tool_specs.iter().any(|spec| spec.name == name);
+                let artifacts =
+                    has_tool("write_file") || has_tool("edit_file") || has_tool("acceptance_gate");
+                let deltas = PromptDeltas {
+                    artifacts,
+                    capability: has_tool("capability_search") || has_tool("resolve_capability"),
+                    page: artifacts
+                        && looks_like_page_task(&request.objective, request.deliverable.as_deref()),
+                    followup: !request.known_facts.is_empty() || !session_context.is_empty(),
+                    answer_style: interaction_mode != InteractionMode::Act,
+                };
+                agent_system_prompt_for_run(
                     self.voice_mode,
                     crate::voice::VoiceForm::for_task(mode),
+                    deltas,
                 )
             };
             let mut initial_messages = vec![ModelMessage::system(system_prompt)];
@@ -11706,6 +11718,57 @@ mod tests {
             &event.event,
             JournalEventKind::CapabilityPreflightResolved { .. }
         )));
+    }
+
+    #[tokio::test]
+    async fn act_prompt_sends_only_the_deltas_its_tools_can_use() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime =
+            scripted_runtime(workspace.path(), provider, default_registry()).with_core_tools(true);
+        let mut request =
+            TaskRequest::from_objective("写入 note.txt", workspace.path().to_path_buf());
+        request.deliverable = Some("note.txt".into());
+        request.permissions.allow_write = true;
+        runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+
+        {
+            let requests = requests.lock().unwrap();
+            let system = &requests[0].messages[0].content;
+            assert!(system.contains("Delivery efficiency for artifact/file tasks"));
+            assert!(!system.contains("For a page or UI deliverable"));
+            assert!(!system.contains("Before a non-trivial build"));
+            assert!(!system.contains("The request may be a follow-up"));
+            assert!(!system.contains("Conclusion contract for DirectAnswer"));
+        }
+
+        let mut page =
+            TaskRequest::from_objective("做一个产品网站页面", workspace.path().to_path_buf());
+        page.deliverable = Some("index.html".into());
+        page.permissions.allow_write = true;
+        runtime.run(page, CancellationToken::new()).await.unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1].messages[0]
+                .content
+                .contains("For a page or UI deliverable")
+        );
     }
 
     #[tokio::test]

@@ -1,0 +1,2 @@
+{"type":"message","role":"user","content":"Execute: create /tmp/tui-delta-test/note.txt with exactly the text: delta","run_id":"","status":"","timestamp_unix_ms":1795315735339}
+{"type":"message","role":"assistant","content":"/tmp/tui-delta-test/note.txt 已创建，内容为 5 字节的 delta，无结尾换行（sha256 4f4a9410…5398，验收判定 accepted，digest be0bc667…649f）。","run_id":"f6a7c4e3-e5dc-4f01-98d3-a84bfb0986c1","status":"completed","timestamp_unix_ms":1795315754049}
