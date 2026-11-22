@@ -1,0 +1,2 @@
+{"type":"message","role":"user","content":"Execute: create /tmp/tui-core-test/note.txt with exactly the text: core","run_id":"","status":"","timestamp_unix_ms":1795314776470}
+{"type":"message","role":"assistant","content":"已完成：/tmp/tui-core-test/note.txt 已写入，内容正好是 `core`，4 字节，无结尾换行。验收通过（accepted，contract_digest bb62fac5…）。","run_id":"0dcb6885-4e87-4f44-a0be-8d1b83a84f2f","status":"completed","timestamp_unix_ms":1795314790871}

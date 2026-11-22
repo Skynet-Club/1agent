@@ -52,6 +52,25 @@ const MAX_EVIDENCE_REPLANS: usize = 2;
 /// replaced with a receipt so the model keeps a small, cache-friendly context.
 const MAX_INLINE_TOOL_CONTENT_CHARS: usize = 32_000;
 
+/// Tools advertised by default in the TUI. Everything else stays in the
+/// registry and can be added with `request_tools`.
+const CORE_TOOL_NAMES: &[&str] = &[
+    "read_file",
+    "write_file",
+    "edit_file",
+    "search_files",
+    "read_document",
+    "terminal_create",
+    "terminal_exec",
+    "preview_file",
+    "browser",
+    "acceptance_gate",
+    "verify_artifact",
+    "clarify",
+    "skill_search",
+    "skill_list",
+];
+
 /// Verification calls may exceed the tool budget by this many calls. Without
 /// the reserve, a run can exhaust its budget on fixes and never re-audit or
 /// collect the acceptance receipt for the fixed bytes.
@@ -900,6 +919,7 @@ pub struct AgentRuntime {
     journal_dir: PathBuf,
     session_id: Option<String>,
     session_path: Option<PathBuf>,
+    core_tools: bool,
     parent_run_link: Option<ParentRunLink>,
     action_log: Option<Arc<Mutex<ActionLogJournal>>>,
     tool_approvals: Option<ToolApprovalStore>,
@@ -958,6 +978,7 @@ impl AgentRuntime {
             journal_dir: journal_dir.into(),
             session_id: None,
             session_path: None,
+            core_tools: false,
             parent_run_link: None,
             action_log: None,
             tool_approvals: None,
@@ -1003,6 +1024,13 @@ impl AgentRuntime {
 
     pub fn with_tool_query(mut self, query: impl Into<String>) -> Self {
         self.tool_query = Some(query.into());
+        self
+    }
+
+    /// Advertise only the core tool set; other registered tools remain
+    /// available through `request_tools`.
+    pub fn with_core_tools(mut self, core_tools: bool) -> Self {
+        self.core_tools = core_tools;
         self
     }
 
@@ -2886,6 +2914,13 @@ impl AgentRuntime {
                 && (!action_tools.contains(&capability.name)
                     || selected_actions.contains(&capability.name))
         });
+        if self.core_tools {
+            available_capabilities.retain(|capability| {
+                CORE_TOOL_NAMES.contains(&capability.name.as_str())
+                    || crate::dynamic_tools::is_virtual(&capability.name)
+                    || selected_actions.contains(&capability.name)
+            });
+        }
         available_capabilities.sort_by(|left, right| left.name.cmp(&right.name));
         let tool_capabilities =
             crate::tools::ToolCapabilitySnapshot::from_capabilities(available_capabilities.clone())
@@ -2959,7 +2994,20 @@ impl AgentRuntime {
                 Some(query) => {
                     crate::tool_search::select(query, self.tools.specs_for(&request.permissions), 8)
                 }
-                None => self.tools.specs_for(&request.permissions),
+                None => {
+                    let specs = self.tools.specs_for(&request.permissions);
+                    if self.core_tools {
+                        specs
+                            .into_iter()
+                            .filter(|spec| {
+                                CORE_TOOL_NAMES.contains(&spec.name.as_str())
+                                    || selected_actions.contains(&spec.name)
+                            })
+                            .collect()
+                    } else {
+                        specs
+                    }
+                }
             }
         };
         tool_specs.retain(|spec| {
@@ -11788,6 +11836,102 @@ mod tests {
             Vec::new(),
         )];
         assert!(verification_only_request("验收现有页面", &context));
+    }
+
+    #[tokio::test]
+    async fn core_tools_reduce_the_advertised_surface() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests,
+        ));
+        let runtime =
+            scripted_runtime(workspace.path(), provider, default_registry()).with_core_tools(true);
+        let mut request =
+            TaskRequest::from_objective("执行：检查当前目录", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        let events = read_events(&result.journal_path).unwrap();
+        let names = events
+            .iter()
+            .find_map(|event| match &event.event {
+                JournalEventKind::ToolCapabilitiesAdvertised { snapshot } => {
+                    Some(snapshot.tools.clone())
+                }
+                _ => None,
+            })
+            .expect("advertised tools");
+        assert!(names.iter().any(|name| name == "read_file"));
+        assert!(names.iter().any(|name| name == "browser"));
+        assert!(!names.iter().any(|name| name == "web_search"));
+        assert!(!names.iter().any(|name| name == "spawn_agent"));
+        assert!(
+            names.len() <= 18,
+            "advertised {} tools: {names:?}",
+            names.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn core_tools_can_be_requested_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "call-request".into(),
+                        name: crate::dynamic_tools::REQUEST_TOOLS.into(),
+                        arguments: serde_json::json!({
+                            "tools": ["web_search"],
+                            "reason": "need a web search"
+                        }),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("ok"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime =
+            scripted_runtime(workspace.path(), provider, default_registry()).with_core_tools(true);
+        let mut request =
+            TaskRequest::from_objective("整理一下任务", workspace.path().to_path_buf());
+        request.permissions.allow_network = true;
+        runtime
+            .run(request, CancellationToken::new())
+            .await
+            .unwrap();
+        let requests = requests.lock().unwrap();
+        assert!(requests.len() >= 2);
+        assert!(
+            requests[1]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "web_search"),
+            "requested tool was not added back"
+        );
     }
 
     #[tokio::test]

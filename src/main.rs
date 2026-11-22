@@ -18153,6 +18153,7 @@ async fn run_tui(
     let mut runtime = with_capability_memory(
         AgentRuntime::new(candidates, tools, journal_dir)
             .with_route_objective(objective)
+            .with_core_tools(true)
             .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
             .with_route_policy_sources(RoutePolicySources {
                 objective: objective_source,
