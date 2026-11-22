@@ -345,6 +345,7 @@ pub enum TuiActivityKind {
     MasterCollecting,
     MasterVerifying,
     MasterReporting,
+    Steering,
     Blocked,
 }
 
@@ -426,6 +427,7 @@ impl TuiActivityKind {
             Self::MasterCollecting => ("收集结果", "Collecting Results"),
             Self::MasterVerifying => ("任务验收", "Mission Verification"),
             Self::MasterReporting => ("汇报", "Reporting"),
+            Self::Steering => ("转向", "Steering"),
             Self::Blocked => ("阻塞", "Blocked"),
         }
     }
@@ -892,6 +894,7 @@ pub struct TuiState {
     welcome_visible: bool,
     transcript: Vec<TranscriptEntry>,
     reasoning_stream: Arc<Mutex<String>>,
+    steering_stream: Arc<Mutex<Vec<String>>>,
     slash_drawer_dismissed: bool,
     recent_commands: Vec<TuiCommandId>,
     pending_confirmation: Option<String>,
@@ -974,6 +977,7 @@ impl TuiState {
             welcome_visible: true,
             transcript: Vec::new(),
             reasoning_stream: Arc::new(Mutex::new(String::new())),
+            steering_stream: Arc::new(Mutex::new(Vec::new())),
             slash_drawer_dismissed: false,
             recent_commands: Vec::new(),
             pending_confirmation: None,
@@ -1723,9 +1727,38 @@ impl TuiState {
         if text.is_empty() {
             return false;
         }
+        if self.run_active()
+            && let Some(steer) = text
+                .strip_prefix("/steer ")
+                .or_else(|| text.strip_prefix("/steer"))
+        {
+            let steer = steer.trim();
+            if steer.is_empty() {
+                self.set_notice("用法：/steer <要插话的内容>");
+                return false;
+            }
+            self.steering_stream.lock().unwrap().push(steer.to_string());
+            self.push_work(TuiActivityKind::Steering, steer.to_string());
+            self.set_notice("已转向 · 下一步生效；运行结束后未消费的会转为下一条");
+            return true;
+        }
         self.queued_inputs.push(text);
-        self.set_notice("已排队 · 当前运行结束后执行；↑ 取回编辑");
+        self.set_notice("已排队 · 当前运行结束后执行；↑ 取回编辑；运行中可用 /steer 插话");
         true
+    }
+
+    pub fn steering_buffer(&self) -> Arc<Mutex<Vec<String>>> {
+        self.steering_stream.clone()
+    }
+
+    pub fn take_steering_leftovers(&self) -> Vec<String> {
+        std::mem::take(&mut *self.steering_stream.lock().unwrap())
+    }
+
+    pub fn queue_text(&mut self, text: String) {
+        if !text.trim().is_empty() {
+            self.queued_inputs.push(text);
+        }
     }
 
     pub fn queued_input_count(&self) -> usize {
@@ -6046,7 +6079,8 @@ fn activity_kind_tone(kind: TuiActivityKind) -> TuiTone {
         | TuiActivityKind::MasterAssignment
         | TuiActivityKind::MasterStarting
         | TuiActivityKind::WorkerRunning
-        | TuiActivityKind::MasterCollecting => TuiTone::Evidence,
+        | TuiActivityKind::MasterCollecting
+        | TuiActivityKind::Steering => TuiTone::Evidence,
     }
 }
 
@@ -11298,6 +11332,22 @@ int main(int argc, char **argv) {
         assert!(state.recall_queued_input());
         assert_eq!(state.input(), "second follow up");
         assert_eq!(state.queued_input_count(), 0);
+    }
+
+    #[test]
+    fn steer_command_bypasses_the_follow_up_queue_while_running() {
+        let mut state = TuiState::new("mock", 6, 120);
+        state.begin("long task", CognitiveMode::DirectAnswer, RiskLevel::Low);
+        state.set_input("/steer focus on the failing test");
+        assert!(state.queue_input());
+        assert_eq!(state.queued_input_count(), 0);
+        assert_eq!(
+            state.take_steering_leftovers(),
+            vec!["focus on the failing test".to_string()]
+        );
+        state.set_input("normal follow up");
+        assert!(state.queue_input());
+        assert_eq!(state.queued_input_count(), 1);
     }
 
     #[test]

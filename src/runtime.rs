@@ -57,11 +57,8 @@ const MAX_INLINE_TOOL_CONTENT_CHARS: usize = 32_000;
 const CORE_TOOL_NAMES: &[&str] = &[
     "read_file",
     "write_file",
-    "edit_file",
-    "search_files",
     "terminal_create",
     "terminal_exec",
-    "preview_file",
     "acceptance_gate",
 ];
 
@@ -933,6 +930,7 @@ pub struct AgentRuntime {
     attachments: Vec<crate::attachment::Attachment>,
     stream_sink: Option<StreamSink>,
     reasoning_sink: Option<StreamSink>,
+    steering: Option<Arc<Mutex<Vec<String>>>>,
 }
 
 struct AnswerRepairContext<'a> {
@@ -997,6 +995,7 @@ impl AgentRuntime {
             attachments: Vec::new(),
             stream_sink: None,
             reasoning_sink: None,
+            steering: None,
         }
     }
 
@@ -1018,6 +1017,13 @@ impl AgentRuntime {
     /// configured; they are never projected back into model context.
     pub fn with_reasoning_sink(mut self, sink: StreamSink) -> Self {
         self.reasoning_sink = Some(sink);
+        self
+    }
+
+    /// Queue user interjections that are injected into the next model step of
+    /// an active run. Unconsumed text is left for the caller to requeue.
+    pub fn with_steering(mut self, steering: Arc<Mutex<Vec<String>>>) -> Self {
+        self.steering = Some(steering);
         self
     }
 
@@ -2600,6 +2606,7 @@ impl AgentRuntime {
                     "The previous run ended without an answer. Continue from where it left off without repeating completed work.",
                 );
             }
+            let _ = crate::session::compact_if_needed(path);
             let context = crate::session::context_messages(path);
             let _ = crate::session::append_user(path, "", &strategy_request.objective);
             context
@@ -3408,6 +3415,15 @@ impl AgentRuntime {
         let mut checkpoint_state: Option<(u64, usize)> = None;
         for step in start_step..max_steps {
             let step_started = Instant::now();
+            if let Some(steering) = &self.steering {
+                let mut queue = steering.lock().unwrap();
+                for text in queue.drain(..) {
+                    let text: String = text.chars().take(2_000).collect();
+                    messages.push(ModelMessage::user(format!(
+                        "STEERING (user interjection during the run): {text}"
+                    )));
+                }
+            }
             if cancellation.is_cancelled() {
                 journal
                     .append(JournalEventKind::RunStopped {
@@ -11823,6 +11839,92 @@ mod tests {
         );
     }
 
+    struct SteeringProvider {
+        path: std::path::PathBuf,
+        steering: Arc<Mutex<Vec<String>>>,
+        requests: Arc<Mutex<Vec<ModelRequest>>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ModelProvider for SteeringProvider {
+        fn id(&self) -> &str {
+            "steering-provider"
+        }
+
+        fn model(&self) -> &str {
+            "steering-v1"
+        }
+
+        async fn complete(
+            &self,
+            request: ModelRequest,
+            _cancellation: &CancellationToken,
+        ) -> Result<ModelResponse, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let turn = if call == 0 {
+                self.steering.lock().unwrap().push("focus on tests".into());
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "read-1".into(),
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({"path": self.path}),
+                    }],
+                }
+            } else {
+                ModelTurn::Final {
+                    answer: completed_answer("done"),
+                }
+            };
+            Ok(ModelResponse {
+                provider_id: self.id().into(),
+                model: self.model().into(),
+                turn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn steering_is_injected_into_the_next_model_step() {
+        let workspace = tempfile::tempdir().unwrap();
+        let input = workspace.path().join("input.txt");
+        std::fs::write(&input, "hello").unwrap();
+        let steering = Arc::new(Mutex::new(Vec::new()));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(SteeringProvider {
+            path: input,
+            steering: steering.clone(),
+            requests: requests.clone(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let mut manifest = local_manifest();
+        manifest.provider_id = provider.id().into();
+        manifest.model = provider.model().into();
+        let runtime = AgentRuntime::new(
+            vec![ProviderCandidate { provider, manifest }],
+            default_registry(),
+            workspace.path().join(".journal"),
+        )
+        .with_steering(steering);
+
+        let mut request =
+            TaskRequest::from_objective("检查输入文件", workspace.path().to_path_buf());
+        request.deliverable = Some("note.txt".into());
+        request.permissions.allow_write = true;
+        runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].messages.iter().any(|message| {
+            message.content.contains("STEERING") && message.content.contains("focus on tests")
+        }));
+    }
+
     struct ReasoningProvider;
 
     #[async_trait]
@@ -12085,12 +12187,15 @@ mod tests {
         assert!(names.iter().any(|name| name == "read_file"));
         assert!(names.iter().any(|name| name == "terminal_exec"));
         assert!(names.iter().any(|name| name == "acceptance_gate"));
+        assert!(!names.iter().any(|name| name == "edit_file"));
+        assert!(!names.iter().any(|name| name == "search_files"));
+        assert!(!names.iter().any(|name| name == "preview_file"));
         assert!(!names.iter().any(|name| name == "browser"));
         assert!(!names.iter().any(|name| name == "clarify"));
         assert!(!names.iter().any(|name| name == "web_search"));
         assert!(!names.iter().any(|name| name == "spawn_agent"));
         assert!(
-            names.len() <= 10,
+            names.len() <= 7,
             "advertised {} tools: {names:?}",
             names.len()
         );
@@ -12104,7 +12209,7 @@ mod tests {
             })
             .sum();
         assert!(
-            schema_tokens <= 1_600,
+            schema_tokens <= 1_200,
             "tool schema is {schema_tokens} tokens"
         );
     }

@@ -18188,6 +18188,7 @@ async fn run_tui(
     runtime = runtime.with_reasoning_sink(Arc::new(move |text: &str| {
         reasoning_buffer.lock().unwrap().push_str(text);
     }));
+    runtime = runtime.with_steering(state.steering_buffer());
     state.set_theme(config_theme);
     state.set_context_budget(max_context_tokens);
     state.set_prompt_language(prompt_language);
@@ -25479,6 +25480,9 @@ async fn run_tui_task(
                 state.close_clarify();
                 if let Some((path, _, last_seq)) = active_journal.as_mut() {
                     append_work_events(state, path, last_seq);
+                }
+                for text in state.take_steering_leftovers() {
+                    state.queue_text(text);
                 }
                 match result {
                     Ok(result) => {

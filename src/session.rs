@@ -15,6 +15,9 @@ use crate::domain::ModelMessage;
 /// Keep the projected context bounded; older turns stay on disk for audit.
 const MAX_CONTEXT_MESSAGES: usize = 20;
 const MAX_CONTEXT_CHARS: usize = 24_000;
+const KEEP_AFTER_COMPACTION: usize = 10;
+const SUMMARY_MAX_CHARS: usize = 2_000;
+const SUMMARY_LINE_CHARS: usize = 240;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -35,6 +38,11 @@ pub enum SessionEntry {
         run_id: String,
         step: usize,
         text: String,
+        timestamp_unix_ms: u64,
+    },
+    Summary {
+        text: String,
+        first_kept_index: usize,
         timestamp_unix_ms: u64,
     },
 }
@@ -88,6 +96,7 @@ pub fn append(path: &Path, entry: &SessionEntry) -> std::io::Result<()> {
 }
 
 pub fn append_user(path: &Path, run_id: &str, text: &str) -> std::io::Result<()> {
+    maybe_compact(path)?;
     append(
         path,
         &SessionEntry::Message {
@@ -141,24 +150,66 @@ pub fn append_reasoning(path: &Path, run_id: &str, step: usize, text: &str) -> s
 }
 
 /// A session whose last message-like entry is an unanswered user message was
-/// interrupted. Reasoning entries are ignored so a crash after reasoning but
-/// before the answer still gets a resume notice.
+/// interrupted. Reasoning and summary entries are ignored so a crash after
+/// reasoning but before the answer still gets a resume notice.
 pub fn needs_resume_notice(path: &Path) -> bool {
     load_entries(path)
         .iter()
         .rev()
-        .find(|entry| !matches!(entry, SessionEntry::Reasoning { .. }))
+        .find(|entry| {
+            !matches!(
+                entry,
+                SessionEntry::Reasoning { .. } | SessionEntry::Summary { .. }
+            )
+        })
         .is_some_and(|entry| matches!(entry, SessionEntry::Message { role, .. } if role == "user"))
 }
 
-/// Prior turns as model messages, bounded by count and characters.
+/// Compact the un-summarized tail before a run loads context, so the same run
+/// sees the new summary.
+pub fn compact_if_needed(path: &Path) -> std::io::Result<()> {
+    maybe_compact(path)
+}
+
+/// Prior turns as model messages, bounded by count and characters. When a
+/// summary entry exists, it replaces the turns before it.
 pub fn context_messages(path: &Path) -> Vec<ModelMessage> {
     let entries = load_entries(path);
-    let start = entries.len().saturating_sub(MAX_CONTEXT_MESSAGES);
+    let summary = entries
+        .iter()
+        .rposition(|entry| matches!(entry, SessionEntry::Summary { .. }))
+        .and_then(|index| match &entries[index] {
+            SessionEntry::Summary {
+                text,
+                first_kept_index,
+                ..
+            } => Some((index, *first_kept_index, text.clone())),
+            _ => None,
+        });
     let mut messages = Vec::new();
     let mut chars = 0usize;
-    for entry in entries[start..].iter().rev() {
-        let (message, extra) = match entry {
+    if let Some((_, _, text)) = &summary {
+        let text: String = text.chars().take(SUMMARY_MAX_CHARS).collect();
+        chars += text.chars().count();
+        messages.push(ModelMessage::user(format!("[Session summary]\n{text}")));
+    }
+    let begin = summary.as_ref().map(|(_, kept, _)| *kept).unwrap_or(0);
+    let summary_index = summary.as_ref().map(|(index, _, _)| *index);
+    let mut tail_indices: Vec<usize> = (begin..entries.len())
+        .filter(|index| Some(*index) != summary_index)
+        .filter(|index| {
+            matches!(
+                entries[*index],
+                SessionEntry::Message { .. } | SessionEntry::Synthetic { .. }
+            )
+        })
+        .collect();
+    if tail_indices.len() > MAX_CONTEXT_MESSAGES {
+        tail_indices = tail_indices.split_off(tail_indices.len() - MAX_CONTEXT_MESSAGES);
+    }
+    let mut kept = Vec::new();
+    for index in tail_indices.iter().rev() {
+        let (message, extra) = match &entries[*index] {
             SessionEntry::Message { role, content, .. } if role == "user" => {
                 (ModelMessage::user(content), content.chars().count())
             }
@@ -176,10 +227,101 @@ pub fn context_messages(path: &Path) -> Vec<ModelMessage> {
             break;
         }
         chars += extra;
-        messages.push(message);
+        kept.push(message);
     }
-    messages.reverse();
+    kept.reverse();
+    messages.extend(kept);
     messages
+}
+
+/// Keep the un-summarized tail bounded. The summary is deterministic and
+/// extractive; it never calls a model and the original entries stay on disk.
+fn maybe_compact(path: &Path) -> std::io::Result<()> {
+    let entries = load_entries(path);
+    let start = entries
+        .iter()
+        .rev()
+        .find_map(|entry| match entry {
+            SessionEntry::Summary {
+                first_kept_index, ..
+            } => Some(*first_kept_index),
+            _ => None,
+        })
+        .unwrap_or(0);
+    let context_indices: Vec<usize> = (start..entries.len())
+        .filter(|index| {
+            matches!(
+                entries[*index],
+                SessionEntry::Message { .. } | SessionEntry::Synthetic { .. }
+            )
+        })
+        .collect();
+    let chars: usize = entries[start..].iter().map(entry_context_chars).sum();
+    if context_indices.len() <= MAX_CONTEXT_MESSAGES && chars <= MAX_CONTEXT_CHARS {
+        return Ok(());
+    }
+    if context_indices.len() <= KEEP_AFTER_COMPACTION {
+        return Ok(());
+    }
+    let kept_index = context_indices[context_indices.len() - KEEP_AFTER_COMPACTION];
+    if kept_index == 0 {
+        return Ok(());
+    }
+    append(
+        path,
+        &SessionEntry::Summary {
+            text: summarize_entries(&entries[..kept_index]),
+            first_kept_index: kept_index,
+            timestamp_unix_ms: now_ms(),
+        },
+    )
+}
+
+fn entry_context_chars(entry: &SessionEntry) -> usize {
+    match entry {
+        SessionEntry::Message { content, .. } => content.chars().count(),
+        SessionEntry::Synthetic { text, .. } => text.chars().count() + 17,
+        _ => 0,
+    }
+}
+
+fn summarize_entries(entries: &[SessionEntry]) -> String {
+    let mut sections = Vec::new();
+    if let Some(SessionEntry::Summary { text, .. }) = entries
+        .iter()
+        .rev()
+        .find(|entry| matches!(entry, SessionEntry::Summary { .. }))
+    {
+        let text: String = text.chars().take(SUMMARY_LINE_CHARS).collect();
+        sections.push(format!("Earlier summary: {text}"));
+    }
+    let mut lines = Vec::new();
+    for entry in entries {
+        match entry {
+            SessionEntry::Message { role, content, .. } => {
+                let text: String = content.chars().take(SUMMARY_LINE_CHARS).collect();
+                lines.push(format!("- {role}: {text}"));
+            }
+            SessionEntry::Synthetic { text, .. } => {
+                let text: String = text.chars().take(SUMMARY_LINE_CHARS).collect();
+                lines.push(format!("- notice: {text}"));
+            }
+            _ => {}
+        }
+    }
+    let mut body = lines.join("\n");
+    if body.chars().count() > SUMMARY_MAX_CHARS {
+        let keep: String = body
+            .chars()
+            .skip(body.chars().count() - SUMMARY_MAX_CHARS)
+            .collect();
+        body = format!("…{keep}");
+    }
+    if body.is_empty() {
+        return sections.join("\n\n");
+    }
+    sections.push(format!("Earlier conversation (extractive):\n{body}"));
+    sections.join("\n\n")
 }
 
 pub fn load_entries(path: &Path) -> Vec<SessionEntry> {
@@ -257,6 +399,57 @@ mod tests {
             context
                 .iter()
                 .all(|message| !message.content.contains("9.90"))
+        );
+    }
+
+    #[test]
+    fn long_sessions_compact_into_a_summary_and_keep_the_tail() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("session.jsonl");
+        for i in 0..14 {
+            append_user(&path, "run", &format!("user turn {i} with some detail")).unwrap();
+            append_assistant(&path, "run", &format!("assistant turn {i}"), "completed").unwrap();
+        }
+        let entries = load_entries(&path);
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| matches!(entry, SessionEntry::Summary { .. }))
+                .count(),
+            1
+        );
+        let context = context_messages(&path);
+        assert!(context[0].content.contains("[Session summary]"));
+        assert!(context.len() <= MAX_CONTEXT_MESSAGES + 1);
+        assert!(
+            context
+                .iter()
+                .any(|message| message.content.contains("user turn 13"))
+        );
+        assert!(
+            context
+                .iter()
+                .any(|message| message.content == "assistant turn 13")
+        );
+
+        for i in 14..30 {
+            append_user(&path, "run", &format!("user turn {i} with some detail")).unwrap();
+            append_assistant(&path, "run", &format!("assistant turn {i}"), "completed").unwrap();
+        }
+        let entries = load_entries(&path);
+        let summaries: Vec<&str> = entries
+            .iter()
+            .filter_map(|entry| match entry {
+                SessionEntry::Summary { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(summaries.len() >= 2);
+        assert!(summaries.last().unwrap().contains("Earlier summary"));
+        assert!(
+            context_messages(&path)[0]
+                .content
+                .contains("[Session summary]")
         );
     }
 
