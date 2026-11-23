@@ -1066,6 +1066,16 @@ Rejected outcomes; Verified outcomes are not surfaced.
   run after delivery. Fast answers are `conditional` until the receipt is
   accepted; `1agent eval --fast` scores that receipt as the case outcome and
   records `delivery_status` on `EvalCaseResult`.
+- Acceptance reserve: an Act run may use one internal step beyond the configured
+  `max_steps` only when side-effect tools ran, a verified artifact exists, and
+  no accepted receipt does. That step advertises only `acceptance_gate` and
+  injects an internal nudge; otherwise the loop breaks before calling the
+  model. At the tool budget, a mixed batch containing `acceptance_gate` runs
+  the gate alone and journals the other calls as paired `budget_skipped`
+  observations. The step-budget answer is built from the latest messages
+  (including the last tool result), not the request that produced the last tool
+  call. A completed delivery with no flip condition gets one runtime flip
+  condition. `StepModelMetrics.max_steps` reports the configured budget.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept

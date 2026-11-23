@@ -797,6 +797,15 @@ fn backfill_delivery_evidence(answer: &mut AgentAnswer, gate: &CompletionGate) {
         });
         answer.claims.push(claim);
     }
+    if answer.flip_conditions.is_empty()
+        && let Some(claim) = answer.claims.first()
+    {
+        answer.flip_conditions.push(FlipCondition {
+            if_observed: "验收后交付物或输入来源被修改".into(),
+            then: "已核验的哈希不再代表当前交付，需要重新验收".into(),
+            target_ids: vec![claim.id.clone()],
+        });
+    }
 }
 
 fn enforce_completion_gate(
@@ -968,6 +977,10 @@ fn verification_budget_nudge(remaining: usize) -> String {
     format!(
         "Runtime budget checkpoint (internal, not a user request): only {remaining} tool calls remain before the soft limit. Spend them on browser audit, verify_artifact, preview_file or acceptance_gate. Do not spend the final calls on another edit unless an audit just failed and the fix is required. If verification cannot finish, return conditional with the exact blocker."
     )
+}
+
+fn acceptance_reserve_nudge() -> &'static str {
+    "Runtime acceptance reserve (internal, not a user request): the step budget is spent, the run has side-effect tools and verified artifacts, but no accepted receipt. This is the one reserved step and only acceptance_gate is available. Call it now with the task contract and per-criterion evidence from this run. If it cannot be accepted, return conditional and name the exact missing evidence."
 }
 
 fn is_verification_tool(call: &ToolCall) -> bool {
@@ -3566,7 +3579,7 @@ impl AgentRuntime {
             }
         }
 
-        let max_steps = if fast_chat {
+        let configured_max_steps = if fast_chat {
             1
         } else {
             let configured = match request.budget.max_steps {
@@ -3578,6 +3591,16 @@ impl AgentRuntime {
                 InteractionMode::Ask => configured.min(2),
                 InteractionMode::Act => configured,
             }
+        };
+        // Act runs get one internal step reserved for acceptance when a
+        // verified artifact exists but no receipt does. The loop breaks before
+        // calling the model when the reserve is not needed.
+        let acceptance_reserve_enabled =
+            !self.fast_mode && interaction_mode == InteractionMode::Act;
+        let max_steps = if acceptance_reserve_enabled {
+            configured_max_steps.saturating_add(1)
+        } else {
+            configured_max_steps
         };
         let mut spent_cost_micros = 0u64;
         let mut spent_tokens = 0u64;
@@ -3640,6 +3663,14 @@ impl AgentRuntime {
                     StopReason::BudgetExhausted,
                 );
             }
+            let acceptance_reserve_step = acceptance_reserve_enabled
+                && step >= configured_max_steps
+                && completion_gate.accepted_receipt.is_none()
+                && !completion_gate.side_effect_tools.is_empty()
+                && !completion_gate.verified_artifacts.is_empty();
+            if step >= configured_max_steps && !acceptance_reserve_step {
+                break;
+            }
 
             let trigger_tokens = request
                 .budget
@@ -3665,6 +3696,9 @@ impl AgentRuntime {
                 model_messages.push(ModelMessage::user(verification_budget_nudge(remaining)));
                 verification_budget_nudged = true;
             }
+            if acceptance_reserve_step {
+                model_messages.push(ModelMessage::user(acceptance_reserve_nudge()));
+            }
             if let Some(compaction) = context_compaction {
                 journal
                     .append(JournalEventKind::ContextCompacted {
@@ -3684,7 +3718,15 @@ impl AgentRuntime {
                 run_id,
                 mode,
                 messages: model_messages,
-                tools: tool_specs.clone(),
+                tools: if acceptance_reserve_step {
+                    tool_specs
+                        .iter()
+                        .filter(|spec| spec.name == "acceptance_gate")
+                        .cloned()
+                        .collect()
+                } else {
+                    tool_specs.clone()
+                },
             };
             let model_started = Instant::now();
             let prep_ms = model_started
@@ -4107,7 +4149,7 @@ impl AgentRuntime {
                         assistant_tokens: context_breakdown.assistant,
                         tool_tokens: context_breakdown.tool,
                         tool_schema_tokens: context_breakdown.tool_schema,
-                        max_steps,
+                        max_steps: configured_max_steps,
                         tool_calls_requested,
                     },
                 })
@@ -4538,6 +4580,7 @@ impl AgentRuntime {
                             message: "model returned an empty tool-call list".into(),
                         });
                     }
+                    let mut calls = calls;
                     let over_tool_budget = request.budget.max_tool_calls != 0
                         && tool_calls.saturating_add(calls.len()) > request.budget.max_tool_calls;
                     let verification_reserve_ok = over_tool_budget
@@ -4548,7 +4591,20 @@ impl AgentRuntime {
                         && pending_audit_failure
                         && calls.iter().all(is_repair_or_verification_tool)
                         && repair_reserve_used.saturating_add(calls.len()) <= REPAIR_RESERVE;
-                    if over_tool_budget && !verification_reserve_ok && !repair_reserve_ok {
+                    // At the tool budget, a mixed batch that contains an
+                    // acceptance gate still gets the gate: run it alone and
+                    // answer the other calls as skipped.
+                    let gate_index = calls.iter().position(|call| call.name == "acceptance_gate");
+                    let acceptance_only = over_tool_budget
+                        && !verification_reserve_ok
+                        && !repair_reserve_ok
+                        && gate_index.is_some()
+                        && verification_reserve_used.saturating_add(1) <= VERIFICATION_RESERVE;
+                    if over_tool_budget
+                        && !verification_reserve_ok
+                        && !repair_reserve_ok
+                        && !acceptance_only
+                    {
                         let answer = self
                             .answer_at_budget(
                                 &mut journal,
@@ -4604,6 +4660,46 @@ impl AgentRuntime {
                             verification_reserve_used.saturating_add(calls.len());
                     } else if repair_reserve_ok {
                         repair_reserve_used = repair_reserve_used.saturating_add(calls.len());
+                    } else if acceptance_only {
+                        verification_reserve_used = verification_reserve_used.saturating_add(1);
+                    }
+                    let requested_calls = calls.clone();
+                    let mut skipped_observations = Vec::new();
+                    if acceptance_only {
+                        let gate = calls.remove(gate_index.expect("gate index was checked"));
+                        skipped_observations = std::mem::take(&mut calls)
+                            .into_iter()
+                            .map(|call| {
+                                let observation = ToolObservation {
+                                    call_id: call.id.clone(),
+                                    tool: call.name.clone(),
+                                    status: ToolStatus::Failed,
+                                    summary: "skipped: tool-call budget exhausted; only acceptance_gate ran"
+                                        .into(),
+                                    content: String::new(),
+                                    error_code: Some("budget_skipped".into()),
+                                    metadata: BTreeMap::new(),
+                                };
+                                (call, observation)
+                            })
+                            .collect();
+                        calls = vec![gate];
+                    }
+                    for (call, observation) in &skipped_observations {
+                        journal
+                            .append(JournalEventKind::ToolCalled { call: call.clone() })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
+                        journal
+                            .append(JournalEventKind::ToolObserved {
+                                observation: observation.clone(),
+                            })
+                            .map_err(|source| RuntimeError::Journal {
+                                path: journal_path.clone(),
+                                source,
+                            })?;
                     }
                     tool_calls = tool_calls.saturating_add(calls.len());
                     // A gate in the same model turn cannot have seen this
@@ -4611,12 +4707,18 @@ impl AgentRuntime {
                     let turn_has_write = calls
                         .iter()
                         .any(|call| self.tools.requires_write(&call.name));
-                    messages.push(ModelMessage::assistant("", calls.clone()));
+                    messages.push(ModelMessage::assistant("", requested_calls));
+                    for (call, observation) in &skipped_observations {
+                        messages.push(ModelMessage::tool(
+                            call.id.clone(),
+                            observation.model_content(),
+                        ));
+                    }
 
                     let tools_started = Instant::now();
                     let mut tool_groups_count = 0usize;
                     let mut tool_ok = 0usize;
-                    let mut tool_failed = 0usize;
+                    let mut tool_failed = skipped_observations.len();
                     let mut tool_denied = 0usize;
                     let mut tool_cache_hits = 0usize;
                     let mut tool_circuit_open = 0usize;
@@ -4883,14 +4985,23 @@ impl AgentRuntime {
         let answer = if completion_gate.accepted_receipt.is_some()
             || !completion_gate.verified_artifacts.is_empty()
         {
-            if let Some((last_request, provider_id, model)) = last_turn {
+            if let Some((_last_request, provider_id, model)) = last_turn {
+                // The budget answer must see the most recent tool results
+                // (for example an accepted receipt) rather than the request
+                // that produced the last tool call.
+                let budget_request = ModelRequest {
+                    run_id,
+                    mode,
+                    messages: messages.clone(),
+                    tools: tool_specs.clone(),
+                };
                 let answer = self
                     .answer_at_budget(
                         &mut journal,
                         &mut model_request_log,
                         &journal_path,
                         &request,
-                        &last_request,
+                        &budget_request,
                         &provider_id,
                         &model,
                         &mut provider_attempts_used,
@@ -5407,15 +5518,6 @@ fn plain_text_evidence_answer(
     backfill_delivery_evidence(&mut answer, gate);
     if answer.claims.is_empty() || answer.evidence.is_empty() {
         return None;
-    }
-    if answer.flip_conditions.is_empty()
-        && let Some(claim) = answer.claims.first()
-    {
-        answer.flip_conditions.push(FlipCondition {
-            if_observed: "验收后交付物或输入来源被修改".into(),
-            then: "已核验的哈希不再代表当前交付，需要重新验收".into(),
-            target_ids: vec![claim.id.clone()],
-        });
     }
     for evidence in &answer.evidence {
         if evidence.source.starts_with('/') && !answer.conclusion.contains(&evidence.source) {
@@ -11616,6 +11718,110 @@ mod tests {
         assert!(!events.iter().any(|event| matches!(
             &event.event,
             JournalEventKind::CompletionAcceptanceMissing { .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn step_budget_reserves_one_acceptance_turn() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "verify-1".into(),
+                        name: "verify_artifact".into(),
+                        arguments: serde_json::json!({"path": target}),
+                    }],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote and accepted out.txt"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt 并验收", workspace.path().into());
+        request.permissions.allow_write = true;
+        request.budget.max_steps = 2;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert!(!result.answer.flip_conditions.is_empty());
+        assert_eq!(requests.lock().unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn mixed_budget_batch_runs_only_the_acceptance_gate() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "verify-1".into(),
+                        name: "verify_artifact".into(),
+                        arguments: serde_json::json!({"path": target}),
+                    }],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![
+                        ToolCall {
+                            id: "search-1".into(),
+                            name: "search_files".into(),
+                            arguments: serde_json::json!({
+                                "path": workspace.path(),
+                                "query": ""
+                            }),
+                        },
+                        ToolCall {
+                            id: "gate-1".into(),
+                            name: "acceptance_gate".into(),
+                            arguments: accepted_gate_arguments(&target),
+                        },
+                    ],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote and accepted out.txt"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt 并验收", workspace.path().into());
+        request.permissions.allow_write = true;
+        request.budget.max_tool_calls = 3;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(requests.lock().unwrap().len(), 4);
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::ToolObserved { observation }
+                if observation.tool == "search_files"
+                    && observation.error_code.as_deref() == Some("budget_skipped")
         )));
     }
 
