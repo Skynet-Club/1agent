@@ -122,6 +122,13 @@ pub enum JournalEventKind {
     InteractionModeSelected {
         decision: crate::interaction_mode::InteractionModeDecision,
     },
+    /// The run chose the fast delivery path (tiny prompt, four tools,
+    /// post-run acceptance) or kept the standard loop. The reason is audit
+    /// evidence for automatic routing.
+    FastModeSelected {
+        enabled: bool,
+        reason: String,
+    },
     RouteSelected {
         provider_id: String,
         model: String,
@@ -1558,6 +1565,7 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             JournalEventKind::ContextCompacted { .. }
             | JournalEventKind::TaskProfileSelected { .. }
             | JournalEventKind::InteractionModeSelected { .. }
+            | JournalEventKind::FastModeSelected { .. }
             | JournalEventKind::CapabilityPreflightResolved { .. }
             | JournalEventKind::ExperienceInjected { .. }
             | JournalEventKind::ModelRequested { .. }
@@ -1691,6 +1699,18 @@ pub fn find_resumable_prefix(events: &[JournalEvent]) -> Result<ResumablePrefix,
         request: request.ok_or(ResumeError::MissingRunStart)?,
         checkpoint: checkpoint.ok_or(ResumeError::NoCheckpoint)?,
     })
+}
+
+/// The last fast-mode decision in a journal. Older journals default to false.
+pub fn used_fast_mode(events: &[JournalEvent]) -> bool {
+    events
+        .iter()
+        .rev()
+        .find_map(|event| match &event.event {
+            JournalEventKind::FastModeSelected { enabled, .. } => Some(*enabled),
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -3034,6 +3054,7 @@ mod reframe_journal_tests {
             route_policy_sources: None,
             route_objective: None,
             tool_capabilities_sha256: None,
+            fast_mode: false,
         }
     }
 

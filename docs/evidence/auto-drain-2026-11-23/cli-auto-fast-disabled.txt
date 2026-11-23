@@ -1,0 +1,7 @@
+状态：完成
+结论：文件已写好并复核通过，sha256 = 1c64c1032d4629a2c509787d9621e8b0ca4af489dbc4fec2f53ed1a6a413fe9d（23 字节，内容 `hello without auto fast`，无结尾换行）。 - **动作**：write_file 创建该文件；
+信任摘要：我的判断 5 · 依据 2 · 假设 1 · 还没确定 1 · 改判 2
+使用 --details 查看完整字段与路由轨迹
+
+运行日志：/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/runs/7bab9214-b41d-470f-afb8-8eca6fb4603d.jsonl
+SMOKE_EXIT=0

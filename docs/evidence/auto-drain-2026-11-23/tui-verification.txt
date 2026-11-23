@@ -1,0 +1,8 @@
+fast= [{'enabled': True, 'reason': 'auto: small new act delivery'}]
+caps= [['read_file', 'terminal_create', 'terminal_exec', 'write_file']]
+snapshot_root= ['/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/tui']
+receipt status= accepted manifest= bea7497a3c37
+failed checks= []
+--- queue ---
+docs/evidence/auto-drain-2026-11-23/home/acceptance/done/ed4be65f-96d5-4417-a082-31d9307f2cff.json
+docs/evidence/auto-drain-2026-11-23/home/acceptance/ledger.jsonl

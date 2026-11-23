@@ -1,0 +1,110 @@
+{
+  "schema": "1agent.delivery-receipt/v1",
+  "run_id": "dcd956fd-e706-4ee5-8b63-3da644ff1b3c",
+  "journal": "/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/runs/dcd956fd-e706-4ee5-8b63-3da644ff1b3c.jsonl",
+  "objective": "写 /home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt，内容为 hello from auto fast，并在回答里给出该文件的 sha256",
+  "status": "accepted",
+  "checks": [
+    {
+      "detail": {
+        "objective": "写 /home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt，内容为 hello from auto fast，并在回答里给出该文件的 sha256"
+      },
+      "id": "journal:run_started",
+      "passed": true
+    },
+    {
+      "detail": {
+        "calls": 1,
+        "duplicate_calls": [],
+        "extra_observations": [],
+        "missing_observations": [],
+        "observations": 1
+      },
+      "id": "journal:tool_calls_paired",
+      "passed": true
+    },
+    {
+      "detail": {
+        "current_sha256": "82718b10a21633caa24159de436411290099b14730d16a94d6fd7f0f40e05b89",
+        "exists": true,
+        "match": true,
+        "path": "/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt",
+        "recorded_sha256": "82718b10a21633caa24159de436411290099b14730d16a94d6fd7f0f40e05b89"
+      },
+      "id": "artifact:/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt",
+      "passed": true
+    },
+    {
+      "detail": {
+        "files": 1,
+        "mismatches": 0,
+        "truncated": false
+      },
+      "id": "workspace:delivery_snapshot",
+      "passed": true
+    },
+    {
+      "detail": {
+        "conclusion_chars": 201,
+        "status": "conditional"
+      },
+      "id": "answer:present",
+      "passed": true
+    },
+    {
+      "detail": {
+        "status": "conditional"
+      },
+      "id": "answer:status_ready",
+      "passed": true
+    },
+    {
+      "detail": {
+        "claims": 0,
+        "derived": 1,
+        "evidence_source": "journal",
+        "verified": 0
+      },
+      "id": "answer:claims",
+      "passed": true
+    },
+    {
+      "detail": {
+        "missing": [],
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt"
+        ]
+      },
+      "id": "answer:sources_exist",
+      "passed": true
+    }
+  ],
+  "artifacts": [
+    {
+      "current_sha256": "82718b10a21633caa24159de436411290099b14730d16a94d6fd7f0f40e05b89",
+      "exists": true,
+      "match": true,
+      "path": "/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt",
+      "recorded_sha256": "82718b10a21633caa24159de436411290099b14730d16a94d6fd7f0f40e05b89",
+      "tool": "write_file"
+    }
+  ],
+  "workspace_snapshot": {
+    "files": 1,
+    "mismatch_count": 0,
+    "mismatches": [],
+    "present": true,
+    "truncated": false
+  },
+  "answer": {
+    "claims": 0,
+    "derived_claims": 1,
+    "evidence_source": "journal",
+    "sources": [
+      "/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt"
+    ],
+    "status": "conditional"
+  },
+  "manifest_sha256": "e3524ad4da313f1e5729d74a322dcd7aae0d5796b035de4639dd739190810f6c",
+  "created_unix_ms": 1795444711303
+}

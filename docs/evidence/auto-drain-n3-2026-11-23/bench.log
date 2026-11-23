@@ -1,0 +1,132 @@
+[full ] run 1 bug-fix-last-index: PASS status=completed calls=8 tools=7 wall=21057ms ttft=1095 fixed=8972
+[core7] run 1 bug-fix-last-index: PASS status=completed calls=5 tools=4 wall=16945ms ttft=1002 fixed=4478
+[fast ] run 1 bug-fix-last-index: PASS status=conditional calls=3 tools=2 wall=3574ms ttft=1186 fixed=813
+[pi   ] run 1 bug-fix-last-index: PASS status=- calls=4 tools=3 wall=5500ms ttft=781 fixed=596
+[full ] run 1 config-retries: PASS status=completed calls=7 tools=6 wall=19358ms ttft=1369 fixed=8969
+[core7] run 1 config-retries: PASS status=completed calls=7 tools=5 wall=20051ms ttft=1269 fixed=4475
+[fast ] run 1 config-retries: PASS status=conditional calls=3 tools=2 wall=3420ms ttft=823 fixed=813
+[pi   ] run 1 config-retries: PASS status=- calls=4 tools=3 wall=4780ms ttft=535 fixed=595
+[full ] run 1 data-processing-sales: PASS status=completed calls=8 tools=7 wall=21556ms ttft=2544 fixed=8973
+[core7] run 1 data-processing-sales: PASS status=completed calls=5 tools=4 wall=15240ms ttft=953 fixed=4478
+[fast ] run 1 data-processing-sales: PASS status=conditional calls=3 tools=2 wall=3472ms ttft=564 fixed=813
+[pi   ] run 1 data-processing-sales: PASS status=- calls=7 tools=7 wall=8989ms ttft=712 fixed=597
+[full ] run 1 research-compare: PASS status=conditional calls=2 tools=2 wall=17707ms ttft=9574 fixed=9047
+[core7] run 1 research-compare: PASS status=conditional calls=2 tools=2 wall=17344ms ttft=1100 fixed=4554
+[fast ] run 1 research-compare: PASS status=conditional calls=2 tools=2 wall=3873ms ttft=807 fixed=813
+[pi   ] run 1 research-compare: PASS status=- calls=3 tools=3 wall=8761ms ttft=794 fixed=595
+[full ] run 1 long-task-plan: PASS status=completed calls=9 tools=8 wall=27979ms ttft=1051 fixed=9036
+[core7] run 1 long-task-plan: PASS status=completed calls=5 tools=3 wall=21354ms ttft=771 fixed=4542
+[fast ] run 1 long-task-plan: PASS status=conditional calls=3 tools=2 wall=4272ms ttft=618 fixed=813
+[pi   ] run 1 long-task-plan: PASS status=- calls=3 tools=3 wall=5066ms ttft=916 fixed=595
+[full ] run 1 broken-json: PASS status=completed calls=3 tools=2 wall=8355ms ttft=1000 fixed=8969
+[core7] run 1 broken-json: PASS status=completed calls=4 tools=4 wall=11885ms ttft=1143 fixed=4474
+[fast ] run 1 broken-json: PASS status=conditional calls=2 tools=1 wall=2869ms ttft=489 fixed=813
+[pi   ] run 1 broken-json: PASS status=- calls=4 tools=4 wall=8614ms ttft=337 fixed=594
+[full ] run 1 checksum-file: PASS status=completed calls=7 tools=5 wall=17801ms ttft=922 fixed=8970
+[core7] run 1 checksum-file: PASS status=completed calls=6 tools=5 wall=20098ms ttft=690 fixed=4475
+[fast ] run 1 checksum-file: PASS status=conditional calls=4 tools=3 wall=4573ms ttft=1517 fixed=813
+[pi   ] run 1 checksum-file: PASS status=- calls=2 tools=1 wall=3203ms ttft=403 fixed=595
+[full ] run 1 directory-summary: PASS status=completed calls=4 tools=3 wall=8879ms ttft=1270 fixed=8972
+[core7] run 1 directory-summary: PASS status=conditional calls=4 tools=3 wall=8627ms ttft=927 fixed=4477
+[fast ] run 1 directory-summary: PASS status=conditional calls=2 tools=2 wall=3219ms ttft=903 fixed=813
+[pi   ] run 1 directory-summary: PASS status=- calls=3 tools=4 wall=4091ms ttft=504 fixed=596
+[full ] run 2 bug-fix-last-index: PASS status=completed calls=7 tools=7 wall=22915ms ttft=1167 fixed=8972
+[core7] run 2 bug-fix-last-index: PASS status=completed calls=8 tools=7 wall=23309ms ttft=1079 fixed=4478
+[fast ] run 2 bug-fix-last-index: PASS status=conditional calls=3 tools=2 wall=2968ms ttft=611 fixed=813
+[pi   ] run 2 bug-fix-last-index: PASS status=- calls=4 tools=3 wall=4754ms ttft=530 fixed=596
+[full ] run 2 config-retries: PASS status=completed calls=8 tools=7 wall=19553ms ttft=1526 fixed=8969
+[core7] run 2 config-retries: PASS status=completed calls=5 tools=4 wall=14491ms ttft=830 fixed=4475
+[fast ] run 2 config-retries: PASS status=conditional calls=3 tools=2 wall=4272ms ttft=639 fixed=813
+[pi   ] run 2 config-retries: PASS status=- calls=4 tools=3 wall=5425ms ttft=858 fixed=595
+[full ] run 2 data-processing-sales: PASS status=completed calls=7 tools=7 wall=18404ms ttft=938 fixed=8973
+[core7] run 2 data-processing-sales: PASS status=completed calls=4 tools=3 wall=13198ms ttft=543 fixed=4478
+[fast ] run 2 data-processing-sales: PASS status=conditional calls=3 tools=2 wall=3319ms ttft=1093 fixed=813
+[pi   ] run 2 data-processing-sales: PASS status=- calls=5 tools=5 wall=6448ms ttft=405 fixed=597
+[full ] run 2 research-compare: PASS status=conditional calls=3 tools=3 wall=17247ms ttft=944 fixed=9047
+[core7] run 2 research-compare: PASS status=conditional calls=2 tools=2 wall=11483ms ttft=886 fixed=4554
+[fast ] run 2 research-compare: PASS status=conditional calls=2 tools=2 wall=4822ms ttft=679 fixed=813
+[pi   ] run 2 research-compare: PASS status=- calls=3 tools=3 wall=7834ms ttft=871 fixed=595
+[full ] run 2 long-task-plan: PASS status=completed calls=7 tools=7 wall=25662ms ttft=713 fixed=9036
+[core7] run 2 long-task-plan: PASS status=conditional calls=5 tools=4 wall=19499ms ttft=1266 fixed=4542
+[fast ] run 2 long-task-plan: PASS status=conditional calls=3 tools=2 wall=4773ms ttft=500 fixed=813
+[pi   ] run 2 long-task-plan: PASS status=- calls=4 tools=3 wall=6826ms ttft=755 fixed=595
+[full ] run 2 broken-json: PASS status=completed calls=2 tools=1 wall=6175ms ttft=2021 fixed=8969
+[core7] run 2 broken-json: PASS status=conditional calls=6 tools=5 wall=15565ms ttft=1041 fixed=4474
+[fast ] run 2 broken-json: PASS status=conditional calls=2 tools=1 wall=3520ms ttft=832 fixed=813
+[pi   ] run 2 broken-json: PASS status=- calls=4 tools=4 wall=5956ms ttft=421 fixed=594
+[full ] run 2 checksum-file: PASS status=completed calls=8 tools=7 wall=21858ms ttft=1567 fixed=8970
+[core7] run 2 checksum-file: PASS status=completed calls=6 tools=5 wall=16145ms ttft=731 fixed=4475
+[fast ] run 2 checksum-file: PASS status=conditional calls=5 tools=4 wall=5977ms ttft=880 fixed=813
+[pi   ] run 2 checksum-file: PASS status=- calls=3 tools=2 wall=4259ms ttft=720 fixed=595
+[full ] run 2 directory-summary: PASS status=completed calls=3 tools=3 wall=6930ms ttft=979 fixed=8972
+[core7] run 2 directory-summary: PASS status=conditional calls=4 tools=3 wall=9331ms ttft=1010 fixed=4477
+[fast ] run 2 directory-summary: PASS status=conditional calls=4 tools=4 wall=6275ms ttft=1204 fixed=813
+[pi   ] run 2 directory-summary: PASS status=- calls=3 tools=3 wall=5095ms ttft=850 fixed=596
+[full ] run 3 bug-fix-last-index: PASS status=completed calls=7 tools=6 wall=19399ms ttft=1249 fixed=8972
+[core7] run 3 bug-fix-last-index: PASS status=completed calls=6 tools=5 wall=17744ms ttft=736 fixed=4478
+[fast ] run 3 bug-fix-last-index: PASS status=conditional calls=3 tools=2 wall=3370ms ttft=710 fixed=813
+[pi   ] run 3 bug-fix-last-index: PASS status=- calls=4 tools=3 wall=5573ms ttft=1046 fixed=596
+[full ] run 3 config-retries: PASS status=completed calls=6 tools=5 wall=14947ms ttft=848 fixed=8969
+[core7] run 3 config-retries: PASS status=completed calls=5 tools=4 wall=14694ms ttft=823 fixed=4475
+[fast ] run 3 config-retries: PASS status=conditional calls=3 tools=2 wall=3219ms ttft=619 fixed=813
+[pi   ] run 3 config-retries: PASS status=- calls=4 tools=3 wall=4428ms ttft=540 fixed=595
+[full ] run 3 data-processing-sales: PASS status=completed calls=8 tools=7 wall=18454ms ttft=863 fixed=8973
+[core7] run 3 data-processing-sales: PASS status=completed calls=7 tools=6 wall=18848ms ttft=622 fixed=4478
+[fast ] run 3 data-processing-sales: PASS status=conditional calls=3 tools=2 wall=3673ms ttft=617 fixed=813
+[pi   ] run 3 data-processing-sales: PASS status=- calls=7 tools=7 wall=9839ms ttft=810 fixed=597
+[full ] run 3 research-compare: PASS status=conditional calls=3 tools=3 wall=12086ms ttft=1024 fixed=9047
+[core7] run 3 research-compare: PASS status=conditional calls=2 tools=2 wall=13692ms ttft=1226 fixed=4554
+[fast ] run 3 research-compare: PASS status=conditional calls=2 tools=2 wall=4822ms ttft=541 fixed=813
+[pi   ] run 3 research-compare: PASS status=- calls=2 tools=2 wall=4802ms ttft=599 fixed=595
+[full ] run 3 long-task-plan: PASS status=completed calls=10 tools=9 wall=36525ms ttft=841 fixed=9036
+[core7] run 3 long-task-plan: PASS status=completed calls=8 tools=7 wall=31771ms ttft=651 fixed=4542
+[fast ] run 3 long-task-plan: PASS status=conditional calls=3 tools=2 wall=5125ms ttft=896 fixed=813
+[pi   ] run 3 long-task-plan: PASS status=- calls=4 tools=3 wall=9471ms ttft=1016 fixed=595
+[full ] run 3 broken-json: PASS status=completed calls=3 tools=1 wall=11886ms ttft=1928 fixed=8969
+[core7] run 3 broken-json: PASS status=completed calls=2 tools=1 wall=12238ms ttft=3805 fixed=4474
+[fast ] run 3 broken-json: PASS status=conditional calls=2 tools=1 wall=4374ms ttft=1208 fixed=813
+[pi   ] run 3 broken-json: PASS status=- calls=4 tools=3 wall=7930ms ttft=1103 fixed=594
+[full ] run 3 checksum-file: FAIL status=needs_evidence calls=8 tools=8 wall=26222ms ttft=1149 fixed=8970
+[core7] run 3 checksum-file: PASS status=completed calls=6 tools=5 wall=18146ms ttft=1485 fixed=4475
+[fast ] run 3 checksum-file: PASS status=conditional calls=3 tools=2 wall=5023ms ttft=466 fixed=813
+[pi   ] run 3 checksum-file: PASS status=- calls=3 tools=2 wall=5233ms ttft=801 fixed=595
+[full ] run 3 directory-summary: PASS status=completed calls=4 tools=3 wall=9231ms ttft=1244 fixed=8972
+[core7] run 3 directory-summary: PASS status=completed calls=6 tools=6 wall=16692ms ttft=1243 fixed=4477
+[fast ] run 3 directory-summary: PASS status=conditional calls=2 tools=2 wall=4020ms ttft=677 fixed=813
+[pi   ] run 3 directory-summary: PASS status=- calls=3 tools=3 wall=5086ms ttft=1025 fixed=596
+
+# Phase 4 — three-arm real-task measurement
+
+- Suite: `real-tasks-v1` (8 cases), N=3
+- Model: `deepseek/deepseek-flash` via `http://127.0.0.1:8787/v1`
+- Started: 2026-11-23T14:44:25.586198+00:00
+- Finished: 2026-11-23T15:02:21.160643+00:00
+- 1agent: `/home/skynet/.local/bin/1agent` sha256 `b200a848affb…`
+- Pi: `1.5.2`
+
+Completion is neutral (workspace files plus cited answer terms), not 1agent's structured rubric.
+User corrections are not measured: every run is non-interactive.
+Pi has no structured delivery status; its `1agent status met` cell is not applicable.
+1agent status met compares the answer status with the suite's expected status (research-compare expects conditional).
+For the fast arm, status met uses the post-run acceptance receipt (`accepted` or expected `conditional`).
+1agent fixed tokens come from step-0 metrics; Pi fixed tokens are estimated from its system prompt.
+
+| Arm | Neutral completion | 1agent status met | Model calls (median) | Tool calls | Wall ms | TTFT ms | Fixed tokens | Prompt tokens | Output tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| full | 23/24 | 23/24 | 7.0 | 6.0 | 18429.0 | 1122.0 | 8972.0 | 83927.0 | 3451.5 |
+| core7 | 24/24 | 20/24 | 5.0 | 4.0 | 16418.5 | 977.5 | 4477.5 | 32056.0 | 3046.5 |
+| fast | 24/24 | 24/24 | 3.0 | 2.0 | 3946.5 | 694.5 | 813.0 | 4639.0 | 487.0 |
+| pi | 24/24 | — | 4.0 | 3.0 | 5462.5 | 768.0 | 595.0 | 7505.5 | 526.5 |
+
+## Per-case neutral completion
+
+| Case | full | core7 | fast | pi |
+|---|---|---|---|---|
+| bug-fix-last-index | 3/3 | 3/3 | 3/3 | 3/3 |
+| config-retries | 3/3 | 3/3 | 3/3 | 3/3 |
+| data-processing-sales | 3/3 | 3/3 | 3/3 | 3/3 |
+| research-compare | 3/3 | 3/3 | 3/3 | 3/3 |
+| long-task-plan | 3/3 | 3/3 | 3/3 | 3/3 |
+| broken-json | 3/3 | 3/3 | 3/3 | 3/3 |
+| checksum-file | 2/3 | 3/3 | 3/3 | 3/3 |
+| directory-summary | 3/3 | 3/3 | 3/3 | 3/3 |

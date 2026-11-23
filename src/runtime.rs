@@ -673,6 +673,45 @@ fn looks_like_page_task(objective: &str, deliverable: Option<&str>) -> bool {
     .any(|keyword| text.contains(keyword))
 }
 
+/// Automatic fast delivery is intentionally narrower than the task-profile
+/// hint. Pages need browser/preview tools, continuations need session context
+/// and the work ledger, and verification/new-version requests need the in-run
+/// acceptance gate.
+fn auto_fast_decision(
+    mode: InteractionMode,
+    profile: TaskProfile,
+    request: &TaskRequest,
+    continuation: bool,
+    verify_only: bool,
+    new_version: bool,
+) -> Result<&'static str, &'static str> {
+    if mode != InteractionMode::Act {
+        return Err("interaction mode is not act");
+    }
+    if profile != TaskProfile::Fast {
+        return Err("task profile is not fast");
+    }
+    if continuation {
+        return Err("session continuation");
+    }
+    if verify_only {
+        return Err("verification-only request");
+    }
+    if new_version {
+        return Err("new-version request");
+    }
+    if !request.permissions.allow_write {
+        return Err("write permission is off");
+    }
+    if !request.known_facts.is_empty() {
+        return Err("injected context facts");
+    }
+    if looks_like_page_task(&request.objective, request.deliverable.as_deref()) {
+        return Err("page deliverable");
+    }
+    Ok("auto: small new act delivery")
+}
+
 /// A completed delivery must carry claims and evidence. When the model omits
 /// them, derive a verified claim from the run's own artifacts or receipt
 /// rather than returning a structurally invalid delivery.
@@ -985,6 +1024,10 @@ fn verification_budget_nudge(remaining: usize) -> String {
     )
 }
 
+fn receipt_invalidation_nudge() -> &'static str {
+    "Runtime receipt check (internal, not a user request): a write after the accepted receipt cleared it. Before the step budget runs out, run verify_artifact on the final bytes and call acceptance_gate again with the task contract and per-criterion evidence. Do not start new work."
+}
+
 fn acceptance_reserve_nudge(receipt_invalidated: bool) -> &'static str {
     if receipt_invalidated {
         "Runtime acceptance reserve (internal, not a user request): a write after the accepted receipt cleared it. This is the one reserved step and only verify_artifact and acceptance_gate are available. Verify the final bytes and call acceptance_gate again with the task contract and per-criterion evidence. If it cannot be accepted, return conditional and name the exact missing evidence."
@@ -1098,7 +1141,8 @@ pub struct AgentRuntime {
     session_id: Option<String>,
     session_path: Option<PathBuf>,
     core_tools: bool,
-    fast_mode: bool,
+    explicit_fast: bool,
+    auto_fast: bool,
     parent_run_link: Option<ParentRunLink>,
     action_log: Option<Arc<Mutex<ActionLogJournal>>>,
     tool_approvals: Option<ToolApprovalStore>,
@@ -1115,6 +1159,7 @@ pub struct AgentRuntime {
     alert_webhook: Option<Arc<AlertWebhook>>,
     voice_mode: crate::user_model::VoiceMode,
     tool_query: Option<String>,
+    delivery_root: Option<PathBuf>,
     attachments: Vec<crate::attachment::Attachment>,
     stream_sink: Option<StreamSink>,
     reasoning_sink: Option<StreamSink>,
@@ -1160,7 +1205,8 @@ impl AgentRuntime {
             session_id: None,
             session_path: None,
             core_tools: false,
-            fast_mode: false,
+            explicit_fast: false,
+            auto_fast: false,
             parent_run_link: None,
             action_log: None,
             tool_approvals: None,
@@ -1181,6 +1227,7 @@ impl AgentRuntime {
             alert_webhook: None,
             voice_mode: crate::user_model::VoiceMode::Operator,
             tool_query: None,
+            delivery_root: None,
             attachments: Vec::new(),
             stream_sink: None,
             reasoning_sink: None,
@@ -1226,6 +1273,18 @@ impl AgentRuntime {
         self
     }
 
+    /// Root for the delivery snapshot. The task workspace is narrower than a
+    /// broad configured read root; a truncated snapshot would make every
+    /// post-run receipt conditional.
+    pub fn with_delivery_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.delivery_root = Some(root.into());
+        self
+    }
+
+    pub fn set_delivery_root(&mut self, root: impl Into<PathBuf>) {
+        self.delivery_root = Some(root.into());
+    }
+
     /// Advertise only the core tool set; other registered tools remain
     /// available through `request_tools`.
     pub fn with_core_tools(mut self, core_tools: bool) -> Self {
@@ -1236,7 +1295,15 @@ impl AgentRuntime {
     /// Fast delivery: tiny prompt, four tools, no in-run acceptance gate and
     /// plain-text final answers. Acceptance runs after the run.
     pub fn with_fast_mode(mut self, fast_mode: bool) -> Self {
-        self.fast_mode = fast_mode;
+        self.explicit_fast = fast_mode;
+        self
+    }
+
+    /// Route a new, small Act delivery to fast mode. Pages, continuations,
+    /// injected-context tasks and every non-fast task profile keep the
+    /// standard loop. Explicit [`with_fast_mode`](Self::with_fast_mode) wins.
+    pub fn with_auto_fast(mut self, auto_fast: bool) -> Self {
+        self.auto_fast = auto_fast;
         self
     }
 
@@ -2876,6 +2943,10 @@ impl AgentRuntime {
             .first()
             .cloned()
             .unwrap_or_default();
+        let delivery_root = self
+            .delivery_root
+            .as_deref()
+            .or_else(|| request.permissions.read_roots.first().map(PathBuf::as_path));
         let work_ledger = if resume.is_none() && !workspace.as_os_str().is_empty() {
             WorkLedger::load(&workspace)
         } else {
@@ -3049,6 +3120,25 @@ impl AgentRuntime {
                 });
             }
         }
+        let (fast_mode, fast_reason) = if let Some(prefix) = &resume {
+            (prefix.checkpoint.fast_mode, "resumed run".to_string())
+        } else if self.explicit_fast {
+            (true, "explicit fast mode".to_string())
+        } else if self.auto_fast {
+            match auto_fast_decision(
+                interaction_mode,
+                task_profile.profile,
+                &request,
+                continuation,
+                verify_only,
+                new_version,
+            ) {
+                Ok(reason) => (true, reason.to_string()),
+                Err(reason) => (false, format!("auto fast skipped: {reason}")),
+            }
+        } else {
+            (false, "fast mode off".to_string())
+        };
         let selected_actions = selected_action_tools(capability_resolution.as_ref());
         let masked_tools = masked_tools_for(interaction_mode, &self.tools);
         if let Some(prefix) = &resume {
@@ -3098,6 +3188,15 @@ impl AgentRuntime {
                 path: journal_path.clone(),
                 source,
             })?;
+        journal
+            .append(JournalEventKind::FastModeSelected {
+                enabled: fast_mode,
+                reason: fast_reason,
+            })
+            .map_err(|source| RuntimeError::Journal {
+                path: journal_path.clone(),
+                source,
+            })?;
         if let Some(resolution) = capability_resolution {
             journal
                 .append(JournalEventKind::CapabilityPreflightResolved { resolution })
@@ -3132,7 +3231,7 @@ impl AgentRuntime {
                     || selected_actions.contains(&capability.name)
             });
         }
-        if self.fast_mode {
+        if fast_mode {
             available_capabilities
                 .retain(|capability| FAST_TOOL_NAMES.contains(&capability.name.as_str()));
         }
@@ -3233,7 +3332,7 @@ impl AgentRuntime {
             tool_specs.extend(crate::dynamic_tools::virtual_specs());
             tool_specs.sort_by(|left, right| left.name.cmp(&right.name));
         }
-        if self.fast_mode {
+        if fast_mode {
             tool_specs.retain(|spec| FAST_TOOL_NAMES.contains(&spec.name.as_str()));
         }
         let stored_objective = resume
@@ -3378,7 +3477,7 @@ impl AgentRuntime {
                     self.voice_mode,
                     crate::voice::VoiceForm::for_task(mode),
                 )
-            } else if self.fast_mode {
+            } else if fast_mode {
                 fast_act_system_prompt().to_string()
             } else {
                 let has_tool = |name: &str| tool_specs.iter().any(|spec| spec.name == name);
@@ -3406,7 +3505,7 @@ impl AgentRuntime {
                 )
             };
             let mut initial_messages = vec![ModelMessage::system(system_prompt)];
-            if !self.fast_mode && !request.known_facts.is_empty() {
+            if !fast_mode && !request.known_facts.is_empty() {
                 initial_messages.push(ModelMessage::system(format!(
                     "CONVERSATION CONTEXT\nThese facts come from earlier turns and the local prompt library. The new task may be a follow-up; resolve short replies, names and pronouns against them. Treat these facts as user-asserted context for this task: do not search the workspace or web merely to re-verify them. Search only when the task explicitly needs a fresher or external fact. Prefer matching prompt-library entries over web search when the user asks about prompts or a named prompt author.\n{}",
                     request.known_facts.join("\n")
@@ -3417,12 +3516,10 @@ impl AgentRuntime {
                     crate::attachment::format_attachment_block(&self.attachments),
                 ));
             }
-            if !self.fast_mode
-                && let Some(context) = work_ledger.context()
-            {
+            if !fast_mode && let Some(context) = work_ledger.context() {
                 initial_messages.push(ModelMessage::system(context));
             }
-            if !self.fast_mode
+            if !fast_mode
                 && let Some(guidance) = crate::interaction_mode::guidance(interaction_mode)
             {
                 initial_messages.push(ModelMessage::system(guidance));
@@ -3444,7 +3541,7 @@ impl AgentRuntime {
                     "NEW VERSION\nThis run creates a new version. Do not overwrite the active artifact(s):\n{targets}\nThe original path must remain byte-identical. Use the new path for preview, audit and acceptance."
                 )));
             }
-            if !fast_chat && !self.fast_mode {
+            if !fast_chat && !fast_mode {
                 initial_messages.push(ModelMessage::system(task_profile.guidance()));
                 if let Some(manifest) = environment_manifest(&request) {
                     initial_messages.push(ModelMessage::system(manifest));
@@ -3458,7 +3555,7 @@ impl AgentRuntime {
             }
             // Prior conversation turns, before the current user message.
             initial_messages.extend(session_context);
-            if fast_chat || self.fast_mode {
+            if fast_chat || fast_mode {
                 initial_messages.push(ModelMessage::user(format!(
                     "User message:\n{}",
                     request.objective
@@ -3472,7 +3569,7 @@ impl AgentRuntime {
                 )));
             }
             if !fast_chat
-                && !self.fast_mode
+                && !fast_mode
                 && let Some(scope) = &request.experience_scope
             {
                 let mut selected = if let Some(experience_dir) = &self.experience_dir {
@@ -3605,8 +3702,7 @@ impl AgentRuntime {
         // Act runs get one internal step reserved for acceptance when a
         // verified artifact exists but no receipt does. The loop breaks before
         // calling the model when the reserve is not needed.
-        let acceptance_reserve_enabled =
-            !self.fast_mode && interaction_mode == InteractionMode::Act;
+        let acceptance_reserve_enabled = !fast_mode && interaction_mode == InteractionMode::Act;
         let max_steps = if acceptance_reserve_enabled {
             configured_max_steps.saturating_add(1)
         } else {
@@ -3623,16 +3719,17 @@ impl AgentRuntime {
         let mut verification_reserve_used = 0usize;
         let mut repair_reserve_used = 0usize;
         let mut verification_budget_nudged = false;
+        let mut receipt_invalidation_nudged = false;
         let mut last_audit_all_passed = false;
         let mut pending_audit_failure = false;
         let mut write_since_audit = false;
         let mut last_turn: Option<(ModelRequest, String, String)> = None;
         let mut completion_gate = CompletionGate::new(
             interaction_mode == InteractionMode::Act
-                && !self.fast_mode
+                && !fast_mode
                 && looks_like_page_task(&request.objective, request.deliverable.as_deref()),
         );
-        completion_gate.disabled = self.fast_mode;
+        completion_gate.disabled = fast_mode;
         if verify_only {
             completion_gate.verify_only = true;
             completion_gate.expected_artifacts = active_artifacts.clone().unwrap_or_default();
@@ -3689,7 +3786,7 @@ impl AgentRuntime {
                 .min(request.budget.max_context_tokens);
             let (mut model_messages, context_compaction) =
                 compact_messages_at_tokens(&messages, trigger_tokens, 4);
-            if !self.fast_mode {
+            if !fast_mode {
                 apply_efficiency_nudge(&mut model_messages, task_profile.profile, step);
                 apply_goal_recitation(&mut model_messages, &request, task_profile.profile, step);
             }
@@ -3706,6 +3803,18 @@ impl AgentRuntime {
                 let remaining = request.budget.max_tool_calls.saturating_sub(tool_calls);
                 model_messages.push(ModelMessage::user(verification_budget_nudge(remaining)));
                 verification_budget_nudged = true;
+            }
+            // Nudge before the last configured step, not only in the reserve
+            // step after the budget is already spent.
+            let configured_steps_left = configured_max_steps.saturating_sub(step);
+            if !receipt_invalidation_nudged
+                && !acceptance_reserve_step
+                && completion_gate.receipt_invalidated
+                && configured_steps_left > 0
+                && configured_steps_left <= 2
+            {
+                model_messages.push(ModelMessage::user(receipt_invalidation_nudge()));
+                receipt_invalidation_nudged = true;
             }
             if acceptance_reserve_step {
                 model_messages.push(ModelMessage::user(acceptance_reserve_nudge(
@@ -4213,11 +4322,7 @@ impl AgentRuntime {
             match response.turn {
                 ModelTurn::Final { answer } => {
                     if !completion_gate.side_effect_tools.is_empty() {
-                        append_delivery_snapshot(
-                            &mut journal,
-                            &journal_path,
-                            request.permissions.read_roots.last().map(PathBuf::as_path),
-                        )?;
+                        append_delivery_snapshot(&mut journal, &journal_path, delivery_root)?;
                     }
                     let mut answer = answer;
                     normalize_unresolved_conflicts(&mut answer);
@@ -4298,7 +4403,7 @@ impl AgentRuntime {
                         continue;
                     }
                     answer = enforce_completion_gate(&mut journal, &completion_gate, answer)?;
-                    if !self.fast_mode
+                    if !fast_mode
                         && let Some(reason) =
                             answer_needs_evidence_replan(&answer, &request.objective)
                     {
@@ -4347,7 +4452,7 @@ impl AgentRuntime {
                         );
                     }
                     if acceptance_replans < 1
-                        && !self.fast_mode
+                        && !fast_mode
                         && completion_gate.design_task
                         && completion_gate.accepted_receipt.is_none()
                         && !completion_gate.side_effect_tools.is_empty()
@@ -4415,16 +4520,12 @@ impl AgentRuntime {
                     );
                 }
                 ModelTurn::InvalidFinal { content, error } => {
-                    if self.fast_mode
+                    if fast_mode
                         && let Some(answer) = fast_delivery_answer(&content)
                         && answer.validate(&request).is_ok()
                     {
                         if !completion_gate.side_effect_tools.is_empty() {
-                            append_delivery_snapshot(
-                                &mut journal,
-                                &journal_path,
-                                request.permissions.read_roots.last().map(PathBuf::as_path),
-                            )?;
+                            append_delivery_snapshot(&mut journal, &journal_path, delivery_root)?;
                         }
                         let stop_reason = stop_reason_for_answer(answer.status);
                         return finish_with_answer(
@@ -4535,7 +4636,7 @@ impl AgentRuntime {
                         .unwrap_or_else(|| stop_reason_for_answer(repaired.answer.status));
                     let mut answer =
                         enforce_completion_gate(&mut journal, &completion_gate, repaired.answer)?;
-                    if !self.fast_mode
+                    if !fast_mode
                         && let Some(reason) =
                             answer_needs_evidence_replan(&answer, &request.objective)
                     {
@@ -4645,11 +4746,7 @@ impl AgentRuntime {
                             enforce_completion_gate(&mut journal, &completion_gate, answer)?;
                         let stop_reason = stop_reason_for_answer(answer.status);
                         if !completion_gate.side_effect_tools.is_empty() {
-                            append_delivery_snapshot(
-                                &mut journal,
-                                &journal_path,
-                                request.permissions.read_roots.last().map(PathBuf::as_path),
-                            )?;
+                            append_delivery_snapshot(&mut journal, &journal_path, delivery_root)?;
                         }
                         journal
                             .append(JournalEventKind::AnswerProduced {
@@ -4989,6 +5086,7 @@ impl AgentRuntime {
                                     tool_capabilities_sha256: Some(
                                         tool_capabilities.sha256.clone(),
                                     ),
+                                    fast_mode,
                                 },
                             })
                             .map_err(|source| RuntimeError::Journal {
@@ -5040,11 +5138,7 @@ impl AgentRuntime {
         };
         let stop_reason = stop_reason_for_answer(answer.status);
         if !completion_gate.side_effect_tools.is_empty() {
-            append_delivery_snapshot(
-                &mut journal,
-                &journal_path,
-                request.permissions.read_roots.last().map(PathBuf::as_path),
-            )?;
+            append_delivery_snapshot(&mut journal, &journal_path, delivery_root)?;
         }
         journal
             .append(JournalEventKind::AnswerProduced {
@@ -11906,6 +12000,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn receipt_invalidation_nudges_before_the_last_configured_step() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-2", &target, "hello again")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![
+                        ToolCall {
+                            id: "verify-2".into(),
+                            name: "verify_artifact".into(),
+                            arguments: serde_json::json!({"path": target}),
+                        },
+                        ToolCall {
+                            id: "gate-2".into(),
+                            name: "acceptance_gate".into(),
+                            arguments: accepted_gate_arguments(&target),
+                        },
+                    ],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote and re-accepted out.txt"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt 并验收", workspace.path().into());
+        request.permissions.allow_write = true;
+        request.budget.max_steps = 4;
+        request.budget.max_provider_attempts = 5;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(requests.lock().unwrap().len(), 5);
+        assert!(
+            requests.lock().unwrap()[3]
+                .messages
+                .last()
+                .is_some_and(|message| message.content.contains("Before the step budget runs out"))
+        );
+    }
+
+    #[tokio::test]
     async fn accepted_receipt_survives_unrepairable_plain_text_final() {
         let workspace = tempfile::tempdir().unwrap();
         let target = workspace.path().join("out.txt");
@@ -12089,6 +12243,158 @@ mod tests {
             &event.event,
             JournalEventKind::ToolCalled { call } if call.name == "acceptance_gate"
         )));
+    }
+
+    #[test]
+    fn auto_fast_decision_is_narrow() {
+        let mut request = TaskRequest::from_objective("写 out.txt", PathBuf::from("."));
+        request.permissions.allow_write = true;
+        assert_eq!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                false,
+                false,
+                false
+            ),
+            Ok("auto: small new act delivery")
+        );
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                true,
+                false,
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                false,
+                true,
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                false,
+                false,
+                true
+            )
+            .is_err()
+        );
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Standard,
+                &request,
+                false,
+                false,
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Answer,
+                TaskProfile::Fast,
+                &request,
+                false,
+                false,
+                false
+            )
+            .is_err()
+        );
+        request.known_facts.push("fact".into());
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                false,
+                false,
+                false
+            )
+            .is_err()
+        );
+        request.known_facts.clear();
+        request.objective = "写一个网页".into();
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                false,
+                false,
+                false
+            )
+            .is_err()
+        );
+        request.objective = "写 out.txt".into();
+        request.permissions.allow_write = false;
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                false,
+                false,
+                false
+            )
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_fast_routes_a_small_new_act_task() {
+        let workspace = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![crate::domain::ModelTurn::InvalidFinal {
+                content: "wrote out.txt".into(),
+                error: "plain text, not AgentAnswer JSON".into(),
+            }],
+            requests.clone(),
+        ));
+        let runtime =
+            scripted_runtime(workspace.path(), provider, default_registry()).with_auto_fast(true);
+        let mut request = TaskRequest::from_objective("写 out.txt", workspace.path().to_path_buf());
+        request.permissions.allow_write = true;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Conditional);
+        assert_eq!(result.answer.conclusion, "wrote out.txt");
+        let events = read_events(&result.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::FastModeSelected { enabled: true, .. }
+        )));
+        let captured = requests.lock().unwrap();
+        assert!(
+            captured[0]
+                .messages
+                .iter()
+                .any(|message| message.content.contains("fast delivery mode"))
+        );
+        assert!(
+            captured[0]
+                .tools
+                .iter()
+                .all(|spec| FAST_TOOL_NAMES.contains(&spec.name.as_str()))
+        );
     }
 
     #[tokio::test]

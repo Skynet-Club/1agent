@@ -1,0 +1,13 @@
+delivery queued: 0f51b4f4-18ef-47d5-ada6-0af7b07fc38c (post-run acceptance)
+状态：有条件完成
+结论：Wrote hello-from-final-binary to /home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/final/out.txt (23 bytes, sha256 20fc70c591ec3a59b9316c5ce0d197ab87171f53ec8e616af4fc45b2fffdcd74). No terminal session was created.
+信任摘要：我的判断 0 · 依据 0 · 假设 0 · 还没确定 1 · 改判 1
+什么情况会改变结论：
+- 若 异步验收通过，则 可以标记为完成
+使用 --details 查看完整字段与路由轨迹
+
+运行日志：/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/runs-final/0f51b4f4-18ef-47d5-ada6-0af7b07fc38c.jsonl
+验收 "accepted" · run 0f51b4f4-18ef-47d5-ada6-0af7b07fc38c · manifest df3ec5b1da23
+EXIT=0
+
+[exited with code 0]

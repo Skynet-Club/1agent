@@ -109,6 +109,8 @@ def run_1agent(arm: str, workspace: Path, objective: str, config: Path, run_dir:
             argv.extend(["--allowed-tools", tool])
     if arm == "fast":
         argv.append("--fast")
+    else:
+        argv.append("--no-fast")
     env = {**os.environ, "ONEAGENT_SESSION_DIR": str(run_dir / "sessions")}
     if arm == "fast":
         env["ONEAGENT_HOME"] = str(run_dir / "home")
@@ -171,28 +173,40 @@ def run_1agent(arm: str, workspace: Path, objective: str, config: Path, run_dir:
         }
     )
     if arm == "fast":
-        accept = subprocess.run(
-            ["1agent", "accept", "--queue", "--json"],
-            cwd=workspace,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
         receipt = None
-        for line in accept.stdout.splitlines():
+        # Auto-drain writes the receipt before the process exits; read it
+        # directly, then fall back to draining a queue left by an older binary.
+        home = Path(env.get("ONEAGENT_HOME", ""))
+        run_id = journal.stem if journal else ""
+        receipt_path = home / "acceptance" / "done" / f"{run_id}.json"
+        if run_id and receipt_path.is_file():
             try:
-                receipt = json.loads(line)
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
-                continue
-            if isinstance(receipt, dict):
-                break
+                receipt = None
+        if receipt is None:
+            accept = subprocess.run(
+                ["1agent", "accept", "--queue", "--json"],
+                cwd=workspace,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            for line in accept.stdout.splitlines():
+                try:
+                    receipt = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(receipt, dict):
+                    break
+            if not isinstance(receipt, dict):
+                result["delivery_error"] = accept.stderr[-500:]
         if isinstance(receipt, dict):
             result["delivery_status"] = receipt.get("status")
             result["delivery_manifest_sha256"] = receipt.get("manifest_sha256")
         else:
             result["delivery_status"] = None
-            result["delivery_error"] = accept.stderr[-500:]
     return result
 
 

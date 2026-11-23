@@ -1062,10 +1062,22 @@ Rejected outcomes; Verified outcomes are not surfaced.
 - Post-run acceptance: `delivery.rs` builds `1agent.delivery-receipt/v1` from a
   journal (artifact hashes, tool pairing, delivery snapshot, derived claims) and
   keeps a durable queue under `~/.1a/acceptance/`. `1agent accept --journal`,
-  `--queue [--watch]`, and `--list` expose it; `1agent run --fast` queues its
-  run after delivery. Fast answers are `conditional` until the receipt is
-  accepted; `1agent eval --fast` scores that receipt as the case outcome and
-  records `delivery_status` on `EvalCaseResult`.
+  `--queue [--watch]`, and `--list` expose it. `1agent run` auto-drains after a
+  fast or deferred run; the TUI drains at startup and after every run, and
+  enqueues its own fast delivery before draining. Fast answers are
+  `conditional` until the receipt is accepted; `1agent eval --fast` scores that
+  receipt as the case outcome and records `delivery_status` on
+  `EvalCaseResult`.
+- Fast routing: `AgentRuntime::with_auto_fast(true)` is the default for
+  `1agent run` and the TUI. A run takes the fast path only when interaction
+  mode is Act, the task profile is Fast, the session has no prior turns or
+  injected context facts, the request is neither verify-only nor new-version,
+  writes are allowed, and the deliverable is not a page. Explicit `--fast`
+  wins; `--no-fast` and `ONEAGENT_AUTO_FAST=0` force the standard loop. Every
+  run journals `FastModeSelected {enabled, reason}`, and the checkpoint stores
+  `fast_mode` so resume rebuilds the same tool surface. The delivery snapshot
+  uses the task workspace (`with_delivery_root`), not a broad configured read
+  root, so the 2048-file/16 MB cap does not turn every receipt conditional.
 - Acceptance reserve: an Act run may use one internal step beyond the configured
   `max_steps` only when side-effect tools ran, a verified artifact exists, and
   no accepted receipt does. That step advertises only `acceptance_gate` and
@@ -1074,7 +1086,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   the gate alone and journals the other calls as paired `budget_skipped`
   observations. A write after an accepted receipt advertises `verify_artifact`
   plus `acceptance_gate` in the reserve, and the reserve may spend one provider
-  attempt beyond the configured budget. The step-budget answer is built from
+  attempt beyond the configured budget. When a later write invalidates the
+  receipt and at most two configured steps remain, one internal pre-budget
+  nudge asks for `verify_artifact` plus a fresh gate before the budget runs
+  out; the reserve remains the backstop. The step-budget answer is built from
   the latest messages
   (including the last tool result), not the request that produced the last tool
   call. A completed delivery with no flip condition gets one runtime flip

@@ -214,6 +214,10 @@ enum Command {
         /// Tiny prompt, four tools, plain-text final; implies --defer-accept.
         #[arg(long)]
         fast: bool,
+        /// Keep the standard loop even when the task looks like a small
+        /// delivery.
+        #[arg(long, conflicts_with = "fast")]
+        no_fast: bool,
         #[arg(long)]
         authority: Option<PathBuf>,
         #[arg(long, default_value = "operator")]
@@ -7077,6 +7081,7 @@ async fn main() -> Result<()> {
             deny_all_tools,
             defer_accept,
             fast,
+            no_fast,
             authority,
             actor_id,
             authority_scope,
@@ -7089,9 +7094,23 @@ async fn main() -> Result<()> {
             json,
         } => {
             let defer_accept = defer_accept || fast;
+            let auto_fast = !fast
+                && !no_fast
+                && !read_only
+                && authority.is_none()
+                && tool_query.is_none()
+                && allowed_tools.is_empty()
+                && !deny_all_tools
+                && auto_fast_enabled();
             let max_context_tokens =
                 max_context_tokens.clamp(1_000, first_principles_agent::DEFAULT_MAX_CONTEXT_TOKENS);
             let mut request = load_request(task, input)?;
+            let task_workspace = request
+                .permissions
+                .read_roots
+                .first()
+                .cloned()
+                .or_else(|| std::env::current_dir().ok());
             request
                 .known_facts
                 .extend(first_principles_agent::memory_context::context_facts(
@@ -7275,6 +7294,7 @@ async fn main() -> Result<()> {
                     .with_voice_mode(voice_mode)
                     .with_attachments(attachments)
                     .with_fast_mode(fast)
+                    .with_auto_fast(auto_fast)
                     .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
                     .with_route_policy_sources(RoutePolicySources {
                         objective: objective_source,
@@ -7282,6 +7302,9 @@ async fn main() -> Result<()> {
                         unit_cost_budget: unit_cost_budget_source,
                     }),
             );
+            if let Some(root) = task_workspace {
+                runtime = runtime.with_delivery_root(root);
+            }
             if let Some(path) = session_path {
                 runtime = runtime.with_session_path(path);
             }
@@ -7357,10 +7380,17 @@ async fn main() -> Result<()> {
             {
                 eprintln!("warning: cannot write canary sample: {error}");
             }
-            let delivery_queued = if defer_accept {
+            let fast_delivery = result.stop_reason == StopReason::Completed
+                && read_events(&result.journal_path)
+                    .map(|events| first_principles_agent::journal::used_fast_mode(&events))
+                    .unwrap_or(false);
+            let delivery_queue = if defer_accept || fast_delivery {
                 let queue = first_principles_agent::delivery::DeliveryQueue::default();
                 match queue.enqueue(&result.journal_path) {
-                    Ok(item) => Some(item),
+                    Ok(item) => {
+                        eprintln!("delivery queued: {} (post-run acceptance)", item.run_id);
+                        Some(queue)
+                    }
                     Err(error) => {
                         eprintln!("warning: cannot queue delivery: {error}");
                         None
@@ -7369,9 +7399,6 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
-            if let Some(item) = &delivery_queued {
-                eprintln!("delivery queued: {} (pending acceptance)", item.run_id);
-            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else if details {
@@ -7381,6 +7408,29 @@ async fn main() -> Result<()> {
             } else {
                 println!("{}", render_answer_default(&result));
                 println!("运行日志：{}", result.journal_path.display());
+            }
+            if let Some(queue) = delivery_queue {
+                match queue.process_pending() {
+                    Ok(batch) => {
+                        for receipt in &batch.receipts {
+                            if json {
+                                eprintln!("{}", serde_json::to_string(receipt)?);
+                            } else {
+                                println!(
+                                    "验收 {} · run {} · manifest {}",
+                                    serde_json::to_string(&receipt.status)?,
+                                    receipt.run_id,
+                                    &receipt.manifest_sha256
+                                        [..12.min(receipt.manifest_sha256.len())]
+                                );
+                            }
+                        }
+                        for error in &batch.errors {
+                            eprintln!("acceptance pending: {error}");
+                        }
+                    }
+                    Err(error) => eprintln!("warning: cannot drain deliveries: {error}"),
+                }
             }
         }
         Command::Tui {
@@ -16587,6 +16637,19 @@ fn resolve_allow_network(cli_allow: bool, cli_no_network: bool, config: Option<b
     }
 }
 
+/// Auto fast delivery is on by default; `ONEAGENT_AUTO_FAST=0` keeps the
+/// standard loop. An explicit `--fast` flag still wins.
+fn auto_fast_enabled() -> bool {
+    std::env::var("ONEAGENT_AUTO_FAST")
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            )
+        })
+        .unwrap_or(true)
+}
+
 fn canonical_or_original(path: &PathBuf) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.clone())
 }
@@ -18290,6 +18353,7 @@ async fn run_tui(
         AgentRuntime::new(candidates, tools, journal_dir)
             .with_route_objective(objective)
             .with_core_tools(true)
+            .with_auto_fast(auto_fast_enabled())
             .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
             .with_route_policy_sources(RoutePolicySources {
                 objective: objective_source,
@@ -18315,10 +18379,9 @@ async fn run_tui(
             .map(canonical_or_original)
             .collect::<Vec<_>>()
     };
-    runtime = runtime.with_session_path(first_principles_agent::session::session_path(
-        &cwd,
-        session.id(),
-    ));
+    runtime = runtime.with_delivery_root(cwd.clone()).with_session_path(
+        first_principles_agent::session::session_path(&cwd, session.id()),
+    );
     let mut state = TuiState::new(provider_label, max_steps, timeout_seconds);
     let reasoning_buffer = state.reasoning_buffer();
     runtime = runtime.with_reasoning_sink(Arc::new(move |text: &str| {
@@ -18330,6 +18393,10 @@ async fn run_tui(
     state.set_prompt_language(prompt_language);
     state.set_host_binding(host_binding);
     sync_tui_stage(&mut state, &session);
+    drain_tui_deliveries(
+        &mut state,
+        &first_principles_agent::delivery::DeliveryQueue::default(),
+    );
     let mut settings = TuiRunSettings {
         cwd,
         startup_roots: roots.clone(),
@@ -18743,6 +18810,9 @@ async fn run_tui_line_request(
         .await?;
     stdout.flush().await?;
     runtime.set_session_id(Some(session.id().to_string()));
+    if let Some(workspace) = session.workspace() {
+        runtime.set_delivery_root(workspace.to_path_buf());
+    }
     let cancellation = CancellationToken::new();
     let signal_cancellation = cancellation.clone();
     let signal = tokio::spawn(async move {
@@ -18763,6 +18833,7 @@ async fn run_tui_line_request(
                 result.journal_path.display()
             );
             state.finish(TuiStatus::Completed, output);
+            deliver_tui_run(state, &result);
         }
         Err(RuntimeError::Cancelled { .. }) => {
             state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
@@ -19894,6 +19965,9 @@ async fn run_tui_line_epistemic(
     }
     state.begin(&display, mode, risk_for_mode(mode));
     runtime.set_session_id(Some(session.id().to_string()));
+    if let Some(workspace) = session.workspace() {
+        runtime.set_delivery_root(workspace.to_path_buf());
+    }
     let cancellation = CancellationToken::new();
     let signal_cancellation = cancellation.clone();
     let signal = tokio::spawn(async move {
@@ -19914,6 +19988,7 @@ async fn run_tui_line_epistemic(
                 result.journal_path.display()
             );
             state.finish(TuiStatus::Completed, output);
+            deliver_tui_run(state, &result);
         }
         Err(RuntimeError::Cancelled { .. }) => {
             state.finish(TuiStatus::Cancelled, "Run cancelled; journal preserved.");
@@ -22862,6 +22937,60 @@ fn run_journal_audits(state: &TuiState, session: &TuiSession, all: bool) -> Vec<
         .collect()
 }
 
+fn drain_tui_deliveries(
+    state: &mut TuiState,
+    queue: &first_principles_agent::delivery::DeliveryQueue,
+) {
+    use first_principles_agent::delivery::DeliveryStatus;
+
+    match queue.process_pending() {
+        Ok(batch) => {
+            if batch.receipts.is_empty() && batch.errors.is_empty() {
+                return;
+            }
+            let accepted = batch
+                .receipts
+                .iter()
+                .filter(|receipt| receipt.status == DeliveryStatus::Accepted)
+                .count();
+            let conditional = batch
+                .receipts
+                .iter()
+                .filter(|receipt| receipt.status == DeliveryStatus::Conditional)
+                .count();
+            let rejected = batch
+                .receipts
+                .iter()
+                .filter(|receipt| receipt.status == DeliveryStatus::Rejected)
+                .count();
+            state.info(format!(
+                "交付验收：新处理 {} 条（accepted {accepted} / conditional {conditional} / rejected {rejected}），失败 {} 条",
+                batch.receipts.len(),
+                batch.errors.len()
+            ));
+            for error in &batch.errors {
+                state.info(format!("验收待处理：{error}"));
+            }
+        }
+        Err(error) => state.info(format!("交付验收队列无法读取：{error}")),
+    }
+}
+
+fn deliver_tui_run(state: &mut TuiState, result: &first_principles_agent::RunResult) {
+    let queue = first_principles_agent::delivery::DeliveryQueue::default();
+    let fast_delivery = result.stop_reason == StopReason::Completed
+        && read_events(&result.journal_path)
+            .map(|events| first_principles_agent::journal::used_fast_mode(&events))
+            .unwrap_or(false);
+    if fast_delivery {
+        match queue.enqueue(&result.journal_path) {
+            Ok(item) => state.info(format!("交付已入队：run {}", item.run_id)),
+            Err(error) => state.info(format!("无法入队交付：{error}")),
+        }
+    }
+    drain_tui_deliveries(state, &queue);
+}
+
 fn delivery_status_text(queue: &first_principles_agent::delivery::DeliveryQueue) -> String {
     let pending = queue.pending().map(|items| items.len()).unwrap_or_default();
     let done = queue.done().unwrap_or_default();
@@ -25599,6 +25728,9 @@ async fn run_tui_task(
     source: TuiRunSource,
 ) -> Result<bool> {
     runtime.set_session_id(Some(session.id().to_string()));
+    if let Some(workspace) = session.workspace() {
+        runtime.set_delivery_root(workspace.to_path_buf());
+    }
     let cancellation = CancellationToken::new();
     let run_started_ms = current_time_ms();
     let mut active_journal: Option<(PathBuf, u64, Option<u64>)> = None;
@@ -25659,6 +25791,7 @@ async fn run_tui_task(
                             state.push_reasoning(&reasoning);
                         }
                         record_tui_result(state, &result);
+                        deliver_tui_run(state, &result);
                     }
                     Err(RuntimeError::Cancelled { .. }) => {
                         let interrupted = active_journal
@@ -29500,6 +29633,7 @@ mod tui_rendering_tests {
                     route_policy_sources: None,
                     route_objective: None,
                     tool_capabilities_sha256: None,
+                    fast_mode: false,
                 },
             })
             .unwrap();

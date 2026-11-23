@@ -153,6 +153,7 @@ fn checkpoint(mode: CognitiveMode) -> RuntimeCheckpoint {
         route_policy_sources: None,
         route_objective: None,
         tool_capabilities_sha256: None,
+        fast_mode: false,
     }
 }
 

@@ -1168,6 +1168,10 @@ pub struct RuntimeCheckpoint {
     pub route_objective: Option<crate::router::RouteObjective>,
     #[serde(default)]
     pub tool_capabilities_sha256: Option<String>,
+    /// Whether this run used the fast delivery path. Resume must rebuild the
+    /// same tool surface, so the decision is stored instead of re-derived.
+    #[serde(default)]
+    pub fast_mode: bool,
 }
 
 /// Checkpoint contents appended since the previous checkpoint.

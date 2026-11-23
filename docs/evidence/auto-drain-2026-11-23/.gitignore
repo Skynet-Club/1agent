@@ -1,0 +1,8 @@
+workspaces/
+runs/
+runs-tui/
+sessions/
+home/acceptance/queue/
+home/acceptance/done/*
+!home/acceptance/done/ed4be65f-96d5-4417-a082-31d9307f2cff.json
+runs-final/

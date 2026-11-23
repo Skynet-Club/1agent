@@ -1,0 +1,14 @@
+   Compiling first-principles-agent v1.0.0-rc.13 (/home/skynet/1-agent)
+    Finished `release` profile [optimized] target(s) in 1m 41s
+BUILD_EXIT=0
+delivery queued: dcd956fd-e706-4ee5-8b63-3da644ff1b3c (post-run acceptance)
+状态：有条件完成
+结论：已写入 /home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/workspaces/smoke2/out.txt，内容为 hello from auto fast（含结尾换行，共 21 字节）。 sha256: 82718b10a21633caa24159de436411290099b14730d16a94d6fd7f0f40e05b89
+信任摘要：我的判断 0 · 依据 0 · 假设 0 · 还没确定 1 · 改判 1
+什么情况会改变结论：
+- 若 异步验收通过，则 可以标记为完成
+使用 --details 查看完整字段与路由轨迹
+
+运行日志：/home/skynet/1-agent/docs/evidence/auto-drain-2026-11-23/runs/dcd956fd-e706-4ee5-8b63-3da644ff1b3c.jsonl
+验收 "accepted" · run dcd956fd-e706-4ee5-8b63-3da644ff1b3c · manifest e3524ad4da31
+SMOKE_EXIT=0
