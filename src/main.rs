@@ -207,6 +207,13 @@ enum Command {
         /// Hide every tool for this run.
         #[arg(long, conflicts_with = "allowed_tools")]
         deny_all_tools: bool,
+        /// Queue the run for post-run acceptance instead of waiting on the
+        /// in-run acceptance gate.
+        #[arg(long)]
+        defer_accept: bool,
+        /// Tiny prompt, four tools, plain-text final; implies --defer-accept.
+        #[arg(long)]
+        fast: bool,
         #[arg(long)]
         authority: Option<PathBuf>,
         #[arg(long, default_value = "operator")]
@@ -1203,6 +1210,17 @@ enum Command {
     Replay {
         #[arg(long)]
         journal: PathBuf,
+    },
+    #[command(about = "事后验收交付 · Accept delivered runs")]
+    Accept {
+        #[arg(long, conflicts_with = "queue")]
+        journal: Option<PathBuf>,
+        #[arg(long)]
+        queue: bool,
+        #[arg(long)]
+        watch: bool,
+        #[arg(long)]
+        json: bool,
     },
     #[command(about = "查看 OpenTelemetry 导出配置")]
     Otel {
@@ -5249,6 +5267,7 @@ const PUBLIC_COMMANDS: &[(&str, &str)] = &[
     ("permissions", "查看、解释或设置权限预设"),
     ("audit", "审计运行日志"),
     ("replay", "结构重放运行日志"),
+    ("accept", "事后验收交付或处理持久验收队列"),
     ("skill", "技能生命周期：列表、评测、启用、灰度和回滚"),
     ("schedule", "本地定时任务与健康检查"),
     ("serve", "启动本地 HTTP 接口服务"),
@@ -5270,6 +5289,10 @@ const ENGLISH_COMMANDS: &[(&str, &str)] = &[
     ),
     ("audit", "Audit a run journal"),
     ("replay", "Structurally replay a run journal"),
+    (
+        "accept",
+        "Accept a delivered run or drain the acceptance queue",
+    ),
     ("skill", "Skill lifecycle management"),
     ("schedule", "Local schedules and health"),
     ("serve", "Start the local HTTP service"),
@@ -7046,6 +7069,8 @@ async fn main() -> Result<()> {
             tool_query,
             allowed_tools,
             deny_all_tools,
+            defer_accept,
+            fast,
             authority,
             actor_id,
             authority_scope,
@@ -7057,6 +7082,7 @@ async fn main() -> Result<()> {
             details,
             json,
         } => {
+            let defer_accept = defer_accept || fast;
             let max_context_tokens =
                 max_context_tokens.clamp(1_000, first_principles_agent::DEFAULT_MAX_CONTEXT_TOKENS);
             let mut request = load_request(task, input)?;
@@ -7242,6 +7268,7 @@ async fn main() -> Result<()> {
                     .with_route_objective(objective)
                     .with_voice_mode(voice_mode)
                     .with_attachments(attachments)
+                    .with_fast_mode(fast)
                     .with_kill_switch(home_or_legacy("KILL", ".1a/KILL"))
                     .with_route_policy_sources(RoutePolicySources {
                         objective: objective_source,
@@ -7323,6 +7350,21 @@ async fn main() -> Result<()> {
                 )
             {
                 eprintln!("warning: cannot write canary sample: {error}");
+            }
+            let delivery_queued = if defer_accept {
+                let queue = first_principles_agent::delivery::DeliveryQueue::default();
+                match queue.enqueue(&result.journal_path) {
+                    Ok(item) => Some(item),
+                    Err(error) => {
+                        eprintln!("warning: cannot queue delivery: {error}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            if let Some(item) = &delivery_queued {
+                eprintln!("delivery queued: {} (pending acceptance)", item.run_id);
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
@@ -13998,6 +14040,60 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("cannot read {}", journal.display()))?;
             let state = replay_events(&events).map_err(anyhow::Error::msg)?;
             println!("{}", serde_json::to_string_pretty(&state)?);
+        }
+        Command::Accept {
+            journal,
+            queue,
+            watch,
+            json,
+        } => {
+            if watch && !queue {
+                bail!("--watch requires --queue");
+            }
+            let store = first_principles_agent::delivery::DeliveryQueue::default();
+            if let Some(journal) = journal {
+                let receipt = store
+                    .accept_journal(&journal)
+                    .with_context(|| format!("cannot accept {}", journal.display()))?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&receipt)?);
+                } else {
+                    println!(
+                        "{} · run {} · manifest {}",
+                        serde_json::to_string(&receipt.status)?,
+                        receipt.run_id,
+                        &receipt.manifest_sha256[..12.min(receipt.manifest_sha256.len())]
+                    );
+                }
+            } else if queue {
+                loop {
+                    let batch = store.process_pending()?;
+                    for receipt in &batch.receipts {
+                        if json {
+                            println!("{}", serde_json::to_string(receipt)?);
+                        } else {
+                            println!(
+                                "{} · run {} · manifest {}",
+                                serde_json::to_string(&receipt.status)?,
+                                receipt.run_id,
+                                &receipt.manifest_sha256[..12.min(receipt.manifest_sha256.len())]
+                            );
+                        }
+                    }
+                    for error in &batch.errors {
+                        eprintln!("acceptance pending: {error}");
+                    }
+                    if !watch {
+                        break;
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                        _ = tokio::signal::ctrl_c() => break,
+                    }
+                }
+            } else {
+                bail!("accept requires --journal or --queue");
+            }
         }
         Command::Otel { journal, json } => {
             let events = read_events(&journal)

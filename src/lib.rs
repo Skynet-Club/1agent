@@ -33,6 +33,7 @@ pub mod context_graph;
 pub mod cua;
 pub mod dashboard;
 pub mod delegation;
+pub mod delivery;
 pub mod domain;
 pub mod dynamic_tools;
 pub mod escalation;

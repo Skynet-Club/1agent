@@ -242,7 +242,32 @@ def collect_verified_artifacts(events: list[dict]) -> list[dict]:
     return [{"path": path, "sha256": digest} for path, digest in sorted(verified.items())]
 
 
-def derive_claims(artifacts: list[dict], verified: list[dict]) -> list[dict]:
+def collect_reads(events: list[dict]) -> list[dict]:
+    reads: dict[str, str] = {}
+    for event in events:
+        if event.get("type") != "tool_observed":
+            continue
+        observation = event_data(event).get("observation") or {}
+        if not isinstance(observation, dict):
+            continue
+        if observation.get("tool") != "read_file" or observation.get("status") != "ok":
+            continue
+        metadata = observation.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            continue
+        path = metadata.get("path")
+        digest = metadata.get("sha256")
+        if isinstance(path, str) and isinstance(digest, str) and path and digest:
+            reads[path] = digest
+    return [{"path": path, "sha256": digest} for path, digest in sorted(reads.items())]
+
+
+def derive_claims(
+    artifacts: list[dict],
+    verified: list[dict],
+    reads: list[dict],
+    conclusion: str,
+) -> list[dict]:
     claims: list[dict] = []
     seen: set[str] = set()
     for index, artifact in enumerate(artifacts, 1):
@@ -270,6 +295,22 @@ def derive_claims(artifacts: list[dict], verified: list[dict]) -> list[dict]:
                 "derived": True,
             }
         )
+    if not artifacts:
+        text = conclusion.lower()
+        for index, read in enumerate(reads, 1):
+            path = read["path"]
+            name = Path(path).name.lower()
+            if name not in text:
+                continue
+            claims.append(
+                {
+                    "id": f"derived-read-{index}",
+                    "text": f"read source: {path} (sha256 {read['sha256']})",
+                    "status": "verified",
+                    "sources": [path],
+                    "derived": True,
+                }
+            )
     return claims
 
 
@@ -294,7 +335,9 @@ def build_manifest(journal: Path) -> dict:
     answer = collect_answer(events)
     artifacts, artifact_reasons, unrecorded_write, terminal_write_possible = collect_artifacts(events)
     verified_artifacts = collect_verified_artifacts(events)
-    derived_claims = derive_claims(artifacts, verified_artifacts)
+    reads = collect_reads(events)
+    conclusion = (answer or {}).get("conclusion") or ""
+    derived_claims = derive_claims(artifacts, verified_artifacts, reads, conclusion)
     snapshot = collect_delivery_snapshot(events)
     snapshot_state = verify_delivery_snapshot(snapshot)
     snapshot_ok = (

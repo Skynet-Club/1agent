@@ -107,7 +107,11 @@ def run_1agent(arm: str, workspace: Path, objective: str, config: Path, run_dir:
     if arm == "core7":
         for tool in CORE_TOOLS:
             argv.extend(["--allowed-tools", tool])
+    if arm == "fast":
+        argv.append("--fast")
     env = {**os.environ, "ONEAGENT_SESSION_DIR": str(run_dir / "sessions")}
+    if arm == "fast":
+        env["ONEAGENT_HOME"] = str(run_dir / "home")
     code, timed_out, wall_ms, stdout_path, stderr_path = run_process(argv, workspace, env, TERM_TIMEOUT_S, run_dir)
     result = {"exit_code": code, "timed_out": timed_out, "wall_ms": wall_ms, "stdout": stdout_path, "stderr": stderr_path}
     try:
@@ -166,6 +170,29 @@ def run_1agent(arm: str, workspace: Path, objective: str, config: Path, run_dir:
             "journal": str(journal),
         }
     )
+    if arm == "fast":
+        accept = subprocess.run(
+            ["1agent", "accept", "--queue", "--json"],
+            cwd=workspace,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        receipt = None
+        for line in accept.stdout.splitlines():
+            try:
+                receipt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(receipt, dict):
+                break
+        if isinstance(receipt, dict):
+            result["delivery_status"] = receipt.get("status")
+            result["delivery_manifest_sha256"] = receipt.get("manifest_sha256")
+        else:
+            result["delivery_status"] = None
+            result["delivery_error"] = accept.stderr[-500:]
     return result
 
 
@@ -353,7 +380,7 @@ def check_case(case_id: str, workspace: Path, answer: str) -> tuple[bool, dict[s
 
 def aggregate(records: list[dict]) -> dict:
     summary: dict[str, dict] = {}
-    for arm in ("full", "core7", "pi"):
+    for arm in ("full", "core7", "fast", "pi"):
         rows = [row for row in records if row["arm"] == arm]
         if not rows:
             continue
@@ -397,6 +424,7 @@ def write_summary(out: Path, result: dict, suite: dict, cases: list[dict], arms:
         "User corrections are not measured: every run is non-interactive.",
         "Pi has no structured delivery status; its `1agent status met` cell is not applicable.",
         "1agent status met compares the answer status with the suite's expected status (research-compare expects conditional).",
+        "For the fast arm, status met uses the post-run acceptance receipt (`accepted` or expected `conditional`).",
         "1agent fixed tokens come from step-0 metrics; Pi fixed tokens are estimated from its system prompt.",
         "",
         "| Arm | Neutral completion | 1agent status met | Model calls (median) | Tool calls | Wall ms | TTFT ms | Fixed tokens | Prompt tokens | Output tokens |",
@@ -466,7 +494,7 @@ def main() -> int:
         cases = [case for case in cases if case["id"] in wanted]
     arms = [name.strip() for name in args.arms.split(",") if name.strip()]
     for arm in arms:
-        if arm not in {"full", "core7", "pi"}:
+        if arm not in {"full", "core7", "fast", "pi"}:
             raise SystemExit(f"unknown arm: {arm}")
 
     out = args.out.resolve()
@@ -494,6 +522,17 @@ def main() -> int:
                     result = run_1agent(arm, workspace, task, config, run_dir)
                 success, checks = check_case(case["id"], workspace, result["answer_text"])
                 expected_status = case["expect"]["answer_status"]
+                if arm == "fast":
+                    delivery = result.get("delivery_status")
+                    status_met = (
+                        delivery == "accepted"
+                        if expected_status == "completed"
+                        else delivery in {"accepted", "conditional"}
+                    )
+                elif arm == "pi":
+                    status_met = None
+                else:
+                    status_met = result["answer_status"] == expected_status
                 record = {
                     "arm": arm,
                     "case": case["id"],
@@ -501,9 +540,7 @@ def main() -> int:
                     "success": success,
                     "checks": checks,
                     "expected_status": expected_status,
-                    "status_met": None
-                    if arm == "pi"
-                    else result["answer_status"] == expected_status,
+                    "status_met": status_met,
                     **{key: value for key, value in result.items() if key not in {"stdout", "stderr"}},
                     "stdout_path": str(result["stdout"]),
                     "stderr_path": str(result["stderr"]),
