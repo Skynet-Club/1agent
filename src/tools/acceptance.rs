@@ -43,6 +43,27 @@ struct AcceptanceArgs {
     artifact_checks: Vec<ArtifactCheck>,
 }
 
+/// The verifier label is a role marker, not a secret. Models often write
+/// `independent:…` or a prose verifier; prefixing it keeps the independence
+/// requirement while avoiding a retry over punctuation. Human verification
+/// still requires the explicit `human:` prefix.
+fn normalize_verifier(kind: VerifierKind, verifier: String) -> String {
+    let trimmed = verifier.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.starts_with("verifier:")
+        || trimmed.starts_with("agent:")
+        || trimmed.starts_with("human:")
+    {
+        return trimmed.to_string();
+    }
+    match kind {
+        VerifierKind::Independent => format!("verifier:{trimmed}"),
+        VerifierKind::Automated | VerifierKind::Human => trimmed.to_string(),
+    }
+}
+
 impl AcceptanceArgs {
     fn into_parts(self) -> (AcceptanceContract, VerificationInput) {
         let contract = AcceptanceContract {
@@ -57,7 +78,7 @@ impl AcceptanceArgs {
         };
         let verification = VerificationInput {
             executor_id: self.executor,
-            verifier_id: self.verifier,
+            verifier_id: normalize_verifier(self.required_verifier, self.verifier),
             acceptance_criteria: contract.acceptance_criteria.clone(),
             hidden_criteria: contract.hidden_criteria.clone(),
             criteria_results: self.results,
@@ -255,6 +276,38 @@ mod tests {
         let receipt: Value = serde_json::from_str(&outcome.content).expect("json");
         assert_eq!(receipt["decision"], "accepted");
         assert_eq!(receipt["verifier_id"], "verifier:audit");
+    }
+
+    #[tokio::test]
+    async fn independent_verifier_label_is_normalized() {
+        let arguments = json!({
+            "task_id": "task-1",
+            "objective": "deliver",
+            "acceptance_criteria": ["artifact exists"],
+            "risk": "medium",
+            "required_verifier": "independent",
+            "executor": "model:worker",
+            "verifier": "independent:artifact-hash+shell-check",
+            "results": [{
+                "criterion": "artifact exists",
+                "passed": true,
+                "evidence": ["sha256sum matches"]
+            }]
+        });
+        let outcome = AcceptanceGateTool
+            .execute(
+                arguments,
+                &PermissionSet::default(),
+                &CancellationToken::new(),
+            )
+            .await
+            .expect("receipt");
+        let receipt: Value = serde_json::from_str(&outcome.content).expect("json");
+        assert_eq!(receipt["decision"], "accepted");
+        assert_eq!(
+            receipt["verifier_id"],
+            "verifier:independent:artifact-hash+shell-check"
+        );
     }
 
     #[test]

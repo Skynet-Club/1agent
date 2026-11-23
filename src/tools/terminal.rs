@@ -817,6 +817,7 @@ impl AgentTool for TerminalExecTool {
             metadata.insert("exit".into(), exit.to_string());
         }
         metadata.insert("duration_ms".into(), duration_ms.to_string());
+        metadata.insert("write".into(), command_requires_write(command).to_string());
         if !artifact_sha256.is_empty() {
             metadata.insert("artifact_sha256".into(), artifact_sha256.into());
         }
@@ -832,6 +833,89 @@ impl AgentTool for TerminalExecTool {
             content: text,
             metadata,
         })
+    }
+}
+
+/// Conservative shell command classifier for the completion gate. A command is
+/// read-only only when every segment starts with a known read-only command and
+/// there is no redirection or substitution. Unknown syntax counts as a write so
+/// the gate keeps requiring an acceptance receipt.
+fn command_requires_write(command: &str) -> bool {
+    let text = command
+        .replace("2>&1", " ")
+        .replace("1>&2", " ")
+        .replace("2>/dev/null", " ")
+        .replace("1>/dev/null", " ")
+        .replace(">/dev/null", " ")
+        .replace("< /dev/null", " ")
+        .replace("</dev/null", " ");
+    if text.trim().is_empty() {
+        return false;
+    }
+    if text.contains('>')
+        || text.contains('<')
+        || text.contains('`')
+        || text.contains("$(")
+        || text.replace("&&", " ").contains('&')
+    {
+        return true;
+    }
+    let segments = text
+        .split([';', '|', '\n'])
+        .flat_map(|part| part.split("&&"))
+        .map(|segment| segment.trim().trim_matches(|c| c == '{' || c == '}').trim())
+        .filter(|segment| !segment.is_empty());
+    for segment in segments {
+        let mut words = segment.split_whitespace();
+        let Some(first) = words.next() else { continue };
+        let first = first.trim_start_matches('!');
+        if matches!(first, "cd" | "true" | "false" | ":") {
+            continue;
+        }
+        let rest = words.collect::<Vec<_>>();
+        let read_only = match first {
+            "ls" | "cat" | "head" | "tail" | "grep" | "egrep" | "fgrep" | "rg" | "stat"
+            | "file" | "wc" | "jq" | "sha256sum" | "sha1sum" | "md5sum" | "shasum" | "cksum"
+            | "od" | "hexdump" | "cmp" | "diff" | "comm" | "sort" | "cut" | "tr" | "nl" | "rev"
+            | "paste" | "join" | "basename" | "dirname" | "realpath" | "readlink" | "pwd"
+            | "echo" | "printf" | "test" | "[" | "date" | "uname" | "id" | "whoami" | "groups"
+            | "seq" | "expr" | "which" | "type" | "sleep" | "ps" | "df" | "du" | "lsof" | "ss"
+            | "netstat" | "printenv" | "locale" | "tty" => !writes_option(first, &rest),
+            "find" => !rest.iter().any(|argument| {
+                matches!(
+                    *argument,
+                    "-exec"
+                        | "-execdir"
+                        | "-delete"
+                        | "-ok"
+                        | "-okdir"
+                        | "-fprint"
+                        | "-fprint0"
+                        | "-fprintf"
+                        | "-fls"
+                )
+            }),
+            "command" => rest
+                .first()
+                .is_some_and(|argument| *argument == "-v" || *argument == "-V"),
+            _ => false,
+        };
+        if !read_only {
+            return true;
+        }
+    }
+    false
+}
+
+fn writes_option(command: &str, arguments: &[&str]) -> bool {
+    match command {
+        "sort" => arguments
+            .iter()
+            .any(|argument| *argument == "-o" || argument.starts_with("--output")),
+        "date" => arguments
+            .iter()
+            .any(|argument| *argument == "-s" || argument.starts_with("--set")),
+        _ => false,
     }
 }
 
@@ -1089,5 +1173,40 @@ esac
             .await;
         assert_eq!(observation.status, ToolStatus::PermissionDenied);
         assert_eq!(observation.error_code.as_deref(), Some("write_not_allowed"));
+    }
+
+    #[test]
+    fn command_write_detection_is_conservative() {
+        for command in [
+            "ls -la",
+            "jq . broken.json",
+            "sha256sum notes/a.txt",
+            "echo ok && ls",
+            "{ jq . broken.json; echo ok; }",
+            "command -v rustc || echo missing",
+            "find . -name '*.rs'",
+            "printf 'evidence' | sha256sum",
+            "sort notes/a.txt",
+        ] {
+            assert!(!command_requires_write(command), "read-only: {command}");
+        }
+        for command in [
+            "rm probe.txt",
+            "cp a b",
+            "jq . broken.json > out.json",
+            "sed -i s/a/b/ agent.conf",
+            "python3 - <<'PY'",
+            "find . -delete",
+            "sort -o out.txt in.txt",
+            "echo hi &",
+            "date -s 2026-01-01",
+            "mkdir out",
+            "ls && rm probe.txt",
+            "uniq in.txt out.txt",
+            "xxd -r in.hex out.bin",
+            "find . -fprintf out.txt '%p'",
+        ] {
+            assert!(command_requires_write(command), "write: {command}");
+        }
     }
 }

@@ -241,6 +241,17 @@ impl CompletionGate {
         if observation.status != ToolStatus::Ok {
             return;
         }
+        // Terminal sessions and output reads do not modify a deliverable.
+        // A shell command only counts as a write when the terminal tool could
+        // not prove it was read-only; unknown commands keep the old gate.
+        if matches!(
+            call.name.as_str(),
+            "terminal_create" | "terminal_output" | "terminal_destroy"
+        ) || (call.name == "terminal_exec"
+            && observation.metadata.get("write").map(String::as_str) == Some("false"))
+        {
+            return;
+        }
         if call.name == "verify_artifact" {
             if observation.metadata.get("decision").map(String::as_str) == Some("verified")
                 && let (Some(path), Some(sha256)) = (
@@ -5662,7 +5673,7 @@ mod tests {
     use crate::authority::{AuthorityProfile, AuthorityRegistry};
     use crate::domain::{
         AgentAnswer, AnswerStatus, ConflictRecord, ConflictStatus, PermissionSet, RunBudget,
-        ToolCall, ToolStatus, Usage,
+        ToolCall, ToolObservation, ToolStatus, Usage,
     };
     use crate::execution_gate::ExecutionGate;
     use crate::experience::{
@@ -8029,6 +8040,65 @@ mod tests {
                 metadata: BTreeMap::new(),
             })
         }
+    }
+
+    struct TerminalExecProbe;
+
+    #[async_trait]
+    impl crate::tools::AgentTool for TerminalExecProbe {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "terminal_exec".into(),
+                description: "terminal write probe".into(),
+                parameters: serde_json::json!({"type": "object"}),
+            }
+        }
+
+        fn risk(&self) -> RiskLevel {
+            RiskLevel::Low
+        }
+
+        fn requires_write(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _arguments: serde_json::Value,
+            _permissions: &PermissionSet,
+            _cancellation: &CancellationToken,
+        ) -> Result<crate::tools::ToolOutcome, crate::tools::ToolError> {
+            unreachable!("probe tool never executes")
+        }
+    }
+
+    #[test]
+    fn read_only_terminal_exec_is_not_a_completion_side_effect() {
+        let mut registry = ToolRegistry::default();
+        registry.register(Arc::new(TerminalExecProbe));
+        let mut gate = CompletionGate::new(false);
+        let call = ToolCall {
+            id: "call-1".into(),
+            name: "terminal_exec".into(),
+            arguments: serde_json::json!({}),
+        };
+        let observation = |write: Option<&str>| ToolObservation {
+            call_id: "call-1".into(),
+            tool: "terminal_exec".into(),
+            status: ToolStatus::Ok,
+            summary: String::new(),
+            content: String::new(),
+            error_code: None,
+            metadata: write
+                .map(|value| BTreeMap::from([("write".to_string(), value.to_string())]))
+                .unwrap_or_default(),
+        };
+
+        gate.observe(&call, &observation(Some("false")), &registry, false);
+        assert!(gate.side_effect_tools.is_empty());
+
+        gate.observe(&call, &observation(None), &registry, false);
+        assert!(gate.side_effect_tools.contains("terminal_exec"));
     }
 
     #[tokio::test]

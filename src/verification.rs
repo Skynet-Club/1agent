@@ -188,7 +188,7 @@ fn criterion_result(
 ) -> Result<bool, VerificationError> {
     let matches = results
         .iter()
-        .filter(|result| result.criterion == criterion)
+        .filter(|result| criterion_matches(&result.criterion, criterion))
         .collect::<Vec<_>>();
     match matches.len() {
         0 => Err(VerificationError::MissingCriterion(criterion.into())),
@@ -201,6 +201,20 @@ fn criterion_result(
         }
         _ => Err(VerificationError::DuplicateCriterion(criterion.into())),
     }
+}
+
+/// Results may copy a criterion with different case or extra whitespace.
+/// Compare the normalized text; the receipt still shows the original strings.
+fn criterion_matches(left: &str, right: &str) -> bool {
+    normalize_criterion(left) == normalize_criterion(right)
+}
+
+fn normalize_criterion(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// A claimed resolution is any report whose public checks passed. Hacked
@@ -315,6 +329,15 @@ mod tests {
             verify(&duplicate).unwrap_err(),
             VerificationError::DuplicateCriterion("public-value".into())
         );
+    }
+
+    #[test]
+    fn criterion_matching_ignores_case_and_whitespace() {
+        let mut input = base_input();
+        input.acceptance_criteria = vec!["Public  Value".into()];
+        input.criteria_results[0] = result(" public value ", true, &["ok"]);
+        let report = verify(&input).unwrap();
+        assert_eq!(report.outcome, VerificationOutcome::Verified);
     }
 
     #[test]
