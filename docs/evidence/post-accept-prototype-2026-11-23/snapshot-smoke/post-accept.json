@@ -1,0 +1,414 @@
+{
+  "schema": "1agent.post-accept-batch/v1",
+  "results": "/tmp/p4-snapshot-smoke/results.json",
+  "journals": 4,
+  "missing_journals": 0,
+  "decisions": {
+    "accepted": 4
+  },
+  "by_arm": {
+    "full": {
+      "accepted": 2
+    },
+    "core7": {
+      "accepted": 2
+    }
+  },
+  "by_case": {
+    "broken-json": {
+      "accepted": 2
+    },
+    "directory-summary": {
+      "accepted": 2
+    }
+  },
+  "failure_reasons": {},
+  "manifests": [
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/tmp/p4-snapshot-smoke/runs/full/broken-json/run-1/journals/1561688d-809b-4b3b-ab47-ac28f78a0ba8.jsonl",
+      "run_id": "1561688d-809b-4b3b-ab47-ac28f78a0ba8",
+      "objective": "Read /tmp/p4-snapshot-smoke/workspaces/full/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /tmp/p4-snapshot-smoke/workspaces/full/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 2,
+            "observations": 2,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "workspace:delivery_snapshot",
+          "passed": true,
+          "detail": {
+            "truncated": false,
+            "files": 1,
+            "mismatches": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 220
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 1,
+            "derived": 0,
+            "evidence_source": "model"
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/tmp/p4-snapshot-smoke/workspaces/full/run-1/broken-json/broken.json"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "workspace_snapshot": {
+        "present": true,
+        "truncated": false,
+        "files": 1,
+        "mismatches": 0
+      },
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
+        "sources": [
+          "/tmp/p4-snapshot-smoke/workspaces/full/run-1/broken-json/broken.json"
+        ]
+      },
+      "generated_at": "2026-11-23T08:43:30.652522+00:00",
+      "manifest_sha256": "30a2fd393dc749a17d338cc8ba88d9391866d7f74f58d908b89711456d675c11",
+      "arm": "full",
+      "case": "broken-json",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/tmp/p4-snapshot-smoke/runs/core7/broken-json/run-1/journals/1bab9027-0879-4e81-a659-5724c39cda18.jsonl",
+      "run_id": "1bab9027-0879-4e81-a659-5724c39cda18",
+      "objective": "Read /tmp/p4-snapshot-smoke/workspaces/core7/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /tmp/p4-snapshot-smoke/workspaces/core7/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 6,
+            "observations": 6,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "workspace:delivery_snapshot",
+          "passed": true,
+          "detail": {
+            "truncated": false,
+            "files": 1,
+            "mismatches": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 475
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/broken-json/broken.json",
+              "term-1795423364093-2296-64:jq . broken.json"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "workspace_snapshot": {
+        "present": true,
+        "truncated": false,
+        "files": 1,
+        "mismatches": 0
+      },
+      "answer": {
+        "status": "conditional",
+        "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
+        "sources": [
+          "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/broken-json/broken.json",
+          "term-1795423364093-2296-64:jq . broken.json"
+        ]
+      },
+      "generated_at": "2026-11-23T08:43:30.653574+00:00",
+      "manifest_sha256": "e00016a0edd7240ad9cb4f1ce3b8fe40b96ff8e012ba94a75ff50016be9971ce",
+      "arm": "core7",
+      "case": "broken-json",
+      "run": 1,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/tmp/p4-snapshot-smoke/runs/full/directory-summary/run-1/journals/4cb5c7d3-9567-47d3-a2df-f98cf9ec003f.jsonl",
+      "run_id": "4cb5c7d3-9567-47d3-a2df-f98cf9ec003f",
+      "objective": "Read the files in /tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "workspace:delivery_snapshot",
+          "passed": true,
+          "detail": {
+            "truncated": false,
+            "files": 2,
+            "mismatches": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 172
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes",
+              "/tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes/a.txt",
+              "/tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "workspace_snapshot": {
+        "present": true,
+        "truncated": false,
+        "files": 2,
+        "mismatches": 0
+      },
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
+        "sources": [
+          "/tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes",
+          "/tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes/a.txt",
+          "/tmp/p4-snapshot-smoke/workspaces/full/run-1/directory-summary/notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:43:30.654415+00:00",
+      "manifest_sha256": "c11e247d78c8ef324838c0d616760298fb3ddf8f9938f8e830c766223161bfed",
+      "arm": "full",
+      "case": "directory-summary",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/tmp/p4-snapshot-smoke/runs/core7/directory-summary/run-1/journals/7d203d6e-1af4-48a9-a710-2f2e4e6d20ab.jsonl",
+      "run_id": "7d203d6e-1af4-48a9-a710-2f2e4e6d20ab",
+      "objective": "Read the files in /tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 6,
+            "observations": 6,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "workspace:delivery_snapshot",
+          "passed": true,
+          "detail": {
+            "truncated": false,
+            "files": 2,
+            "mismatches": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 660
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes",
+              "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes/a.txt",
+              "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "workspace_snapshot": {
+        "present": true,
+        "truncated": false,
+        "files": 2,
+        "mismatches": 0
+      },
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
+        "sources": [
+          "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes",
+          "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes/a.txt",
+          "/tmp/p4-snapshot-smoke/workspaces/core7/run-1/directory-summary/notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:43:30.655445+00:00",
+      "manifest_sha256": "8ae46f9660ddab7b69b577b70843b3bfcc292f158b7020f725ce222325a64d99",
+      "arm": "core7",
+      "case": "directory-summary",
+      "run": 1,
+      "runtime_status": "completed"
+    }
+  ]
+}

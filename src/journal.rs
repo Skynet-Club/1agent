@@ -210,6 +210,12 @@ pub enum JournalEventKind {
     ExperienceInjected {
         injected: Vec<InjectedExperience>,
     },
+    /// Files present when the run delivered. Post-run acceptance verifies these
+    /// hashes, including files written through a terminal rather than a write
+    /// tool.
+    DeliverySnapshot {
+        snapshot: crate::workspace_snapshot::WorkspaceSnapshot,
+    },
     AnswerProduced {
         answer: AgentAnswer,
     },
@@ -1566,7 +1572,8 @@ pub fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, String> {
             | JournalEventKind::CompletionAcceptanceMissing { .. }
             | JournalEventKind::CompletionArtifactUnfinished { .. }
             | JournalEventKind::CompletionDesignContractGap { .. }
-            | JournalEventKind::CompletionArtifactStale { .. } => {}
+            | JournalEventKind::CompletionArtifactStale { .. }
+            | JournalEventKind::DeliverySnapshot { .. } => {}
         }
     }
 

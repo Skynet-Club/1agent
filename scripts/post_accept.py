@@ -153,6 +153,50 @@ def collect_artifacts(events: list[dict]) -> tuple[list[dict], list[str], bool, 
     return list(artifacts.values()), reasons, unrecorded_write, terminal_write_possible
 
 
+def collect_delivery_snapshot(events: list[dict]) -> dict | None:
+    snapshot = None
+    for event in events:
+        if event.get("type") != "delivery_snapshot":
+            continue
+        candidate = event_data(event).get("snapshot")
+        if isinstance(candidate, dict):
+            snapshot = candidate
+    return snapshot
+
+
+def verify_delivery_snapshot(snapshot: dict | None) -> dict:
+    if snapshot is None:
+        return {"present": False, "truncated": False, "files": [], "mismatches": []}
+    files = snapshot.get("files") if isinstance(snapshot.get("files"), list) else []
+    rows: list[dict] = []
+    mismatches: list[dict] = []
+    for file in files:
+        if not isinstance(file, dict):
+            continue
+        path_value = file.get("path")
+        recorded = file.get("sha256")
+        if not isinstance(path_value, str) or not isinstance(recorded, str):
+            continue
+        path = Path(path_value)
+        current = sha256_file(path)
+        row = {
+            "path": path_value,
+            "recorded_sha256": recorded,
+            "current_sha256": current,
+            "exists": path.is_file(),
+            "match": current == recorded,
+        }
+        rows.append(row)
+        if not row["exists"] or not row["match"]:
+            mismatches.append(row)
+    return {
+        "present": True,
+        "truncated": bool(snapshot.get("truncated")),
+        "files": rows,
+        "mismatches": mismatches,
+    }
+
+
 def collect_answer(events: list[dict]) -> dict | None:
     answer = None
     for event in events:
@@ -251,7 +295,20 @@ def build_manifest(journal: Path) -> dict:
     artifacts, artifact_reasons, unrecorded_write, terminal_write_possible = collect_artifacts(events)
     verified_artifacts = collect_verified_artifacts(events)
     derived_claims = derive_claims(artifacts, verified_artifacts)
-    unpinned_write = not artifacts and terminal_write_possible
+    snapshot = collect_delivery_snapshot(events)
+    snapshot_state = verify_delivery_snapshot(snapshot)
+    snapshot_ok = (
+        snapshot_state["present"]
+        and not snapshot_state["truncated"]
+        and not snapshot_state["mismatches"]
+    )
+    snapshot_stale = (
+        snapshot_state["present"]
+        and not snapshot_state["truncated"]
+        and bool(snapshot_state["mismatches"])
+    )
+    snapshot_incomplete = snapshot_state["present"] and snapshot_state["truncated"]
+    unpinned_write = not artifacts and terminal_write_possible and not snapshot_ok
     request = (event_data(started).get("request") if started else {}) or {}
     objective = request.get("objective") if isinstance(request, dict) else None
     run_id = journal.stem
@@ -294,6 +351,19 @@ def build_manifest(journal: Path) -> dict:
                 "id": f"artifact:{artifact['path']}",
                 "passed": bool(row["exists"] and row["match"]),
                 "detail": row,
+            }
+        )
+
+    if snapshot_state["present"]:
+        checks.append(
+            {
+                "id": "workspace:delivery_snapshot",
+                "passed": snapshot_ok,
+                "detail": {
+                    "truncated": snapshot_state["truncated"],
+                    "files": len(snapshot_state["files"]),
+                    "mismatches": snapshot_state["mismatches"][:20],
+                },
             }
         )
 
@@ -389,12 +459,13 @@ def build_manifest(journal: Path) -> dict:
             "answer:claims",
             "answer:sources_exist",
             "journal:terminal_write_unpinned",
+            "workspace:delivery_snapshot",
         }
     )
     answer_ok = all(check["passed"] for check in answer_checks)
-    if not proof_ok:
+    if snapshot_stale or not proof_ok:
         decision = "rejected"
-    elif unpinned_write or not answer_ok:
+    elif unpinned_write or snapshot_incomplete or not answer_ok:
         decision = "conditional"
     else:
         decision = "accepted"
@@ -410,6 +481,12 @@ def build_manifest(journal: Path) -> dict:
         "unpinned_write": unpinned_write,
         "checks": checks,
         "artifacts": artifact_rows,
+        "workspace_snapshot": {
+            "present": snapshot_state["present"],
+            "truncated": snapshot_state["truncated"],
+            "files": len(snapshot_state["files"]),
+            "mismatches": len(snapshot_state["mismatches"]),
+        },
         "answer": {
             "status": answer.get("status") if answer else None,
             "claims": len(answer.get("claims") or []) if answer else 0,
@@ -608,6 +685,43 @@ def self_test() -> int:
         unpinned = build_manifest(journal)
         assert unpinned["decision"] == "conditional", unpinned
         assert unpinned["unpinned_write"] is True, unpinned
+
+        delivery_snapshot = {
+            "event": {
+                "type": "delivery_snapshot",
+                "data": {
+                    "snapshot": {
+                        "root": str(root),
+                        "files": [
+                            {
+                                "path": str(artifact),
+                                "sha256": digest,
+                                "bytes": 8,
+                            }
+                        ],
+                        "truncated": False,
+                        "captured_unix_ms": 0,
+                    }
+                },
+            }
+        }
+        journal.write_text(
+            "".join(
+                json.dumps(event, ensure_ascii=False) + "\n"
+                for event in (
+                    started,
+                    terminal_call,
+                    terminal_observation,
+                    delivery_snapshot,
+                    answer,
+                    stopped,
+                )
+            ),
+            encoding="utf-8",
+        )
+        pinned = build_manifest(journal)
+        assert pinned["decision"] == "accepted", pinned
+        assert pinned["workspace_snapshot"]["present"] is True, pinned
     print("post_accept self-test passed")
     return 0
 

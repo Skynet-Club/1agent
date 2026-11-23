@@ -62,6 +62,25 @@ The derived evidence removed all `answer:claims` failures: zero-claim answers
 with a recorded write or verified artifact now pass the evidence check from
 journal facts.
 
+## Delivery snapshot smoke
+
+The runtime now records a `delivery_snapshot` event at final answer time:
+workspace root, file paths, sha256 and bytes (capped at 2048 files / 16 MB,
+skipping internal directories). Post-run acceptance verifies those hashes and
+treats terminal writes as pinned when the snapshot is complete.
+
+Four previously `terminal_write_unpinned` cases were rerun with the new binary
+(`40ab0e85…`):
+
+| Arm | Case | Decision | Snapshot |
+|---|---|---|---|
+| full | broken-json | accepted | 1 file, 0 mismatches |
+| core7 | broken-json | accepted | 1 file, 0 mismatches |
+| full | directory-summary | accepted | 2 files, 0 mismatches |
+| core7 | directory-summary | accepted | 2 files, 0 mismatches |
+
+Evidence: `snapshot-smoke/results.json` and `snapshot-smoke/post-accept.json`.
+
 ## Interpretation
 
 This validates the core architecture: the journal plus recorded artifact hashes

@@ -145,6 +145,7 @@ pub mod voice;
 pub mod watchdog;
 pub mod work_ledger;
 pub mod worker_runtime;
+pub mod workspace_snapshot;
 
 pub use action_log::*;
 pub use action_log_journal::*;

@@ -3967,6 +3967,11 @@ impl AgentRuntime {
 
             match response.turn {
                 ModelTurn::Final { answer } => {
+                    append_delivery_snapshot(
+                        &mut journal,
+                        &journal_path,
+                        request.permissions.read_roots.last().map(PathBuf::as_path),
+                    )?;
                     let mut answer = answer;
                     normalize_unresolved_conflicts(&mut answer);
                     if let Err(validation_error) = answer.validate(&request) {
@@ -4352,6 +4357,11 @@ impl AgentRuntime {
                         let answer =
                             enforce_completion_gate(&mut journal, &completion_gate, answer)?;
                         let stop_reason = stop_reason_for_answer(answer.status);
+                        append_delivery_snapshot(
+                            &mut journal,
+                            &journal_path,
+                            request.permissions.read_roots.last().map(PathBuf::as_path),
+                        )?;
                         journal
                             .append(JournalEventKind::AnswerProduced {
                                 answer: answer.clone(),
@@ -4685,6 +4695,11 @@ impl AgentRuntime {
             budget_answer("step budget exhausted")
         };
         let stop_reason = stop_reason_for_answer(answer.status);
+        append_delivery_snapshot(
+            &mut journal,
+            &journal_path,
+            request.permissions.read_roots.last().map(PathBuf::as_path),
+        )?;
         journal
             .append(JournalEventKind::AnswerProduced {
                 answer: answer.clone(),
@@ -5381,6 +5396,24 @@ fn remaining_budget(
     Duration::from_millis(timeout_ms)
         .checked_sub(initial_elapsed.saturating_add(started_at.elapsed()))
         .filter(|remaining| !remaining.is_zero())
+}
+
+fn append_delivery_snapshot(
+    journal: &mut Journal,
+    journal_path: &Path,
+    root: Option<&Path>,
+) -> Result<(), RuntimeError> {
+    let Some(root) = root else {
+        return Ok(());
+    };
+    let snapshot = crate::workspace_snapshot::capture(root);
+    journal
+        .append(JournalEventKind::DeliverySnapshot { snapshot })
+        .map(|_| ())
+        .map_err(|source| RuntimeError::Journal {
+            path: journal_path.to_path_buf(),
+            source,
+        })
 }
 
 fn finish_with_answer(

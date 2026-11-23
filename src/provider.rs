@@ -1496,10 +1496,13 @@ fn normalize_tool_calls(calls: Vec<WireResponseToolCall>) -> Result<Vec<ToolCall
             ));
         }
         let arguments = serde_json::from_str(&call.function.arguments).map_err(|error| {
+            // The model truncated or malformed one tool-call payload. The same
+            // request can produce a valid call on the next attempt; keep the
+            // failure bounded by max_provider_attempts.
             ProviderError::new(
                 ProviderErrorCode::InvalidResponse,
                 format!("tool call arguments are invalid JSON: {error}"),
-                false,
+                true,
             )
         })?;
         normalized.push(ToolCall {
@@ -2634,6 +2637,14 @@ mod tests {
                 ..
             })
         ));
+
+        let malformed: Vec<WireResponseToolCall> = serde_json::from_value(serde_json::json!([
+            {"id": "call-3", "function": {"name": "echo", "arguments": "{\"text\":"}}
+        ]))
+        .unwrap();
+        let error = normalize_tool_calls(malformed).unwrap_err();
+        assert_eq!(error.code, ProviderErrorCode::InvalidResponse);
+        assert!(error.retryable);
     }
 
     #[tokio::test]
