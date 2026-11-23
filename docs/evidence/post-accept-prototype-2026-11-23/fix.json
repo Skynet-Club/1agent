@@ -1,0 +1,4442 @@
+{
+  "schema": "1agent.post-accept-batch/v1",
+  "results": "docs/evidence/phase4-acceptance-fix-2026-11-23/results.json",
+  "journals": 48,
+  "missing_journals": 24,
+  "decisions": {
+    "conditional": 7,
+    "accepted": 40,
+    "rejected": 1
+  },
+  "by_arm": {
+    "full": {
+      "conditional": 5,
+      "accepted": 19
+    },
+    "core7": {
+      "accepted": 21,
+      "conditional": 2,
+      "rejected": 1
+    }
+  },
+  "by_case": {
+    "bug-fix-last-index": {
+      "conditional": 1,
+      "accepted": 5
+    },
+    "config-retries": {
+      "accepted": 3,
+      "conditional": 2,
+      "rejected": 1
+    },
+    "data-processing-sales": {
+      "accepted": 6
+    },
+    "research-compare": {
+      "accepted": 6
+    },
+    "long-task-plan": {
+      "accepted": 6
+    },
+    "broken-json": {
+      "conditional": 3,
+      "accepted": 3
+    },
+    "checksum-file": {
+      "accepted": 6
+    },
+    "directory-summary": {
+      "accepted": 5,
+      "conditional": 1
+    }
+  },
+  "failure_reasons": {
+    "answer:claims": 3,
+    "journal:terminal_write_unpinned": 4,
+    "answer:present": 1
+  },
+  "manifests": [
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/bug-fix-last-index/run-1/journals/89372c16-63f6-4391-acf9-c291d38f28c5.jsonl",
+      "run_id": "89372c16-63f6-4391-acf9-c291d38f28c5",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": false,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 8,
+            "observations": 8,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs",
+            "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "exists": true,
+            "match": true,
+            "tool": "edit_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "needs_evidence",
+            "conclusion_chars": 33
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": false,
+          "detail": {
+            "claims": 0,
+            "verified": 0
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs",
+          "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "exists": true,
+          "match": true,
+          "tool": "edit_file"
+        }
+      ],
+      "answer": {
+        "status": "needs_evidence",
+        "claims": 0,
+        "sources": []
+      },
+      "generated_at": "2026-11-23T08:27:57.881690+00:00",
+      "manifest_sha256": "aca0896422faa3498ef024d3b3b1467eacb5c2a999366e8ea15890153439b5b3",
+      "arm": "full",
+      "case": "bug-fix-last-index",
+      "run": 1,
+      "runtime_status": "needs_evidence"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/bug-fix-last-index/run-1/journals/e501b384-bb56-499a-ac4b-a1e279dc6829.jsonl",
+      "run_id": "e501b384-bb56-499a-ac4b-a1e279dc6829",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs",
+            "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 286
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 7,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs",
+              "acceptance_gate:aebd5d5ea294d7847a01252e63e64e32c6f4e44ab00bb54be29650c2b0364087"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs",
+          "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 7,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs",
+          "acceptance_gate:aebd5d5ea294d7847a01252e63e64e32c6f4e44ab00bb54be29650c2b0364087"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.882471+00:00",
+      "manifest_sha256": "e9e63f0eab1711055bc1ad73cd687a118acc32a16a5606df37eb3171248481d9",
+      "arm": "core7",
+      "case": "bug-fix-last-index",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/config-retries/run-1/journals/c47c13db-6283-4cc5-8f1b-2a1ad273a06b.jsonl",
+      "run_id": "c47c13db-6283-4cc5-8f1b-2a1ad273a06b",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 6,
+            "observations": 6,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf",
+            "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "exists": true,
+            "match": true,
+            "tool": "edit_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 91
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf",
+          "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "exists": true,
+          "match": true,
+          "tool": "edit_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.883546+00:00",
+      "manifest_sha256": "1aaa2d6ad4ecdf0ce863cd2308aaaf8a0e866c31162cdb293d3de765392f4d66",
+      "arm": "full",
+      "case": "config-retries",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/config-retries/run-1/journals/2c1f077d-6eac-48d3-a65c-2eeb8231c234.jsonl",
+      "run_id": "2c1f077d-6eac-48d3-a65c-2eeb8231c234",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 4,
+            "observations": 4,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf",
+            "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 146
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 3,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf",
+          "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 3,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.884301+00:00",
+      "manifest_sha256": "e8c540a037f1bba75d1f9af42caffea49c8e379560e58330660b686dbe67a4fb",
+      "arm": "core7",
+      "case": "config-retries",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/data-processing-sales/run-1/journals/0e13a348-40aa-4afe-ae26-a880e8e41196.jsonl",
+      "run_id": "0e13a348-40aa-4afe-ae26-a880e8e41196",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt",
+            "recorded_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+            "current_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 133
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 3,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/sales.jsonl",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt",
+          "recorded_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+          "current_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 3,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/sales.jsonl",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.885215+00:00",
+      "manifest_sha256": "149aa9453d7baccd026607468747228fd5f31262566db077972886d63f977350",
+      "arm": "full",
+      "case": "data-processing-sales",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/data-processing-sales/run-1/journals/0cbd48a3-ee8d-4f38-8e88-22cca8be83cf.jsonl",
+      "run_id": "0cbd48a3-ee8d-4f38-8e88-22cca8be83cf",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt",
+            "recorded_sha256": "330176c001d39ed07fc55152faecd953495c39f26263479fb1ecb1e2917499a1",
+            "current_sha256": "330176c001d39ed07fc55152faecd953495c39f26263479fb1ecb1e2917499a1",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 100
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/sales.jsonl",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt",
+              "acceptance_gate:85584d1a97e2e3310fbc145b22a53878765747018824140e07dedd2502e32a7e"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt",
+          "recorded_sha256": "330176c001d39ed07fc55152faecd953495c39f26263479fb1ecb1e2917499a1",
+          "current_sha256": "330176c001d39ed07fc55152faecd953495c39f26263479fb1ecb1e2917499a1",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/sales.jsonl",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt",
+          "acceptance_gate:85584d1a97e2e3310fbc145b22a53878765747018824140e07dedd2502e32a7e"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.885913+00:00",
+      "manifest_sha256": "ff5184b0070f472fb8024933e4aee7c8883263dbcaf9610393396991cf46a0f0",
+      "arm": "core7",
+      "case": "data-processing-sales",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/research-compare/run-1/journals/d7839d7f-35d1-4f42-9583-dc77824d7159.jsonl",
+      "run_id": "d7839d7f-35d1-4f42-9583-dc77824d7159",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 2,
+            "observations": 2,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 333
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/a.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/b.md"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/a.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/b.md"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.886527+00:00",
+      "manifest_sha256": "8741934706800da2d0456d4a242dd8f51dcb1cf9439903096a84ad920858815a",
+      "arm": "full",
+      "case": "research-compare",
+      "run": 1,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/research-compare/run-1/journals/d282f67c-d435-41ad-8d90-415344420e66.jsonl",
+      "run_id": "d282f67c-d435-41ad-8d90-415344420e66",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 328
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 6,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/a.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/b.md"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 6,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/a.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/b.md"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.887144+00:00",
+      "manifest_sha256": "c8405f0641462190b347db1b3569a9f3892848c7e3a61dbf3a6927d435076f78",
+      "arm": "core7",
+      "case": "research-compare",
+      "run": 1,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/long-task-plan/run-1/journals/e3f61c6b-4609-45f1-9cac-cbaded8fbb4d.jsonl",
+      "run_id": "e3f61c6b-4609-45f1-9cac-cbaded8fbb4d",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md, and report the first step with README.md as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md, and report the first step with README.md as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 8,
+            "observations": 8,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md",
+            "recorded_sha256": "fa22ed12be324623ef6fc6d806992ef342fe2468086512fed898082ecd224ae2",
+            "current_sha256": "fa22ed12be324623ef6fc6d806992ef342fe2468086512fed898082ecd224ae2",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 477
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 7,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/README.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md",
+              "acceptance_gate:057a52cec100f6023940f7a48ea83e0589ce651a760328d2da953e7ec754ee72"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md",
+          "recorded_sha256": "fa22ed12be324623ef6fc6d806992ef342fe2468086512fed898082ecd224ae2",
+          "current_sha256": "fa22ed12be324623ef6fc6d806992ef342fe2468086512fed898082ecd224ae2",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "conditional",
+        "claims": 7,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/README.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md",
+          "acceptance_gate:057a52cec100f6023940f7a48ea83e0589ce651a760328d2da953e7ec754ee72"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.888434+00:00",
+      "manifest_sha256": "d84456f24f7f328d582c2f630a5c15f84f01737837219357d1ed4c10e8c0baaf",
+      "arm": "full",
+      "case": "long-task-plan",
+      "run": 1,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/long-task-plan/run-1/journals/52957f3c-c664-495c-a17b-f9b6cc9f3431.jsonl",
+      "run_id": "52957f3c-c664-495c-a17b-f9b6cc9f3431",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md, and report the first step with README.md as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md, and report the first step with README.md as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md",
+            "recorded_sha256": "bfedf6f227acbc2b7da19d51ba96acb48207d9d87f7ad2bf3c7e706fa768e155",
+            "current_sha256": "bfedf6f227acbc2b7da19d51ba96acb48207d9d87f7ad2bf3c7e706fa768e155",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 451
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/README.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md",
+              "acceptance_gate:4c9d511bb7c6d3eb068df8d73dcba909166f9929b0f9084ca0274a05e9c8eb7b"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md",
+          "recorded_sha256": "bfedf6f227acbc2b7da19d51ba96acb48207d9d87f7ad2bf3c7e706fa768e155",
+          "current_sha256": "bfedf6f227acbc2b7da19d51ba96acb48207d9d87f7ad2bf3c7e706fa768e155",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/README.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md",
+          "acceptance_gate:4c9d511bb7c6d3eb068df8d73dcba909166f9929b0f9084ca0274a05e9c8eb7b"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.889239+00:00",
+      "manifest_sha256": "3c9a36fb3f53d524f1dd901abadbac0acea87b2034921d024c7750dc14fc1864",
+      "arm": "core7",
+      "case": "long-task-plan",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/broken-json/run-1/journals/70b3b4ba-542b-4d5c-a6a0-bd6fa0ffbefe.jsonl",
+      "run_id": "70b3b4ba-542b-4d5c-a6a0-bd6fa0ffbefe",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": true,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 4,
+            "observations": 4,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "journal:terminal_write_unpinned",
+          "passed": false,
+          "detail": {
+            "reason": "a terminal command may have written, but no write/edit artifact was recorded"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 288
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/broken-json/broken.json",
+              "term-1795416464352-2296-44"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/broken-json/broken.json",
+          "term-1795416464352-2296-44"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.890077+00:00",
+      "manifest_sha256": "d6c16cb65ab1ec876546701bb17504f4e9989fdf0903440fa0ccd1205527434e",
+      "arm": "full",
+      "case": "broken-json",
+      "run": 1,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/broken-json/run-1/journals/7a1bfd7c-3957-437b-a89b-8e51a573b799.jsonl",
+      "run_id": "7a1bfd7c-3957-437b-a89b-8e51a573b799",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": true,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "journal:terminal_write_unpinned",
+          "passed": false,
+          "detail": {
+            "reason": "a terminal command may have written, but no write/edit artifact was recorded"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 216
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/broken.json",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/jq.err",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/py.out"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/broken.json",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/jq.err",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/py.out"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.890982+00:00",
+      "manifest_sha256": "2665b4e7f5afa5db219b20ffcbb7e27c4fa9b64d78c4b3d605119435ea4796a9",
+      "arm": "core7",
+      "case": "broken-json",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/checksum-file/run-1/journals/ba0462cb-0f37-4753-acbc-a3a8c79b1a3c.jsonl",
+      "run_id": "ba0462cb-0f37-4753-acbc-a3a8c79b1a3c",
+      "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 8,
+            "observations": 8,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt",
+            "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 159
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt",
+              "acceptance_gate:checksum-file-evidence:07f9ca8c743283c0d1beb7ed6c3582a5f5a3d5ed84440eed39a0ee65b87d19a9",
+              "verify_artifact:checksum.txt:ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt",
+          "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt",
+          "acceptance_gate:checksum-file-evidence:07f9ca8c743283c0d1beb7ed6c3582a5f5a3d5ed84440eed39a0ee65b87d19a9",
+          "verify_artifact:checksum.txt:ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.892352+00:00",
+      "manifest_sha256": "10cc0456eec658335397dda60604881012bf0ba6d6c46ca72025e6694f53a6c3",
+      "arm": "full",
+      "case": "checksum-file",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/checksum-file/run-1/journals/fa4eeb40-c62b-41b8-849e-d6efcacbf0fe.jsonl",
+      "run_id": "fa4eeb40-c62b-41b8-849e-d6efcacbf0fe",
+      "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 6,
+            "observations": 6,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt",
+            "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 250
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt",
+              "acceptance:0c8cff11c8ad9dd16fee5e8dd17022524a4921aa2f03de0c9f24aa2c14854ea7",
+              "term-1795416535290-2296-47"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt",
+          "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt",
+          "acceptance:0c8cff11c8ad9dd16fee5e8dd17022524a4921aa2f03de0c9f24aa2c14854ea7",
+          "term-1795416535290-2296-47"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.893391+00:00",
+      "manifest_sha256": "86248cde966a5326ccb63abcd581cc75a1c32a403fb63879a53be5e93803cb7d",
+      "arm": "core7",
+      "case": "checksum-file",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/directory-summary/run-1/journals/afe33dff-a1b3-4827-af6b-be98526a541b.jsonl",
+      "run_id": "afe33dff-a1b3-4827-af6b-be98526a541b",
+      "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 89
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 3,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "notes/a.txt",
+              "notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 3,
+        "sources": [
+          "notes/a.txt",
+          "notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.894093+00:00",
+      "manifest_sha256": "0349fa46e1d1dfeef049d76708cde8c9dbb2e0edc9a5cc8f60ca7ba668460891",
+      "arm": "full",
+      "case": "directory-summary",
+      "run": 1,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/directory-summary/run-1/journals/1be83be8-4064-4690-8a63-38257008adc0.jsonl",
+      "run_id": "1be83be8-4064-4690-8a63-38257008adc0",
+      "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": true,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "journal:terminal_write_unpinned",
+          "passed": false,
+          "detail": {
+            "reason": "a terminal command may have written, but no write/edit artifact was recorded"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 170
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes/a.txt",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes/b.txt",
+              "term-1795416559685-2296-48"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes/a.txt",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes/b.txt",
+          "term-1795416559685-2296-48"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.894711+00:00",
+      "manifest_sha256": "4de2722a50ffa9c62117b6c4c64d1c6bfa200803916a76e93d9aac9f9d491add",
+      "arm": "core7",
+      "case": "directory-summary",
+      "run": 1,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/bug-fix-last-index/run-2/journals/7c6aee77-f489-40bb-b311-fbe15bb98a09.jsonl",
+      "run_id": "7c6aee77-f489-40bb-b311-fbe15bb98a09",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/bug-fix-last-index/counter.rs",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/bug-fix-last-index/counter.rs",
+            "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 302
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "counter.rs"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/bug-fix-last-index/counter.rs",
+          "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "counter.rs"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.895587+00:00",
+      "manifest_sha256": "fa25d4f2bc58df76b926bb6681e42b36d8b0945f90cf6f54f786e56993e186be",
+      "arm": "full",
+      "case": "bug-fix-last-index",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/bug-fix-last-index/run-2/journals/f24e190b-cd3f-49e5-8995-b0e13a05aded.jsonl",
+      "run_id": "f24e190b-cd3f-49e5-8995-b0e13a05aded",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs",
+            "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 464
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs",
+              "acceptance_gate:bug-fix-last-index",
+              "terminal:term-1795416604495-2296-49"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs",
+          "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs",
+          "acceptance_gate:bug-fix-last-index",
+          "terminal:term-1795416604495-2296-49"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.896300+00:00",
+      "manifest_sha256": "165eba0a718d4c00508e0fcce028b750206335b8222e63d6a47f86cd01fde80d",
+      "arm": "core7",
+      "case": "bug-fix-last-index",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/config-retries/run-2/journals/2396ad25-0be7-4566-9939-f3ab77f4f01e.jsonl",
+      "run_id": "2396ad25-0be7-4566-9939-f3ab77f4f01e",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": false,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 7,
+            "observations": 7,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf",
+            "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "exists": true,
+            "match": true,
+            "tool": "edit_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "needs_evidence",
+            "conclusion_chars": 248
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": false,
+          "detail": {
+            "claims": 0,
+            "verified": 0
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf",
+          "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "exists": true,
+          "match": true,
+          "tool": "edit_file"
+        }
+      ],
+      "answer": {
+        "status": "needs_evidence",
+        "claims": 0,
+        "sources": []
+      },
+      "generated_at": "2026-11-23T08:27:57.897352+00:00",
+      "manifest_sha256": "142d80c42ad2f9a7373164aa7eed1327a3c7254257e4f768313714a85a45f4e0",
+      "arm": "full",
+      "case": "config-retries",
+      "run": 2,
+      "runtime_status": "needs_evidence"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/config-retries/run-2/journals/200feec7-545f-43b8-a81c-9677022a67b0.jsonl",
+      "run_id": "200feec7-545f-43b8-a81c-9677022a67b0",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 4,
+            "observations": 4,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf",
+            "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 189
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf",
+              "acceptance_gate:config-retries-1-to-3"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf",
+          "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf",
+          "acceptance_gate:config-retries-1-to-3"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.898029+00:00",
+      "manifest_sha256": "f126020a270e70134f59122723c8b9efa3cee158d8baa4b5291c1171e144afa1",
+      "arm": "core7",
+      "case": "config-retries",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/data-processing-sales/run-2/journals/5071aab5-784a-4721-9356-a185fef6938a.jsonl",
+      "run_id": "5071aab5-784a-4721-9356-a185fef6938a",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt",
+            "recorded_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+            "current_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 132
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/sales.jsonl",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt",
+              "acceptance_gate:data-processing-sales-summary"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt",
+          "recorded_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+          "current_sha256": "1809bfa86c84f4f3e5ba33fc907c221d44d862eb7c39a2995ce8caedc858b84c",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/sales.jsonl",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt",
+          "acceptance_gate:data-processing-sales-summary"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.899133+00:00",
+      "manifest_sha256": "7c5c7ebc4cef6b31516bef76789754724b1c0b199a2ae6113ac2546aaa8219a8",
+      "arm": "full",
+      "case": "data-processing-sales",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/data-processing-sales/run-2/journals/b7f820a7-a3ae-4509-9555-d469928bcfbc.jsonl",
+      "run_id": "b7f820a7-a3ae-4509-9555-d469928bcfbc",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt",
+            "recorded_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+            "current_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 143
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 3,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/sales.jsonl",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt",
+          "recorded_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+          "current_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 3,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/sales.jsonl",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.899826+00:00",
+      "manifest_sha256": "7582e53605d9a9dc4bf677d0e50e133594c6166c7eba1107eafc79a22bf7d6b3",
+      "arm": "core7",
+      "case": "data-processing-sales",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/research-compare/run-2/journals/53658e51-a006-45d2-8ef8-e49f2998d37e.jsonl",
+      "run_id": "53658e51-a006-45d2-8ef8-e49f2998d37e",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 287
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 6,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/a.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/b.md"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 6,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/a.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/b.md"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.900470+00:00",
+      "manifest_sha256": "2c7c50659ca4393abf58305545d6fd98c26ea0534e0e3d03d64f79aa12ccee28",
+      "arm": "full",
+      "case": "research-compare",
+      "run": 2,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/research-compare/run-2/journals/4a77a769-f20a-43aa-ab66-4b7077eb9319.jsonl",
+      "run_id": "4a77a769-f20a-43aa-ab66-4b7077eb9319",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/NOTES.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/NOTES.md",
+            "recorded_sha256": "89e7316fc542ea67f1415415d3903a9b7649203431188b73acada82c77cd7c66",
+            "current_sha256": "89e7316fc542ea67f1415415d3903a9b7649203431188b73acada82c77cd7c66",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 89
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/a.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/b.md"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/NOTES.md",
+          "recorded_sha256": "89e7316fc542ea67f1415415d3903a9b7649203431188b73acada82c77cd7c66",
+          "current_sha256": "89e7316fc542ea67f1415415d3903a9b7649203431188b73acada82c77cd7c66",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "conditional",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/a.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/b.md"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.901176+00:00",
+      "manifest_sha256": "6d725c29d0defeb6e9605ee67a6ab1356100a7bd6ee4787d7d17ee410c748dab",
+      "arm": "core7",
+      "case": "research-compare",
+      "run": 2,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/long-task-plan/run-2/journals/6ee6bc75-2ffe-4f41-ae22-02cf55c04c70.jsonl",
+      "run_id": "6ee6bc75-2ffe-4f41-ae22-02cf55c04c70",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md, and report the first step with README.md as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md, and report the first step with README.md as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 11,
+            "observations": 11,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md",
+            "recorded_sha256": "546b701575600526c16123fe92e6d352bdb8e941d3921608be763bbe80c1e147",
+            "current_sha256": "546b701575600526c16123fe92e6d352bdb8e941d3921608be763bbe80c1e147",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/NOTES.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/NOTES.md",
+            "recorded_sha256": "760e6b8bb5270b31b9cface216f28a4d0eb5374826e7c49f62d7c52f4851316e",
+            "current_sha256": "760e6b8bb5270b31b9cface216f28a4d0eb5374826e7c49f62d7c52f4851316e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 492
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 7,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/README.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md",
+              "call_00_ET_RUXh6GsiUUUdOszX8PL96245",
+              "call_00_XBZI94HXEHwKPB4UWHci0406"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md",
+          "recorded_sha256": "546b701575600526c16123fe92e6d352bdb8e941d3921608be763bbe80c1e147",
+          "current_sha256": "546b701575600526c16123fe92e6d352bdb8e941d3921608be763bbe80c1e147",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        },
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/NOTES.md",
+          "recorded_sha256": "760e6b8bb5270b31b9cface216f28a4d0eb5374826e7c49f62d7c52f4851316e",
+          "current_sha256": "760e6b8bb5270b31b9cface216f28a4d0eb5374826e7c49f62d7c52f4851316e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "conditional",
+        "claims": 7,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/README.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/plan.md",
+          "call_00_ET_RUXh6GsiUUUdOszX8PL96245",
+          "call_00_XBZI94HXEHwKPB4UWHci0406"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.902584+00:00",
+      "manifest_sha256": "9beef27854d1dcbcdd6cc38cd78bd94091f09850161ef388349cf39e7ef6c443",
+      "arm": "full",
+      "case": "long-task-plan",
+      "run": 2,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/long-task-plan/run-2/journals/0abfb516-28eb-4a5e-8710-9c43a934d8d4.jsonl",
+      "run_id": "0abfb516-28eb-4a5e-8710-9c43a934d8d4",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md, and report the first step with README.md as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md, and report the first step with README.md as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 4,
+            "observations": 4,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md",
+            "recorded_sha256": "5b5b6c3c3ad624426dcbc0d67a815b6cee02e12a3ff2cdb038cb82efadf2bb28",
+            "current_sha256": "5b5b6c3c3ad624426dcbc0d67a815b6cee02e12a3ff2cdb038cb82efadf2bb28",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 524
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 6,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/README.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md",
+              "acceptance_gate:2cd4a6be2e33ae7f14440e3f8cf140beb9035dab503f2a24e0a80f4fa1b5cf9f"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md",
+          "recorded_sha256": "5b5b6c3c3ad624426dcbc0d67a815b6cee02e12a3ff2cdb038cb82efadf2bb28",
+          "current_sha256": "5b5b6c3c3ad624426dcbc0d67a815b6cee02e12a3ff2cdb038cb82efadf2bb28",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 6,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/README.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md",
+          "acceptance_gate:2cd4a6be2e33ae7f14440e3f8cf140beb9035dab503f2a24e0a80f4fa1b5cf9f"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.903484+00:00",
+      "manifest_sha256": "525906e728bca26246091e13204f4980716d7d3d2fe1ba95cdcaf5f3b469f7e1",
+      "arm": "core7",
+      "case": "long-task-plan",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/broken-json/run-2/journals/e534ff80-d686-4410-85f2-6e08d461a9bf.jsonl",
+      "run_id": "e534ff80-d686-4410-85f2-6e08d461a9bf",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 4,
+            "observations": 4,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 187
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/broken-json/broken.json"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/broken-json/broken.json"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.904214+00:00",
+      "manifest_sha256": "6989405e07f45f042d0eff233b49fba17b2c7785653ca07dff5889bf07ac4882",
+      "arm": "full",
+      "case": "broken-json",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/broken-json/run-2/journals/8e4eefb1-3809-4f7f-b5d6-ffab79473ca5.jsonl",
+      "run_id": "8e4eefb1-3809-4f7f-b5d6-ffab79473ca5",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 197
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/broken-json/broken.json",
+              "jq . broken.json (session term-1795416828347-2296-51)"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/broken-json/broken.json",
+          "jq . broken.json (session term-1795416828347-2296-51)"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.904818+00:00",
+      "manifest_sha256": "9b5ddff85133fb16f8c182d599092fb342d704db87fc460dc402bdb352e5c659",
+      "arm": "core7",
+      "case": "broken-json",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/checksum-file/run-2/journals/e063ba3f-6669-4561-8824-aeaa12c448d0.jsonl",
+      "run_id": "e063ba3f-6669-4561-8824-aeaa12c448d0",
+      "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt",
+            "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 136
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 5
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt",
+              "/tmp/nl_ref",
+              "acceptance_gate:checksum-file-run2"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt",
+          "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt",
+          "/tmp/nl_ref",
+          "acceptance_gate:checksum-file-run2"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.905750+00:00",
+      "manifest_sha256": "58358dae06e10851acb77ed459804a8b49c409965ea08a10ea12c48355e7c786",
+      "arm": "full",
+      "case": "checksum-file",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/checksum-file/run-2/journals/170cb42e-7612-4e2a-ae70-3615276d3751.jsonl",
+      "run_id": "170cb42e-7612-4e2a-ae70-3615276d3751",
+      "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt",
+            "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 182
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt",
+              "acceptance_gate receipt task core7-run-2-checksum-file",
+              "checksum.txt od -c/wc -c 输出（session term-1795416867830-2296-53）",
+              "checksum.txt sha256sum 输出（session term-1795416867830-2296-53）"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt",
+          "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt",
+          "acceptance_gate receipt task core7-run-2-checksum-file",
+          "checksum.txt od -c/wc -c 输出（session term-1795416867830-2296-53）",
+          "checksum.txt sha256sum 输出（session term-1795416867830-2296-53）"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.906798+00:00",
+      "manifest_sha256": "7be7fe00507f8ce9b69dc3b49a1493282c2b0bc874257aa711dff69eb48892e9",
+      "arm": "core7",
+      "case": "checksum-file",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/directory-summary/run-2/journals/d4e18f7a-a18b-496c-a360-a99a0200f02c.jsonl",
+      "run_id": "d4e18f7a-a18b-496c-a360-a99a0200f02c",
+      "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 354
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "notes/a.txt",
+              "notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "notes/a.txt",
+          "notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.907423+00:00",
+      "manifest_sha256": "5554e28e7a1bc753c1e0f3cc52c06c9890e49681d651f1293676319263c4ad25",
+      "arm": "full",
+      "case": "directory-summary",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/directory-summary/run-2/journals/3ed6ee3e-cf7f-4264-9035-e3504f8956d9.jsonl",
+      "run_id": "3ed6ee3e-cf7f-4264-9035-e3504f8956d9",
+      "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 273
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes/a.txt",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes/a.txt",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.907979+00:00",
+      "manifest_sha256": "9304a64cb3ce5977e372b3bdd8b506cef511cb16499984bf3d0e529be8097903",
+      "arm": "core7",
+      "case": "directory-summary",
+      "run": 2,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/bug-fix-last-index/run-3/journals/2a900d4e-c566-4e4d-8655-650e36b612cf.jsonl",
+      "run_id": "2a900d4e-c566-4e4d-8655-650e36b612cf",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs",
+            "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "exists": true,
+            "match": true,
+            "tool": "edit_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 416
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs",
+          "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "exists": true,
+          "match": true,
+          "tool": "edit_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.909058+00:00",
+      "manifest_sha256": "00c8c40021ef51b5cdb9bac894a5b5a5ff0a05845fe7a20623694d7d7eb700c8",
+      "arm": "full",
+      "case": "bug-fix-last-index",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/bug-fix-last-index/run-3/journals/1a4c3d9b-cf9a-4bcd-bab6-fa51af385ed6.jsonl",
+      "run_id": "1a4c3d9b-cf9a-4bcd-bab6-fa51af385ed6",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs",
+            "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 235
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 5
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs",
+              "acceptance_gate:0d56c8b67ffda5188a54410581cd684c887214d1d87578f1393c5c4e2940535d"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs",
+          "recorded_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "current_sha256": "c7c78b8ac7d84bc3dcd2781e56f6bfee81cbbf59af2ae7d16c186605fb5dd297",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs",
+          "acceptance_gate:0d56c8b67ffda5188a54410581cd684c887214d1d87578f1393c5c4e2940535d"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.910246+00:00",
+      "manifest_sha256": "411d4d36582e6258918898b11bc9fbaf247fe03a26eef8360fa942ed63b1248c",
+      "arm": "core7",
+      "case": "bug-fix-last-index",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/config-retries/run-3/journals/f251238e-5e6f-47b5-991c-915d31f41cac.jsonl",
+      "run_id": "f251238e-5e6f-47b5-991c-915d31f41cac",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": false,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 7,
+            "observations": 7,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf",
+            "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "exists": true,
+            "match": true,
+            "tool": "edit_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "needs_evidence",
+            "conclusion_chars": 248
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": false,
+          "detail": {
+            "claims": 0,
+            "verified": 0
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf",
+          "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "exists": true,
+          "match": true,
+          "tool": "edit_file"
+        }
+      ],
+      "answer": {
+        "status": "needs_evidence",
+        "claims": 0,
+        "sources": []
+      },
+      "generated_at": "2026-11-23T08:27:57.912722+00:00",
+      "manifest_sha256": "af7176a0937ceae32ef0d9e289cbf82f4d7934cd67f256848f6b09d279120c73",
+      "arm": "full",
+      "case": "config-retries",
+      "run": 3,
+      "runtime_status": "needs_evidence"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/config-retries/run-3/journals/0c2411f1-9edb-4c0b-87ad-7b58523a5fbe.jsonl",
+      "run_id": "0c2411f1-9edb-4c0b-87ad-7b58523a5fbe",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
+      "decision": "rejected",
+      "proof_ok": false,
+      "answer_ok": false,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/config-retries/agent.conf",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/config-retries/agent.conf",
+            "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": false,
+          "detail": "no answer_produced event"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/config-retries/agent.conf",
+          "recorded_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "current_sha256": "b67554f75086859b116c5db00d924ed8283a0c5fe3ff011c4d713556880f06e5",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": null,
+        "claims": 0,
+        "sources": []
+      },
+      "generated_at": "2026-11-23T08:27:57.914132+00:00",
+      "manifest_sha256": "e4bf807aa45fb05fdcc98ba79d732e6f136c1df64899884ff6c86832d9d66ce2",
+      "arm": "core7",
+      "case": "config-retries",
+      "run": 3,
+      "runtime_status": null
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/data-processing-sales/run-3/journals/4198940c-5b7a-48d6-910f-68f0f8ef7db1.jsonl",
+      "run_id": "4198940c-5b7a-48d6-910f-68f0f8ef7db1",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 6,
+            "observations": 6,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt",
+            "recorded_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+            "current_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 193
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 3,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/sales.jsonl",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt",
+          "recorded_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+          "current_sha256": "b7eeba7eb92c05cccf65a81f2f8e1471bb3965dcb3c5e989140d8edeb45d7143",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 3,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/sales.jsonl",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.916324+00:00",
+      "manifest_sha256": "d3366e2368bcdc96de063c3408c902d076b00a9d8e8085cb1f5334a0e767733e",
+      "arm": "full",
+      "case": "data-processing-sales",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/data-processing-sales/run-3/journals/0b6fb7c6-45a1-4497-872e-0cf9422d93bb.jsonl",
+      "run_id": "0b6fb7c6-45a1-4497-872e-0cf9422d93bb",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/sales.jsonl, compute the total amount and the number of records, write a summary to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt, and report both numbers with sales.jsonl as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt",
+            "recorded_sha256": "4fb8b21299208ff5f0ba7233ece14635d5d51b5535cb3da01998517c3406df56",
+            "current_sha256": "4fb8b21299208ff5f0ba7233ece14635d5d51b5535cb3da01998517c3406df56",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 129
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 3,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/sales.jsonl",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt",
+              "acceptance_gate:data-processing-sales-run3"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt",
+          "recorded_sha256": "4fb8b21299208ff5f0ba7233ece14635d5d51b5535cb3da01998517c3406df56",
+          "current_sha256": "4fb8b21299208ff5f0ba7233ece14635d5d51b5535cb3da01998517c3406df56",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 3,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/sales.jsonl",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt",
+          "acceptance_gate:data-processing-sales-run3"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.917758+00:00",
+      "manifest_sha256": "84729dcf0821039bfc904f7a7d3a06a4a3831b0f4cafffec43d3b02ace5e021f",
+      "arm": "core7",
+      "case": "data-processing-sales",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/research-compare/run-3/journals/7ab2e88d-8d20-4de2-9e13-f88d457a3014.jsonl",
+      "run_id": "7ab2e88d-8d20-4de2-9e13-f88d457a3014",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 404
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/a.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/b.md"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/a.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/b.md"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.919399+00:00",
+      "manifest_sha256": "4fc5232efe966db90f4971fb6a4e58e281d45cd371b9f45089177dacb2acfbec",
+      "arm": "full",
+      "case": "research-compare",
+      "run": 3,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/research-compare/run-3/journals/2d514374-7682-4553-9b37-bf98e5a1f965.jsonl",
+      "run_id": "2d514374-7682-4553-9b37-bf98e5a1f965",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/a.md and /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 2,
+            "observations": 2,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 298
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/a.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/b.md"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/a.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/b.md"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.920372+00:00",
+      "manifest_sha256": "8891403c673ab129f7cd35749e5b40c522ec5f25bf28f2d4dce33dfad29cc284",
+      "arm": "core7",
+      "case": "research-compare",
+      "run": 3,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/long-task-plan/run-3/journals/f83a3899-eed7-4118-8dab-9b3bb77a6e92.jsonl",
+      "run_id": "f83a3899-eed7-4118-8dab-9b3bb77a6e92",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md, and report the first step with README.md as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md, and report the first step with README.md as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 6,
+            "observations": 6,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md",
+            "recorded_sha256": "2f3aaa5fcdd4c7e0a02c6b842ff86d3a49c99dd528d7c33e08feba20ad8d54ed",
+            "current_sha256": "2f3aaa5fcdd4c7e0a02c6b842ff86d3a49c99dd528d7c33e08feba20ad8d54ed",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 199
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/README.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md",
+              "acceptance_gate:long-task-plan-run-3"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md",
+          "recorded_sha256": "2f3aaa5fcdd4c7e0a02c6b842ff86d3a49c99dd528d7c33e08feba20ad8d54ed",
+          "current_sha256": "2f3aaa5fcdd4c7e0a02c6b842ff86d3a49c99dd528d7c33e08feba20ad8d54ed",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/README.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md",
+          "acceptance_gate:long-task-plan-run-3"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.922613+00:00",
+      "manifest_sha256": "b29b5f4b485a549210dbf5b4a12fe8c0e4691d9e72a55dee79fbf64d81ded470",
+      "arm": "full",
+      "case": "long-task-plan",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/long-task-plan/run-3/journals/a4521575-25bc-433f-a05d-21a2a8a5658c.jsonl",
+      "run_id": "a4521575-25bc-433f-a05d-21a2a8a5658c",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md, and report the first step with README.md as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/README.md, create a three-step plan to finish the checklist, write it to /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md, and report the first step with README.md as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md",
+            "recorded_sha256": "9a676308756906f35b3daf287d063815c02de588ee3ef9bb2feaef10089e555a",
+            "current_sha256": "9a676308756906f35b3daf287d063815c02de588ee3ef9bb2feaef10089e555a",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 385
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 5,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/README.md",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md",
+              "acceptance_gate:long-task-plan-3step"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md",
+          "recorded_sha256": "9a676308756906f35b3daf287d063815c02de588ee3ef9bb2feaef10089e555a",
+          "current_sha256": "9a676308756906f35b3daf287d063815c02de588ee3ef9bb2feaef10089e555a",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 5,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/README.md",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md",
+          "acceptance_gate:long-task-plan-3step"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.924161+00:00",
+      "manifest_sha256": "87547a859691a24e863936c93049e2452633ff4519a85ee13ea3b70c77e34ea9",
+      "arm": "core7",
+      "case": "long-task-plan",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/broken-json/run-3/journals/c14c6f50-0080-4876-b603-d3fe9fc16c18.jsonl",
+      "run_id": "c14c6f50-0080-4876-b603-d3fe9fc16c18",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "conditional",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": true,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "journal:terminal_write_unpinned",
+          "passed": false,
+          "detail": {
+            "reason": "a terminal command may have written, but no write/edit artifact was recorded"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 533
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/broken-json/broken.json"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "conditional",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/broken-json/broken.json"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.925740+00:00",
+      "manifest_sha256": "eaf67034cc52bb51fee93ce562d21992f6c2ee78b57e11c0c35939add1026d77",
+      "arm": "full",
+      "case": "broken-json",
+      "run": 3,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/broken-json/run-3/journals/fed33094-c46f-4fc6-85dd-65dcf917cd2a.jsonl",
+      "run_id": "fed33094-c46f-4fc6-85dd-65dcf917cd2a",
+      "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/broken-json/broken.json, explain why it is invalid JSON, and do not invent a parsed value. Cite broken.json as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 1,
+            "observations": 1,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 369
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 1
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/broken-json/broken.json"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/broken-json/broken.json"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.926589+00:00",
+      "manifest_sha256": "e3182345ef62dfd177fcd6718f2a07102e898b28f9fa8b8597187914c2c40d08",
+      "arm": "core7",
+      "case": "broken-json",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/checksum-file/run-3/journals/f1d3db62-1bb5-4fd4-bd1e-dfefd97b8cd3.jsonl",
+      "run_id": "f1d3db62-1bb5-4fd4-bd1e-dfefd97b8cd3",
+      "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 5,
+            "observations": 5,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt",
+            "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 170
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 4
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt",
+              "acceptance_gate:checksum-file-run3"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt",
+          "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt",
+          "acceptance_gate:checksum-file-run3"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.928457+00:00",
+      "manifest_sha256": "c62d311e4400d7672962cc6c56c32befdb9425707388adcbd4da04fc01ded33f",
+      "arm": "full",
+      "case": "checksum-file",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/checksum-file/run-3/journals/62f107ae-7803-4344-91de-e22a23992b53.jsonl",
+      "run_id": "62f107ae-7803-4344-91de-e22a23992b53",
+      "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Create /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "artifact:/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt",
+          "passed": true,
+          "detail": {
+            "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt",
+            "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+            "exists": true,
+            "match": true,
+            "tool": "write_file"
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "conditional",
+            "conclusion_chars": 311
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 2,
+            "verified": 2
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt",
+          "recorded_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "current_sha256": "ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e",
+          "exists": true,
+          "match": true,
+          "tool": "write_file"
+        }
+      ],
+      "answer": {
+        "status": "conditional",
+        "claims": 2,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.929876+00:00",
+      "manifest_sha256": "dc47a528b5b84913766877d5cd58649d28d6a4d52f85571f756d5cef21fa5ca2",
+      "arm": "core7",
+      "case": "checksum-file",
+      "run": 3,
+      "runtime_status": "conditional"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/directory-summary/run-3/journals/d9ccd4d4-f3b2-471c-ae90-de2afab2444d.jsonl",
+      "run_id": "d9ccd4d4-f3b2-471c-ae90-de2afab2444d",
+      "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 3,
+            "observations": 3,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 260
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes/a.txt",
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes/a.txt",
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.931213+00:00",
+      "manifest_sha256": "1cc5b7c69d6ad198504f720dd37bed96c38120619521742e1ce369ee8e8ac7c1",
+      "arm": "full",
+      "case": "directory-summary",
+      "run": 3,
+      "runtime_status": "completed"
+    },
+    {
+      "schema": "1agent.post-accept/v1",
+      "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/core7/directory-summary/run-3/journals/bbbca3c0-82d6-452c-a98d-cb5e5183202d.jsonl",
+      "run_id": "bbbca3c0-82d6-452c-a98d-cb5e5183202d",
+      "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence.",
+      "decision": "accepted",
+      "proof_ok": true,
+      "answer_ok": true,
+      "unpinned_write": false,
+      "checks": [
+        {
+          "id": "journal:parsed",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "id": "journal:run_started",
+          "passed": true,
+          "detail": {
+            "objective": "Read the files in /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/directory-summary/notes and summarize their common topic in one paragraph. Cite a.txt and b.txt as evidence."
+          }
+        },
+        {
+          "id": "journal:tool_calls_paired",
+          "passed": true,
+          "detail": {
+            "calls": 4,
+            "observations": 4,
+            "missing_observations": [],
+            "extra_observations": [],
+            "duplicate_calls": []
+          }
+        },
+        {
+          "id": "answer:present",
+          "passed": true,
+          "detail": {
+            "status": "completed",
+            "conclusion_chars": 120
+          }
+        },
+        {
+          "id": "answer:claims",
+          "passed": true,
+          "detail": {
+            "claims": 4,
+            "verified": 3
+          }
+        },
+        {
+          "id": "answer:sources_exist",
+          "passed": true,
+          "detail": {
+            "sources": [
+              "notes/",
+              "notes/a.txt",
+              "notes/b.txt"
+            ],
+            "missing": []
+          }
+        }
+      ],
+      "artifacts": [],
+      "answer": {
+        "status": "completed",
+        "claims": 4,
+        "sources": [
+          "notes/",
+          "notes/a.txt",
+          "notes/b.txt"
+        ]
+      },
+      "generated_at": "2026-11-23T08:27:57.932539+00:00",
+      "manifest_sha256": "4d81f08f2b24b653a924fe0941016e663f3f208d9be2c0e9befa1c3ebb70b0c1",
+      "arm": "core7",
+      "case": "directory-summary",
+      "run": 3,
+      "runtime_status": "completed"
+    }
+  ]
+}
