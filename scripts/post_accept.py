@@ -255,7 +255,7 @@ def collect_reads(events: list[dict]) -> list[dict]:
         metadata = observation.get("metadata") or {}
         if not isinstance(metadata, dict):
             continue
-        path = metadata.get("path")
+        path = metadata.get("path") or metadata.get("relative_path")
         digest = metadata.get("sha256")
         if isinstance(path, str) and isinstance(digest, str) and path and digest:
             reads[path] = digest

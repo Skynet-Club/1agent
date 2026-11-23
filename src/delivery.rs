@@ -148,8 +148,10 @@ pub fn build_receipt(journal_path: &Path) -> Result<DeliveryReceipt, DeliveryErr
                 {
                     terminal_write_possible = true;
                 } else if observation.tool == "read_file"
-                    && let (Some(path), Some(digest)) =
-                        (metadata.get("path"), metadata.get("sha256"))
+                    && let Some(digest) = metadata.get("sha256")
+                    && let Some(path) = metadata
+                        .get("path")
+                        .or_else(|| metadata.get("relative_path"))
                 {
                     reads.insert(path.clone(), digest.clone());
                 }

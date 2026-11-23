@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "default_provider": "deepseek",
+  "workspace": "/home/skynet",
+  "permissions": {
+    "preset": "full-local",
+    "read_roots": [
+      "/home/skynet"
+    ],
+    "allow_network": true
+  },
+  "appearance": {
+    "theme": "military"
+  },
+  "providers": [
+    {
+      "id": "deepseek",
+      "adapter": "open_ai_compatible",
+      "model": "deepseek-flash",
+      "base_url": "http://127.0.0.1:8787/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_file": "/home/skynet/.1a/keys/provider-deepseek.key",
+      "reasoning_effort": null,
+      "privacy": "local",
+      "quality_score": 0,
+      "input_cost_micros_per_k": 0,
+      "output_cost_micros_per_k": 0,
+      "p95_latency_ms": 0,
+      "max_risk": "high",
+      "supported_modes": [
+        "direct_answer",
+        "evidence_research",
+        "decision_analysis",
+        "execute",
+        "diagnosis",
+        "escalate"
+      ],
+      "supports_tools": true,
+      "supports_structured_output": true
+    }
+  ]
+}
