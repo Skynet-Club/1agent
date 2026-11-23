@@ -161,6 +161,9 @@ struct CompletionGate {
     disabled: bool,
     side_effect_tools: BTreeSet<String>,
     accepted_receipt: Option<CompletionReceipt>,
+    /// A write after an accepted receipt cleared it; the reserve must verify
+    /// the new bytes and obtain a fresh receipt.
+    receipt_invalidated: bool,
     verified_artifacts: BTreeMap<String, String>,
     read_sources: BTreeMap<String, String>,
     written_html: BTreeMap<String, String>,
@@ -314,6 +317,7 @@ impl CompletionGate {
                 if fresh {
                     self.fresh_artifact_gap = None;
                     self.accepted_receipt = Some(receipt);
+                    self.receipt_invalidated = false;
                 } else {
                     self.fresh_artifact_gap = Some(requested);
                 }
@@ -325,7 +329,9 @@ impl CompletionGate {
                 return;
             }
             self.side_effect_tools.insert(call.name.clone());
-            self.accepted_receipt = None;
+            if self.accepted_receipt.take().is_some() {
+                self.receipt_invalidated = true;
+            }
             self.fresh_artifact_gap = None;
             self.verified_artifacts.clear();
             if let (Some(path), Some(sha256)) = (
@@ -979,8 +985,12 @@ fn verification_budget_nudge(remaining: usize) -> String {
     )
 }
 
-fn acceptance_reserve_nudge() -> &'static str {
-    "Runtime acceptance reserve (internal, not a user request): the step budget is spent, the run has side-effect tools and verified artifacts, but no accepted receipt. This is the one reserved step and only acceptance_gate is available. Call it now with the task contract and per-criterion evidence from this run. If it cannot be accepted, return conditional and name the exact missing evidence."
+fn acceptance_reserve_nudge(receipt_invalidated: bool) -> &'static str {
+    if receipt_invalidated {
+        "Runtime acceptance reserve (internal, not a user request): a write after the accepted receipt cleared it. This is the one reserved step and only verify_artifact and acceptance_gate are available. Verify the final bytes and call acceptance_gate again with the task contract and per-criterion evidence. If it cannot be accepted, return conditional and name the exact missing evidence."
+    } else {
+        "Runtime acceptance reserve (internal, not a user request): the step budget is spent, the run has side-effect tools and verified artifacts, but no accepted receipt. This is the one reserved step and only acceptance_gate is available. Call it now with the task contract and per-criterion evidence from this run. If it cannot be accepted, return conditional and name the exact missing evidence."
+    }
 }
 
 fn is_verification_tool(call: &ToolCall) -> bool {
@@ -3667,7 +3677,8 @@ impl AgentRuntime {
                 && step >= configured_max_steps
                 && completion_gate.accepted_receipt.is_none()
                 && !completion_gate.side_effect_tools.is_empty()
-                && !completion_gate.verified_artifacts.is_empty();
+                && (!completion_gate.verified_artifacts.is_empty()
+                    || completion_gate.receipt_invalidated);
             if step >= configured_max_steps && !acceptance_reserve_step {
                 break;
             }
@@ -3697,7 +3708,9 @@ impl AgentRuntime {
                 verification_budget_nudged = true;
             }
             if acceptance_reserve_step {
-                model_messages.push(ModelMessage::user(acceptance_reserve_nudge()));
+                model_messages.push(ModelMessage::user(acceptance_reserve_nudge(
+                    completion_gate.receipt_invalidated,
+                )));
             }
             if let Some(compaction) = context_compaction {
                 journal
@@ -3721,7 +3734,11 @@ impl AgentRuntime {
                 tools: if acceptance_reserve_step {
                     tool_specs
                         .iter()
-                        .filter(|spec| spec.name == "acceptance_gate")
+                        .filter(|spec| {
+                            spec.name == "acceptance_gate"
+                                || (completion_gate.receipt_invalidated
+                                    && spec.name == "verify_artifact")
+                        })
                         .cloned()
                         .collect()
                 } else {
@@ -3747,7 +3764,9 @@ impl AgentRuntime {
                 if unavailable_routes.contains(&route_key) {
                     continue;
                 }
-                if provider_attempts_used >= max_provider_attempts {
+                let reserve_attempt =
+                    acceptance_reserve_step && provider_attempts_used == max_provider_attempts;
+                if provider_attempts_used >= max_provider_attempts && !reserve_attempt {
                     attempt_limit_reached = true;
                     break;
                 }
@@ -11823,6 +11842,67 @@ mod tests {
                 if observation.tool == "search_files"
                     && observation.error_code.as_deref() == Some("budget_skipped")
         )));
+    }
+
+    #[tokio::test]
+    async fn write_after_receipt_gets_a_verify_and_regate_reserve() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-2", &target, "hello again")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![
+                        ToolCall {
+                            id: "verify-2".into(),
+                            name: "verify_artifact".into(),
+                            arguments: serde_json::json!({"path": target}),
+                        },
+                        ToolCall {
+                            id: "gate-2".into(),
+                            name: "acceptance_gate".into(),
+                            arguments: accepted_gate_arguments(&target),
+                        },
+                    ],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote and re-accepted out.txt"),
+                },
+            ],
+            requests.clone(),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt 并验收", workspace.path().into());
+        request.permissions.allow_write = true;
+        request.budget.max_steps = 3;
+        request.budget.max_provider_attempts = 3;
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert!(!result.answer.flip_conditions.is_empty());
+        assert_eq!(requests.lock().unwrap().len(), 5);
+        assert!(
+            requests.lock().unwrap()[3]
+                .messages
+                .last()
+                .is_some_and(|message| message.content.contains("cleared it"))
+        );
     }
 
     #[tokio::test]

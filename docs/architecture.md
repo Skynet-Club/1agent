@@ -1072,7 +1072,10 @@ Rejected outcomes; Verified outcomes are not surfaced.
   injects an internal nudge; otherwise the loop breaks before calling the
   model. At the tool budget, a mixed batch containing `acceptance_gate` runs
   the gate alone and journals the other calls as paired `budget_skipped`
-  observations. The step-budget answer is built from the latest messages
+  observations. A write after an accepted receipt advertises `verify_artifact`
+  plus `acceptance_gate` in the reserve, and the reserve may spend one provider
+  attempt beyond the configured budget. The step-budget answer is built from
+  the latest messages
   (including the last tool result), not the request that produced the last tool
   call. A completed delivery with no flip condition gets one runtime flip
   condition. `StepModelMetrics.max_steps` reports the configured budget.
