@@ -220,7 +220,7 @@ const AGENT_PROMPT_ARTIFACTS: &str = r#"- Delivery efficiency for artifact/file 
 - For read-only inspection, use `read_file`, `jq`, `rg`, `ls` or `cat`; avoid interpreters such as `python`/`node`, which the completion gate treats as possible writes. After a successful `write_file` or `edit_file`, the observation has the new SHA-256 and byte size. Cite it; do not open a terminal, re-read the file, or run a compiler/test unless asked. When done, answer instead of adding a no-op tool call.
 - After writing a file artifact, call `verify_artifact` with path, expected media type/schema, hash and a loopback preview URL when available. Only claim `completed` on `decision: verified`; otherwise repair it or report the failed check.
 - A tool running is not verification. Use the capability card's verification recipe (sample accuracy, layout or screenshot, duration/codec, WER/timestamps) and cite the result.
-- Before claiming a deliverable is complete, call `acceptance_gate` once with one flat request: task_id, objective, public and hidden criteria, expected artifacts/hashes, risk, required verifier, residual risks, executor, verifier, per-criterion results with evidence, and artifact checks. Each result's criterion must exactly match a contract criterion string. The verifier must be independent (`verifier:` or `agent:`; `human:` when required). Only an `accepted` receipt justifies `completed`; report `conditional`, `rejected` or `hacked` honestly. If a later `acceptance_gate` call is accepted, earlier failed attempts do not force `conditional`. Every public and hidden criterion needs exactly one matching result. A tool running, a file existing or HTTP 200 is not acceptance. The receipt is final evidence: cite its decision and digest, then answer. Do not gate the gate or re-run it on its own receipt. Do not call `acceptance_gate` for a read-only answer, memory recall or conversational reply.
+- Before claiming a deliverable is complete, call `acceptance_gate` once with one flat request: task_id, objective, public and hidden criteria, expected artifacts/hashes, risk, required verifier, residual risks, executor, verifier, per-criterion results with evidence, and artifact checks. Each result's criterion must exactly match a contract criterion string. The verifier must be independent (`verifier:` or `agent:`; `human:` when required). Only an `accepted` receipt justifies `completed`; report `conditional`, `rejected` or `hacked` honestly. If a later `acceptance_gate` call is accepted, earlier failed attempts do not force `conditional`. Every public and hidden criterion needs exactly one matching result. A tool run, a file or HTTP 200 is not acceptance. Claims/evidence must be non-empty. The receipt is final evidence: cite its decision and digest, then answer. Do not gate the gate or re-run it on its own receipt. Do not call `acceptance_gate` for a read-only answer, memory recall or conversational reply.
 - A partial read (`max_bytes`) is not verification of the whole artifact. If you re-read to verify, read the full bytes or compare the write receipt's SHA-256; never cite a truncated read as proof.
 - For a plan, summary or report task, `completed` means the requested artifact was produced from the provided material. Do not return `conditional` merely because executing the plan later would need files or decisions outside this task; name those as follow-ups instead.
 - Do not make cosmetic edits (blank lines or spacing) to a plan/report artifact after writing it, and do not re-read it. If the content is correct, answer.
@@ -1088,6 +1088,15 @@ impl OpenAiCompatibleProvider {
             Ok(answer) => return Ok(answer),
             Err(error) => error,
         };
+        // Models sometimes append prose or a stray brace after the object.
+        // Parse the first JSON value and ignore whatever follows it.
+        if let Some(start) = cleaned.find('{')
+            && let Some(Ok(answer)) = serde_json::Deserializer::from_str(&cleaned[start..])
+                .into_iter::<AgentAnswer>()
+                .next()
+        {
+            return Ok(answer);
+        }
         if let Some(candidate) = json_object_candidate(cleaned)
             && candidate != cleaned
             && let Ok(answer) = serde_json::from_str(candidate)
@@ -2416,6 +2425,16 @@ mod tests {
     fn extracts_agent_answer_json_from_surrounding_prose() {
         let answer = OpenAiCompatibleProvider::parse_answer(
             "Here is the result:\n{\"status\":\"completed\",\"conclusion\":\"ok\"}\nDone.",
+        )
+        .unwrap();
+        assert_eq!(answer.status, AnswerStatus::Completed);
+        assert_eq!(answer.conclusion, "ok");
+    }
+
+    #[test]
+    fn accepts_agent_answer_json_before_trailing_prose_or_braces() {
+        let answer = OpenAiCompatibleProvider::parse_answer(
+            "{\"status\":\"completed\",\"conclusion\":\"ok\"}}\nDone.",
         )
         .unwrap();
         assert_eq!(answer.status, AnswerStatus::Completed);

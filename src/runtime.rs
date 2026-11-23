@@ -15,10 +15,11 @@ use crate::alerts::{AlertLog, AlertWebhook, provider_health_alert};
 use crate::authority::PolicyOutcome;
 use crate::context::{compact_messages_at_tokens, estimate_tokens};
 use crate::domain::{
-    AgentAnswer, AnswerStatus, CognitiveMode, ConflictStatus, FlipCondition, ImpactLevel,
-    InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage, ModelRequest, ModelResponse,
-    ModelTurn, ProviderRouteKey, RiskLevel, RunResult, RuntimeCheckpoint, RuntimeCheckpointDelta,
-    StopReason, TaskRequest, ToolCall, ToolObservation, ToolSpec, ToolStatus, UnknownItem,
+    AgentAnswer, AnswerStatus, Claim, ClaimStatus, CognitiveMode, ConflictStatus, Evidence,
+    FlipCondition, ImpactLevel, InjectedExperience, MAX_PROVIDER_RETRY_BACKOFF_MS, ModelMessage,
+    ModelRequest, ModelResponse, ModelTurn, ProviderRouteKey, RiskLevel, RunResult,
+    RuntimeCheckpoint, RuntimeCheckpointDelta, StopReason, TaskRequest, ToolCall, ToolObservation,
+    ToolSpec, ToolStatus, UnknownItem,
 };
 use crate::execution_gate::{ExecutionGate, ToolCallRequest};
 use crate::experience::ExperienceStore;
@@ -161,6 +162,7 @@ struct CompletionGate {
     side_effect_tools: BTreeSet<String>,
     accepted_receipt: Option<CompletionReceipt>,
     verified_artifacts: BTreeMap<String, String>,
+    read_sources: BTreeMap<String, String>,
     written_html: BTreeMap<String, String>,
     /// `Some(paths)` when a page receipt named HTML that this run did not
     /// write; `Some(vec![])` when the page task wrote no HTML at all.
@@ -260,7 +262,17 @@ impl CompletionGate {
         {
             return;
         }
-        if call.name == "verify_artifact" {
+        if call.name == "read_file" {
+            if let (Some(path), Some(sha256)) = (
+                observation
+                    .metadata
+                    .get("path")
+                    .or_else(|| observation.metadata.get("relative_path")),
+                observation.metadata.get("sha256"),
+            ) {
+                self.read_sources.insert(path.clone(), sha256.clone());
+            }
+        } else if call.name == "verify_artifact" {
             if observation.metadata.get("decision").map(String::as_str) == Some("verified")
                 && let (Some(path), Some(sha256)) = (
                     observation.metadata.get("path"),
@@ -655,6 +667,138 @@ fn looks_like_page_task(objective: &str, deliverable: Option<&str>) -> bool {
     .any(|keyword| text.contains(keyword))
 }
 
+/// A completed delivery must carry claims and evidence. When the model omits
+/// them, derive a verified claim from the run's own artifacts or receipt
+/// rather than returning a structurally invalid delivery.
+fn backfill_delivery_evidence(answer: &mut AgentAnswer, gate: &CompletionGate) {
+    if answer.status != AnswerStatus::Completed
+        || (gate.side_effect_tools.is_empty()
+            && gate.accepted_receipt.is_none()
+            && gate.verified_artifacts.is_empty())
+    {
+        return;
+    }
+    let mut next_claim = answer.claims.len() + 1;
+    let mut fresh_claim = |text: String, source: String| {
+        let claim = Claim {
+            id: format!("delivery-c{next_claim}"),
+            text,
+            status: ClaimStatus::Verified,
+            sources: vec![source],
+            scope: None,
+        };
+        next_claim += 1;
+        claim
+    };
+    if answer.claims.is_empty() {
+        for (path, sha256) in &gate.verified_artifacts {
+            let claim = fresh_claim(
+                format!("交付物 {path} 已在本轮通过 sha256 核验"),
+                path.clone(),
+            );
+            answer.evidence.push(Evidence {
+                source: path.clone(),
+                statement: format!("verify_artifact verified sha256 {sha256}"),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids: vec![claim.id.clone()],
+            });
+            answer.claims.push(claim);
+        }
+        let conclusion = answer.conclusion.to_lowercase();
+        for (path, sha256) in &gate.read_sources {
+            let name = Path::new(path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or(path)
+                .to_lowercase();
+            if !conclusion.contains(&name) {
+                continue;
+            }
+            let claim = fresh_claim(
+                format!("输入来源 {path} 已在本轮读取（sha256 {sha256}）"),
+                path.clone(),
+            );
+            answer.evidence.push(Evidence {
+                source: path.clone(),
+                statement: format!("read_file recorded sha256 {sha256}"),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids: vec![claim.id.clone()],
+            });
+            answer.claims.push(claim);
+        }
+        if answer.claims.is_empty()
+            && let Some(receipt) = &gate.accepted_receipt
+        {
+            let claim = fresh_claim(
+                format!("验收合同 {} 已由独立验收人接受", receipt.task_id),
+                "acceptance_gate".into(),
+            );
+            answer.evidence.push(Evidence {
+                source: "acceptance_gate".into(),
+                statement: format!(
+                    "acceptance_gate decision=accepted, evidence_digest {}",
+                    receipt.evidence_digest
+                ),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids: vec![claim.id.clone()],
+            });
+            answer.claims.push(claim);
+        }
+    }
+    if answer.evidence.is_empty()
+        && let Some((path, sha256)) = gate.verified_artifacts.iter().next()
+    {
+        let claim_ids = answer
+            .claims
+            .iter()
+            .filter(|claim| claim.sources.contains(path))
+            .map(|claim| claim.id.clone())
+            .collect::<Vec<_>>();
+        if !claim_ids.is_empty() {
+            answer.evidence.push(Evidence {
+                source: path.clone(),
+                statement: format!("verify_artifact verified sha256 {sha256}"),
+                observed_unix_ms: None,
+                expires_unix_ms: None,
+                claim_ids,
+            });
+        }
+    }
+    if answer.evidence.is_empty() {
+        let (text, source, statement) =
+            if let Some((path, sha256)) = gate.verified_artifacts.iter().next() {
+                (
+                    format!("交付物 {path} 已在本轮通过 sha256 核验"),
+                    path.clone(),
+                    format!("verify_artifact verified sha256 {sha256}"),
+                )
+            } else if let Some(receipt) = &gate.accepted_receipt {
+                (
+                    format!("验收合同 {} 已由独立验收人接受", receipt.task_id),
+                    "acceptance_gate".to_string(),
+                    format!(
+                        "acceptance_gate decision=accepted, evidence_digest {}",
+                        receipt.evidence_digest
+                    ),
+                )
+            } else {
+                return;
+            };
+        let claim = fresh_claim(text, source.clone());
+        answer.evidence.push(Evidence {
+            source,
+            statement,
+            observed_unix_ms: None,
+            expires_unix_ms: None,
+            claim_ids: vec![claim.id.clone()],
+        });
+        answer.claims.push(claim);
+    }
+}
+
 fn enforce_completion_gate(
     journal: &mut Journal,
     gate: &CompletionGate,
@@ -695,6 +839,7 @@ fn enforce_completion_gate(
         }
         None => {}
     }
+    backfill_delivery_evidence(&mut answer, gate);
     Ok(answer)
 }
 
@@ -2336,6 +2481,7 @@ impl AgentRuntime {
             }
         };
         normalize_unresolved_conflicts(&mut answer);
+        normalize_evidence_links(&mut answer);
         answer
             .validate(request)
             .map_err(|error| RuntimeError::InvalidOutput {
@@ -2444,6 +2590,7 @@ impl AgentRuntime {
             _ => return budget_answer(reason),
         };
         normalize_unresolved_conflicts(&mut answer);
+        normalize_evidence_links(&mut answer);
         let validation_error = match answer.validate(request) {
             Ok(()) => return answer,
             Err(error) => error,
@@ -4013,6 +4160,7 @@ impl AgentRuntime {
                     }
                     let mut answer = answer;
                     normalize_unresolved_conflicts(&mut answer);
+                    normalize_evidence_links(&mut answer);
                     if let Err(validation_error) = answer.validate(&request) {
                         let invalid_json = serde_json::to_string(&answer).map_err(|error| {
                             RuntimeError::InvalidOutput {
@@ -5108,6 +5256,33 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
     }
 }
 
+/// An evidence record may only reference claims that declare its source.
+/// Models sometimes attach a claim to an evidence record without adding that
+/// source to the claim; drop just that link instead of rejecting the delivery.
+fn normalize_evidence_links(answer: &mut AgentAnswer) {
+    let claim_sources = answer
+        .claims
+        .iter()
+        .map(|claim| (claim.id.clone(), claim.sources.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let original = answer.evidence.clone();
+    for evidence in &mut answer.evidence {
+        evidence.claim_ids.retain(|claim_id| {
+            claim_sources
+                .get(claim_id)
+                .is_some_and(|sources| sources.contains(&evidence.source))
+        });
+    }
+    answer
+        .evidence
+        .retain(|evidence| !evidence.claim_ids.is_empty());
+    // If every evidence record was unsupported, keep the invalid links so the
+    // normal repair path gets a chance to correct the answer.
+    if answer.evidence.is_empty() {
+        answer.evidence = original;
+    }
+}
+
 /// Common schema drift: models mark a conflict unresolved but still put the
 /// explanation in `resolution`. The validator rejects that shape, but the
 /// intent is clear and safe to normalize without another model call.
@@ -5206,7 +5381,7 @@ fn plain_text_evidence_answer(
     content: &str,
     gate: &CompletionGate,
 ) -> Option<crate::domain::AgentAnswer> {
-    let mut conclusion = content.trim().to_string();
+    let conclusion = content.trim().to_string();
     if conclusion.is_empty()
         || conclusion.starts_with('{')
         || conclusion.starts_with('[')
@@ -5215,36 +5390,41 @@ fn plain_text_evidence_answer(
     {
         return None;
     }
-    let evidence = gate
-        .verified_artifacts
-        .iter()
-        .map(|(path, sha256)| {
-            if !conclusion.contains(path.as_str()) {
-                conclusion.push_str(&format!("\n\n已验证交付物：{path}（sha256: {sha256}）"));
-            }
-            crate::domain::Evidence {
-                source: path.clone(),
-                statement: format!("verify_artifact verified sha256 {sha256}"),
-                observed_unix_ms: None,
-                expires_unix_ms: None,
-                claim_ids: Vec::new(),
-            }
-        })
-        .collect();
-    Some(crate::domain::AgentAnswer {
+    let mut answer = crate::domain::AgentAnswer {
         task_need: None,
         schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
         status: AnswerStatus::Completed,
         conclusion,
         claims: Vec::new(),
-        evidence,
+        evidence: Vec::new(),
         assumptions: Vec::new(),
         constraints: vec!["最终答案由纯文本规范化；交付物验收证据未丢失".into()],
         unknowns: Vec::new(),
         conflicts: Vec::new(),
         flip_conditions: Vec::new(),
         action_receipts: Vec::new(),
-    })
+    };
+    backfill_delivery_evidence(&mut answer, gate);
+    if answer.claims.is_empty() || answer.evidence.is_empty() {
+        return None;
+    }
+    if answer.flip_conditions.is_empty()
+        && let Some(claim) = answer.claims.first()
+    {
+        answer.flip_conditions.push(FlipCondition {
+            if_observed: "验收后交付物或输入来源被修改".into(),
+            then: "已核验的哈希不再代表当前交付，需要重新验收".into(),
+            target_ids: vec![claim.id.clone()],
+        });
+    }
+    for evidence in &answer.evidence {
+        if evidence.source.starts_with('/') && !answer.conclusion.contains(&evidence.source) {
+            answer
+                .conclusion
+                .push_str(&format!("\n\n已验证交付物：{}", evidence.source));
+        }
+    }
+    Some(answer)
 }
 
 #[derive(Default, Clone, Copy)]
@@ -6837,6 +7017,55 @@ mod tests {
                 retryable: false,
             })
         }
+    }
+
+    #[test]
+    fn evidence_links_to_undeclared_claims_are_dropped() {
+        let mut answer = AgentAnswer {
+            schema_version: 2,
+            status: AnswerStatus::Completed,
+            conclusion: "delivery".into(),
+            claims: vec![Claim {
+                id: "c1".into(),
+                text: "file verified".into(),
+                status: ClaimStatus::Verified,
+                sources: vec!["out.txt".into()],
+                scope: None,
+            }],
+            evidence: vec![
+                Evidence {
+                    source: "out.txt".into(),
+                    statement: "verified".into(),
+                    observed_unix_ms: None,
+                    expires_unix_ms: None,
+                    claim_ids: vec!["c1".into(), "missing".into()],
+                },
+                Evidence {
+                    source: "terminal".into(),
+                    statement: "ran".into(),
+                    observed_unix_ms: None,
+                    expires_unix_ms: None,
+                    claim_ids: vec!["c1".into()],
+                },
+                Evidence {
+                    source: "out.txt".into(),
+                    statement: "verified again".into(),
+                    observed_unix_ms: None,
+                    expires_unix_ms: None,
+                    claim_ids: vec!["c1".into()],
+                },
+            ],
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+            task_need: None,
+        };
+        normalize_evidence_links(&mut answer);
+        assert_eq!(answer.evidence.len(), 2);
+        assert_eq!(answer.evidence[0].claim_ids, vec!["c1"]);
     }
 
     #[test]
@@ -11380,6 +11609,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert!(!result.answer.claims.is_empty());
+        assert!(!result.answer.evidence.is_empty());
         assert!(!result.answer.conclusion.contains("[验收门]"));
         let events = read_events(&result.journal_path).unwrap();
         assert!(!events.iter().any(|event| matches!(
@@ -11430,6 +11661,8 @@ mod tests {
 
         assert_eq!(result.answer.status, AnswerStatus::Completed);
         assert_eq!(result.stop_reason, StopReason::Completed);
+        assert!(!result.answer.claims.is_empty());
+        assert!(!result.answer.evidence.is_empty());
         assert_eq!(result.answer.conclusion, "wrote out.txt");
     }
 

@@ -1219,6 +1219,9 @@ enum Command {
         queue: bool,
         #[arg(long)]
         watch: bool,
+        /// List pending deliveries and recent receipts without draining.
+        #[arg(long)]
+        list: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1264,6 +1267,9 @@ enum Command {
         /// Run the suite N times and report pass rate and pass^k (1..=20).
         #[arg(long, default_value_t = 1)]
         repeats: usize,
+        /// Run each case on the fast delivery path and score its post-run receipt.
+        #[arg(long)]
+        fast: bool,
         /// Fail when the all-attempts-pass rate is below this many basis points.
         #[arg(long, default_value_t = 0)]
         min_pass_power_k_bps: u16,
@@ -8265,6 +8271,7 @@ async fn main() -> Result<()> {
                     providers.clone(),
                     allow_network,
                     run_artifacts,
+                    false,
                 )
                 .await
                 {
@@ -14045,13 +14052,43 @@ async fn main() -> Result<()> {
             journal,
             queue,
             watch,
+            list,
             json,
         } => {
             if watch && !queue {
                 bail!("--watch requires --queue");
             }
+            if list && (journal.is_some() || queue || watch) {
+                bail!("--list cannot be combined with --journal, --queue or --watch");
+            }
             let store = first_principles_agent::delivery::DeliveryQueue::default();
-            if let Some(journal) = journal {
+            if list {
+                let pending = store.pending()?;
+                let done = store.done()?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "pending": pending,
+                            "done": done,
+                        }))?
+                    );
+                } else {
+                    println!("待验收 {}", pending.len());
+                    for item in &pending {
+                        println!("- run {} · {}", item.run_id, item.journal);
+                    }
+                    println!("已验收 {}", done.len());
+                    for receipt in done.iter().take(20) {
+                        println!(
+                            "- {} · run {} · manifest {}",
+                            serde_json::to_string(&receipt.status)?,
+                            receipt.run_id,
+                            &receipt.manifest_sha256[..12.min(receipt.manifest_sha256.len())]
+                        );
+                    }
+                }
+            } else if let Some(journal) = journal {
                 let receipt = store
                     .accept_journal(&journal)
                     .with_context(|| format!("cannot accept {}", journal.display()))?;
@@ -14092,7 +14129,7 @@ async fn main() -> Result<()> {
                     }
                 }
             } else {
-                bail!("accept requires --journal or --queue");
+                bail!("accept requires --journal, --queue or --list");
             }
         }
         Command::Otel { journal, json } => {
@@ -14150,6 +14187,7 @@ async fn main() -> Result<()> {
             disclosure_out,
             artifacts_dir,
             repeats,
+            fast,
             min_pass_power_k_bps,
             validate_only,
             json,
@@ -14213,6 +14251,7 @@ async fn main() -> Result<()> {
                     allow_network,
                     repeats,
                     repeat_artifacts.clone(),
+                    fast,
                 )
                 .await?;
                 if let Some(root) = repeat_artifacts {
@@ -14268,6 +14307,7 @@ async fn main() -> Result<()> {
                 providers,
                 allow_network,
                 artifacts_dir,
+                fast,
             )
             .await?;
             if let Some(path) = disclosure_out {
@@ -22822,6 +22862,27 @@ fn run_journal_audits(state: &TuiState, session: &TuiSession, all: bool) -> Vec<
         .collect()
 }
 
+fn delivery_status_text(queue: &first_principles_agent::delivery::DeliveryQueue) -> String {
+    let pending = queue.pending().map(|items| items.len()).unwrap_or_default();
+    let done = queue.done().unwrap_or_default();
+    let accepted = done
+        .iter()
+        .filter(|receipt| {
+            receipt.status == first_principles_agent::delivery::DeliveryStatus::Accepted
+        })
+        .count();
+    let conditional = done
+        .iter()
+        .filter(|receipt| {
+            receipt.status == first_principles_agent::delivery::DeliveryStatus::Conditional
+        })
+        .count();
+    format!(
+        "待处理 {pending} 条 · 已验收 {} 条（accepted {accepted} / conditional {conditional}）",
+        done.len()
+    )
+}
+
 fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &TuiRunSettings) {
     let facts = session_context_facts(session);
     let injected_tokens = facts
@@ -22849,6 +22910,8 @@ fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &Tui
         (state.provider_label.as_str(), "未指定"),
         |(provider, model)| (provider, model),
     );
+    let delivery_status =
+        delivery_status_text(&first_principles_agent::delivery::DeliveryQueue::default());
     state.info(format!(
         "运行概览\n\
          当前状态      {}\n\
@@ -22877,7 +22940,10 @@ fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &Tui
          当前占用      {} tokens\n\
          剩余空间      {} tokens\n\
          自动压缩      达到 {} tokens 时触发\n\
-         压缩摘要      {}",
+         压缩摘要      {}\n\
+         \n\
+         交付验收\n\
+         验收状态      {}",
         state.status.label_zh(),
         state.mode.label_zh(),
         state.risk.label_zh(),
@@ -22902,7 +22968,8 @@ fn display_tui_status(state: &mut TuiState, session: &TuiSession, settings: &Tui
         context_used,
         headroom,
         settings.auto_compact_tokens,
-        summary
+        summary,
+        delivery_status
     ));
 }
 
@@ -27661,6 +27728,25 @@ mod tui_rendering_tests {
     use async_trait::async_trait;
     use first_principles_agent::subagent_registry::SubagentStatus;
     use first_principles_agent::{CognitiveMode, RiskLevel};
+
+    #[test]
+    fn tui_status_reports_the_delivery_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let queue = first_principles_agent::delivery::DeliveryQueue::new(dir.path().into());
+        assert_eq!(
+            delivery_status_text(&queue),
+            "待处理 0 条 · 已验收 0 条（accepted 0 / conditional 0）"
+        );
+    }
+
+    #[test]
+    fn tui_status_screen_includes_delivery_state() {
+        let (_dir, session, mut state, settings) = setting_test_fixture(None);
+        display_tui_status(&mut state, &session, &settings);
+        let screen = state.render_screen(140, 50);
+        assert!(screen.contains("交付验收"));
+        assert!(screen.contains("已验收"));
+    }
 
     #[test]
     fn network_defaults_on_and_explicit_opt_outs_win() {

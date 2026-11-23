@@ -1,0 +1,4 @@
+$ 1agent accept --list
+待验收 0
+已验收 1
+- "accepted" · run 89372c16-63f6-4391-acf9-c291d38f28c5 · manifest 3bfb32436ac7

@@ -1050,6 +1050,22 @@ Rejected outcomes; Verified outcomes are not surfaced.
   This enforces a receipt's presence and a page's minimum checks, not the
   verifier's real independence; P2 adds an independent verifier and generated
   viewport evidence.
+- Answer repair and delivered evidence: the final parser accepts the first
+  `AgentAnswer` JSON object and ignores trailing prose or stray braces.
+  `normalize_evidence_links` drops an evidence → claim link when the claim does
+  not declare that source, but only while at least one evidence record
+  survives; otherwise the normal repair path runs. A `completed` delivery with
+  side effects backfills claims and evidence from `verify_artifact`,
+  `read_file` sources named in the conclusion, or the accepted receipt, and the
+  plain-text fallback adds one flip condition. A completed delivery therefore
+  never reaches the user with empty claims or evidence.
+- Post-run acceptance: `delivery.rs` builds `1agent.delivery-receipt/v1` from a
+  journal (artifact hashes, tool pairing, delivery snapshot, derived claims) and
+  keeps a durable queue under `~/.1a/acceptance/`. `1agent accept --journal`,
+  `--queue [--watch]`, and `--list` expose it; `1agent run --fast` queues its
+  run after delivery. Fast answers are `conditional` until the receipt is
+  accepted; `1agent eval --fast` scores that receipt as the case outcome and
+  records `delivery_status` on `EvalCaseResult`.
 - Delegation tools expose profile registration/revocation through the existing
   snapshot store; they do not grant authority by themselves.
 - Surface goal, commitment, skill and evolution-ledger lists accept

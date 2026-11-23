@@ -259,7 +259,18 @@ pub fn build_receipt(journal_path: &Path) -> Result<DeliveryReceipt, DeliveryErr
         let effective_claims: Vec<Claim> = if model_verified.is_empty() {
             derived_claims.clone()
         } else {
-            answer.claims.clone()
+            let mut claims = answer.claims.clone();
+            for derived in &derived_claims {
+                if !claims.iter().any(|claim| {
+                    claim
+                        .sources
+                        .iter()
+                        .any(|source| derived.sources.contains(source))
+                }) {
+                    claims.push(derived.clone());
+                }
+            }
+            claims
         };
         let effective_verified = effective_claims
             .iter()
@@ -292,10 +303,19 @@ pub fn build_receipt(journal_path: &Path) -> Result<DeliveryReceipt, DeliveryErr
             .cloned()
             .collect::<Vec<_>>();
         let present = !answer.conclusion.trim().is_empty();
+        let status_ready = matches!(
+            answer.status,
+            crate::domain::AnswerStatus::Completed | crate::domain::AnswerStatus::Conditional
+        );
         checks.push(json!({
             "id": "answer:present",
             "passed": present,
             "detail": {"status": answer.status, "conclusion_chars": answer.conclusion.chars().count()},
+        }));
+        checks.push(json!({
+            "id": "answer:status_ready",
+            "passed": status_ready,
+            "detail": {"status": answer.status},
         }));
         checks.push(json!({
             "id": "answer:claims",
@@ -312,7 +332,7 @@ pub fn build_receipt(journal_path: &Path) -> Result<DeliveryReceipt, DeliveryErr
             "passed": missing_sources.is_empty(),
             "detail": {"sources": sources, "missing": missing_sources},
         }));
-        answer_ok = present && effective_verified > 0 && missing_sources.is_empty();
+        answer_ok = present && status_ready && effective_verified > 0 && missing_sources.is_empty();
         answer_value = json!({
             "status": answer.status,
             "claims": answer.claims.len(),
@@ -334,6 +354,7 @@ pub fn build_receipt(journal_path: &Path) -> Result<DeliveryReceipt, DeliveryErr
             id,
             "answer:claims"
                 | "answer:sources_exist"
+                | "answer:status_ready"
                 | "journal:terminal_write_unpinned"
                 | "workspace:delivery_snapshot"
         ) {
@@ -446,25 +467,23 @@ fn derive_claims(
             scope: None,
         });
     }
-    if artifacts.is_empty() {
-        let text = conclusion.to_lowercase();
-        for (index, (path, digest)) in reads.iter().enumerate() {
-            let name = Path::new(path)
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or(path)
-                .to_lowercase();
-            if !text.contains(&name) {
-                continue;
-            }
-            claims.push(Claim {
-                id: format!("derived-read-{}", index + 1),
-                text: format!("read source: {path} (sha256 {digest})"),
-                status: ClaimStatus::Verified,
-                sources: vec![path.clone()],
-                scope: None,
-            });
+    let text = conclusion.to_lowercase();
+    for (index, (path, digest)) in reads.iter().enumerate() {
+        let name = Path::new(path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(path)
+            .to_lowercase();
+        if !text.contains(&name) {
+            continue;
         }
+        claims.push(Claim {
+            id: format!("derived-read-{}", index + 1),
+            text: format!("read source: {path} (sha256 {digest})"),
+            status: ClaimStatus::Verified,
+            sources: vec![path.clone()],
+            scope: None,
+        });
     }
     claims
 }
@@ -595,6 +614,23 @@ impl DeliveryQueue {
         Ok(items)
     }
 
+    pub fn done(&self) -> Result<Vec<DeliveryReceipt>, DeliveryError> {
+        let dir = self.done_dir();
+        let mut receipts = Vec::new();
+        if !dir.is_dir() {
+            return Ok(receipts);
+        }
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            receipts.push(serde_json::from_slice(&fs::read(entry.path())?)?);
+        }
+        receipts.sort_by_key(|receipt| std::cmp::Reverse(receipt.created_unix_ms));
+        Ok(receipts)
+    }
+
     pub fn accept_journal(&self, journal: &Path) -> Result<DeliveryReceipt, DeliveryError> {
         let receipt = build_receipt(journal)?;
         fs::create_dir_all(self.done_dir())?;
@@ -686,11 +722,41 @@ mod tests {
     }
 
     fn artifact_journal(dir: &Path) -> (PathBuf, PathBuf, String) {
+        artifact_journal_with_status(dir, AnswerStatus::Completed)
+    }
+
+    fn artifact_journal_with_status(
+        dir: &Path,
+        answer_status: AnswerStatus,
+    ) -> (PathBuf, PathBuf, String) {
         let artifact = dir.join("out.txt");
         fs::write(&artifact, "evidence").unwrap();
         let digest = sha256_file(&artifact).unwrap();
+        let input = dir.join("input.txt");
+        fs::write(&input, "source").unwrap();
+        let input_digest = sha256_file(&input).unwrap();
         let journal = dir.join("run.jsonl");
         let request = TaskRequest::from_objective("write out.txt", dir.to_path_buf());
+        let read_call = crate::domain::ToolCall {
+            id: "c0".into(),
+            name: "read_file".into(),
+            arguments: json!({"path": input}),
+        };
+        let read_observation = crate::domain::ToolObservation {
+            call_id: "c0".into(),
+            tool: "read_file".into(),
+            status: ToolStatus::Ok,
+            summary: String::new(),
+            content: String::new(),
+            error_code: None,
+            metadata: BTreeMap::from([
+                (
+                    "relative_path".into(),
+                    input.file_name().unwrap().to_string_lossy().into_owned(),
+                ),
+                ("sha256".into(), input_digest),
+            ]),
+        };
         let call = crate::domain::ToolCall {
             id: "c1".into(),
             name: "write_file".into(),
@@ -711,8 +777,8 @@ mod tests {
         };
         let answer = AgentAnswer {
             schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
-            status: AnswerStatus::Completed,
-            conclusion: "wrote evidence".into(),
+            status: answer_status,
+            conclusion: "wrote evidence from input.txt".into(),
             claims: vec![Claim {
                 id: "c1".into(),
                 text: "out.txt is evidence".into(),
@@ -737,6 +803,10 @@ mod tests {
                     request,
                     mode: crate::domain::CognitiveMode::Execute,
                 },
+                JournalEventKind::ToolCalled { call: read_call },
+                JournalEventKind::ToolObserved {
+                    observation: read_observation,
+                },
                 JournalEventKind::ToolCalled { call },
                 JournalEventKind::ToolObserved { observation },
                 JournalEventKind::DeliverySnapshot { snapshot },
@@ -753,6 +823,22 @@ mod tests {
         let receipt = build_receipt(&journal).unwrap();
         assert_eq!(receipt.status, DeliveryStatus::Accepted);
         assert_eq!(receipt.artifacts[0]["match"], true);
+        assert!(
+            receipt.answer["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|source| source.as_str().is_some_and(|s| s.ends_with("input.txt")))
+        );
+    }
+
+    #[test]
+    fn needs_evidence_answer_is_not_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let (journal, _artifact, _run_id) =
+            artifact_journal_with_status(dir.path(), AnswerStatus::NeedsEvidence);
+        let receipt = build_receipt(&journal).unwrap();
+        assert_eq!(receipt.status, DeliveryStatus::Conditional);
     }
 
     #[test]
@@ -776,6 +862,7 @@ mod tests {
         assert_eq!(batch.receipts.len(), 1);
         assert!(queue.pending().unwrap().is_empty());
         assert!(queue.done_dir().join(format!("{run_id}.json")).is_file());
+        assert_eq!(queue.done().unwrap().len(), 1);
         assert!(queue.enqueue(&journal).is_err());
     }
 }

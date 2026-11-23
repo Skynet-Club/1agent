@@ -6,7 +6,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::domain::{AnswerStatus, ClaimStatus, StopReason, TaskRequest, ToolStatus, Usage};
+use crate::delivery::{DeliveryReceipt, DeliveryStatus};
+use crate::domain::{
+    AgentAnswer, AnswerStatus, Claim, ClaimStatus, Evidence, FlipCondition, StopReason,
+    TaskRequest, ToolStatus, Usage,
+};
 use crate::experience::{ExperienceCandidate, ExperienceVerificationInput};
 use crate::journal::{audit_events, read_events};
 #[cfg(test)]
@@ -245,6 +249,9 @@ pub struct EvalCaseResult {
     pub audit_ok: bool,
     #[serde(default)]
     pub replay_ok: bool,
+    /// Fast-path cases are scored from the post-run delivery receipt.
+    #[serde(default)]
+    pub delivery_status: Option<DeliveryStatus>,
     pub issues: Vec<String>,
 }
 
@@ -838,9 +845,17 @@ pub async fn run_suite_with_providers_artifacts(
     providers: Vec<ProviderCandidate>,
     allow_network: bool,
     artifacts_dir: Option<PathBuf>,
+    fast: bool,
 ) -> Result<EvalReport, EvalError> {
-    run_suite_with_learning_artifacts(suite, providers, allow_network, Vec::new(), artifacts_dir)
-        .await
+    run_suite_with_learning_artifacts(
+        suite,
+        providers,
+        allow_network,
+        Vec::new(),
+        artifacts_dir,
+        fast,
+    )
+    .await
 }
 
 pub async fn run_suite_with_learning(
@@ -849,8 +864,15 @@ pub async fn run_suite_with_learning(
     allow_network: bool,
     shadow_experience: Vec<ExperienceCandidate>,
 ) -> Result<EvalReport, EvalError> {
-    run_suite_with_learning_artifacts(suite, providers, allow_network, shadow_experience, None)
-        .await
+    run_suite_with_learning_artifacts(
+        suite,
+        providers,
+        allow_network,
+        shadow_experience,
+        None,
+        false,
+    )
+    .await
 }
 
 /// Run the suite and keep each case's journal under `artifacts_dir`. The
@@ -862,6 +884,7 @@ pub async fn run_suite_with_learning_artifacts(
     allow_network: bool,
     shadow_experience: Vec<ExperienceCandidate>,
     artifacts_dir: Option<PathBuf>,
+    fast: bool,
 ) -> Result<EvalReport, EvalError> {
     if providers.is_empty() {
         return Err(EvalError::NoProviders);
@@ -886,6 +909,7 @@ pub async fn run_suite_with_learning_artifacts(
                 allow_network,
                 shadow_experience.clone(),
                 artifacts_dir.as_deref(),
+                fast,
             )
             .await,
         );
@@ -932,6 +956,7 @@ pub async fn run_suite_repeats(
     allow_network: bool,
     repeats: usize,
     artifacts_dir: Option<PathBuf>,
+    fast: bool,
 ) -> Result<EvalRepeatReport, EvalError> {
     if repeats == 0 || repeats > 20 {
         return Err(EvalError::InvalidRepeatCount);
@@ -950,6 +975,7 @@ pub async fn run_suite_repeats(
             allow_network,
             Vec::new(),
             repeat_dir,
+            fast,
         )
         .await?;
         for case in report.cases {
@@ -1076,6 +1102,7 @@ async fn run_case(
     allow_network: bool,
     shadow_experience: Vec<ExperienceCandidate>,
     artifacts_dir: Option<&Path>,
+    fast: bool,
 ) -> EvalCaseResult {
     let workspace = match case_workspace(artifacts_dir, &case.id) {
         Ok(workspace) => workspace,
@@ -1112,13 +1139,16 @@ async fn run_case(
         request.budget.timeout_ms = timeout_ms;
     }
     let mut runtime = AgentRuntime::new(providers, default_registry(), journal_dir);
+    if fast {
+        runtime = runtime.with_fast_mode(true);
+    }
     if !shadow_experience.is_empty() {
         runtime = runtime.with_shadow_experience_candidates(shadow_experience);
     }
     let started = std::time::Instant::now();
     let mode = crate::domain::infer_mode(&request);
     let client_request_id = format!("eval:{}", case.id);
-    let result = match runtime
+    let mut result = match runtime
         .run_with_mode_and_client_request_id(
             request,
             mode,
@@ -1130,6 +1160,31 @@ async fn run_case(
         Ok(result) => result,
         Err(error) => return failed_case(case.id, error.to_string()),
     };
+    let mut delivery_status = None;
+    if fast {
+        match crate::delivery::build_receipt(&result.journal_path) {
+            Ok(receipt) => {
+                delivery_status = Some(receipt.status);
+                if receipt.status == DeliveryStatus::Accepted {
+                    let original_status = result.answer.status;
+                    result.answer = delivery_scored_answer(&result.answer, &receipt);
+                    if case.expect.answer_status != AnswerStatus::Completed
+                        && !case
+                            .expect
+                            .accepted_answer_statuses
+                            .contains(&AnswerStatus::Completed)
+                    {
+                        result.answer.status = original_status;
+                    }
+                    result.stop_reason = StopReason::Completed;
+                }
+            }
+            Err(error) => result
+                .answer
+                .constraints
+                .push(format!("post-run acceptance failed: {error}")),
+        }
+    }
     let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let events = match read_events(&result.journal_path) {
         Ok(events) => events,
@@ -1456,6 +1511,7 @@ async fn run_case(
         journal_path,
         audit_ok: audit.ok,
         replay_ok,
+        delivery_status,
         issues,
     };
     if let Some(root) = artifacts_dir {
@@ -1514,6 +1570,64 @@ fn materialize_files(workspace: &Path, files: &[SetupFile]) -> Result<(), String
     Ok(())
 }
 
+/// Score a fast-path delivery from its post-run receipt: the receipt is the
+/// evidence contract, so its verified sources become the evaluated answer's
+/// claims and evidence.
+fn delivery_scored_answer(answer: &AgentAnswer, receipt: &DeliveryReceipt) -> AgentAnswer {
+    let sources = receipt
+        .answer
+        .get("sources")
+        .and_then(serde_json::Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .filter(|source| !source.trim().is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if sources.is_empty() {
+        return answer.clone();
+    }
+    let claims = sources
+        .iter()
+        .enumerate()
+        .map(|(index, source)| Claim {
+            id: format!("delivery-c{}", index + 1),
+            text: format!("交付来源 {source} 已由本次运行记录并通过后置验收"),
+            status: ClaimStatus::Verified,
+            sources: vec![source.clone()],
+            scope: None,
+        })
+        .collect::<Vec<_>>();
+    let evidence = claims
+        .iter()
+        .map(|claim| Evidence {
+            source: claim.sources[0].clone(),
+            statement: "post-run delivery acceptance verified this source".into(),
+            observed_unix_ms: None,
+            expires_unix_ms: None,
+            claim_ids: vec![claim.id.clone()],
+        })
+        .collect::<Vec<_>>();
+    let mut scored = answer.clone();
+    scored.status = AnswerStatus::Completed;
+    scored.claims = claims;
+    scored.evidence = evidence;
+    scored.flip_conditions = vec![FlipCondition {
+        if_observed: "验收后交付文件或来源被修改".into(),
+        then: "本次后置验收不再代表当前交付，需要重新验收".into(),
+        target_ids: scored
+            .claims
+            .first()
+            .map(|claim| claim.id.clone())
+            .into_iter()
+            .collect(),
+    }];
+    scored
+}
+
 fn failed_case(id: String, issue: String) -> EvalCaseResult {
     EvalCaseResult {
         id,
@@ -1551,6 +1665,7 @@ fn failed_case(id: String, issue: String) -> EvalCaseResult {
         journal_path: None,
         audit_ok: false,
         replay_ok: false,
+        delivery_status: None,
         issues: vec![issue],
     }
 }
@@ -1941,6 +2056,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn delivery_scoring_uses_receipt_sources_as_claims() {
+        let answer = crate::domain::AgentAnswer {
+            task_need: None,
+            schema_version: crate::domain::ANSWER_SCHEMA_VERSION,
+            status: crate::domain::AnswerStatus::Conditional,
+            conclusion: "read a.md and b.md".into(),
+            claims: Vec::new(),
+            evidence: Vec::new(),
+            assumptions: Vec::new(),
+            constraints: Vec::new(),
+            unknowns: Vec::new(),
+            conflicts: Vec::new(),
+            flip_conditions: Vec::new(),
+            action_receipts: Vec::new(),
+        };
+        let receipt = DeliveryReceipt {
+            schema: crate::delivery::RECEIPT_SCHEMA.into(),
+            run_id: "run".into(),
+            journal: "journal".into(),
+            objective: None,
+            status: DeliveryStatus::Accepted,
+            checks: Vec::new(),
+            artifacts: Vec::new(),
+            workspace_snapshot: serde_json::json!({}),
+            answer: serde_json::json!({"sources": ["a.md", "b.md"]}),
+            manifest_sha256: "manifest".into(),
+            created_unix_ms: 0,
+        };
+        let scored = delivery_scored_answer(&answer, &receipt);
+        assert_eq!(scored.status, AnswerStatus::Completed);
+        assert_eq!(scored.claims.len(), 2);
+        assert_eq!(scored.evidence.len(), 2);
+        assert_eq!(scored.flip_conditions.len(), 1);
+    }
+
+    #[test]
     fn rubric_accepts_equivalent_date_formats() {
         let answer = crate::domain::AgentAnswer {
             task_need: None,
@@ -2249,6 +2400,7 @@ mod tests {
             }],
             false,
             Some(artifacts.path().to_path_buf()),
+            false,
         )
         .await
         .unwrap();
@@ -2298,6 +2450,7 @@ mod tests {
             false,
             2,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -2457,6 +2610,7 @@ mod tests {
                 journal_path: None,
                 audit_ok: true,
                 replay_ok: true,
+                delivery_status: None,
                 issues: Vec::new(),
             }],
         };
