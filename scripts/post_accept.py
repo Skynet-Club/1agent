@@ -163,16 +163,75 @@ def collect_answer(events: list[dict]) -> dict | None:
     return answer
 
 
-def answer_sources(answer: dict) -> list[str]:
+def claim_sources(claims: list) -> list[str]:
     sources: list[str] = []
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        for source in claim.get("sources") or []:
+            if isinstance(source, str):
+                sources.append(source)
+    return sources
+
+
+def collect_verified_artifacts(events: list[dict]) -> list[dict]:
+    verified: dict[str, str] = {}
+    for event in events:
+        if event.get("type") != "tool_observed":
+            continue
+        observation = event_data(event).get("observation") or {}
+        if not isinstance(observation, dict):
+            continue
+        if observation.get("tool") != "verify_artifact":
+            continue
+        if observation.get("status") != "ok":
+            continue
+        metadata = observation.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            continue
+        if metadata.get("decision") != "verified":
+            continue
+        path = metadata.get("path")
+        digest = metadata.get("sha256")
+        if isinstance(path, str) and isinstance(digest, str):
+            verified[path] = digest
+    return [{"path": path, "sha256": digest} for path, digest in sorted(verified.items())]
+
+
+def derive_claims(artifacts: list[dict], verified: list[dict]) -> list[dict]:
+    claims: list[dict] = []
+    seen: set[str] = set()
+    for index, artifact in enumerate(artifacts, 1):
+        path = artifact["path"]
+        seen.add(path)
+        claims.append(
+            {
+                "id": f"derived-artifact-{index}",
+                "text": f"recorded write: {path} (sha256 {artifact['recorded_sha256']})",
+                "status": "verified",
+                "sources": [path],
+                "derived": True,
+            }
+        )
+    for index, artifact in enumerate(verified, 1):
+        path = artifact["path"]
+        if path in seen:
+            continue
+        claims.append(
+            {
+                "id": f"derived-verified-{index}",
+                "text": f"verified artifact: {path} (sha256 {artifact['sha256']})",
+                "status": "verified",
+                "sources": [path],
+                "derived": True,
+            }
+        )
+    return claims
+
+
+def answer_sources(answer: dict) -> list[str]:
     claims = answer.get("claims")
-    if isinstance(claims, list):
-        for claim in claims:
-            if not isinstance(claim, dict):
-                continue
-            for source in claim.get("sources") or []:
-                if isinstance(source, str):
-                    sources.append(source)
+    sources = claim_sources(claims) if isinstance(claims, list) else []
     evidence = answer.get("evidence")
     if isinstance(evidence, list):
         for item in evidence:
@@ -190,6 +249,8 @@ def build_manifest(journal: Path) -> dict:
     started = next((event for event in events if event.get("type") == "run_started"), None)
     answer = collect_answer(events)
     artifacts, artifact_reasons, unrecorded_write, terminal_write_possible = collect_artifacts(events)
+    verified_artifacts = collect_verified_artifacts(events)
+    derived_claims = derive_claims(artifacts, verified_artifacts)
     unpinned_write = not artifacts and terminal_write_possible
     request = (event_data(started).get("request") if started else {}) or {}
     objective = request.get("objective") if isinstance(request, dict) else None
@@ -271,13 +332,22 @@ def build_manifest(journal: Path) -> dict:
     else:
         conclusion = answer.get("conclusion")
         status = answer.get("status")
-        claims = answer.get("claims") if isinstance(answer.get("claims"), list) else []
-        verified = [
+        model_claims = answer.get("claims") if isinstance(answer.get("claims"), list) else []
+        model_verified = [
             claim
-            for claim in claims
+            for claim in model_claims
             if isinstance(claim, dict) and claim.get("status") == "verified"
         ]
-        sources = answer_sources(answer)
+        effective_claims = model_claims if model_verified else derived_claims
+        effective_verified = [
+            claim
+            for claim in effective_claims
+            if isinstance(claim, dict) and claim.get("status") == "verified"
+        ]
+        evidence_source = (
+            "model" if model_verified else ("journal" if derived_claims else "none")
+        )
+        sources = sorted(set(claim_sources(effective_claims) + answer_sources(answer)))
         # Claim sources may be tool references such as
         # `verify_artifact:call_...`; only absolute paths are filesystem checks.
         missing_sources = [
@@ -294,8 +364,13 @@ def build_manifest(journal: Path) -> dict:
                 },
                 {
                     "id": "answer:claims",
-                    "passed": bool(claims) and bool(verified),
-                    "detail": {"claims": len(claims), "verified": len(verified)},
+                    "passed": bool(effective_verified),
+                    "detail": {
+                        "claims": len(model_claims),
+                        "verified": len(model_verified),
+                        "derived": len(derived_claims),
+                        "evidence_source": evidence_source,
+                    },
                 },
                 {
                     "id": "answer:sources_exist",
@@ -338,6 +413,8 @@ def build_manifest(journal: Path) -> dict:
         "answer": {
             "status": answer.get("status") if answer else None,
             "claims": len(answer.get("claims") or []) if answer else 0,
+            "derived_claims": len(derived_claims),
+            "evidence_source": evidence_source if answer else "none",
             "sources": sources,
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -486,8 +563,9 @@ def self_test() -> int:
             ),
             encoding="utf-8",
         )
-        conditional = build_manifest(journal)
-        assert conditional["decision"] == "conditional", conditional
+        derived = build_manifest(journal)
+        assert derived["decision"] == "accepted", derived
+        assert derived["answer"]["evidence_source"] == "journal", derived
 
         directory_source = json.loads(json.dumps(answer))
         directory_source["event"]["data"]["answer"]["claims"][0]["sources"] = [str(root)]

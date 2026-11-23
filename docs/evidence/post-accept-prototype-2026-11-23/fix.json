@@ -4,14 +4,14 @@
   "journals": 48,
   "missing_journals": 24,
   "decisions": {
-    "conditional": 7,
-    "accepted": 40,
+    "accepted": 43,
+    "conditional": 4,
     "rejected": 1
   },
   "by_arm": {
     "full": {
-      "conditional": 5,
-      "accepted": 19
+      "accepted": 22,
+      "conditional": 2
     },
     "core7": {
       "accepted": 21,
@@ -21,12 +21,10 @@
   },
   "by_case": {
     "bug-fix-last-index": {
-      "conditional": 1,
-      "accepted": 5
+      "accepted": 6
     },
     "config-retries": {
-      "accepted": 3,
-      "conditional": 2,
+      "accepted": 5,
       "rejected": 1
     },
     "data-processing-sales": {
@@ -51,7 +49,6 @@
     }
   },
   "failure_reasons": {
-    "answer:claims": 3,
     "journal:terminal_write_unpinned": 4,
     "answer:present": 1
   },
@@ -61,9 +58,9 @@
       "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/bug-fix-last-index/run-1/journals/89372c16-63f6-4391-acf9-c291d38f28c5.jsonl",
       "run_id": "89372c16-63f6-4391-acf9-c291d38f28c5",
       "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs. The function should return the last valid index of a non-empty slice. Fix the off-by-one by using `saturating_sub`, write the corrected file, and report the exact change with counter.rs as evidence.",
-      "decision": "conditional",
+      "decision": "accepted",
       "proof_ok": true,
-      "answer_ok": false,
+      "answer_ok": true,
       "unpinned_write": false,
       "checks": [
         {
@@ -111,17 +108,21 @@
         },
         {
           "id": "answer:claims",
-          "passed": false,
+          "passed": true,
           "detail": {
             "claims": 0,
-            "verified": 0
+            "verified": 0,
+            "derived": 1,
+            "evidence_source": "journal"
           }
         },
         {
           "id": "answer:sources_exist",
           "passed": true,
           "detail": {
-            "sources": [],
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs"
+            ],
             "missing": []
           }
         }
@@ -139,10 +140,14 @@
       "answer": {
         "status": "needs_evidence",
         "claims": 0,
-        "sources": []
+        "derived_claims": 1,
+        "evidence_source": "journal",
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/bug-fix-last-index/counter.rs"
+        ]
       },
-      "generated_at": "2026-11-23T08:27:57.881690+00:00",
-      "manifest_sha256": "aca0896422faa3498ef024d3b3b1467eacb5c2a999366e8ea15890153439b5b3",
+      "generated_at": "2026-11-23T08:30:06.218402+00:00",
+      "manifest_sha256": "66281cf43f4bb4007b8e6a85f95ff265759b0eecdd8c6166612f56f706853002",
       "arm": "full",
       "case": "bug-fix-last-index",
       "run": 1,
@@ -206,7 +211,9 @@
           "passed": true,
           "detail": {
             "claims": 7,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -234,12 +241,14 @@
       "answer": {
         "status": "completed",
         "claims": 7,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/bug-fix-last-index/counter.rs",
           "acceptance_gate:aebd5d5ea294d7847a01252e63e64e32c6f4e44ab00bb54be29650c2b0364087"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.882471+00:00",
+      "generated_at": "2026-11-23T08:30:06.219372+00:00",
       "manifest_sha256": "e9e63f0eab1711055bc1ad73cd687a118acc32a16a5606df37eb3171248481d9",
       "arm": "core7",
       "case": "bug-fix-last-index",
@@ -304,7 +313,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -331,11 +342,13 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/config-retries/agent.conf"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.883546+00:00",
+      "generated_at": "2026-11-23T08:30:06.220543+00:00",
       "manifest_sha256": "1aaa2d6ad4ecdf0ce863cd2308aaaf8a0e866c31162cdb293d3de765392f4d66",
       "arm": "full",
       "case": "config-retries",
@@ -400,7 +413,9 @@
           "passed": true,
           "detail": {
             "claims": 3,
-            "verified": 2
+            "verified": 2,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -427,11 +442,13 @@
       "answer": {
         "status": "completed",
         "claims": 3,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/config-retries/agent.conf"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.884301+00:00",
+      "generated_at": "2026-11-23T08:30:06.221597+00:00",
       "manifest_sha256": "e8c540a037f1bba75d1f9af42caffea49c8e379560e58330660b686dbe67a4fb",
       "arm": "core7",
       "case": "config-retries",
@@ -496,7 +513,9 @@
           "passed": true,
           "detail": {
             "claims": 3,
-            "verified": 2
+            "verified": 2,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -524,12 +543,14 @@
       "answer": {
         "status": "completed",
         "claims": 3,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/sales.jsonl",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/data-processing-sales/summary.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.885215+00:00",
+      "generated_at": "2026-11-23T08:30:06.222670+00:00",
       "manifest_sha256": "149aa9453d7baccd026607468747228fd5f31262566db077972886d63f977350",
       "arm": "full",
       "case": "data-processing-sales",
@@ -594,7 +615,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -623,13 +646,15 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/sales.jsonl",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/data-processing-sales/summary.txt",
           "acceptance_gate:85584d1a97e2e3310fbc145b22a53878765747018824140e07dedd2502e32a7e"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.885913+00:00",
+      "generated_at": "2026-11-23T08:30:06.223479+00:00",
       "manifest_sha256": "ff5184b0070f472fb8024933e4aee7c8883263dbcaf9610393396991cf46a0f0",
       "arm": "core7",
       "case": "data-processing-sales",
@@ -682,7 +707,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -701,12 +728,14 @@
       "answer": {
         "status": "conditional",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/a.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/research-compare/b.md"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.886527+00:00",
+      "generated_at": "2026-11-23T08:30:06.224150+00:00",
       "manifest_sha256": "8741934706800da2d0456d4a242dd8f51dcb1cf9439903096a84ad920858815a",
       "arm": "full",
       "case": "research-compare",
@@ -759,7 +788,9 @@
           "passed": true,
           "detail": {
             "claims": 6,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -778,12 +809,14 @@
       "answer": {
         "status": "conditional",
         "claims": 6,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/a.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/research-compare/b.md"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.887144+00:00",
+      "generated_at": "2026-11-23T08:30:06.224763+00:00",
       "manifest_sha256": "c8405f0641462190b347db1b3569a9f3892848c7e3a61dbf3a6927d435076f78",
       "arm": "core7",
       "case": "research-compare",
@@ -848,7 +881,9 @@
           "passed": true,
           "detail": {
             "claims": 7,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -877,13 +912,15 @@
       "answer": {
         "status": "conditional",
         "claims": 7,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/README.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/long-task-plan/plan.md",
           "acceptance_gate:057a52cec100f6023940f7a48ea83e0589ce651a760328d2da953e7ec754ee72"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.888434+00:00",
+      "generated_at": "2026-11-23T08:30:06.226362+00:00",
       "manifest_sha256": "d84456f24f7f328d582c2f630a5c15f84f01737837219357d1ed4c10e8c0baaf",
       "arm": "full",
       "case": "long-task-plan",
@@ -948,7 +985,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -977,13 +1016,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/README.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/long-task-plan/plan.md",
           "acceptance_gate:4c9d511bb7c6d3eb068df8d73dcba909166f9929b0f9084ca0274a05e9c8eb7b"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.889239+00:00",
+      "generated_at": "2026-11-23T08:30:06.227285+00:00",
       "manifest_sha256": "3c9a36fb3f53d524f1dd901abadbac0acea87b2034921d024c7750dc14fc1864",
       "arm": "core7",
       "case": "long-task-plan",
@@ -1043,7 +1084,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -1062,12 +1105,14 @@
       "answer": {
         "status": "conditional",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/broken-json/broken.json",
           "term-1795416464352-2296-44"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.890077+00:00",
+      "generated_at": "2026-11-23T08:30:06.228211+00:00",
       "manifest_sha256": "d6c16cb65ab1ec876546701bb17504f4e9989fdf0903440fa0ccd1205527434e",
       "arm": "full",
       "case": "broken-json",
@@ -1127,7 +1172,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -1147,13 +1194,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/broken.json",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/jq.err",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/broken-json/py.out"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.890982+00:00",
+      "generated_at": "2026-11-23T08:30:06.229094+00:00",
       "manifest_sha256": "2665b4e7f5afa5db219b20ffcbb7e27c4fa9b64d78c4b3d605119435ea4796a9",
       "arm": "core7",
       "case": "broken-json",
@@ -1218,7 +1267,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -1247,13 +1298,15 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-1/checksum-file/checksum.txt",
           "acceptance_gate:checksum-file-evidence:07f9ca8c743283c0d1beb7ed6c3582a5f5a3d5ed84440eed39a0ee65b87d19a9",
           "verify_artifact:checksum.txt:ee8250fb76e094b34b471f13a73dbbe51d1ae142e9df59d7c0d31ec20f0a0a8e"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.892352+00:00",
+      "generated_at": "2026-11-23T08:30:06.230539+00:00",
       "manifest_sha256": "10cc0456eec658335397dda60604881012bf0ba6d6c46ca72025e6694f53a6c3",
       "arm": "full",
       "case": "checksum-file",
@@ -1318,7 +1371,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -1347,13 +1402,15 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/checksum-file/checksum.txt",
           "acceptance:0c8cff11c8ad9dd16fee5e8dd17022524a4921aa2f03de0c9f24aa2c14854ea7",
           "term-1795416535290-2296-47"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.893391+00:00",
+      "generated_at": "2026-11-23T08:30:06.231602+00:00",
       "manifest_sha256": "86248cde966a5326ccb63abcd581cc75a1c32a403fb63879a53be5e93803cb7d",
       "arm": "core7",
       "case": "checksum-file",
@@ -1406,7 +1463,9 @@
           "passed": true,
           "detail": {
             "claims": 3,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -1425,12 +1484,14 @@
       "answer": {
         "status": "completed",
         "claims": 3,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "notes/a.txt",
           "notes/b.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.894093+00:00",
+      "generated_at": "2026-11-23T08:30:06.232283+00:00",
       "manifest_sha256": "0349fa46e1d1dfeef049d76708cde8c9dbb2e0edc9a5cc8f60ca7ba668460891",
       "arm": "full",
       "case": "directory-summary",
@@ -1490,7 +1551,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -1510,13 +1573,15 @@
       "answer": {
         "status": "conditional",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes/a.txt",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-1/directory-summary/notes/b.txt",
           "term-1795416559685-2296-48"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.894711+00:00",
+      "generated_at": "2026-11-23T08:30:06.232793+00:00",
       "manifest_sha256": "4de2722a50ffa9c62117b6c4c64d1c6bfa200803916a76e93d9aac9f9d491add",
       "arm": "core7",
       "case": "directory-summary",
@@ -1581,7 +1646,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -1608,11 +1675,13 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "counter.rs"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.895587+00:00",
+      "generated_at": "2026-11-23T08:30:06.233749+00:00",
       "manifest_sha256": "fa25d4f2bc58df76b926bb6681e42b36d8b0945f90cf6f54f786e56993e186be",
       "arm": "full",
       "case": "bug-fix-last-index",
@@ -1677,7 +1746,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -1706,13 +1777,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/bug-fix-last-index/counter.rs",
           "acceptance_gate:bug-fix-last-index",
           "terminal:term-1795416604495-2296-49"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.896300+00:00",
+      "generated_at": "2026-11-23T08:30:06.234513+00:00",
       "manifest_sha256": "165eba0a718d4c00508e0fcce028b750206335b8222e63d6a47f86cd01fde80d",
       "arm": "core7",
       "case": "bug-fix-last-index",
@@ -1724,9 +1797,9 @@
       "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/config-retries/run-2/journals/2396ad25-0be7-4566-9939-f3ab77f4f01e.jsonl",
       "run_id": "2396ad25-0be7-4566-9939-f3ab77f4f01e",
       "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
-      "decision": "conditional",
+      "decision": "accepted",
       "proof_ok": true,
-      "answer_ok": false,
+      "answer_ok": true,
       "unpinned_write": false,
       "checks": [
         {
@@ -1774,17 +1847,21 @@
         },
         {
           "id": "answer:claims",
-          "passed": false,
+          "passed": true,
           "detail": {
             "claims": 0,
-            "verified": 0
+            "verified": 0,
+            "derived": 1,
+            "evidence_source": "journal"
           }
         },
         {
           "id": "answer:sources_exist",
           "passed": true,
           "detail": {
-            "sources": [],
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf"
+            ],
             "missing": []
           }
         }
@@ -1802,10 +1879,14 @@
       "answer": {
         "status": "needs_evidence",
         "claims": 0,
-        "sources": []
+        "derived_claims": 1,
+        "evidence_source": "journal",
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/config-retries/agent.conf"
+        ]
       },
-      "generated_at": "2026-11-23T08:27:57.897352+00:00",
-      "manifest_sha256": "142d80c42ad2f9a7373164aa7eed1327a3c7254257e4f768313714a85a45f4e0",
+      "generated_at": "2026-11-23T08:30:06.235665+00:00",
+      "manifest_sha256": "02f6106a4e70adbcc6ea3788d3a206d29f1b2cead3de6e2e3ff964ab1b3cfad7",
       "arm": "full",
       "case": "config-retries",
       "run": 2,
@@ -1869,7 +1950,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -1897,12 +1980,14 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/config-retries/agent.conf",
           "acceptance_gate:config-retries-1-to-3"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.898029+00:00",
+      "generated_at": "2026-11-23T08:30:06.236407+00:00",
       "manifest_sha256": "f126020a270e70134f59122723c8b9efa3cee158d8baa4b5291c1171e144afa1",
       "arm": "core7",
       "case": "config-retries",
@@ -1967,7 +2052,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -1996,13 +2083,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/sales.jsonl",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/data-processing-sales/summary.txt",
           "acceptance_gate:data-processing-sales-summary"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.899133+00:00",
+      "generated_at": "2026-11-23T08:30:06.237625+00:00",
       "manifest_sha256": "7c5c7ebc4cef6b31516bef76789754724b1c0b199a2ae6113ac2546aaa8219a8",
       "arm": "full",
       "case": "data-processing-sales",
@@ -2067,7 +2156,9 @@
           "passed": true,
           "detail": {
             "claims": 3,
-            "verified": 2
+            "verified": 2,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -2095,12 +2186,14 @@
       "answer": {
         "status": "completed",
         "claims": 3,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/sales.jsonl",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/data-processing-sales/summary.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.899826+00:00",
+      "generated_at": "2026-11-23T08:30:06.238278+00:00",
       "manifest_sha256": "7582e53605d9a9dc4bf677d0e50e133594c6166c7eba1107eafc79a22bf7d6b3",
       "arm": "core7",
       "case": "data-processing-sales",
@@ -2153,7 +2246,9 @@
           "passed": true,
           "detail": {
             "claims": 6,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -2172,12 +2267,14 @@
       "answer": {
         "status": "conditional",
         "claims": 6,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/a.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/research-compare/b.md"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.900470+00:00",
+      "generated_at": "2026-11-23T08:30:06.238934+00:00",
       "manifest_sha256": "2c7c50659ca4393abf58305545d6fd98c26ea0534e0e3d03d64f79aa12ccee28",
       "arm": "full",
       "case": "research-compare",
@@ -2242,7 +2339,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 2
+            "verified": 2,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -2270,12 +2369,14 @@
       "answer": {
         "status": "conditional",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/a.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/research-compare/b.md"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.901176+00:00",
+      "generated_at": "2026-11-23T08:30:06.239520+00:00",
       "manifest_sha256": "6d725c29d0defeb6e9605ee67a6ab1356100a7bd6ee4787d7d17ee410c748dab",
       "arm": "core7",
       "case": "research-compare",
@@ -2352,7 +2453,9 @@
           "passed": true,
           "detail": {
             "claims": 7,
-            "verified": 4
+            "verified": 4,
+            "derived": 2,
+            "evidence_source": "model"
           }
         },
         {
@@ -2391,6 +2494,8 @@
       "answer": {
         "status": "conditional",
         "claims": 7,
+        "derived_claims": 2,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/long-task-plan/README.md",
@@ -2399,7 +2504,7 @@
           "call_00_XBZI94HXEHwKPB4UWHci0406"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.902584+00:00",
+      "generated_at": "2026-11-23T08:30:06.240830+00:00",
       "manifest_sha256": "9beef27854d1dcbcdd6cc38cd78bd94091f09850161ef388349cf39e7ef6c443",
       "arm": "full",
       "case": "long-task-plan",
@@ -2464,7 +2569,9 @@
           "passed": true,
           "detail": {
             "claims": 6,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -2493,13 +2600,15 @@
       "answer": {
         "status": "completed",
         "claims": 6,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/README.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/long-task-plan/plan.md",
           "acceptance_gate:2cd4a6be2e33ae7f14440e3f8cf140beb9035dab503f2a24e0a80f4fa1b5cf9f"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.903484+00:00",
+      "generated_at": "2026-11-23T08:30:06.241634+00:00",
       "manifest_sha256": "525906e728bca26246091e13204f4980716d7d3d2fe1ba95cdcaf5f3b469f7e1",
       "arm": "core7",
       "case": "long-task-plan",
@@ -2552,7 +2661,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -2570,11 +2681,13 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/broken-json/broken.json"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.904214+00:00",
+      "generated_at": "2026-11-23T08:30:06.242329+00:00",
       "manifest_sha256": "6989405e07f45f042d0eff233b49fba17b2c7785653ca07dff5889bf07ac4882",
       "arm": "full",
       "case": "broken-json",
@@ -2627,7 +2740,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -2646,12 +2761,14 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/broken-json/broken.json",
           "jq . broken.json (session term-1795416828347-2296-51)"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.904818+00:00",
+      "generated_at": "2026-11-23T08:30:06.242997+00:00",
       "manifest_sha256": "9b5ddff85133fb16f8c182d599092fb342d704db87fc460dc402bdb352e5c659",
       "arm": "core7",
       "case": "broken-json",
@@ -2716,7 +2833,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 5
+            "verified": 5,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -2745,13 +2864,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-2/checksum-file/checksum.txt",
           "/tmp/nl_ref",
           "acceptance_gate:checksum-file-run2"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.905750+00:00",
+      "generated_at": "2026-11-23T08:30:06.244019+00:00",
       "manifest_sha256": "58358dae06e10851acb77ed459804a8b49c409965ea08a10ea12c48355e7c786",
       "arm": "full",
       "case": "checksum-file",
@@ -2816,7 +2937,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -2846,6 +2969,8 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/checksum-file/checksum.txt",
           "acceptance_gate receipt task core7-run-2-checksum-file",
@@ -2853,7 +2978,7 @@
           "checksum.txt sha256sum 输出（session term-1795416867830-2296-53）"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.906798+00:00",
+      "generated_at": "2026-11-23T08:30:06.244934+00:00",
       "manifest_sha256": "7be7fe00507f8ce9b69dc3b49a1493282c2b0bc874257aa711dff69eb48892e9",
       "arm": "core7",
       "case": "checksum-file",
@@ -2906,7 +3031,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -2925,12 +3052,14 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "notes/a.txt",
           "notes/b.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.907423+00:00",
+      "generated_at": "2026-11-23T08:30:06.245470+00:00",
       "manifest_sha256": "5554e28e7a1bc753c1e0f3cc52c06c9890e49681d651f1293676319263c4ad25",
       "arm": "full",
       "case": "directory-summary",
@@ -2983,7 +3112,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -3003,13 +3134,15 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes/a.txt",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-2/directory-summary/notes/b.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.907979+00:00",
+      "generated_at": "2026-11-23T08:30:06.245930+00:00",
       "manifest_sha256": "9304a64cb3ce5977e372b3bdd8b506cef511cb16499984bf3d0e529be8097903",
       "arm": "core7",
       "case": "directory-summary",
@@ -3074,7 +3207,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -3101,11 +3236,13 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/bug-fix-last-index/counter.rs"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.909058+00:00",
+      "generated_at": "2026-11-23T08:30:06.246897+00:00",
       "manifest_sha256": "00c8c40021ef51b5cdb9bac894a5b5a5ff0a05845fe7a20623694d7d7eb700c8",
       "arm": "full",
       "case": "bug-fix-last-index",
@@ -3170,7 +3307,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 5
+            "verified": 5,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -3198,12 +3337,14 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/bug-fix-last-index/counter.rs",
           "acceptance_gate:0d56c8b67ffda5188a54410581cd684c887214d1d87578f1393c5c4e2940535d"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.910246+00:00",
+      "generated_at": "2026-11-23T08:30:06.247599+00:00",
       "manifest_sha256": "411d4d36582e6258918898b11bc9fbaf247fe03a26eef8360fa942ed63b1248c",
       "arm": "core7",
       "case": "bug-fix-last-index",
@@ -3215,9 +3356,9 @@
       "journal": "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/runs/full/config-retries/run-3/journals/f251238e-5e6f-47b5-991c-915d31f41cac.jsonl",
       "run_id": "f251238e-5e6f-47b5-991c-915d31f41cac",
       "objective": "Read /home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf, change retries from 1 to 3, write the file, and report the old and new value with agent.conf as evidence.",
-      "decision": "conditional",
+      "decision": "accepted",
       "proof_ok": true,
-      "answer_ok": false,
+      "answer_ok": true,
       "unpinned_write": false,
       "checks": [
         {
@@ -3265,17 +3406,21 @@
         },
         {
           "id": "answer:claims",
-          "passed": false,
+          "passed": true,
           "detail": {
             "claims": 0,
-            "verified": 0
+            "verified": 0,
+            "derived": 1,
+            "evidence_source": "journal"
           }
         },
         {
           "id": "answer:sources_exist",
           "passed": true,
           "detail": {
-            "sources": [],
+            "sources": [
+              "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf"
+            ],
             "missing": []
           }
         }
@@ -3293,10 +3438,14 @@
       "answer": {
         "status": "needs_evidence",
         "claims": 0,
-        "sources": []
+        "derived_claims": 1,
+        "evidence_source": "journal",
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/config-retries/agent.conf"
+        ]
       },
-      "generated_at": "2026-11-23T08:27:57.912722+00:00",
-      "manifest_sha256": "af7176a0937ceae32ef0d9e289cbf82f4d7934cd67f256848f6b09d279120c73",
+      "generated_at": "2026-11-23T08:30:06.248801+00:00",
+      "manifest_sha256": "3908a33218cd163ab39beaad90f0eb4d75d72dd44e966a57ac20e70c76c9f5a4",
       "arm": "full",
       "case": "config-retries",
       "run": 3,
@@ -3366,9 +3515,11 @@
       "answer": {
         "status": null,
         "claims": 0,
+        "derived_claims": 1,
+        "evidence_source": "none",
         "sources": []
       },
-      "generated_at": "2026-11-23T08:27:57.914132+00:00",
+      "generated_at": "2026-11-23T08:30:06.249404+00:00",
       "manifest_sha256": "e4bf807aa45fb05fdcc98ba79d732e6f136c1df64899884ff6c86832d9d66ce2",
       "arm": "core7",
       "case": "config-retries",
@@ -3433,7 +3584,9 @@
           "passed": true,
           "detail": {
             "claims": 3,
-            "verified": 2
+            "verified": 2,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -3461,12 +3614,14 @@
       "answer": {
         "status": "completed",
         "claims": 3,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/sales.jsonl",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/data-processing-sales/summary.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.916324+00:00",
+      "generated_at": "2026-11-23T08:30:06.250330+00:00",
       "manifest_sha256": "d3366e2368bcdc96de063c3408c902d076b00a9d8e8085cb1f5334a0e767733e",
       "arm": "full",
       "case": "data-processing-sales",
@@ -3531,7 +3686,9 @@
           "passed": true,
           "detail": {
             "claims": 3,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -3560,13 +3717,15 @@
       "answer": {
         "status": "completed",
         "claims": 3,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/sales.jsonl",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/data-processing-sales/summary.txt",
           "acceptance_gate:data-processing-sales-run3"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.917758+00:00",
+      "generated_at": "2026-11-23T08:30:06.251012+00:00",
       "manifest_sha256": "84729dcf0821039bfc904f7a7d3a06a4a3831b0f4cafffec43d3b02ace5e021f",
       "arm": "core7",
       "case": "data-processing-sales",
@@ -3619,7 +3778,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -3638,12 +3799,14 @@
       "answer": {
         "status": "conditional",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/a.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/research-compare/b.md"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.919399+00:00",
+      "generated_at": "2026-11-23T08:30:06.251731+00:00",
       "manifest_sha256": "4fc5232efe966db90f4971fb6a4e58e281d45cd371b9f45089177dacb2acfbec",
       "arm": "full",
       "case": "research-compare",
@@ -3696,7 +3859,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -3715,12 +3880,14 @@
       "answer": {
         "status": "conditional",
         "claims": 5,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/a.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/research-compare/b.md"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.920372+00:00",
+      "generated_at": "2026-11-23T08:30:06.252260+00:00",
       "manifest_sha256": "8891403c673ab129f7cd35749e5b40c522ec5f25bf28f2d4dce33dfad29cc284",
       "arm": "core7",
       "case": "research-compare",
@@ -3785,7 +3952,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -3814,13 +3983,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/README.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/long-task-plan/plan.md",
           "acceptance_gate:long-task-plan-run-3"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.922613+00:00",
+      "generated_at": "2026-11-23T08:30:06.253371+00:00",
       "manifest_sha256": "b29b5f4b485a549210dbf5b4a12fe8c0e4691d9e72a55dee79fbf64d81ded470",
       "arm": "full",
       "case": "long-task-plan",
@@ -3885,7 +4056,9 @@
           "passed": true,
           "detail": {
             "claims": 5,
-            "verified": 3
+            "verified": 3,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -3914,13 +4087,15 @@
       "answer": {
         "status": "completed",
         "claims": 5,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/README.md",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/long-task-plan/plan.md",
           "acceptance_gate:long-task-plan-3step"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.924161+00:00",
+      "generated_at": "2026-11-23T08:30:06.254078+00:00",
       "manifest_sha256": "87547a859691a24e863936c93049e2452633ff4519a85ee13ea3b70c77e34ea9",
       "arm": "core7",
       "case": "long-task-plan",
@@ -3980,7 +4155,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 2
+            "verified": 2,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -3998,11 +4175,13 @@
       "answer": {
         "status": "conditional",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/broken-json/broken.json"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.925740+00:00",
+      "generated_at": "2026-11-23T08:30:06.254980+00:00",
       "manifest_sha256": "eaf67034cc52bb51fee93ce562d21992f6c2ee78b57e11c0c35939add1026d77",
       "arm": "full",
       "case": "broken-json",
@@ -4055,7 +4234,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 1
+            "verified": 1,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -4073,11 +4254,13 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/broken-json/broken.json"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.926589+00:00",
+      "generated_at": "2026-11-23T08:30:06.255417+00:00",
       "manifest_sha256": "e3182345ef62dfd177fcd6718f2a07102e898b28f9fa8b8597187914c2c40d08",
       "arm": "core7",
       "case": "broken-json",
@@ -4142,7 +4325,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 4
+            "verified": 4,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -4170,12 +4355,14 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/checksum-file/checksum.txt",
           "acceptance_gate:checksum-file-run3"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.928457+00:00",
+      "generated_at": "2026-11-23T08:30:06.256398+00:00",
       "manifest_sha256": "c62d311e4400d7672962cc6c56c32befdb9425707388adcbd4da04fc01ded33f",
       "arm": "full",
       "case": "checksum-file",
@@ -4240,7 +4427,9 @@
           "passed": true,
           "detail": {
             "claims": 2,
-            "verified": 2
+            "verified": 2,
+            "derived": 1,
+            "evidence_source": "model"
           }
         },
         {
@@ -4268,12 +4457,14 @@
       "answer": {
         "status": "conditional",
         "claims": 2,
+        "derived_claims": 1,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/core7/run-3/checksum-file/checksum.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.929876+00:00",
+      "generated_at": "2026-11-23T08:30:06.257037+00:00",
       "manifest_sha256": "dc47a528b5b84913766877d5cd58649d28d6a4d52f85571f756d5cef21fa5ca2",
       "arm": "core7",
       "case": "checksum-file",
@@ -4326,7 +4517,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -4346,13 +4539,15 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes/a.txt",
           "/home/skynet/1-agent/docs/evidence/phase4-acceptance-fix-2026-11-23/workspaces/full/run-3/directory-summary/notes/b.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.931213+00:00",
+      "generated_at": "2026-11-23T08:30:06.257524+00:00",
       "manifest_sha256": "1cc5b7c69d6ad198504f720dd37bed96c38120619521742e1ce369ee8e8ac7c1",
       "arm": "full",
       "case": "directory-summary",
@@ -4405,7 +4600,9 @@
           "passed": true,
           "detail": {
             "claims": 4,
-            "verified": 3
+            "verified": 3,
+            "derived": 0,
+            "evidence_source": "model"
           }
         },
         {
@@ -4425,13 +4622,15 @@
       "answer": {
         "status": "completed",
         "claims": 4,
+        "derived_claims": 0,
+        "evidence_source": "model",
         "sources": [
           "notes/",
           "notes/a.txt",
           "notes/b.txt"
         ]
       },
-      "generated_at": "2026-11-23T08:27:57.932539+00:00",
+      "generated_at": "2026-11-23T08:30:06.258128+00:00",
       "manifest_sha256": "4d81f08f2b24b653a924fe0941016e663f3f208d9be2c0e9befa1c3ebb70b0c1",
       "arm": "core7",
       "case": "directory-summary",
