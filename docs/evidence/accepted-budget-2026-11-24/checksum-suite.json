@@ -1,0 +1,39 @@
+{
+  "name": "real-tasks-v1",
+  "suite_version": "1.2",
+  "kind": "model_quality",
+  "execution_status": "ready",
+  "provider_requirements": [
+    "real provider with tool calling; do not run this suite with the deterministic mock"
+  ],
+  "reviewer": "human reviewer required",
+  "calibration_required": true,
+  "min_decision_completeness_bps": 8000,
+  "cases": [
+    {
+      "id": "checksum-file",
+      "objective": "Create ${workspace}/checksum.txt containing the exact ASCII text `evidence` (no trailing newline), compute its SHA-256, and report the hash with checksum.txt as evidence.",
+      "setup_files": [],
+      "rubric": {
+        "required_sources": [
+          "checksum.txt"
+        ],
+        "required_claim_statuses": [
+          "verified"
+        ]
+      },
+      "allow_write": true,
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "completed",
+        "min_evidence": 1,
+        "min_claims": 1,
+        "min_flip_conditions": 1,
+        "audit_ok": true,
+        "expect_checkpoint": true
+      },
+      "max_steps": 8,
+      "max_tool_calls": 8
+    }
+  ]
+}
