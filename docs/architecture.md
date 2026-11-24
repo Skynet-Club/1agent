@@ -1058,7 +1058,13 @@ Rejected outcomes; Verified outcomes are not surfaced.
   side effects backfills claims and evidence from `verify_artifact`,
   `read_file` sources named in the conclusion, or the accepted receipt, and the
   plain-text fallback adds one flip condition. A completed delivery therefore
-  never reaches the user with empty claims or evidence.
+  never reaches the user with empty claims or evidence. If an accepted receipt
+  exists but the final narrative is lost to a step/tool-call budget or a failed
+  repair, the runtime synthesizes `completed` from the receipt and verified
+  artifacts: the conclusion names artifact sha256s and the acceptance criteria,
+  claims/evidence are backfilled, and the flip condition targets the delivery
+  claim. The invalid model answer stays in the journal; it is not presented as
+  verified.
 - Post-run acceptance: `delivery.rs` builds `1agent.delivery-receipt/v1` from a
   journal (artifact hashes, tool pairing, delivery snapshot, derived claims) and
   keeps a durable queue under `~/.1a/acceptance/`. `1agent accept --journal`,

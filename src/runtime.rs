@@ -4424,12 +4424,15 @@ impl AgentRuntime {
                         {
                             Ok(repaired) => repaired,
                             Err(RuntimeError::InvalidOutput { .. }) => {
+                                let answer =
+                                    answer_after_failed_repair(&completion_gate, tool_calls);
+                                let stop_reason = stop_reason_for_answer(answer.status);
                                 return finish_with_answer(
                                     &mut journal,
                                     run_id,
                                     journal_path,
-                                    unrepairable_answer(&completion_gate, tool_calls),
-                                    StopReason::NeedsEvidence,
+                                    answer,
+                                    stop_reason,
                                 );
                             }
                             Err(error) => return Err(error),
@@ -4685,12 +4688,14 @@ impl AgentRuntime {
                                     stop_reason,
                                 );
                             }
+                            let answer = answer_after_failed_repair(&completion_gate, tool_calls);
+                            let stop_reason = stop_reason_for_answer(answer.status);
                             return finish_with_answer(
                                 &mut journal,
                                 run_id,
                                 journal_path,
-                                unrepairable_answer(&completion_gate, tool_calls),
-                                StopReason::NeedsEvidence,
+                                answer,
+                                stop_reason,
                             );
                         }
                         Err(error) => return Err(error),
@@ -4806,8 +4811,16 @@ impl AgentRuntime {
                                 true,
                             )
                             .await;
-                        let answer =
+                        let mut answer =
                             enforce_completion_gate(&mut journal, &completion_gate, answer)?;
+                        if completion_gate.accepted_receipt.is_some()
+                            && answer.status == AnswerStatus::NeedsEvidence
+                        {
+                            answer = accepted_delivery_answer(
+                                &completion_gate,
+                                "tool-call budget exhausted",
+                            );
+                        }
                         let stop_reason = stop_reason_for_answer(answer.status);
                         if !completion_gate.side_effect_tools.is_empty() {
                             append_delivery_snapshot(&mut journal, &journal_path, delivery_root)?;
@@ -5203,7 +5216,7 @@ impl AgentRuntime {
         if completion_gate.accepted_receipt.is_some()
             && answer.status == AnswerStatus::NeedsEvidence
         {
-            answer = accepted_budget_answer(&completion_gate, "step budget exhausted");
+            answer = accepted_delivery_answer(&completion_gate, "step budget exhausted");
         }
         let stop_reason = stop_reason_for_answer(answer.status);
         if !completion_gate.side_effect_tools.is_empty() {
@@ -5549,10 +5562,10 @@ fn budget_answer(reason: &str) -> crate::domain::AgentAnswer {
     }
 }
 
-/// An accepted delivery whose final narrative was lost to the provider budget
-/// is still complete: synthesize the answer from the receipt and verified
-/// artifacts instead of downgrading it to needs_evidence.
-fn accepted_budget_answer(gate: &CompletionGate, reason: &str) -> AgentAnswer {
+/// An accepted delivery whose final narrative was lost (budget or repair
+/// failure) is still complete: synthesize the answer from the receipt and
+/// verified artifacts instead of downgrading it to needs_evidence.
+fn accepted_delivery_answer(gate: &CompletionGate, reason: &str) -> AgentAnswer {
     let Some(receipt) = gate.accepted_receipt.as_ref() else {
         return budget_answer(reason);
     };
@@ -5562,14 +5575,20 @@ fn accepted_budget_answer(gate: &CompletionGate, reason: &str) -> AgentAnswer {
         .map(|(path, sha256)| format!("{path}（sha256 {sha256}）"))
         .collect::<Vec<_>>()
         .join("、");
+    let criteria = receipt
+        .acceptance_criteria
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("；");
     let conclusion = if artifacts.is_empty() {
         format!(
-            "交付已通过验收（验收合同 {}；运行在 {reason} 处停止）。",
+            "交付已通过验收（验收合同 {}；运行在 {reason} 处停止）。验收覆盖：{criteria}。",
             receipt.task_id
         )
     } else {
         format!(
-            "交付已通过验收：{artifacts}（验收合同 {}；运行在 {reason} 处停止）。",
+            "交付已通过验收：{artifacts}（验收合同 {}；运行在 {reason} 处停止）。验收覆盖：{criteria}。",
             receipt.task_id
         )
     };
@@ -5584,14 +5603,20 @@ fn accepted_budget_answer(gate: &CompletionGate, reason: &str) -> AgentAnswer {
         constraints: vec![reason.into()],
         unknowns: Vec::new(),
         conflicts: Vec::new(),
-        flip_conditions: vec![FlipCondition {
-            if_observed: "已验收的产物在交付后被修改".into(),
-            then: "需要重新验收".into(),
-            target_ids: Vec::new(),
-        }],
+        flip_conditions: Vec::new(),
         action_receipts: Vec::new(),
     };
     backfill_delivery_evidence(&mut answer, gate);
+    answer.flip_conditions = vec![FlipCondition {
+        if_observed: "已验收的产物在交付后被修改".into(),
+        then: "需要重新验收".into(),
+        target_ids: answer
+            .claims
+            .first()
+            .map(|claim| claim.id.clone())
+            .into_iter()
+            .collect(),
+    }];
     answer
 }
 
@@ -5654,6 +5679,19 @@ fn normalize_unresolved_conflicts(answer: &mut AgentAnswer) {
             }
         }
         condition.target_ids = targets;
+    }
+}
+
+/// The final answer could not be repaired; an accepted receipt still makes the
+/// delivery complete even when the plain-text fallback is unusable.
+fn answer_after_failed_repair(
+    gate: &CompletionGate,
+    tool_calls: usize,
+) -> crate::domain::AgentAnswer {
+    if gate.accepted_receipt.is_some() {
+        accepted_delivery_answer(gate, "最终回答修复失败")
+    } else {
+        unrepairable_answer(gate, tool_calls)
     }
 }
 
@@ -12149,6 +12187,7 @@ mod tests {
         request.permissions.allow_write = true;
         request.budget.max_steps = 2;
         request.budget.max_provider_attempts = 2;
+        let validation_request = request.clone();
         let result = runtime
             .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
             .await
@@ -12159,10 +12198,19 @@ mod tests {
         assert!(!result.answer.claims.is_empty());
         assert!(!result.answer.evidence.is_empty());
         assert!(!result.answer.flip_conditions.is_empty());
+        assert!(
+            result
+                .answer
+                .flip_conditions
+                .iter()
+                .all(|condition| !condition.target_ids.is_empty())
+        );
+        assert!(result.answer.validate(&validation_request).is_ok());
         assert!(result.answer.unknowns.is_empty());
         let digest = file_sha256(target.to_str().unwrap()).unwrap();
         assert!(result.answer.conclusion.contains(&digest));
         assert!(result.answer.conclusion.contains("验收"));
+        assert!(result.answer.conclusion.contains("out.txt contains hello"));
     }
 
     #[tokio::test]
@@ -12270,6 +12318,73 @@ mod tests {
         assert!(!result.answer.claims.is_empty());
         assert!(!result.answer.evidence.is_empty());
         assert_eq!(result.answer.conclusion, "wrote out.txt");
+    }
+
+    #[tokio::test]
+    async fn accepted_receipt_survives_unrepairable_json_final() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![
+                        ToolCall {
+                            id: "verify-1".into(),
+                            name: "verify_artifact".into(),
+                            arguments: serde_json::json!({"path": target}),
+                        },
+                        ToolCall {
+                            id: "gate-1".into(),
+                            name: "acceptance_gate".into(),
+                            arguments: accepted_gate_arguments(&target),
+                        },
+                    ],
+                },
+                ModelTurn::InvalidFinal {
+                    content: "```json\n{}\n```".into(),
+                    error: "expected value".into(),
+                },
+                ModelTurn::InvalidFinal {
+                    content: "```json\n{}\n```".into(),
+                    error: "expected value".into(),
+                },
+                ModelTurn::InvalidFinal {
+                    content: "```json\n{}\n```".into(),
+                    error: "expected value".into(),
+                },
+            ],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let runtime = scripted_runtime(workspace.path(), provider, default_registry());
+        let mut request = TaskRequest::from_objective("写 out.txt 并验收", workspace.path().into());
+        request.permissions.allow_write = true;
+        let validation_request = request.clone();
+        let result = runtime
+            .run_with_mode(request, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.answer.status, AnswerStatus::Completed);
+        assert_eq!(result.stop_reason, StopReason::Completed);
+        assert!(!result.answer.claims.is_empty());
+        assert!(!result.answer.evidence.is_empty());
+        assert!(!result.answer.flip_conditions.is_empty());
+        assert!(
+            result
+                .answer
+                .flip_conditions
+                .iter()
+                .all(|condition| !condition.target_ids.is_empty())
+        );
+        assert!(result.answer.validate(&validation_request).is_ok());
+        assert!(result.answer.unknowns.is_empty());
+        let digest = file_sha256(target.to_str().unwrap()).unwrap();
+        assert!(result.answer.conclusion.contains(&digest));
+        assert!(result.answer.conclusion.contains("验收"));
+        assert!(result.answer.conclusion.contains("out.txt contains hello"));
     }
 
     #[test]
