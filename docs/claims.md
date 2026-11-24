@@ -317,6 +317,8 @@ file: <路径>              → 文件必须存在
 | 评测新增过程指标（tool_calls、failed_tool_calls、redundant_tool_calls、time_to_first_tool_ms）、规则失败分类和重复采样 pass^k；`eval --repeats` 输出 repeat-report.json | cmd: cargo test --lib eval::tests::failure_classes_and_ratios_are_deterministic && cargo test --lib eval::tests::repeated_suite_reports_pass_power_k && cargo run --offline --quiet -- eval --suite evals/core.json --repeats 2 | ✅ | 失败分类是规则不是语义判断；人工校准与 8h/R1–R9 仍未完成 |
 | `/setting` 两级设置面板（`/settings` 别名）提供预算/权限/外观/模型/恢复，8 套 TUI 主题在二级选择、数值在面板内编辑；主题存 `appearance.theme`，全局恢复先备份并要求 confirm | cmd: cargo test --bin first-principles-agent setting_ && cargo test --lib tui_theme::tests && cargo test --test cli_e2e tui_setting_menu_shows_values_and_switches_theme | ✅ | 主题仅 TUI，CLI help 不变；主题为静态表，无自定义主题编辑器 |
 
+| T7 最终本地 QA 在 `release/1.0`（rc.12）通过 verify、SDK 6/6、5-cycle soak、cross-check 必需门禁、release-check/CI 与 TUI interaction；Track Q 未在本线重跑，8h 未跑，macOS 与外部 gate 阻塞 | file: docs/evidence/t7-2026-11-24/README.md | ✅ | 本地门禁证据；Track Q 仍是 rc.2 旧线 99/100；不宣称 GA 或外部门通过 |
+
 ## 覆盖率
 
 本表逐条覆盖的条目数，以 `scripts/verify-claims.sh` 的输出为准——不在文档里写死，

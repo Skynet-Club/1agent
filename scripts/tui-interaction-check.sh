@@ -25,7 +25,7 @@ if [[ "$greeting" != *"已完成"* ]]; then
   echo "tui-interaction-check: greeting did not finish" >&2
   exit 1
 fi
-if [[ "$greeting" == *"下一步"* || "$greeting" == *"/frame（默认）"* ]]; then
+if [[ "$greeting" == *"↑/↓ 选择，Enter 执行，Esc 返回对话"* || "$greeting" == *"/frame（默认）"* ]]; then
   echo "tui-interaction-check: standalone greeting opened the next-action menu" >&2
   exit 1
 fi

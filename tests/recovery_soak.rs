@@ -285,7 +285,8 @@ async fn crash_injection_resumes_cleanly_or_fails_closed() {
         {
             Err(RuntimeError::Resume(message)) => {
                 assert!(
-                    message.contains("no checkpoint") || message.contains("after the last checkpoint"),
+                    message.contains("no checkpoint")
+                        || message.contains("after the last checkpoint"),
                     "message: {message}"
                 );
             }

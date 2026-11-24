@@ -1,0 +1,3 @@
+pty-backspace: passed
+pty-edit-stability: passed (400 mixed edit events)
+tui-interaction-check: passed (greeting has no modal next menu; /help, /status, /mode, Ctrl+T, categorized drawer, Tab completion, destructive confirmation, panel focus, Backspace/Ctrl+Q and mixed paste/space/backspace editing)

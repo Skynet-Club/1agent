@@ -441,6 +441,12 @@ fn cli_tui_agents_refresh_uses_configured_profiles() {
             &journal_dir.display().to_string(),
             "--master-agents",
             &agents_path.display().to_string(),
+            "--workshop-prefix",
+            &workspace
+                .path()
+                .join("missing-workshop")
+                .display()
+                .to_string(),
         ])
         .env("SKYTERM_HOST_CONTEXT", "skynet-workshop")
         .env("SKYTERM_AGENT_ROLE", "master")
