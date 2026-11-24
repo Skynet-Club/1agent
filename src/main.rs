@@ -18391,6 +18391,11 @@ async fn run_tui(
     state.set_theme(config_theme);
     state.set_context_budget(max_context_tokens);
     state.set_prompt_language(prompt_language);
+    state.set_fast_policy(if auto_fast_enabled() {
+        first_principles_agent::runtime::FastModePolicy::Auto
+    } else {
+        first_principles_agent::runtime::FastModePolicy::Off
+    });
     state.set_host_binding(host_binding);
     sync_tui_stage(&mut state, &session);
     drain_tui_deliveries(
@@ -18629,6 +18634,10 @@ async fn run_tui_line_mode(
                         handle_permissions_command(settings, state, args);
                         continue;
                     }
+                    TuiCommandId::Fast => {
+                        handle_fast_command(state, args);
+                        continue;
+                    }
                     TuiCommandId::Tools => {
                         display_tools(runtime, state, args);
                         continue;
@@ -18813,6 +18822,7 @@ async fn run_tui_line_request(
     if let Some(workspace) = session.workspace() {
         runtime.set_delivery_root(workspace.to_path_buf());
     }
+    runtime.set_fast_policy(state.fast_policy());
     let cancellation = CancellationToken::new();
     let signal_cancellation = cancellation.clone();
     let signal = tokio::spawn(async move {
@@ -19459,6 +19469,11 @@ fn command_menu_actions(command: TuiCommandId) -> Vec<CommandMenuItem> {
                 true,
             ),
         ],
+        TuiCommandId::Fast => vec![
+            command_menu_action("当前策略", "查看当前快速交付策略", "/fast show", false),
+            command_menu_action("开启自动 fast", "低风险小任务走 fast", "/fast on", false),
+            command_menu_action("关闭 fast", "全部走 Core 7/full", "/fast off", false),
+        ],
         TuiCommandId::Session => vec![
             command_menu_action("当前会话", "查看当前会话详情", "/session show", false),
             command_menu_action("会话列表", "列出使用中的会话", "/session list", false),
@@ -19968,6 +19983,7 @@ async fn run_tui_line_epistemic(
     if let Some(workspace) = session.workspace() {
         runtime.set_delivery_root(workspace.to_path_buf());
     }
+    runtime.set_fast_policy(state.fast_policy());
     let cancellation = CancellationToken::new();
     let signal_cancellation = cancellation.clone();
     let signal = tokio::spawn(async move {
@@ -20563,6 +20579,30 @@ fn handle_permissions_command(settings: &mut TuiRunSettings, state: &mut TuiStat
             }
         }
         _ => state.info("用法：/permissions [show|network on|off|write|root-add <dir>]"),
+    }
+}
+
+fn handle_fast_command(state: &mut TuiState, args: &str) {
+    use first_principles_agent::runtime::FastModePolicy;
+
+    match args.trim() {
+        "" | "show" => state.info(format!(
+            "快速交付：{}\n\
+             仅影响下一次及后续运行。\n\
+             on / auto：开启低风险自动 fast；只对新的小 Act 任务走 fast，页面、会话续写、注入上下文、仅验收/新版本、高风险任务仍走 Core 7/full。\n\
+             off：全部走 Core 7/full。\n\
+             切换：/fast on|off|auto",
+            state.fast_policy().label_zh()
+        )),
+        "on" | "auto" => {
+            state.set_fast_policy(FastModePolicy::Auto);
+            state.info("快速交付：开启（低风险自动 fast；下一次运行生效）。");
+        }
+        "off" => {
+            state.set_fast_policy(FastModePolicy::Off);
+            state.info("快速交付：关闭（下一次运行生效，全部走 Core 7/full）。");
+        }
+        _ => state.info("用法：/fast [show|on|off|auto]"),
     }
 }
 
@@ -25394,6 +25434,9 @@ async fn run_tui_interactive(
                             TuiCommandId::Permissions => {
                                 handle_permissions_command(&mut settings, &mut state, args);
                             }
+                            TuiCommandId::Fast => {
+                                handle_fast_command(&mut state, args);
+                            }
                             TuiCommandId::Tools => {
                                 display_tools(&runtime, &mut state, args);
                             }
@@ -25731,6 +25774,7 @@ async fn run_tui_task(
     if let Some(workspace) = session.workspace() {
         runtime.set_delivery_root(workspace.to_path_buf());
     }
+    runtime.set_fast_policy(state.fast_policy());
     let cancellation = CancellationToken::new();
     let run_started_ms = current_time_ms();
     let mut active_journal: Option<(PathBuf, u64, Option<u64>)> = None;
@@ -31238,6 +31282,22 @@ mod tui_status_tests {
             tui_status_for_answer(AnswerStatus::Completed),
             TuiStatus::Completed
         );
+    }
+
+    #[test]
+    fn fast_command_sets_the_session_policy() {
+        use first_principles_agent::runtime::FastModePolicy;
+
+        let mut state = TuiState::new("test", 8, 120);
+        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
+        handle_fast_command(&mut state, "off");
+        assert_eq!(state.fast_policy(), FastModePolicy::Off);
+        handle_fast_command(&mut state, "on");
+        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
+        handle_fast_command(&mut state, "auto");
+        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
+        handle_fast_command(&mut state, "bogus");
+        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
     }
 
     #[test]

@@ -49,6 +49,7 @@ pub enum TuiCommandId {
     Mode,
     Model,
     Permissions,
+    Fast,
     Session,
     Workspace,
     Context,
@@ -105,6 +106,7 @@ impl TuiCommandId {
                 | Self::Why
                 | Self::Clarify
                 | Self::Copy
+                | Self::Fast
         )
     }
 }
@@ -270,6 +272,15 @@ pub const COMMANDS: &[TuiCommandSpec] = &[
         TuiCommandId::Permissions,
         "/permissions",
         "查看和调整下一次运行的权限",
+        TuiCommandScope::Core,
+        CommandStage::Any,
+        true,
+        false,
+    ),
+    command(
+        TuiCommandId::Fast,
+        "/fast",
+        "开启或关闭低风险自动快速交付",
         TuiCommandScope::Core,
         CommandStage::Any,
         true,
@@ -748,6 +759,7 @@ pub fn command_group(id: TuiCommandId) -> CommandGroup {
         TuiCommandId::Mode
         | TuiCommandId::Model
         | TuiCommandId::Permissions
+        | TuiCommandId::Fast
         | TuiCommandId::Tools => CommandGroup::Model,
         TuiCommandId::Mission
         | TuiCommandId::Triage
@@ -1145,6 +1157,7 @@ pub fn command_usage(id: TuiCommandId) -> Option<&'static str> {
         TuiCommandId::Postmortem => Some("/postmortem <失败任务或 run>"),
         TuiCommandId::Model => Some("/model [show|<provider>/<model>]"),
         TuiCommandId::Permissions => Some("/permissions [show|set …]"),
+        TuiCommandId::Fast => Some("/fast [show|auto|on|off]"),
         TuiCommandId::Session => Some("/session [list|new|resume|…]"),
         TuiCommandId::Workspace => Some("/workspace [set|diff|files|worktree]"),
         TuiCommandId::Context => Some("/context [show|compact|summarize]"),
@@ -1479,6 +1492,7 @@ mod tests {
             TuiCommandId::Tools,
             TuiCommandId::Cost,
             TuiCommandId::Copy,
+            TuiCommandId::Fast,
         ] {
             assert!(!id.uses_command_panel(), "{id:?} should be inline");
         }
@@ -1510,23 +1524,23 @@ mod tests {
     fn command_counts_follow_scope_and_lifecycle_stage() {
         let standalone =
             commands_for_surface(&host(HostKind::Standalone), CommandStage::NoMission, false);
-        assert_eq!(standalone.len(), 31);
+        assert_eq!(standalone.len(), 32);
         let master = host(HostKind::WorkshopMaster);
         assert_eq!(
             commands_for_surface(&master, CommandStage::NoMission, false).len(),
-            33
+            34
         );
         assert_eq!(
             commands_for_surface(&master, CommandStage::Framing, false).len(),
-            35
-        );
-        assert_eq!(
-            commands_for_surface(&master, CommandStage::Approval, false).len(),
             36
         );
         assert_eq!(
+            commands_for_surface(&master, CommandStage::Approval, false).len(),
+            37
+        );
+        assert_eq!(
             commands_for_surface(&master, CommandStage::Running, false).len(),
-            41
+            42
         );
     }
 
@@ -1560,6 +1574,7 @@ mod tests {
                 "/mode",
                 "/model",
                 "/permissions",
+                "/fast",
                 "/session",
                 "/workspace",
                 "/context",
@@ -1590,6 +1605,21 @@ mod tests {
                 .iter()
                 .all(|command| command.scope == TuiCommandScope::Core)
         );
+    }
+
+    #[test]
+    fn fast_is_a_registered_core_command() {
+        let spec = COMMANDS
+            .iter()
+            .find(|command| command.id == TuiCommandId::Fast)
+            .expect("fast command");
+        assert_eq!(spec.name, "/fast");
+        assert!(!spec.id.uses_command_panel());
+        assert!(spec.supports_inline_args);
+        assert!(!spec.available_during_run);
+        assert_eq!(spec.scope, TuiCommandScope::Core);
+        assert_eq!(command_group(spec.id), CommandGroup::Model);
+        assert_eq!(command_usage(spec.id), Some("/fast [show|auto|on|off]"));
     }
 
     #[test]

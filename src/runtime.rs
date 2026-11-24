@@ -1166,6 +1166,23 @@ pub struct AgentRuntime {
     steering: Option<Arc<Mutex<Vec<String>>>>,
 }
 
+/// Per-run fast delivery policy. `Auto` is the low-risk default; `Off` keeps
+/// every task on the standard loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FastModePolicy {
+    Off,
+    Auto,
+}
+
+impl FastModePolicy {
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::Off => "off（全部走 Core 7/full）",
+            Self::Auto => "auto（低风险自动 fast）",
+        }
+    }
+}
+
 struct AnswerRepairContext<'a> {
     journal: &'a mut Journal,
     model_request_log: &'a mut ModelRequestLog,
@@ -1305,6 +1322,21 @@ impl AgentRuntime {
     pub fn with_auto_fast(mut self, auto_fast: bool) -> Self {
         self.auto_fast = auto_fast;
         self
+    }
+
+    /// Change fast routing for the next run. Resume still uses the checkpoint's
+    /// stored decision so the tool surface stays reproducible.
+    pub fn set_fast_policy(&mut self, policy: FastModePolicy) {
+        match policy {
+            FastModePolicy::Off => {
+                self.explicit_fast = false;
+                self.auto_fast = false;
+            }
+            FastModePolicy::Auto => {
+                self.explicit_fast = false;
+                self.auto_fast = true;
+            }
+        }
     }
 
     pub fn with_provider_health(mut self, health: Arc<Mutex<ProviderHealth>>) -> Self {
@@ -12353,6 +12385,17 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn fast_policy_maps_to_the_runtime_fields() {
+        let mut runtime = AgentRuntime::new(Vec::new(), default_registry(), ".");
+        runtime.set_fast_policy(FastModePolicy::Off);
+        assert!(!runtime.explicit_fast);
+        assert!(!runtime.auto_fast);
+        runtime.set_fast_policy(FastModePolicy::Auto);
+        assert!(!runtime.explicit_fast);
+        assert!(runtime.auto_fast);
     }
 
     #[tokio::test]

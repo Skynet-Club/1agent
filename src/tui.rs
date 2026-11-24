@@ -884,6 +884,7 @@ pub struct TuiState {
     mode_menu: Option<usize>,
     mode_override: Option<CognitiveMode>,
     last_inferred: Option<CognitiveMode>,
+    fast_policy: crate::runtime::FastModePolicy,
     context_tokens: usize,
     context_budget_tokens: usize,
     details_open: bool,
@@ -967,6 +968,7 @@ impl TuiState {
             mode_menu: None,
             mode_override: None,
             last_inferred: None,
+            fast_policy: crate::runtime::FastModePolicy::Auto,
             context_tokens: 0,
             context_budget_tokens: crate::domain::DEFAULT_MAX_CONTEXT_TOKENS,
             details_open: false,
@@ -1025,6 +1027,14 @@ impl TuiState {
             provider_models: Vec::new(),
             subagent_previews: BTreeMap::new(),
         }
+    }
+
+    pub fn fast_policy(&self) -> crate::runtime::FastModePolicy {
+        self.fast_policy
+    }
+
+    pub fn set_fast_policy(&mut self, policy: crate::runtime::FastModePolicy) {
+        self.fast_policy = policy;
     }
 
     pub fn begin(&mut self, instruction: &str, mode: CognitiveMode, risk: RiskLevel) {
