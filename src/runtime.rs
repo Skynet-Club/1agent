@@ -70,6 +70,9 @@ const FAST_TOOL_NAMES: &[&str] = &[
     "terminal_exec",
 ];
 
+/// Bound for known-fact context included in a fast continuation.
+const FAST_FOLLOWUP_CONTEXT_CHARS: usize = 4_000;
+
 /// Verification calls may exceed the tool budget by this many calls. Without
 /// the reserve, a run can exhaust its budget on fixes and never re-audit or
 /// collect the acceptance receipt for the fixed bytes.
@@ -682,6 +685,7 @@ fn auto_fast_decision(
     profile: TaskProfile,
     request: &TaskRequest,
     continuation: bool,
+    has_active_artifact: bool,
     verify_only: bool,
     new_version: bool,
 ) -> Result<&'static str, &'static str> {
@@ -691,8 +695,8 @@ fn auto_fast_decision(
     if profile != TaskProfile::Fast {
         return Err("task profile is not fast");
     }
-    if continuation {
-        return Err("session continuation");
+    if continuation && !has_active_artifact {
+        return Err("session continuation without an active artifact");
     }
     if verify_only {
         return Err("verification-only request");
@@ -703,13 +707,19 @@ fn auto_fast_decision(
     if !request.permissions.allow_write {
         return Err("write permission is off");
     }
-    if !request.known_facts.is_empty() {
+    // New tasks with injected facts stay on the standard loop. A fast
+    // continuation includes the session facts and work ledger explicitly.
+    if !continuation && !request.known_facts.is_empty() {
         return Err("injected context facts");
     }
     if looks_like_page_task(&request.objective, request.deliverable.as_deref()) {
         return Err("page deliverable");
     }
-    Ok("auto: small new act delivery")
+    if continuation {
+        Ok("auto: fast continuation with active artifact")
+    } else {
+        Ok("auto: small new act delivery")
+    }
 }
 
 /// A completed delivery must carry claims and evidence. When the model omits
@@ -3164,6 +3174,7 @@ impl AgentRuntime {
                 task_profile.profile,
                 &request,
                 continuation,
+                active_artifacts.is_some(),
                 verify_only,
                 new_version,
             ) {
@@ -3549,6 +3560,25 @@ impl AgentRuntime {
                 initial_messages.push(ModelMessage::system(
                     crate::attachment::format_attachment_block(&self.attachments),
                 ));
+            }
+            if fast_mode && continuation {
+                initial_messages.push(ModelMessage::system(
+                    "FAST FOLLOW-UP\nThis is a continuation. Resolve the target from the conversation context and the active artifact paths. Stay inside the workspace; do not re-explore the repository. Use read_file/write_file directly and finish with a short plain-text conclusion naming the files.",
+                ));
+                if let Some(context) = work_ledger.context() {
+                    initial_messages.push(ModelMessage::system(context));
+                }
+                if !request.known_facts.is_empty() {
+                    let facts = request
+                        .known_facts
+                        .join("\n")
+                        .chars()
+                        .take(FAST_FOLLOWUP_CONTEXT_CHARS)
+                        .collect::<String>();
+                    initial_messages.push(ModelMessage::system(format!(
+                        "CONVERSATION CONTEXT\nThese facts come from earlier turns. Resolve short replies and targets against them; use the active artifact paths and do not re-explore.\n{facts}"
+                    )));
+                }
             }
             if !fast_mode && let Some(context) = work_ledger.context() {
                 initial_messages.push(ModelMessage::system(context));
@@ -12290,16 +12320,30 @@ mod tests {
                 &request,
                 false,
                 false,
+                false,
                 false
             ),
             Ok("auto: small new act delivery")
         );
+        assert_eq!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                true,
+                true,
+                false,
+                false
+            ),
+            Ok("auto: fast continuation with active artifact")
+        );
         assert!(
             auto_fast_decision(
                 InteractionMode::Act,
                 TaskProfile::Fast,
                 &request,
                 true,
+                false,
                 false,
                 false
             )
@@ -12311,6 +12355,7 @@ mod tests {
                 TaskProfile::Fast,
                 &request,
                 false,
+                false,
                 true,
                 false
             )
@@ -12321,6 +12366,7 @@ mod tests {
                 InteractionMode::Act,
                 TaskProfile::Fast,
                 &request,
+                false,
                 false,
                 false,
                 true
@@ -12334,6 +12380,7 @@ mod tests {
                 &request,
                 false,
                 false,
+                false,
                 false
             )
             .is_err()
@@ -12343,6 +12390,7 @@ mod tests {
                 InteractionMode::Answer,
                 TaskProfile::Fast,
                 &request,
+                false,
                 false,
                 false,
                 false
@@ -12357,9 +12405,22 @@ mod tests {
                 &request,
                 false,
                 false,
+                false,
                 false
             )
             .is_err()
+        );
+        assert_eq!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                true,
+                true,
+                false,
+                false
+            ),
+            Ok("auto: fast continuation with active artifact")
         );
         request.known_facts.clear();
         request.objective = "写一个网页".into();
@@ -12369,6 +12430,19 @@ mod tests {
                 TaskProfile::Fast,
                 &request,
                 false,
+                false,
+                false,
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            auto_fast_decision(
+                InteractionMode::Act,
+                TaskProfile::Fast,
+                &request,
+                true,
+                true,
                 false,
                 false
             )
@@ -12383,9 +12457,89 @@ mod tests {
                 &request,
                 false,
                 false,
+                false,
                 false
             )
             .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_fast_allows_a_continuation_with_an_active_artifact() {
+        let workspace = tempfile::tempdir().unwrap();
+        let target = workspace.path().join("out.txt");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(ScriptedProvider::new(
+            vec![
+                ModelTurn::ToolCalls {
+                    calls: vec![write_call("write-1", &target, "hello")],
+                },
+                ModelTurn::ToolCalls {
+                    calls: vec![ToolCall {
+                        id: "gate-1".into(),
+                        name: "acceptance_gate".into(),
+                        arguments: accepted_gate_arguments(&target),
+                    }],
+                },
+                ModelTurn::Final {
+                    answer: completed_answer("wrote out.txt"),
+                },
+                crate::domain::ModelTurn::InvalidFinal {
+                    content: "added a line to out.txt".into(),
+                    error: "plain text, not AgentAnswer JSON".into(),
+                },
+            ],
+            requests.clone(),
+        ));
+        let session_path = crate::session::session_path(workspace.path(), "fast-continuation-test");
+        let mut runtime = scripted_runtime(workspace.path(), provider, default_registry())
+            .with_session_path(session_path)
+            .with_auto_fast(true);
+        runtime.set_fast_policy(FastModePolicy::Off);
+
+        let mut first = TaskRequest::from_objective("写 out.txt 并验收", workspace.path().into());
+        first.permissions.allow_write = true;
+        let first = runtime
+            .run_with_mode(first, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(first.answer.status, AnswerStatus::Completed);
+        assert!(
+            crate::work_ledger::WorkLedger::load(workspace.path())
+                .active_artifacts_unchanged()
+                .is_some()
+        );
+
+        runtime.set_fast_policy(FastModePolicy::Auto);
+        let mut second =
+            TaskRequest::from_objective("再写一行到 out.txt", workspace.path().to_path_buf());
+        second.permissions.allow_write = true;
+        let second = runtime
+            .run_with_mode(second, CognitiveMode::Execute, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(second.answer.status, AnswerStatus::Conditional);
+        assert_eq!(second.answer.conclusion, "added a line to out.txt");
+        let events = read_events(&second.journal_path).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.event,
+            JournalEventKind::FastModeSelected { enabled: true, reason }
+                if reason.contains("continuation")
+        )));
+        let captured = requests.lock().unwrap();
+        let fast_request = captured.last().unwrap();
+        assert!(
+            fast_request
+                .messages
+                .iter()
+                .any(|message| message.content.contains("FAST FOLLOW-UP"))
+        );
+        assert!(
+            fast_request
+                .tools
+                .iter()
+                .all(|spec| FAST_TOOL_NAMES.contains(&spec.name.as_str()))
         );
     }
 

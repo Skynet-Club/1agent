@@ -1,0 +1,110 @@
+{
+  "schema": "1agent.delivery-receipt/v1",
+  "run_id": "8cd7faf4-5691-4f33-a528-aa758cfcef22",
+  "journal": "/home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/runs/8cd7faf4-5691-4f33-a528-aa758cfcef22.jsonl",
+  "objective": "Write /home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt with the exact content hello. Do not create a terminal. Report the path in your answer.",
+  "status": "accepted",
+  "checks": [
+    {
+      "detail": {
+        "objective": "Write /home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt with the exact content hello. Do not create a terminal. Report the path in your answer."
+      },
+      "id": "journal:run_started",
+      "passed": true
+    },
+    {
+      "detail": {
+        "calls": 1,
+        "duplicate_calls": [],
+        "extra_observations": [],
+        "missing_observations": [],
+        "observations": 1
+      },
+      "id": "journal:tool_calls_paired",
+      "passed": true
+    },
+    {
+      "detail": {
+        "current_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+        "exists": true,
+        "match": true,
+        "path": "/home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt",
+        "recorded_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+      },
+      "id": "artifact:/home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt",
+      "passed": true
+    },
+    {
+      "detail": {
+        "files": 1,
+        "mismatches": 0,
+        "truncated": false
+      },
+      "id": "workspace:delivery_snapshot",
+      "passed": true
+    },
+    {
+      "detail": {
+        "conclusion_chars": 205,
+        "status": "conditional"
+      },
+      "id": "answer:present",
+      "passed": true
+    },
+    {
+      "detail": {
+        "status": "conditional"
+      },
+      "id": "answer:status_ready",
+      "passed": true
+    },
+    {
+      "detail": {
+        "claims": 0,
+        "derived": 1,
+        "evidence_source": "journal",
+        "verified": 0
+      },
+      "id": "answer:claims",
+      "passed": true
+    },
+    {
+      "detail": {
+        "missing": [],
+        "sources": [
+          "/home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt"
+        ]
+      },
+      "id": "answer:sources_exist",
+      "passed": true
+    }
+  ],
+  "artifacts": [
+    {
+      "current_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+      "exists": true,
+      "match": true,
+      "path": "/home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt",
+      "recorded_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+      "tool": "write_file"
+    }
+  ],
+  "workspace_snapshot": {
+    "files": 1,
+    "mismatch_count": 0,
+    "mismatches": [],
+    "present": true,
+    "truncated": false
+  },
+  "answer": {
+    "claims": 0,
+    "derived_claims": 1,
+    "evidence_source": "journal",
+    "sources": [
+      "/home/skynet/1-agent/docs/evidence/fast-continuation-2026-11-24/workspace/out.txt"
+    ],
+    "status": "conditional"
+  },
+  "manifest_sha256": "916909f845660f4a4baddaa93385ca2b0fc84dc6151c49d8978a59451bc934ea",
+  "created_unix_ms": 1795484965557
+}
