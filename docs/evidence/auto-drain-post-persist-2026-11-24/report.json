@@ -1,0 +1,117 @@
+{
+  "suite": "real-tasks-v1",
+  "suite_version": "1.2",
+  "repeats": 3,
+  "total_cases": 8,
+  "total_attempts": 24,
+  "passed_attempts": 22,
+  "overall_pass_rate_bps": 9166,
+  "pass_power_k_bps": 7500,
+  "pass_at_least_once_bps": 10000,
+  "failure_class_counts": {
+    "evidence": 1,
+    "generation": 1
+  },
+  "cases": [
+    {
+      "id": "bug-fix-last-index",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "config-retries",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "data-processing-sales",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "research-compare",
+      "attempts": 3,
+      "passes": 2,
+      "pass_rate_bps": 6666,
+      "pass_power_k": false,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [
+        "generation"
+      ],
+      "issue_samples": [
+        "expected answer status Conditional (accepted []), got Completed"
+      ]
+    },
+    {
+      "id": "long-task-plan",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "broken-json",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "checksum-file",
+      "attempts": 3,
+      "passes": 2,
+      "pass_rate_bps": 6666,
+      "pass_power_k": false,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [
+        "evidence"
+      ],
+      "issue_samples": [
+        "expected answer status Completed (accepted []), got NeedsEvidence",
+        "expected at least 1 claims, got 0",
+        "expected at least 1 evidence records, got 0",
+        "expected stop reason Completed (accepted []), got NeedsEvidence",
+        "rubric: claim status Verified is missing"
+      ]
+    },
+    {
+      "id": "directory-summary",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    }
+  ]
+}

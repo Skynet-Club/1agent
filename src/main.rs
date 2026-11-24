@@ -20725,8 +20725,8 @@ fn refresh_tui_agents(
             return None;
         }
     };
-    if profiles.is_empty() || profiles.len() > 64 {
-        state.info("Agent 数量必须为 1..=64。");
+    if profiles.is_empty() || profiles.len() > 256 {
+        state.info("Agent 数量必须为 1..=256。");
         return None;
     }
     let bytes = match serde_json::to_vec_pretty(&profiles) {
@@ -29527,6 +29527,32 @@ mod tui_rendering_tests {
             session.preferences().unwrap().fast_policy,
             FastModePolicy::Auto
         );
+    }
+
+    #[test]
+    fn agents_refresh_accepts_more_than_64_configured_profiles() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = TuiSession::open(directory.path(), None).unwrap();
+        let agents_path = directory.path().join("agents.json");
+        let profiles = (0..70)
+            .map(|index| {
+                serde_json::json!({
+                    "agent_id": format!("agent-{index:02}"),
+                    "runtime": "mock",
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(&agents_path, serde_json::to_vec(&profiles).unwrap()).unwrap();
+        let mut settings = phase_six_settings(directory.path().to_path_buf());
+        settings.master_agents = Some(agents_path);
+        settings.workshop_prefix = directory
+            .path()
+            .join("missing-workshop")
+            .to_string_lossy()
+            .into_owned();
+        let mut state = TuiState::new("test", settings.max_steps, settings.timeout_seconds);
+        let refreshed = refresh_tui_agents(&mut state, &session, &settings).unwrap();
+        assert_eq!(refreshed.len(), 70);
     }
 
     fn write_replay_journal(path: &std::path::Path, objective: &str) {

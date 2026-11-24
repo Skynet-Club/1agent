@@ -1023,6 +1023,9 @@ fn build_provider_config(
         "base_url": spec.base_url,
         "api_key_env": spec.key_env,
         "api_key_file": if key_present { Some(key_path.display().to_string()) } else { None },
+        // The local deterministic provider is the setup smoke/default path;
+        // without high risk a basic Act+write task has no route.
+        "max_risk": if spec.deterministic { "high" } else { "medium" },
     });
     serde_json::from_value(value).map_err(|error| {
         SetupError::new(
