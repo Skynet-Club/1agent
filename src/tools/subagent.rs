@@ -32,6 +32,7 @@ const MAX_FANOUT: usize = 8;
 const MAX_CHILD_JOURNAL_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_CHILD_ANSWER_BYTES: usize = 8 * 1024;
 const DEPTH_ENV: &str = "ONEAGENT_SUBAGENT_DEPTH";
+const CHILD_USAGE_ENV: &str = "ONEAGENT_SUBAGENT_REPORT_USAGE";
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_MAX_STEPS: usize = 8;
@@ -564,6 +565,7 @@ impl AgentTool for SpawnAgentTool {
             .env(DEPTH_ENV, (self.depth + 1).to_string())
             .env(SUBAGENT_ROOT_PID_ENV, root_pid.to_string())
             .env(TREE_FILE_ENV, tree.path())
+            .env(CHILD_USAGE_ENV, "1")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -738,11 +740,21 @@ impl AgentTool for SpawnAgentTool {
             let path = std::path::Path::new(&child_journal);
             path.is_file().then(|| read_child_journal(path))
         };
-        let child_usage = journal_events
+        let journal_usage = journal_events
             .as_ref()
             .and_then(|events| events.as_ref().ok())
-            .map(|events| summarize_usage(events).totals)
+            .map(|events| summarize_usage(events).totals);
+        let output_usage = value
+            .get("usage")
+            .and_then(|usage| serde_json::from_value::<UsageTotals>(usage.clone()).ok());
+        let child_usage = journal_usage.or(output_usage).unwrap_or_default();
+        let (compensation_automatic, compensation_manual) = journal_events
+            .as_ref()
+            .and_then(|events| events.as_ref().ok())
+            .map(|events| child_compensation(events))
             .unwrap_or_default();
+        let compensation_automatic_count = compensation_automatic.len();
+        let compensation_manual_count = compensation_manual.len();
         reservation.finish(&child_usage);
         let answer_value = value.get("answer").cloned();
         let child_answer = bounded_child_answer(answer_value.as_ref(), &conclusion);
@@ -831,6 +843,10 @@ impl AgentTool for SpawnAgentTool {
                 "output_tokens": child_usage.output_tokens,
                 "cost_micros": child_usage.cost_micros
             },
+            "compensation": {
+                "automatic": compensation_automatic,
+                "manual": compensation_manual
+            },
             "workspace": workspace.display().to_string(),
             "journal_path": child_journal,
             "depth": self.depth + 1,
@@ -859,6 +875,14 @@ impl AgentTool for SpawnAgentTool {
         metadata.insert("evidence_count".into(), evidence_count.to_string());
         metadata.insert("conflicts_count".into(), conflicts_count.to_string());
         metadata.insert("answer_truncated".into(), answer_truncated.to_string());
+        metadata.insert(
+            "compensation_automatic".into(),
+            compensation_automatic_count.to_string(),
+        );
+        metadata.insert(
+            "compensation_manual".into(),
+            compensation_manual_count.to_string(),
+        );
         insert_usage_metadata(&mut metadata, &child_usage);
         if !child_journal.is_empty() {
             metadata.insert("journal_path".into(), child_journal);
@@ -942,6 +966,54 @@ fn read_child_journal(path: &std::path::Path) -> Result<Vec<crate::journal::Jour
     crate::journal::read_events(path).map_err(|error| error.to_string())
 }
 
+fn child_compensation(events: &[crate::journal::JournalEvent]) -> (Vec<Value>, Vec<Value>) {
+    let mut automatic = Vec::new();
+    let mut manual = Vec::new();
+    for event in events {
+        let crate::journal::JournalEventKind::ToolObserved { observation } = &event.event else {
+            continue;
+        };
+        if observation.status != crate::domain::ToolStatus::Ok {
+            continue;
+        }
+        let path = observation
+            .metadata
+            .get("path")
+            .cloned()
+            .unwrap_or_default();
+        if path.is_empty() {
+            continue;
+        }
+        let sha256 = observation
+            .metadata
+            .get("sha256")
+            .cloned()
+            .unwrap_or_default();
+        match observation.tool.as_str() {
+            "write_file"
+                if observation.metadata.get("created").map(String::as_str) == Some("true") =>
+            {
+                automatic.push(json!({
+                    "path": path,
+                    "action": "remove",
+                    "sha256": sha256,
+                    "reason": "created by the subagent"
+                }));
+            }
+            "write_file" | "edit_file" => {
+                manual.push(json!({
+                    "path": path,
+                    "action": "manual",
+                    "sha256": sha256,
+                    "reason": "existing file modified; no pre-write content snapshot"
+                }));
+            }
+            _ => {}
+        }
+    }
+    (automatic, manual)
+}
+
 fn insert_usage_metadata(metadata: &mut BTreeMap<String, String>, usage: &UsageTotals) {
     metadata.insert("usage_model_calls".into(), usage.calls.to_string());
     metadata.insert("usage_input_tokens".into(), usage.input_tokens.to_string());
@@ -998,7 +1070,8 @@ mod tests {
     use super::*;
     use crate::domain::{
         ANSWER_SCHEMA_VERSION, AgentAnswer, AnswerStatus, Claim, ClaimStatus, CognitiveMode,
-        ModelResponse, ModelTurn, PROTOCOL_VERSION, StopReason, TaskRequest, ToolStatus, Usage,
+        ModelResponse, ModelTurn, PROTOCOL_VERSION, StopReason, TaskRequest, ToolCall,
+        ToolObservation, ToolStatus, Usage,
     };
     use crate::journal::{Journal, JournalEvent, JournalEventKind};
     use crate::tools::ToolRegistry;
@@ -1101,6 +1174,16 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         )
     }
 
+    fn fake_program_reporting_usage(dir: &Path) -> PathBuf {
+        write_program(
+            dir,
+            "fake-usage",
+            r#"#!/bin/sh
+printf '{"run_id":"child-usage","journal_path":"","answer":{"schema_version":2,"status":"completed","conclusion":"usage child done","claims":[],"evidence":[],"assumptions":[],"constraints":[],"unknowns":[],"conflicts":[],"flip_conditions":[],"action_receipts":[]},"stop_reason":"completed","usage":{"calls":2,"input_tokens":120,"output_tokens":30,"cost_micros":7,"zero_cost_calls":0}}\n'
+"#,
+        )
+    }
+
     fn permissions(root: &Path, allow_write: bool) -> PermissionSet {
         PermissionSet {
             read_roots: vec![std::fs::canonicalize(root).unwrap()],
@@ -1169,6 +1252,104 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
         assert!(args.contains("--task"));
         assert!(args.contains("child task"));
         assert!(args.contains("--read-root"));
+    }
+
+    #[tokio::test]
+    async fn uses_child_reported_usage_when_the_journal_is_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = fake_program_reporting_usage(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let tool = SpawnAgentTool::new(program)
+            .with_depth(0)
+            .allow_missing_journal();
+        let outcome = tool
+            .execute(
+                json!({"task": "child task", "workspace": workspace}),
+                &permissions(dir.path(), false),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_model_calls")
+                .map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_input_tokens")
+                .map(String::as_str),
+            Some("120")
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_output_tokens")
+                .map(String::as_str),
+            Some("30")
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("usage_cost_micros")
+                .map(String::as_str),
+            Some("7")
+        );
+    }
+
+    #[test]
+    fn child_compensation_removes_created_files_and_flags_modified_files() {
+        let event =
+            |tool: &str, status: ToolStatus, metadata: BTreeMap<String, String>| JournalEvent {
+                schema_version: 1,
+                run_id: Uuid::new_v4(),
+                seq: 1,
+                timestamp_unix_ms: 1,
+                event: JournalEventKind::ToolObserved {
+                    observation: ToolObservation {
+                        call_id: "call-1".into(),
+                        tool: tool.into(),
+                        status,
+                        summary: String::new(),
+                        content: String::new(),
+                        error_code: None,
+                        metadata,
+                    },
+                },
+            };
+        let created = event(
+            "write_file",
+            ToolStatus::Ok,
+            BTreeMap::from([
+                ("path".into(), "/tmp/new.txt".into()),
+                ("sha256".into(), "abc".into()),
+                ("created".into(), "true".into()),
+            ]),
+        );
+        let edited = event(
+            "edit_file",
+            ToolStatus::Ok,
+            BTreeMap::from([
+                ("path".into(), "/tmp/existing.txt".into()),
+                ("sha256".into(), "def".into()),
+            ]),
+        );
+        let failed = event(
+            "write_file",
+            ToolStatus::Failed,
+            BTreeMap::from([("path".into(), "/tmp/failed.txt".into())]),
+        );
+        let (automatic, manual) = child_compensation(&[created, edited, failed]);
+        assert_eq!(automatic.len(), 1);
+        assert_eq!(automatic[0]["path"], "/tmp/new.txt");
+        assert_eq!(automatic[0]["action"], "remove");
+        assert_eq!(manual.len(), 1);
+        assert_eq!(manual[0]["path"], "/tmp/existing.txt");
+        assert_eq!(manual[0]["action"], "manual");
     }
 
     #[tokio::test]
@@ -1996,6 +2177,31 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
                 },
             })
             .unwrap();
+        let write_call = ToolCall {
+            id: "write-1".into(),
+            name: "write_file".into(),
+            arguments: json!({"path": "/tmp/new.txt", "content": "x"}),
+        };
+        journal
+            .append(JournalEventKind::ToolCalled { call: write_call })
+            .unwrap();
+        journal
+            .append(JournalEventKind::ToolObserved {
+                observation: ToolObservation {
+                    call_id: "write-1".into(),
+                    tool: "write_file".into(),
+                    status: ToolStatus::Ok,
+                    summary: "created /tmp/new.txt".into(),
+                    content: String::new(),
+                    error_code: None,
+                    metadata: BTreeMap::from([
+                        ("path".into(), "/tmp/new.txt".into()),
+                        ("sha256".into(), "abc".into()),
+                        ("created".into(), "true".into()),
+                    ]),
+                },
+            })
+            .unwrap();
         let answer = AgentAnswer {
             schema_version: ANSWER_SCHEMA_VERSION,
             status: AnswerStatus::Completed,
@@ -2067,6 +2273,23 @@ printf '{"run_id":"child-env","journal_path":"","answer":{"schema_version":2,"st
             outcome.content
         );
         assert!(outcome.content.contains("\"usage\""), "{}", outcome.content);
+        assert!(
+            outcome.content.contains("\"automatic\""),
+            "{}",
+            outcome.content
+        );
+        assert!(
+            outcome.content.contains("/tmp/new.txt"),
+            "{}",
+            outcome.content
+        );
+        assert_eq!(
+            outcome
+                .metadata
+                .get("compensation_automatic")
+                .map(String::as_str),
+            Some("1")
+        );
         assert_eq!(
             outcome.metadata.get("claims_count").map(String::as_str),
             Some("1")

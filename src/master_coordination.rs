@@ -343,6 +343,18 @@ pub enum MasterCoordinationError {
     DependenciesNotVerified(String),
     #[error("task '{task}' was leased to a different agent than '{agent}'")]
     LeaseMismatch { task: String, agent: String },
+    #[error("task '{task}' requires capabilities agent '{agent}' does not advertise: {missing:?}")]
+    MissingCapabilities {
+        task: String,
+        agent: String,
+        missing: Vec<String>,
+    },
+    #[error("task '{task}' requires tools agent '{agent}' does not advertise: {missing:?}")]
+    MissingTools {
+        task: String,
+        agent: String,
+        missing: Vec<String>,
+    },
     #[error("Agent '{0}' is not currently available")]
     AgentUnavailable(String),
     #[error("receipt generation does not match the active task lease")]
@@ -667,6 +679,32 @@ impl MasterState {
             return Err(MasterCoordinationError::LeaseMismatch {
                 task: task_id.into(),
                 agent: agent.agent_id.clone(),
+            });
+        }
+        let missing_capabilities = item
+            .required_capabilities
+            .iter()
+            .filter(|capability| !agent.capabilities.contains(capability))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing_capabilities.is_empty() {
+            return Err(MasterCoordinationError::MissingCapabilities {
+                task: task_id.into(),
+                agent: agent.agent_id.clone(),
+                missing: missing_capabilities,
+            });
+        }
+        let missing_tools = item
+            .required_tools
+            .iter()
+            .filter(|tool| !agent.tools.contains(tool))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing_tools.is_empty() {
+            return Err(MasterCoordinationError::MissingTools {
+                task: task_id.into(),
+                agent: agent.agent_id.clone(),
+                missing: missing_tools,
             });
         }
         let selection_reason = assignment.selection_reason.clone();
@@ -2910,6 +2948,33 @@ mod tests {
                 .failure_reason
                 .as_deref()
                 .is_some_and(|reason| reason.contains("SHA-256 mismatch"))
+        );
+    }
+
+    #[test]
+    fn lease_enforces_required_capabilities_and_tools() {
+        let mut state = ready_state();
+        let mut weak = agent();
+        weak.capabilities = vec!["general".into()];
+        assert!(matches!(
+            state.lease_task("a", &weak, lease_key("a", 1), 1_000, 3),
+            Err(MasterCoordinationError::MissingCapabilities { missing, .. })
+                if missing == vec!["rust".to_string()]
+        ));
+
+        let mut no_tool = agent();
+        no_tool.tools = vec!["read_file".into()];
+        assert!(matches!(
+            state.lease_task("a", &no_tool, lease_key("a", 1), 1_000, 3),
+            Err(MasterCoordinationError::MissingTools { missing, .. })
+                if missing == vec!["shell".to_string()]
+        ));
+
+        assert!(state.tasks["a"].active_lease.is_none());
+        assert!(
+            state
+                .lease_task("a", &agent(), lease_key("a", 1), 1_000, 3)
+                .is_ok()
         );
     }
 

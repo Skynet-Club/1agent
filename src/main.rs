@@ -7400,7 +7400,19 @@ async fn main() -> Result<()> {
                 None
             };
             if json {
-                println!("{}", serde_json::to_string_pretty(&result)?);
+                let mut value = serde_json::to_value(&result)?;
+                if let Some(object) = value.as_object_mut()
+                    && std::env::var_os("ONEAGENT_SUBAGENT_REPORT_USAGE").is_some()
+                    && let Ok(events) = read_events(&result.journal_path)
+                {
+                    object.insert(
+                        "usage".into(),
+                        serde_json::to_value(
+                            first_principles_agent::summarize_usage(&events).totals,
+                        )?,
+                    );
+                }
+                println!("{}", serde_json::to_string_pretty(&value)?);
             } else if details {
                 println!("{}", render_answer(&result));
                 print_route_trace(&result.journal_path)?;

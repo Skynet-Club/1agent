@@ -137,6 +137,44 @@ fn cli_run_audit_and_replay_form_a_complete_flywheel() {
 }
 
 #[test]
+fn cli_run_reports_usage_to_spawned_children_only() {
+    let workspace = tempfile::tempdir().unwrap();
+    let evidence = workspace.path().join("evidence.txt");
+    std::fs::write(
+        &evidence,
+        "Verified fact: option A has lower total cost under the stated constraints.",
+    )
+    .unwrap();
+    let journal_dir = workspace.path().join("journal");
+    let binary = env!("CARGO_BIN_EXE_first-principles-agent");
+    let output = Command::new(binary)
+        .env("ONEAGENT_SUBAGENT_REPORT_USAGE", "1")
+        .args([
+            "run",
+            "--task",
+            &format!(
+                "Compare option A and B using @read-file:\"{}\"",
+                evidence.display()
+            ),
+            "--read-root",
+            &workspace.path().display().to_string(),
+            "--journal-dir",
+            &journal_dir.display().to_string(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(value.get("usage").is_some(), "{value}");
+    assert!(value.get("run_id").is_some(), "{value}");
+}
+
+#[test]
 fn cli_tui_keeps_last_instruction_in_topbar() {
     let workspace = tempfile::tempdir().unwrap();
     let binary = env!("CARGO_BIN_EXE_first-principles-agent");

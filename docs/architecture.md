@@ -843,8 +843,11 @@ Rejected outcomes; Verified outcomes are not surfaced.
   filters specs and capabilities and returns `tool_not_allowed` if a hidden
   tool is called anyway. Unknown names fail closed. Virtual meta-tools
   (`describe_self`, `request_tools`) stay visible but cannot reveal or activate
-  a tool outside the allowlist. `required_capabilities` remains Work Item
-  assignment metadata; there is no runtime capability-to-tool mapping yet.
+  a tool outside the allowlist. A Work Item lease checks `required_capabilities`
+  and `required_tools` against the leased `AgentProfile` again, so a stale or
+  forged assignment fails closed instead of running on an agent that does not
+  advertise them. Capability names match `AgentProfile.capabilities`; there is
+  no heuristic capability-to-tool translation.
   A spawn tree shares a file-backed budget (`ONEAGENT_SUBAGENT_TREE_FILE`)
   guarded by an exclusive file lock: each spawn reserves one concurrency slot
   atomically, and a spawn is rejected once the tree reaches its concurrency,
@@ -855,8 +858,15 @@ Rejected outcomes; Verified outcomes are not surfaced.
   widen them. After a child exits, its journal `ModelResponded` usage is
   summarized, charged to the tree, and returned in the tool result as
   `usage` (model calls, input/output tokens, cost) plus matching observation
-  metadata. A child that dies before its journal is read is not charged; the
+  metadata. If the journal is unreadable or missing, a child run started by
+  `spawn_agent` reports the same totals in its JSON (guarded by
+  `ONEAGENT_SUBAGENT_REPORT_USAGE=1`), and the parent charges that fallback
+  instead. A child that dies before either source exists is not charged; the
   file is an overspend guard for cooperating agents, not a sandbox boundary.
+  The spawn result also derives a bounded compensation plan from successful
+  child `write_file`/`edit_file` observations: a file the child created gets an
+  automatic `remove`, while an overwritten or edited file is marked `manual`
+  because no pre-write content snapshot exists.
   Spawn calls are idempotent per `(parent_run_id, tool_call_id)`: a completed
   outcome is replayed from a per-key `IdempotencyStore` under the cache with
   `idempotent_replay=true`, an exclusive per-key file lock rejects a concurrent
