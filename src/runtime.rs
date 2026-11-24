@@ -1168,9 +1168,11 @@ pub struct AgentRuntime {
 
 /// Per-run fast delivery policy. `Auto` is the low-risk default; `Off` keeps
 /// every task on the standard loop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum FastModePolicy {
     Off,
+    #[default]
     Auto,
 }
 

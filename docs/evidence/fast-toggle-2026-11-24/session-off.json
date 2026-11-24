@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "id": "ses_a157acb1f8504f7da4e5220d7461bfd5",
+  "title": "New session",
+  "journals": [],
+  "mission": null,
+  "archived": false,
+  "preferences": {
+    "max_steps": 0,
+    "max_tool_calls": 0,
+    "max_provider_attempts": 0,
+    "max_context_tokens": 1000000,
+    "auto_compact_tokens": 786432,
+    "timeout_seconds": 0,
+    "prompt_language": "zh",
+    "fast_policy": "off"
+  },
+  "context_summary": null,
+  "workspace": null,
+  "mentions": [],
+  "forked_from_session_id": null
+}

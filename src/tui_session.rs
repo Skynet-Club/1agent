@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::master::AssignmentProposal;
 use crate::production_line::ProductionPlan;
+use crate::runtime::FastModePolicy;
 use crate::safety::{contains_disallowed_control, is_disallowed_control};
 use crate::tui_prompts::PromptLanguage;
 
@@ -48,6 +49,8 @@ pub struct SessionPreferences {
     pub timeout_seconds: u64,
     #[serde(default)]
     pub prompt_language: PromptLanguage,
+    #[serde(default)]
+    pub fast_policy: FastModePolicy,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +70,8 @@ struct SessionPreferencesWire {
     timeout_seconds: u64,
     #[serde(default)]
     prompt_language: PromptLanguage,
+    #[serde(default)]
+    fast_policy: Option<FastModePolicy>,
 }
 
 impl From<SessionPreferencesWire> for SessionPreferences {
@@ -88,6 +93,7 @@ impl From<SessionPreferencesWire> for SessionPreferences {
             auto_compact_tokens,
             timeout_seconds: wire.timeout_seconds,
             prompt_language: wire.prompt_language,
+            fast_policy: wire.fast_policy.unwrap_or_default(),
         }
     }
 }
@@ -1581,6 +1587,7 @@ mod tests {
                 auto_compact_tokens: 15_000,
                 timeout_seconds: 60,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: FastModePolicy::Off,
             }))
             .unwrap();
         session
@@ -1592,6 +1599,10 @@ mod tests {
         assert_eq!(reopened.workspace(), Some(project.as_path()));
         assert_eq!(reopened.mentions().len(), 1);
         assert_eq!(reopened.preferences().unwrap().max_context_tokens, 20_000);
+        assert_eq!(
+            reopened.preferences().unwrap().fast_policy,
+            FastModePolicy::Off
+        );
         assert_eq!(
             reopened.context_summary().unwrap().text,
             "Earlier work produced a reviewed release."
@@ -1631,6 +1642,7 @@ mod tests {
                 auto_compact_tokens: 800,
                 timeout_seconds: 1,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: FastModePolicy::Auto,
             })),
             Err(TuiSessionError::InvalidPreferences)
         ));
@@ -1657,6 +1669,7 @@ mod tests {
             auto_compact_tokens: 800,
             timeout_seconds: 0,
             prompt_language: PromptLanguage::En,
+            fast_policy: FastModePolicy::Auto,
         };
         session.set_preferences(Some(preferences.clone())).unwrap();
         assert_eq!(session.preferences(), Some(&preferences));

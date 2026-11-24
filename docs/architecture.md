@@ -1074,8 +1074,9 @@ Rejected outcomes; Verified outcomes are not surfaced.
   injected context facts, the request is neither verify-only nor new-version,
   writes are allowed, and the deliverable is not a page. Explicit `--fast`
   wins; `--no-fast` and `ONEAGENT_AUTO_FAST=0` force the standard loop. The TUI
-  `/fast [show|on|off|auto]` command keeps a session-scoped policy (`on`/`auto`
-  = low-risk automatic, `off` = standard loop) and applies it before each task.
+  `/fast [show|on|off|auto]` command stores `fast_policy` in the session
+  preferences (`on`/`auto` = low-risk automatic, `off` = standard loop),
+  applies it before each task, and restores it when that session is reopened.
   Every run journals `FastModeSelected {enabled, reason}`, and the checkpoint stores
   `fast_mode` so resume rebuilds the same tool surface. The delivery snapshot
   uses the task workspace (`with_delivery_root`), not a broad configured read

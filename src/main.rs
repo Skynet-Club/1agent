@@ -18238,6 +18238,11 @@ async fn run_tui(
             .min(max_context_tokens),
         timeout_seconds,
         prompt_language: PromptLanguage::Zh,
+        fast_policy: if auto_fast_enabled() {
+            first_principles_agent::runtime::FastModePolicy::Auto
+        } else {
+            first_principles_agent::runtime::FastModePolicy::Off
+        },
     };
     let preferences = session.preferences().cloned();
     let max_steps = preferences
@@ -18391,11 +18396,12 @@ async fn run_tui(
     state.set_theme(config_theme);
     state.set_context_budget(max_context_tokens);
     state.set_prompt_language(prompt_language);
-    state.set_fast_policy(if auto_fast_enabled() {
-        first_principles_agent::runtime::FastModePolicy::Auto
-    } else {
-        first_principles_agent::runtime::FastModePolicy::Off
-    });
+    state.set_fast_policy(
+        preferences
+            .as_ref()
+            .map(|preferences| preferences.fast_policy)
+            .unwrap_or(cli_preferences.fast_policy),
+    );
     state.set_host_binding(host_binding);
     sync_tui_stage(&mut state, &session);
     drain_tui_deliveries(
@@ -18635,7 +18641,7 @@ async fn run_tui_line_mode(
                         continue;
                     }
                     TuiCommandId::Fast => {
-                        handle_fast_command(state, args);
+                        handle_fast_command(state, session, settings, args);
                         continue;
                     }
                     TuiCommandId::Tools => {
@@ -20582,26 +20588,51 @@ fn handle_permissions_command(settings: &mut TuiRunSettings, state: &mut TuiStat
     }
 }
 
-fn handle_fast_command(state: &mut TuiState, args: &str) {
+fn handle_fast_command(
+    state: &mut TuiState,
+    session: &mut TuiSession,
+    settings: &TuiRunSettings,
+    args: &str,
+) {
     use first_principles_agent::runtime::FastModePolicy;
+
+    let set =
+        |state: &mut TuiState, session: &mut TuiSession, policy: FastModePolicy, label: &str| {
+            state.set_fast_policy(policy);
+            let mut preferences = session
+                .preferences()
+                .cloned()
+                .unwrap_or_else(|| settings.default_preferences.clone());
+            preferences.fast_policy = policy;
+            match session.set_preferences(Some(preferences)) {
+                Ok(()) => state.info(format!("快速交付：{label}（已保存到会话偏好）。")),
+                Err(error) => state.info(format!(
+                    "快速交付：{label}（本次生效；偏好保存失败：{error}）"
+                )),
+            }
+        };
 
     match args.trim() {
         "" | "show" => state.info(format!(
             "快速交付：{}\n\
-             仅影响下一次及后续运行。\n\
+             仅影响下一次及后续运行，并保存到当前会话偏好。\n\
              on / auto：开启低风险自动 fast；只对新的小 Act 任务走 fast，页面、会话续写、注入上下文、仅验收/新版本、高风险任务仍走 Core 7/full。\n\
              off：全部走 Core 7/full。\n\
              切换：/fast on|off|auto",
             state.fast_policy().label_zh()
         )),
-        "on" | "auto" => {
-            state.set_fast_policy(FastModePolicy::Auto);
-            state.info("快速交付：开启（低风险自动 fast；下一次运行生效）。");
-        }
-        "off" => {
-            state.set_fast_policy(FastModePolicy::Off);
-            state.info("快速交付：关闭（下一次运行生效，全部走 Core 7/full）。");
-        }
+        "on" | "auto" => set(
+            state,
+            session,
+            FastModePolicy::Auto,
+            "开启（低风险自动 fast；下一次运行生效）",
+        ),
+        "off" => set(
+            state,
+            session,
+            FastModePolicy::Off,
+            "关闭（下一次运行生效，全部走 Core 7/full）",
+        ),
         _ => state.info("用法：/fast [show|on|off|auto]"),
     }
 }
@@ -23291,6 +23322,7 @@ fn apply_session_preferences(
     state.max_steps = preferences.max_steps;
     state.timeout_seconds = preferences.timeout_seconds;
     state.set_prompt_language(preferences.prompt_language);
+    state.set_fast_policy(preferences.fast_policy);
     state.set_context_budget(settings.max_context_tokens);
 }
 
@@ -25435,7 +25467,7 @@ async fn run_tui_interactive(
                                 handle_permissions_command(&mut settings, &mut state, args);
                             }
                             TuiCommandId::Fast => {
-                                handle_fast_command(&mut state, args);
+                                handle_fast_command(&mut state, &mut session, &settings, args);
                             }
                             TuiCommandId::Tools => {
                                 display_tools(&runtime, &mut state, args);
@@ -27968,6 +28000,7 @@ mod tui_rendering_tests {
                 auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: first_principles_agent::runtime::FastModePolicy::Auto,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
@@ -28235,6 +28268,7 @@ mod tui_rendering_tests {
                 auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: first_principles_agent::runtime::FastModePolicy::Auto,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
@@ -28388,6 +28422,7 @@ mod tui_rendering_tests {
                 auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: first_principles_agent::runtime::FastModePolicy::Auto,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
@@ -28601,6 +28636,7 @@ mod tui_rendering_tests {
                 auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: first_principles_agent::runtime::FastModePolicy::Auto,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(PlanProvider),
@@ -28847,6 +28883,7 @@ mod tui_rendering_tests {
                 auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: first_principles_agent::runtime::FastModePolicy::Auto,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
@@ -29456,12 +29493,40 @@ mod tui_rendering_tests {
                 auto_compact_tokens: 786_432,
                 timeout_seconds: 120,
                 prompt_language: PromptLanguage::Zh,
+                fast_policy: first_principles_agent::runtime::FastModePolicy::Auto,
             },
             mentions: Vec::new(),
             planning_provider: Arc::new(DeterministicProvider::new()),
             provider_sources: Vec::new(),
             provider_timeout: Duration::from_secs(120),
         }
+    }
+
+    #[test]
+    fn fast_command_persists_in_session_preferences() {
+        use first_principles_agent::runtime::FastModePolicy;
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut session = TuiSession::open(directory.path(), None).unwrap();
+        let settings = phase_six_settings(directory.path().to_path_buf());
+        let mut state = TuiState::new("test", settings.max_steps, settings.timeout_seconds);
+        handle_fast_command(&mut state, &mut session, &settings, "off");
+        assert_eq!(state.fast_policy(), FastModePolicy::Off);
+        assert_eq!(
+            session.preferences().unwrap().fast_policy,
+            FastModePolicy::Off
+        );
+        let reopened = TuiSession::open(directory.path(), Some(session.id())).unwrap();
+        assert_eq!(
+            reopened.preferences().unwrap().fast_policy,
+            FastModePolicy::Off
+        );
+        handle_fast_command(&mut state, &mut session, &settings, "on");
+        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
+        assert_eq!(
+            session.preferences().unwrap().fast_policy,
+            FastModePolicy::Auto
+        );
     }
 
     fn write_replay_journal(path: &std::path::Path, objective: &str) {
@@ -31282,22 +31347,6 @@ mod tui_status_tests {
             tui_status_for_answer(AnswerStatus::Completed),
             TuiStatus::Completed
         );
-    }
-
-    #[test]
-    fn fast_command_sets_the_session_policy() {
-        use first_principles_agent::runtime::FastModePolicy;
-
-        let mut state = TuiState::new("test", 8, 120);
-        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
-        handle_fast_command(&mut state, "off");
-        assert_eq!(state.fast_policy(), FastModePolicy::Off);
-        handle_fast_command(&mut state, "on");
-        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
-        handle_fast_command(&mut state, "auto");
-        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
-        handle_fast_command(&mut state, "bogus");
-        assert_eq!(state.fast_policy(), FastModePolicy::Auto);
     }
 
     #[test]
