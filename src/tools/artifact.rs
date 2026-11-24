@@ -196,6 +196,8 @@ fn detect_media_type(path: &std::path::Path, bytes: &[u8]) -> String {
         "svg" => "image/svg+xml".into(),
         "html" | "htm" => "text/html".into(),
         "json" => "application/json".into(),
+        "rs" => "text/rust".into(),
+        "txt" => "text/plain".into(),
         "png" => "image/png".into(),
         "jpg" | "jpeg" => "image/jpeg".into(),
         "pdf" => "application/pdf".into(),
@@ -267,6 +269,32 @@ mod tests {
             Some("verified")
         );
         assert!(outcome.content.contains("image/svg+xml"));
+    }
+
+    #[tokio::test]
+    async fn verifies_rust_source_as_text() {
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("counter.rs");
+        let content = "pub fn last_index(len: usize) -> usize { len }\n";
+        std::fs::write(&path, content).unwrap();
+        let sha = hex::encode(Sha256::digest(content.as_bytes()));
+        let outcome = VerifyArtifactTool
+            .execute(
+                json!({"path": path, "media_type": "text/rust", "expected_sha256": sha}),
+                &PermissionSet::default(),
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome.metadata.get("decision").map(String::as_str),
+            Some("verified")
+        );
+        assert!(outcome.content.contains("text/rust"));
+        assert_eq!(
+            detect_media_type(std::path::Path::new("checksum.txt"), b"evidence"),
+            "text/plain"
+        );
     }
 
     #[tokio::test]
