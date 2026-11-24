@@ -1,0 +1,102 @@
+{
+  "suite": "real-tasks-v1",
+  "suite_version": "1.2",
+  "repeats": 3,
+  "total_cases": 8,
+  "total_attempts": 24,
+  "passed_attempts": 24,
+  "overall_pass_rate_bps": 10000,
+  "pass_power_k_bps": 10000,
+  "pass_at_least_once_bps": 10000,
+  "failure_class_counts": {},
+  "cases": [
+    {
+      "id": "bug-fix-last-index",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "config-retries",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "data-processing-sales",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "research-compare",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "long-task-plan",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "broken-json",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "checksum-file",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    },
+    {
+      "id": "directory-summary",
+      "attempts": 3,
+      "passes": 3,
+      "pass_rate_bps": 10000,
+      "pass_power_k": true,
+      "pass_at_least_once": true,
+      "hard_gate_failures": 0,
+      "failure_classes": [],
+      "issue_samples": []
+    }
+  ]
+}

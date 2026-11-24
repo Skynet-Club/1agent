@@ -1,0 +1,48 @@
+{
+  "name": "real-tasks-v1",
+  "suite_version": "1.2",
+  "kind": "model_quality",
+  "execution_status": "ready",
+  "provider_requirements": [
+    "real provider with tool calling; do not run this suite with the deterministic mock"
+  ],
+  "reviewer": "human reviewer required",
+  "calibration_required": true,
+  "min_decision_completeness_bps": 8000,
+  "cases": [
+    {
+      "id": "research-compare",
+      "objective": "Read ${workspace}/a.md and ${workspace}/b.md. Compare the recommended deployment options, answer which option is preferable and why, and cite both files as evidence.",
+      "setup_files": [
+        {
+          "path": "a.md",
+          "content": "Evidence A: option A has the lower total cost.\n"
+        },
+        {
+          "path": "b.md",
+          "content": "Evidence B: option B has the lower migration risk.\n"
+        }
+      ],
+      "rubric": {
+        "required_sources": [
+          "a.md",
+          "b.md"
+        ],
+        "required_claim_statuses": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "stop_reason": "completed",
+        "answer_status": "conditional",
+        "min_evidence": 2,
+        "min_claims": 2,
+        "min_flip_conditions": 1,
+        "audit_ok": true,
+        "expect_checkpoint": true
+      },
+      "max_steps": 8,
+      "max_tool_calls": 8
+    }
+  ]
+}
